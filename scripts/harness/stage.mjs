@@ -123,9 +123,14 @@ function dependencyNames(manifest, includeDevDependencies) {
   ].flatMap((field) => (field === undefined ? [] : Object.keys(field)));
 }
 
-function collectRuntimeClosure(packages, cliPackageName, frontendPackageName) {
+function collectRuntimeClosure(
+  packages,
+  cliPackageName,
+  frontendPackageName,
+  runtimePackages = [],
+) {
   const selected = new Set();
-  const pending = [cliPackageName];
+  const pending = [cliPackageName, ...runtimePackages];
   while (pending.length > 0) {
     const name = pending.pop();
     if (name === undefined || selected.has(name)) continue;
@@ -308,6 +313,12 @@ async function exposeProductBundleToProfiles(contract, productBundle) {
   manifest.dependencies = {
     ...(manifest.dependencies ?? {}),
     [productBundle.bundle.packageName]: productBundle.manifest.version,
+    ...Object.fromEntries(
+      (productBundle.bundle.runtimePackages ?? []).map((packageName) => [
+        packageName,
+        contract.packageVersion,
+      ]),
+    ),
   };
   await writeFile(
     cliManifestPath,
@@ -411,6 +422,7 @@ exec env ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON_EXECUTABLE" "$DSH_PNPM_ENTRY" dlx
         productBundle: {
           packageName: contract.productBundle.packageName,
           patch: contract.productBundle.patch,
+          runtimePackages: contract.productBundle.runtimePackages ?? [],
         },
         platform: process.platform,
         arch: process.arch,
@@ -454,6 +466,10 @@ async function validateRuntime(contract) {
       ...contract.productBundle.packageName.split("/"),
       contract.productBundle.patch,
     ),
+    ...(contract.productBundle.runtimePackages ?? []).flatMap((packageName) => [
+      join(runtimeRoot, "node_modules", ...packageName.split("/"), "package.json"),
+      join(runtimeRoot, "node_modules", ...packageName.split("/"), "lib", "index.js"),
+    ]),
     join(runtimeRoot, "bin", process.platform === "win32" ? "pnpm.cmd" : "pnpm"),
   ];
   for (const path of required) {
@@ -469,7 +485,9 @@ async function validateRuntime(contract) {
     metadata.packageVersion !== contract.packageVersion ||
     metadata.productBundle?.packageName !==
       contract.productBundle.packageName ||
-    metadata.productBundle?.patch !== contract.productBundle.patch
+    metadata.productBundle?.patch !== contract.productBundle.patch ||
+    JSON.stringify(metadata.productBundle?.runtimePackages ?? []) !==
+      JSON.stringify(contract.productBundle.runtimePackages ?? [])
   ) {
     throw new Error("staged Harness runtime metadata does not match the contract");
   }
@@ -489,6 +507,8 @@ async function validateReusableRuntime(contract, commit) {
     metadata.packageName !== contract.packageName ||
     metadata.packageVersion !== contract.packageVersion ||
     metadata.pnpmVersion !== contract.pnpmVersion ||
+    JSON.stringify(metadata.productBundle?.runtimePackages ?? []) !==
+      JSON.stringify(contract.productBundle.runtimePackages ?? []) ||
     metadata.platform !== process.platform ||
     metadata.arch !== process.arch
   ) {
@@ -513,6 +533,10 @@ async function validateReusableRuntime(contract, commit) {
       "index.html",
     ),
     join(runtimeRoot, "node_modules", "pnpm", "bin", "pnpm.cjs"),
+    ...(contract.productBundle.runtimePackages ?? []).flatMap((packageName) => [
+      join(runtimeRoot, "node_modules", ...packageName.split("/"), "package.json"),
+      join(runtimeRoot, "node_modules", ...packageName.split("/"), "lib", "index.js"),
+    ]),
   ];
   for (const path of required) {
     if (!existsSync(path)) {
@@ -588,6 +612,7 @@ async function main() {
     packages,
     contract.packageName,
     contract.frontendPackageName,
+    productBundle.bundle.runtimePackages ?? [],
   );
   console.log(
     `Harness runtime closure: ${String(selectedPackages.length)} workspace packages`,

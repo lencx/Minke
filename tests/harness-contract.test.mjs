@@ -227,6 +227,23 @@ test("the product extension contract enforces the @lencx scope", async () => {
   );
 });
 
+test("the product extension only stages Harness packages it composes", async () => {
+  const { commit, projectRoot } = fixture();
+  writeContract(projectRoot, commit, {
+    productBundle: {
+      packageName: "@lencx/minke-harness-overlay",
+      packagePath: "packages/harness-overlay",
+      patch: "cordis.patch.yml",
+      runtimePackages: ["@deepseek-ai/dsh-subagent-codex"],
+    },
+  });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /does not compose runtime package @deepseek-ai\/dsh-subagent-codex/u,
+  );
+});
+
 test("the Harness contract rejects tracked source modifications", async () => {
   const { harnessRoot, projectRoot } = fixture();
   write(

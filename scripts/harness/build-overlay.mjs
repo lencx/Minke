@@ -32,6 +32,19 @@ await build({
 });
 
 await build({
+  entryPoints: [
+    join(packageRoot, "src", "model-runtime", "index.ts"),
+  ],
+  outfile: join(outputRoot, "model-runtime.js"),
+  bundle: true,
+  packages: "external",
+  format: "esm",
+  platform: "node",
+  target: "es2022",
+  sourcemap: true,
+});
+
+await build({
   entryPoints: [join(packageRoot, "src", "client", "index.tsx")],
   outfile: join(outputRoot, "client.js"),
   bundle: true,

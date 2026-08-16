@@ -9,6 +9,9 @@
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",
     "packagePath": "packages/harness-overlay",
-    "patch": "cordis.patch.yml"
+    "patch": "cordis.patch.yml",
+    "runtimePackages": [
+      "@deepseek-ai/dsh-subagent-codex"
+    ]
   }
 }

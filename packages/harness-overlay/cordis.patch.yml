@@ -1,3 +1,33 @@
+- id: llm-pi-ai
+  # model-runtime mounts this adapter after local services are prepared. The
+  # nested instance keeps the same settings namespace and user-settings layer.
+  disabled: true
+
 - insert:
+    # Generic DSH-owned local-model service lifecycle and catalog discovery.
+    # ensure-running starts LM Studio only when necessary and never claims an
+    # already-running shared service.
+    - id: model-runtime
+      name: '@lencx/minke-harness-overlay/model-runtime'
+      config:
+        lmStudio:
+          enabled: true
+          lifecycle: ensure-running
+          baseURL: !!js process.env.LM_STUDIO_BASE_URL
+
+    # Host-global provider plus tool: every Minke agent preset can delegate one
+    # self-contained task to the user's native Codex CLI without changing the
+    # shipped Harness preset files.
+    - id: subagent-codex
+      name: '@deepseek-ai/dsh-subagent-codex'
+
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: codex
+        toolName: subagent_codex
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
     - id: minke-overlay
       name: '@lencx/minke-harness-overlay'

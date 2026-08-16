@@ -5,6 +5,36 @@ It is installed into the generated desktop runtime and composed through the
 public `--patch` bundle seam. Nothing in this package is copied into or
 applied over `vendor/deepseek-harness`.
 
+The host composition also exposes two optional capabilities:
+
+- `subagent_codex` delegates a self-contained task to the native
+  `codex app-server --stdio` process found on `PATH`. Codex keeps ownership of
+  its login, model, sandbox, and workspace behavior.
+- `model-runtime` is a DSH plugin that owns local model discovery and optional
+  service lifecycle. Its LM Studio adapter asks the official
+  `lms server status --json` command for the active port, can start the service
+  through `lms server start`, and enriches the authoritative
+  OpenAI-compatible model list with LM Studio metadata. A generic
+  `openAICompatible` adapter supports other loopback model servers.
+
+The model runtime executes CLIs through `ctx.subprocess`, resolves credential
+references through `ctx.credentials`, and mounts the upstream
+`@deepseek-ai/dsh-llm-pi-ai` plugin after service preparation. Discovered
+provider metadata is only the composition base layer; it is never serialized
+to `settings.yaml`, and user model settings continue to override it. Secrets
+are resolved for discovery but never copied into provider profiles.
+
+Service policy is explicit:
+
+- `external` only discovers an already-running service;
+- `ensure-running` starts a missing service and leaves it available for other
+  applications;
+- `managed` stops the service on plugin disposal only when this plugin proved
+  it started that service.
+
+Minke enables LM Studio with `ensure-running`. `LM_STUDIO_BASE_URL` can select
+an explicit loopback endpoint, and `LM_API_TOKEN` is used when configured.
+
 The browser half owns Minke's product policy, configurable keyboard shortcuts,
 and post-boot desktop surface adaptation. It uses:
 

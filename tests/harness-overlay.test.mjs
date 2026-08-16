@@ -24,6 +24,13 @@ const bundle = readFileSync(
   new URL("../packages/harness-overlay/lib/client.js", import.meta.url),
   "utf8",
 );
+const modelRuntimeBundle = readFileSync(
+  new URL(
+    "../packages/harness-overlay/lib/model-runtime.js",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const clientSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/index.tsx",
@@ -59,6 +66,51 @@ test("the product overlay uses the shared @lencx package scope", () => {
     manifest.dsh.client.inject.includes(
       "@deepseek-ai/dsh-client-ui-theme",
     ),
+  );
+  assert.equal(
+    manifest.exports["./model-runtime"],
+    "./lib/model-runtime.js",
+  );
+  assert.deepEqual(contract.productBundle.runtimePackages, [
+    "@deepseek-ai/dsh-subagent-codex",
+  ]);
+});
+
+test("the product overlay composes Codex CLI and the generic model runtime", () => {
+  assert.match(
+    patch,
+    /id: subagent-codex[\s\S]*name: '@deepseek-ai\/dsh-subagent-codex'/u,
+  );
+  assert.match(
+    patch,
+    /id: tool-subagent-codex[\s\S]*provider: codex[\s\S]*toolName: subagent_codex/u,
+  );
+  assert.match(
+    patch,
+    /id: llm-pi-ai[\s\S]*disabled: true/u,
+  );
+  assert.match(
+    patch,
+    /id: model-runtime[\s\S]*name: '@lencx\/minke-harness-overlay\/model-runtime'[\s\S]*lifecycle: ensure-running/u,
+  );
+  assert.doesNotMatch(
+    `${patch}\n${runtimeSource}`,
+    /MINKE_LM_STUDIO_PROVIDERS|MINKE_LM_STUDIO_API_KEY/u,
+  );
+});
+
+test("the model runtime uses DSH services and keeps local secrets out of profiles", () => {
+  assert.match(
+    modelRuntimeBundle,
+    /@deepseek-ai\/dsh-llm-pi-ai/u,
+  );
+  assert.match(modelRuntimeBundle, /ctx\.subprocess/u);
+  assert.match(modelRuntimeBundle, /ctx\.credentials\.resolve/u);
+  assert.match(modelRuntimeBundle, /ensure-running/u);
+  assert.match(modelRuntimeBundle, /openAICompatible/u);
+  assert.doesNotMatch(
+    modelRuntimeBundle,
+    /node:child_process|execFile|spawnSync|settings\.(?:update|mutate)/u,
   );
 });
 
@@ -141,6 +193,10 @@ test("the shortcuts settings row receives the keyboard navigation icon", () => {
 test("staging injects the bundle and launch composes it with --patch", () => {
   assert.match(stageSource, /injectWorkspacePackage\([\s\S]*productBundle/u);
   assert.match(stageSource, /exposeProductBundleToProfiles/u);
+  assert.match(
+    stageSource,
+    /productBundle\.bundle\.runtimePackages/u,
+  );
   assert.match(
     stageSource,
     /flags\.skipInstall && flags\.skipBuild[\s\S]*validateReusableRuntime[\s\S]*without touching the Harness workspace/u,

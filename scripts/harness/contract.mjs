@@ -58,6 +58,20 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
       "Harness productBundle needs packageName, packagePath, and patch.",
     );
   }
+  const runtimePackages = bundle.runtimePackages ?? [];
+  if (
+    !Array.isArray(runtimePackages) ||
+    runtimePackages.some(
+      (name) =>
+        typeof name !== "string" ||
+        !/^@deepseek-ai\/[a-z0-9][a-z0-9-]*$/u.test(name),
+    ) ||
+    new Set(runtimePackages).size !== runtimePackages.length
+  ) {
+    throw new Error(
+      "Harness productBundle.runtimePackages must be unique @deepseek-ai package names.",
+    );
+  }
   if (!bundle.packageName.startsWith("@lencx/")) {
     throw new Error("Minke product packages must use the @lencx scope.");
   }
@@ -94,6 +108,13 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
     `name: '${bundle.packageName}'`,
     `${bundle.patch} does not insert ${bundle.packageName}`,
   );
+  for (const runtimePackage of runtimePackages) {
+    requireSourceSeam(
+      patchSource,
+      `name: '${runtimePackage}'`,
+      `${bundle.patch} does not compose runtime package ${runtimePackage}`,
+    );
+  }
   return { bundle, packageRoot, manifest };
 }
 
