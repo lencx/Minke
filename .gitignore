@@ -17,6 +17,7 @@ runtime/host
 # Local verification artifacts
 /artifacts/design-qa/
 /design-qa.md
+/.impeccable/
 
 # Environment files
 .env
