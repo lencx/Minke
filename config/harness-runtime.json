@@ -1,0 +1,14 @@
+{
+  "repository": "deepseek-ai/deepseek-harness",
+  "submodulePath": "vendor/deepseek-harness",
+  "commit": "47f943859bef60e4160492346772ded9b24f765a",
+  "packageName": "@deepseek-ai/dsh",
+  "packageVersion": "0.1.0-rc.5",
+  "frontendPackageName": "@deepseek-ai/dsh-web-frontend",
+  "pnpmVersion": "11.21.0",
+  "productBundle": {
+    "packageName": "@lencx/minke-harness-overlay",
+    "packagePath": "packages/harness-overlay",
+    "patch": "cordis.patch.yml"
+  }
+}
