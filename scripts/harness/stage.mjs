@@ -7,6 +7,7 @@ import {
   cp,
   lstat,
   mkdir,
+  mkdtemp,
   readFile,
   readdir,
   readlink,
@@ -14,15 +15,76 @@ import {
   rm,
   stat,
   symlink,
-  writeFile,
 } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyHarnessContract } from "./contract.mjs";
+import {
+  fingerprintPaths,
+  fingerprintRecord,
+  publishDirectory,
+  publishValidatedDirectory,
+  writeFileAtomic,
+} from "./runtime-state.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const runtimeRoot = join(projectRoot, "runtime", "host");
+const activeRuntimeRoot = join(projectRoot, "runtime", "host");
 const generatedPackageName = "@dsh-desktop/runtime-build";
+const runtimeMetadataVersion = 1;
+const runtimeFingerprintPaths = [
+  "config/harness-runtime.json",
+  "scripts/harness/build-overlay.mjs",
+  "scripts/harness/contract.mjs",
+  "scripts/harness/runtime-state.mjs",
+  "scripts/harness/stage.mjs",
+];
+
+async function fingerprintRuntimeCore(contract, harnessRoot, commit) {
+  const rootManifest = JSON.parse(
+    await readFile(join(projectRoot, "package.json"), "utf8"),
+  );
+  const [desktopSources, harnessLockfile] = await Promise.all([
+    fingerprintPaths(projectRoot, runtimeFingerprintPaths),
+    fingerprintPaths(harnessRoot, ["pnpm-lock.yaml"]),
+  ]);
+  return fingerprintRecord({
+    arch: process.arch,
+    commit,
+    desktopSources,
+    electronVersion:
+      rootManifest.devDependencies?.electron ??
+      rootManifest.dependencies?.electron ??
+      null,
+    frontendPackageName: contract.frontendPackageName,
+    harnessLockfile,
+    packageName: contract.packageName,
+    packageVersion: contract.packageVersion,
+    platform: process.platform,
+    pnpmVersion: contract.pnpmVersion,
+    productBundle: {
+      packageName: contract.productBundle.packageName,
+      patch: contract.productBundle.patch,
+      runtimePackages: contract.productBundle.runtimePackages ?? [],
+    },
+    schemaVersion: runtimeMetadataVersion,
+  });
+}
+
+async function fingerprintProductBundle(productBundle) {
+  return fingerprintPaths(
+    productBundle.packageRoot,
+    [
+      "package.json",
+      "lib",
+      "config",
+      productBundle.bundle.patch,
+      "LICENSE",
+    ],
+    {
+      shouldIgnore: (path) => path.endsWith(".tsbuildinfo"),
+    },
+  );
+}
 
 function parseFlags(argv) {
   const known = new Set(["--skip-install", "--skip-build"]);
@@ -249,19 +311,17 @@ async function writeDeployRoot(
     dependencies,
   };
   await mkdir(generatedPackageDir, { recursive: true });
-  await writeFile(
+  await writeFileAtomic(
     join(generatedPackageDir, "package.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
-  await writeFile(
+  await writeFileAtomic(
     join(generatedPackageDir, "index.mjs"),
     runtimeEntrySource(contract.packageName),
   );
 }
 
-async function injectWorkspacePackage(packageName, packageSource) {
-  const destination = join(runtimeRoot, "node_modules", ...packageName.split("/"));
-  await rm(destination, { recursive: true, force: true });
+async function copyWorkspacePackage(packageName, packageSource, destination) {
   await mkdir(destination, { recursive: true });
   let copiedRuntimeEntry = false;
   for (const entry of [
@@ -285,7 +345,36 @@ async function injectWorkspacePackage(packageName, packageSource) {
   }
 }
 
-async function injectMissingWorkspacePackages(selectedPackages, packages) {
+async function injectWorkspacePackage(
+  runtimeRoot,
+  packageName,
+  packageSource,
+  { transactional = false } = {},
+) {
+  const destination = join(runtimeRoot, "node_modules", ...packageName.split("/"));
+  if (!transactional) {
+    await rm(destination, { recursive: true, force: true });
+    await copyWorkspacePackage(packageName, packageSource, destination);
+    return;
+  }
+
+  const parent = dirname(destination);
+  await mkdir(parent, { recursive: true });
+  const leaf = packageName.split("/").at(-1);
+  const candidate = await mkdtemp(join(parent, `.${leaf}-staging-`));
+  try {
+    await copyWorkspacePackage(packageName, packageSource, candidate);
+    await publishDirectory(candidate, destination);
+  } finally {
+    await rm(candidate, { recursive: true, force: true });
+  }
+}
+
+async function injectMissingWorkspacePackages(
+  runtimeRoot,
+  selectedPackages,
+  packages,
+) {
   for (const packageName of selectedPackages) {
     const destination = join(
       runtimeRoot,
@@ -298,11 +387,15 @@ async function injectMissingWorkspacePackages(selectedPackages, packages) {
       throw new Error(`cannot inject unknown workspace package ${packageName}`);
     }
     console.log(`Injecting workspace package omitted by deploy: ${packageName}`);
-    await injectWorkspacePackage(packageName, workspacePackage.path);
+    await injectWorkspacePackage(runtimeRoot, packageName, workspacePackage.path);
   }
 }
 
-async function exposeProductBundleToProfiles(contract, productBundle) {
+async function exposeProductBundleToProfiles(
+  runtimeRoot,
+  contract,
+  productBundle,
+) {
   const cliManifestPath = join(
     runtimeRoot,
     "node_modules",
@@ -320,7 +413,7 @@ async function exposeProductBundleToProfiles(contract, productBundle) {
       ]),
     ),
   };
-  await writeFile(
+  await writeFileAtomic(
     cliManifestPath,
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
@@ -354,7 +447,7 @@ async function materializeSymlinks(root) {
   await visit(root);
 }
 
-async function pruneNodePtyPrebuilds() {
+async function pruneNodePtyPrebuilds(runtimeRoot) {
   const prebuildsRoot = join(runtimeRoot, "node_modules", "node-pty", "prebuilds");
   if (!existsSync(prebuildsRoot)) return;
   const target = `${process.platform}-${process.arch}`;
@@ -370,7 +463,12 @@ async function pruneNodePtyPrebuilds() {
   if (existsSync(spawnHelper)) await chmod(spawnHelper, 0o755);
 }
 
-async function writeRuntimeAdapters(contract, commit) {
+async function writeRuntimeAdapters(
+  runtimeRoot,
+  contract,
+  commit,
+  { coreFingerprint, productBundleFingerprint },
+) {
   const binRoot = join(runtimeRoot, "bin");
   await mkdir(binRoot, { recursive: true });
   const posixScripts = {
@@ -394,35 +492,37 @@ exec env ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON_EXECUTABLE" "$DSH_PNPM_ENTRY" dlx
   };
   for (const [name, source] of Object.entries(posixScripts)) {
     const path = join(binRoot, name);
-    await writeFile(path, source);
-    await chmod(path, 0o755);
+    await writeFileAtomic(path, source, { mode: 0o755 });
   }
 
-  await writeFile(
+  await writeFileAtomic(
     join(binRoot, "node.cmd"),
     '@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%DSH_ELECTRON_EXECUTABLE%" %*\r\n',
   );
-  await writeFile(
+  await writeFileAtomic(
     join(binRoot, "pnpm.cmd"),
     '@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%DSH_ELECTRON_EXECUTABLE%" "%DSH_PNPM_ENTRY%" %*\r\n',
   );
-  await writeFile(
+  await writeFileAtomic(
     join(binRoot, "pnpx.cmd"),
     '@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%DSH_ELECTRON_EXECUTABLE%" "%DSH_PNPM_ENTRY%" dlx %*\r\n',
   );
-  await writeFile(
+  await writeFileAtomic(
     join(runtimeRoot, "dsh-runtime.json"),
     `${JSON.stringify(
       {
+        schemaVersion: runtimeMetadataVersion,
         repository: contract.repository,
         commit,
         packageName: contract.packageName,
         packageVersion: contract.packageVersion,
         pnpmVersion: contract.pnpmVersion,
+        coreFingerprint,
         productBundle: {
           packageName: contract.productBundle.packageName,
           patch: contract.productBundle.patch,
           runtimePackages: contract.productBundle.runtimePackages ?? [],
+          fingerprint: productBundleFingerprint,
         },
         platform: process.platform,
         arch: process.arch,
@@ -433,22 +533,29 @@ exec env ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON_EXECUTABLE" "$DSH_PNPM_ENTRY" dlx
   );
 }
 
-async function validateRuntime(contract) {
+async function validateRuntime(
+  runtimeRoot,
+  contract,
+  { commit, coreFingerprint, productBundleFingerprint },
+) {
+  const productPackageRoot = join(
+    runtimeRoot,
+    "node_modules",
+    ...contract.productBundle.packageName.split("/"),
+  );
   const required = [
     join(runtimeRoot, "index.mjs"),
     join(
       runtimeRoot,
       "node_modules",
-      "@deepseek-ai",
-      "dsh",
+      ...contract.packageName.split("/"),
       "lib",
       "bin.js",
     ),
     join(
       runtimeRoot,
       "node_modules",
-      "@deepseek-ai",
-      "dsh-web-frontend",
+      ...contract.frontendPackageName.split("/"),
       "dist",
       "index.html",
     ),
@@ -477,23 +584,45 @@ async function validateRuntime(contract) {
       throw new Error(`staged Harness runtime is incomplete: ${path} is missing`);
     }
   }
+  const installedProductBundleFingerprint = await fingerprintProductBundle({
+    bundle: contract.productBundle,
+    packageRoot: productPackageRoot,
+  });
+  if (installedProductBundleFingerprint !== productBundleFingerprint) {
+    throw new Error(
+      "staged Harness product bundle does not match its built source",
+    );
+  }
   const metadata = JSON.parse(
     await readFile(join(runtimeRoot, "dsh-runtime.json"), "utf8"),
   );
   if (
-    metadata.commit !== contract.commit ||
+    metadata.schemaVersion !== runtimeMetadataVersion ||
+    metadata.repository !== contract.repository ||
+    metadata.commit !== commit ||
+    metadata.packageName !== contract.packageName ||
     metadata.packageVersion !== contract.packageVersion ||
+    metadata.pnpmVersion !== contract.pnpmVersion ||
+    metadata.coreFingerprint !== coreFingerprint ||
     metadata.productBundle?.packageName !==
       contract.productBundle.packageName ||
     metadata.productBundle?.patch !== contract.productBundle.patch ||
+    metadata.productBundle?.fingerprint !== productBundleFingerprint ||
     JSON.stringify(metadata.productBundle?.runtimePackages ?? []) !==
-      JSON.stringify(contract.productBundle.runtimePackages ?? [])
+      JSON.stringify(contract.productBundle.runtimePackages ?? []) ||
+    metadata.platform !== process.platform ||
+    metadata.arch !== process.arch
   ) {
     throw new Error("staged Harness runtime metadata does not match the contract");
   }
 }
 
-async function validateReusableRuntime(contract, commit) {
+async function validateReusableRuntime(
+  runtimeRoot,
+  contract,
+  commit,
+  coreFingerprint,
+) {
   const metadataPath = join(runtimeRoot, "dsh-runtime.json");
   if (!existsSync(metadataPath)) {
     throw new Error(
@@ -502,11 +631,16 @@ async function validateReusableRuntime(contract, commit) {
   }
   const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
   if (
+    metadata.schemaVersion !== runtimeMetadataVersion ||
     metadata.repository !== contract.repository ||
     metadata.commit !== commit ||
     metadata.packageName !== contract.packageName ||
     metadata.packageVersion !== contract.packageVersion ||
     metadata.pnpmVersion !== contract.pnpmVersion ||
+    metadata.coreFingerprint !== coreFingerprint ||
+    metadata.productBundle?.packageName !==
+      contract.productBundle.packageName ||
+    metadata.productBundle?.patch !== contract.productBundle.patch ||
     JSON.stringify(metadata.productBundle?.runtimePackages ?? []) !==
       JSON.stringify(contract.productBundle.runtimePackages ?? []) ||
     metadata.platform !== process.platform ||
@@ -561,7 +695,7 @@ async function main() {
     "apps",
     "dsh-desktop-runtime-build",
   );
-  assertGeneratedPath(runtimeRoot, "runtime");
+  assertGeneratedPath(activeRuntimeRoot, "runtime");
   assertGeneratedPath(generatedPackageDir, "generated deploy package");
   // An interrupted previous stage must never contaminate contract verification
   // or make the pinned upstream workspace appear to have an untracked change.
@@ -580,20 +714,45 @@ async function main() {
     [join(projectRoot, "scripts", "harness", "build-overlay.mjs")],
     projectRoot,
   );
+  const [coreFingerprint, productBundleFingerprint] = await Promise.all([
+    fingerprintRuntimeCore(contract, harnessRoot, actualCommit),
+    fingerprintProductBundle(productBundle),
+  ]);
+  const expectedRuntime = {
+    commit: actualCommit,
+    coreFingerprint,
+    productBundleFingerprint,
+  };
 
   if (flags.skipInstall && flags.skipBuild) {
-    await validateReusableRuntime(contract, actualCommit);
+    await validateReusableRuntime(
+      activeRuntimeRoot,
+      contract,
+      actualCommit,
+      coreFingerprint,
+    );
     await injectWorkspacePackage(
+      activeRuntimeRoot,
       productBundle.bundle.packageName,
       productBundle.packageRoot,
+      { transactional: true },
     );
-    await exposeProductBundleToProfiles(contract, productBundle);
-    await writeRuntimeAdapters(contract, actualCommit);
-    await validateRuntime(contract);
+    await exposeProductBundleToProfiles(
+      activeRuntimeRoot,
+      contract,
+      productBundle,
+    );
+    await writeRuntimeAdapters(
+      activeRuntimeRoot,
+      contract,
+      actualCommit,
+      expectedRuntime,
+    );
+    await validateRuntime(activeRuntimeRoot, contract, expectedRuntime);
     console.log(
       `\nRefreshed ${productBundle.bundle.packageName} in ${relative(
         projectRoot,
-        runtimeRoot,
+        activeRuntimeRoot,
       )} without touching the Harness workspace`,
     );
     return;
@@ -618,6 +777,7 @@ async function main() {
     `Harness runtime closure: ${String(selectedPackages.length)} workspace packages`,
   );
 
+  let stagingContainer;
   try {
     await writeDeployRoot(generatedPackageDir, selectedPackages, contract);
     await run(
@@ -640,7 +800,11 @@ async function main() {
       await run("pnpm", ["run", "build"], harnessRoot);
     }
 
-    await rm(runtimeRoot, { recursive: true, force: true });
+    const runtimeParent = dirname(activeRuntimeRoot);
+    await mkdir(runtimeParent, { recursive: true });
+    stagingContainer = await mkdtemp(join(runtimeParent, ".host-staging-"));
+    const candidateRuntimeRoot = join(stagingContainer, "host");
+    assertGeneratedPath(candidateRuntimeRoot, "runtime candidate");
     await run(
       "pnpm",
       [
@@ -652,30 +816,54 @@ async function main() {
         "--config.node-linker=hoisted",
         "--config.auto-install-peers=false",
         "--config.link-workspace-packages=true",
-        runtimeRoot,
+        candidateRuntimeRoot,
       ],
       harnessRoot,
     );
-    await injectMissingWorkspacePackages(selectedPackages, packages);
+    await injectMissingWorkspacePackages(
+      candidateRuntimeRoot,
+      selectedPackages,
+      packages,
+    );
     await injectWorkspacePackage(
+      candidateRuntimeRoot,
       productBundle.bundle.packageName,
       productBundle.packageRoot,
     );
-    await exposeProductBundleToProfiles(contract, productBundle);
-    await materializeSymlinks(runtimeRoot);
-    await writeFile(
-      join(runtimeRoot, "index.mjs"),
+    await exposeProductBundleToProfiles(
+      candidateRuntimeRoot,
+      contract,
+      productBundle,
+    );
+    await materializeSymlinks(candidateRuntimeRoot);
+    await writeFileAtomic(
+      join(candidateRuntimeRoot, "index.mjs"),
       runtimeEntrySource(contract.packageName),
     );
-    await pruneNodePtyPrebuilds();
-    await writeRuntimeAdapters(contract, actualCommit);
-    await validateRuntime(contract);
+    await pruneNodePtyPrebuilds(candidateRuntimeRoot);
+    await writeRuntimeAdapters(
+      candidateRuntimeRoot,
+      contract,
+      actualCommit,
+      expectedRuntime,
+    );
+    await publishValidatedDirectory(
+      candidateRuntimeRoot,
+      activeRuntimeRoot,
+      (runtimeRoot) =>
+        validateRuntime(runtimeRoot, contract, expectedRuntime),
+    );
 
-    const size = capture("du", ["-sh", runtimeRoot], projectRoot).split(/\s+/u)[0];
+    const size = capture("du", ["-sh", activeRuntimeRoot], projectRoot).split(
+      /\s+/u,
+    )[0];
     console.log(
-      `\nStaged ${contract.packageName}@${contract.packageVersion} at ${relative(projectRoot, runtimeRoot)} (${size})`,
+      `\nStaged ${contract.packageName}@${contract.packageVersion} at ${relative(projectRoot, activeRuntimeRoot)} (${size})`,
     );
   } finally {
+    if (stagingContainer !== undefined) {
+      await rm(stagingContainer, { recursive: true, force: true });
+    }
     await rm(generatedPackageDir, { recursive: true, force: true });
   }
 }
