@@ -107,7 +107,47 @@ async function run() {
         --dsw-specific-selector: rgb(255, 255, 255);
       }
       html, body { margin: 0; width: 100%; height: 100%; }
-      .sidebar { width: 280px; padding: 6px 12px; box-sizing: border-box; }
+      .frame {
+        position: relative;
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr) 120px;
+        grid-template-rows: 100%;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+      .sidebarColumn, .centerColumn, .detailsColumn {
+        min-width: 0;
+      }
+      .sidebarColumn, .detailsColumn {
+        overflow: hidden;
+      }
+      .centerColumn {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      [data-shell-overlay] {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        pointer-events: none;
+      }
+      .detailsHandle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 300px;
+        z-index: 2;
+        width: 8px;
+        margin-left: -4px;
+        cursor: col-resize;
+      }
+      .sidebar {
+        width: 100%;
+        padding: 6px 12px;
+        box-sizing: border-box;
+      }
       .logoRow {
         display: flex;
         align-items: center;
@@ -123,7 +163,7 @@ async function run() {
         background: transparent;
       }
       .newSession {
-        width: 252px;
+        width: 100%;
         height: 38px;
         border: 1px solid rgba(0, 0, 0, 0.1);
         border-radius: 12px;
@@ -200,6 +240,7 @@ async function run() {
           </div>
         </div>
         <div data-shell-overlay></div>
+        <div class="detailsHandle" data-side="details"></div>
       </div>
     </div>
     <script>
@@ -211,6 +252,13 @@ async function run() {
       document.querySelector('.sessionAction').addEventListener('click', () => {
         globalThis.sessionActionClicks += 1;
       });
+      globalThis.detailsHandleMouseDowns = 0;
+      document.querySelector('.detailsHandle').addEventListener(
+        'mousedown',
+        () => {
+          globalThis.detailsHandleMouseDowns += 1;
+        },
+      );
       globalThis.disposeDesktopSurface =
         MinkeDesktopSurface.installDesktopSurface();
     </script>
@@ -462,8 +510,13 @@ async function run() {
       const toggle = document.querySelector('.toggle').getBoundingClientRect();
       const sessionAction =
         document.querySelector('.sessionAction').getBoundingClientRect();
+      const detailsHandle =
+        document.querySelector('.detailsHandle').getBoundingClientRect();
       const sessionTitle = document.querySelector('.sessionTitle');
       const sessionTitleStyle = getComputedStyle(sessionTitle);
+      const detailsHandleStyle = getComputedStyle(
+        document.querySelector('.detailsHandle'),
+      );
       const range = document.createRange();
       range.selectNodeContents(sessionTitle);
       const selection = document.getSelection();
@@ -487,6 +540,16 @@ async function run() {
           '[data-dsh-desktop-composer-add],'
             + '[data-dsh-desktop-composer-primary]',
         ) !== null,
+        detailsHandleAppRegion: detailsHandleStyle
+          .getPropertyValue('-webkit-app-region')
+          .trim(),
+        detailsHandleMarker: document.querySelector(
+          '.detailsHandle[data-dsh-desktop-resize-handle]',
+        ) !== null,
+        detailsHandlePoint: {
+          x: Math.round(detailsHandle.x + 2),
+          y: 32,
+        },
         primaryBackground,
         selectedSessionTitle,
         sessionActionPoint: {
@@ -532,8 +595,23 @@ async function run() {
     button: 'left',
     clickCount: 1,
   });
+  window.webContents.sendInputEvent({
+    type: 'mouseDown',
+    x: before.detailsHandlePoint.x,
+    y: before.detailsHandlePoint.y,
+    button: 'left',
+    clickCount: 1,
+  });
+  window.webContents.sendInputEvent({
+    type: 'mouseUp',
+    x: before.detailsHandlePoint.x,
+    y: before.detailsHandlePoint.y,
+    button: 'left',
+    clickCount: 1,
+  });
   await new Promise((resolve) => setTimeout(resolve, 50));
   const clicks = await window.webContents.executeJavaScript(`({
+    detailsHandle: globalThis.detailsHandleMouseDowns,
     sessionAction: globalThis.sessionActionClicks,
     toggle: globalThis.toggleClicks,
   })`);
@@ -552,6 +630,9 @@ async function run() {
         marker: document.querySelector(
           '[data-dsh-desktop-new-session]',
         ) !== null,
+        resizeHandleMarker: document.querySelector(
+          '[data-dsh-desktop-resize-handle]',
+        ) !== null,
         style: document.querySelector(
           'style[data-minke-desktop-surface]',
         ) !== null,
@@ -563,6 +644,9 @@ async function run() {
     background: before.background,
     backgroundAlpha: alphaOf(before.background),
     composerMarker: before.composerMarker,
+    detailsHandleAppRegion: before.detailsHandleAppRegion,
+    detailsHandleMarker: before.detailsHandleMarker,
+    detailsHandleMouseDowns: clicks.detailsHandle,
     disposedSurface,
     dragSafety,
     initialThemeBeforeDomReady,
@@ -635,6 +719,13 @@ async function run() {
     failures.push('conversation header action was intercepted by the drag region');
   }
   if (
+    !result.detailsHandleMarker ||
+    result.detailsHandleAppRegion !== 'no-drag' ||
+    result.detailsHandleMouseDowns !== 1
+  ) {
+    failures.push('details resize handle was intercepted by the drag region');
+  }
+  if (
     result.sessionTitleAppRegion !== 'no-drag' ||
     result.sessionTitleUserSelect !== 'text' ||
     result.selectedSessionTitle !== 'Session title'
@@ -698,6 +789,7 @@ async function run() {
   if (
     result.disposedSurface.dragEnabled ||
     result.disposedSurface.marker ||
+    result.disposedSurface.resizeHandleMarker ||
     result.disposedSurface.style
   ) {
     failures.push('desktop surface lifecycle did not release markers and styles');

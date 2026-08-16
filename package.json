@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "build:harness-overlay": "node scripts/harness/build-overlay.mjs",
     "build:preload": "vite build --config vite.preload.config.mts",
-    "test:desktop": "node scripts/harness/build-overlay.mjs && node --test tests/desktop-i18n.test.mjs tests/harness-contract.test.mjs tests/harness-overlay.test.mjs tests/harness-source-boundary.test.mjs tests/model-runtime.test.mjs tests/macos-tray.test.mjs tests/macos-window-css.test.mjs tests/navigation-policy.test.mjs tests/shortcut-binding.test.mjs tests/shortcut-i18n.test.mjs tests/shortcut-runtime.test.mjs tests/shortcut-settings.test.mjs tests/sys-native-module.test.mjs tests/window-theme.test.mjs",
+    "test:desktop": "node scripts/harness/build-overlay.mjs && node --test tests/desktop-i18n.test.mjs tests/harness-contract.test.mjs tests/harness-overlay.test.mjs tests/harness-source-boundary.test.mjs tests/main-window-devtools.test.mjs tests/model-runtime.test.mjs tests/macos-tray.test.mjs tests/macos-window-css.test.mjs tests/navigation-policy.test.mjs tests/session-export.test.mjs tests/tabs.test.mjs tests/terminal-tabs.test.mjs tests/terminal-settings.test.mjs tests/shortcut-binding.test.mjs tests/shortcut-i18n.test.mjs tests/shortcut-menu.test.mjs tests/shortcut-recording.test.mjs tests/shortcut-runtime.test.mjs tests/shortcut-settings.test.mjs tests/sys-native-module.test.mjs tests/window-theme.test.mjs",
     "test:desktop:runtime": "pnpm run build:preload && electron tests/macos-window-runtime.cjs",
     "test:sys": "node --test tests/sys-native-module.test.mjs",
     "harness:verify": "node scripts/harness/verify.mjs",

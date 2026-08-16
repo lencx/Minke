@@ -43,6 +43,14 @@ test("desktop dictionaries are complete and interpolate native details", () => {
     translateDesktop("en", "runtime.exitCode", { value: 17 }),
     "Exit code: 17",
   );
+  assert.equal(
+    translateDesktop("zh", "sessionExport.saveDialogTitle"),
+    "导出 Session 日志",
+  );
+  assert.equal(
+    translateDesktop("en", "sessionExport.failedTitle"),
+    "Unable to export Session log",
+  );
 });
 
 test("only authorized Harness locale messages update desktop state", () => {

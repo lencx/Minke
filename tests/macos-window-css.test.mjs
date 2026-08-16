@@ -126,7 +126,7 @@ test("Electron loads only the native surface bootstrap at document start", () =>
   );
 });
 
-test("Electron wires theme, locale, shortcuts, and surface capability through preload", () => {
+test("Electron wires native desktop capabilities through preload", () => {
   assert.match(
     forgeSource,
     /entry:\s*"desktop\/preload\/desktop-preload\.ts"[\s\S]*target:\s*"preload"/,
@@ -152,7 +152,36 @@ test("Electron wires theme, locale, shortcuts, and surface capability through pr
   );
   assert.match(
     desktopPreloadSource,
-    /Object\.freeze\(\{\s*locale,\s*shortcuts,\s*surface,\s*windowTheme\s*\}\)/,
+    /Object\.freeze\(\{\s*locale,\s*sessionLogs,\s*tabs,\s*terminal,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.on\(SHORTCUT_INVOKE_CHANNEL,\s*wrapped\)/,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.off\(SHORTCUT_INVOKE_CHANNEL,\s*wrapped\)/,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*SESSION_LOG_EXPORT_CHANNEL/u,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*TABS_TERMINAL_CREATE_CHANNEL/u,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.invoke\(TERMINAL_SETTINGS_READ_CHANNEL\)/u,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*TERMINAL_SETTINGS_WRITE_CHANNEL/u,
+  );
+  assert.match(desktopMainSource, /bindTerminalSettingsIpc\(/u);
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.on\(TABS_TERMINAL_EVENT_CHANNEL,\s*wrapped\)/u,
   );
   assert.match(overlayBridgeSource, /hasMacOSDesktopSurface/);
 });
@@ -251,7 +280,7 @@ test("the smaller traffic lights are centered in the default rail", () => {
   assert.ok(buttonCenterPitch, "traffic-light pitch must remain explicit");
   assert.ok(sidebarWidth, "collapsed sidebar width must remain explicit");
   assert.equal(Number(trafficLightPosition[2]), 10);
-  assert.ok(Number(buttonSize[1]) > 0);
+  assert.equal(Number(buttonSize[1]), 10);
   assert.equal(Number(buttonCenterPitch[1]), 14);
   assert.equal(
     Number(trafficLightPosition[1]),

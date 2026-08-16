@@ -72,6 +72,7 @@ test("invalid bindings never reach disk", async () => {
 test("IPC handlers authorize both reads and writes", async () => {
   const { store } = await fixture();
   const handlers = new Map();
+  const persisted = [];
   const binding = bindShortcutSettingsIpc(
     {
       handle(channel, listener) {
@@ -83,6 +84,7 @@ test("IPC handlers authorize both reads and writes", async () => {
     },
     store,
     (event) => event === "allowed",
+    (bindings) => persisted.push(bindings),
   );
 
   await handlers.get(SHORTCUT_SETTINGS_WRITE_CHANNEL)(
@@ -93,6 +95,15 @@ test("IPC handlers authorize both reads and writes", async () => {
     await handlers.get(SHORTCUT_SETTINGS_READ_CHANNEL)("allowed"),
     { "session.new": "Mod+N" },
   );
+  assert.deepEqual(persisted, [{ "session.new": "Mod+N" }]);
+  await assert.rejects(
+    handlers.get(SHORTCUT_SETTINGS_WRITE_CHANNEL)(
+      "allowed",
+      { "session.new": "N" },
+    ),
+    /invalid shortcut binding/u,
+  );
+  assert.deepEqual(persisted, [{ "session.new": "Mod+N" }]);
   await assert.rejects(
     handlers.get(SHORTCUT_SETTINGS_READ_CHANNEL)("denied"),
     /unauthorized/u,

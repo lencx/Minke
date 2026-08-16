@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { KEYBOARD_ICON_SVG } from "../packages/harness-overlay/src/client/icons/data.ts";
-import { reconcileShortcutNavigationIcon } from "../packages/harness-overlay/src/client/styles.ts";
+import {
+  reconcileShortcutNavigationIcon,
+  SHORTCUT_STYLES,
+} from "../packages/harness-overlay/src/client/styles.ts";
 
 const manifest = JSON.parse(
   readFileSync(
@@ -38,6 +40,27 @@ const clientSource = readFileSync(
   ),
   "utf8",
 );
+const shortcutStylesSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/styles.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const tabsCoreSource = [
+  "index.ts",
+  "locales.ts",
+  "styles.ts",
+  "types.ts",
+].map((name) =>
+  readFileSync(
+    new URL(
+      `../packages/harness-overlay/src/client/tabs/${name}`,
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+).join("\n");
 const stageSource = readFileSync(
   new URL("../scripts/harness/stage.mjs", import.meta.url),
   "utf8",
@@ -67,6 +90,11 @@ test("the product overlay uses the shared @lencx package scope", () => {
       "@deepseek-ai/dsh-client-ui-theme",
     ),
   );
+  assert.ok(
+    manifest.dsh.client.inject.includes(
+      "@deepseek-ai/dsh-client-ui-layout",
+    ),
+  );
   assert.equal(
     manifest.exports["./model-runtime"],
     "./lib/model-runtime.js",
@@ -74,6 +102,10 @@ test("the product overlay uses the shared @lencx package scope", () => {
   assert.deepEqual(contract.productBundle.runtimePackages, [
     "@deepseek-ai/dsh-subagent-codex",
   ]);
+  assert.match(
+    manifest.devDependencies?.["@lucide/icons"] ?? "",
+    /^\d+\.\d+\.\d+$/u,
+  );
 });
 
 test("the product overlay composes Codex CLI and the generic model runtime", () => {
@@ -127,8 +159,91 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.match(bundle, /data-dsh-desktop-new-session/u);
   assert.match(bundle, /minke-overlay: shortcut navigation icon/u);
   assert.match(bundle, /data-minke-shortcuts-nav/u);
-  assert.match(bundle, /IconKeyboardOutline16/u);
+  assert.doesNotMatch(bundle, /IconKeyboardOutline16/u);
+  assert.match(bundle, /minke-overlay: tabs runtime/u);
+  assert.match(bundle, /minke-overlay: Terminal tab renderer/u);
+  assert.match(bundle, /minke-overlay: Terminal settings runtime/u);
+  assert.match(bundle, /minke-terminal/u);
+  assert.match(bundle, /minke-overlay: Web tab renderer/u);
+  assert.match(bundle, /minke-overlay: Web link tabs/u);
+  assert.match(bundle, /minke-overlay: session header action styles/u);
+  assert.match(bundle, /minke-tabs-toggle/u);
+  assert.match(bundle, /minkeDesktop\?\.sessionLogs/u);
+  assert.match(bundle, /data-minke-session-log-action/u);
+  assert.match(bundle, /conversation\.session\.header\.utilities/u);
+  assert.match(bundle, /minke-tabs-panel/u);
   assert.doesNotMatch(bundle, /require\(["']@deepseek-ai\//u);
+});
+
+test("Tabs stays generic while content types register as adapters", () => {
+  assert.match(
+    clientSource,
+    /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new WebTabsController[\s\S]*new TerminalTabsController/u,
+  );
+  assert.match(
+    clientSource,
+    /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,\s*terminalT,\s*\)/u,
+  );
+  assert.match(
+    clientSource,
+    /createWebTabRenderer\(webTabs,\s*webT\)/u,
+  );
+  assert.match(
+    clientSource,
+    /name:\s*"shell\.overlay"[\s\S]*id:\s*"minke-tabs"/u,
+  );
+  assert.match(
+    clientSource,
+    /id:\s*"minke-tabs-new-session-toggle"[\s\S]*NewSessionTabsHeaderAction as ComponentType<never>/u,
+  );
+  assert.doesNotMatch(clientSource, /ResourceTabs|resource-tabs/u);
+  assert.doesNotMatch(
+    tabsCoreSource,
+    /from\s+["']\.\/(?:terminal|web)\//u,
+  );
+  assert.match(clientSource, /installTerminalTabStyles\(\)/u);
+  assert.match(clientSource, /installWebTabStyles\(\)/u);
+  assert.match(clientSource, /TERMINAL_TABS_NAMESPACE/u);
+  assert.match(clientSource, /WEB_TABS_NAMESPACE/u);
+});
+
+test("Terminal settings register as a separate settings section", () => {
+  assert.match(
+    clientSource,
+    /name:\s*"settings\.section"[\s\S]*id:\s*"minke-terminal"[\s\S]*order:\s*6[\s\S]*TerminalSettingsSection as ComponentType<never>/u,
+  );
+  assert.match(clientSource, /new TerminalSettingsRuntime/u);
+  assert.match(clientSource, /installTerminalSettingsStyles\(\)/u);
+  assert.match(
+    clientSource,
+    /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,/u,
+  );
+});
+
+test("desktop Session export shadows the upstream Web action and modal", () => {
+  assert.match(
+    clientSource,
+    /name:\s*"conversation\.session\.header\.utilities"[\s\S]*id:\s*"session-log-download"[\s\S]*priority:\s*-100/u,
+  );
+  assert.match(
+    clientSource,
+    /SessionLogHeaderAction as ComponentType<never>/u,
+  );
+  assert.match(
+    clientSource,
+    /sessionLogsPort\.export\(sessionId\)/u,
+  );
+  assert.doesNotMatch(bundle, /data-minke-session-log-download/u);
+});
+
+test("Mod+S toggles the upstream sidebar through the public layout service", () => {
+  assert.match(
+    clientSource,
+    /id:\s*"sidebar\.toggle"[\s\S]*defaultBinding:\s*DEFAULT_SHORTCUT_BINDINGS\["sidebar\.toggle"\][\s\S]*ctx\.layout\.toggleSidebar\(\)/u,
+  );
+  assert.match(bundle, /sidebar\.toggle/u);
+  assert.match(bundle, /Mod\+S/u);
+  assert.match(bundle, /layout\.toggleSidebar\(\)/u);
 });
 
 test("Minke bypasses the upstream internal-testing notice through slot shadowing", () => {
@@ -179,14 +294,31 @@ test("the shortcuts settings row receives the keyboard navigation icon", () => {
     false,
     "a stale marker must be removed when the localized label changes",
   );
-  assert.match(KEYBOARD_ICON_SVG, /viewBox="0 0 24 24"/u);
   assert.match(
-    KEYBOARD_ICON_SVG,
-    /class="lucide lucide-keyboard-icon lucide-keyboard"/u,
+    shortcutStylesSource,
+    /import Keyboard from "@lucide\/icons\/icons\/keyboard";/u,
   );
   assert.match(
-    KEYBOARD_ICON_SVG,
-    /<rect width="20" height="16" x="2" y="4" rx="2"\/>/u,
+    shortcutStylesSource,
+    /import \{ buildLucideDataUri \} from "@lucide\/icons\/build";/u,
+  );
+  assert.match(
+    shortcutStylesSource,
+    /buildLucideDataUri\(Keyboard,\s*\{\s*size:\s*16,\s*\}\)/u,
+  );
+  assert.doesNotMatch(shortcutStylesSource, /KEYBOARD_ICON_PATHS|<path/u);
+  const iconDataUrl = SHORTCUT_STYLES.match(
+    /--minke-shortcuts-nav-icon: url\("(data:image\/svg\+xml;base64,[^"]+)"\)/u,
+  )?.[1];
+  assert.ok(iconDataUrl);
+  const iconSvg = Buffer.from(
+    iconDataUrl.slice(iconDataUrl.indexOf(",") + 1),
+    "base64",
+  ).toString("utf8");
+  assert.match(iconSvg, /class="lucide lucide-keyboard"/u);
+  assert.match(
+    iconSvg,
+    /<rect width="20" height="16" x="2" y="4" rx="2"/u,
   );
 });
 

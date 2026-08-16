@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   formatShortcutBinding,
+  formatShortcutBindingParts,
   shortcutBindingFromEvent,
 } from "../packages/harness-overlay/src/client/binding.ts";
 
@@ -54,4 +55,12 @@ test("punctuation bindings normalize and render natively", () => {
   );
   assert.equal(formatShortcutBinding("Mod+Comma", "apple"), "⌘,");
   assert.equal(formatShortcutBinding("Mod+Shift+N", "other"), "Ctrl + Shift + N");
+  assert.deepEqual(
+    formatShortcutBindingParts("Mod+Comma", "apple"),
+    ["⌘", ","],
+  );
+  assert.deepEqual(
+    formatShortcutBindingParts("Mod+Shift+N", "other"),
+    ["Ctrl", "Shift", "N"],
+  );
 });

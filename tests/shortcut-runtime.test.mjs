@@ -89,6 +89,9 @@ test("shortcuts hydrate, dispatch, and preserve unknown durable actions", async 
 
   target.dispatch(keyboardEvent());
   assert.equal(newSessions, 1);
+  assert.equal(runtime.invoke("session.new"), true);
+  assert.equal(newSessions, 2);
+  assert.equal(runtime.invoke("missing.action"), false);
   runtime.dispose();
   assert.equal(target.listener, undefined);
 });
