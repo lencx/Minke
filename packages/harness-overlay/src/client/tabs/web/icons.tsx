@@ -8,7 +8,7 @@ import Square from "@lucide/icons/icons/square";
 import SquareArrowOutUpRight from "@lucide/icons/icons/square-arrow-out-up-right";
 import {
   LucideIcon,
-} from "../components/LucideIcon.tsx";
+} from "@minke/harness-overlay/client/tabs/components/LucideIcon.tsx";
 
 export function BackIcon(): ReactNode {
   return <LucideIcon icon={ArrowLeft} />;

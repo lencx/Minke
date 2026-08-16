@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import {
   DEFAULT_SHORTCUT_BINDINGS,
-} from "../shortcut-contract.ts";
+} from "@minke/harness-overlay/shortcut-contract.ts";
 import { openHarnessSettings } from "./actions.ts";
 import {
   desktopSessionLogsPort,

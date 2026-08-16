@@ -1,6 +1,6 @@
 import {
   normalizeWebTabUrl,
-} from "../../../tabs/contract.ts";
+} from "@minke/harness-overlay/tabs/contract.ts";
 import type {
   WebTabsController,
 } from "./controller.ts";

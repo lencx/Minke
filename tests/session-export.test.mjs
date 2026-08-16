@@ -3,10 +3,10 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import {
   SESSION_LOG_EXPORT_CHANNEL,
-} from "../packages/harness-overlay/src/session-export-contract.ts";
+} from "@minke/harness-overlay/session-export-contract.ts";
 import {
   bindSessionLogExport,
-} from "../desktop/main/session-export/index.ts";
+} from "@minke/desktop/main/session-export/index.ts";
 
 class FakeIpcMain {
   handlers = new Map();

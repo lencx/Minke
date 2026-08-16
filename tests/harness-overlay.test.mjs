@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   reconcileShortcutNavigationIcon,
   SHORTCUT_STYLES,
-} from "../packages/harness-overlay/src/client/styles.ts";
+} from "@minke/harness-overlay/client/styles.ts";
 
 const manifest = JSON.parse(
   readFileSync(

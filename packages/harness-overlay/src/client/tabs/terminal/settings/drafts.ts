@@ -5,7 +5,7 @@ import type {
 } from "react";
 import type {
   TerminalSettings,
-} from "../../../../terminal-settings-contract.ts";
+} from "@minke/harness-overlay/terminal-settings-contract.ts";
 
 export type SettingField = keyof TerminalSettings;
 export type TerminalSettingDrafts = Record<SettingField, string>;

@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import {
   resolveDesktopLocale,
-} from "../locale-contract";
+} from "@minke/desktop/locale-contract";
 import App from "./App";
 import "./styles.css";
 

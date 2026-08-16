@@ -9,7 +9,7 @@ import { isAbsolute } from "node:path";
 import { stat } from "node:fs/promises";
 import {
   TABS_OPEN_EXTERNAL_CHANNEL,
-} from "../../../packages/harness-overlay/src/tabs/contract.ts";
+} from "@minke/harness-overlay/tabs/contract.ts";
 import {
   parseTerminalCreateRequest,
   parseTerminalResizeRequest,
@@ -20,7 +20,7 @@ import {
   TABS_TERMINAL_EVENT_CHANNEL,
   TABS_TERMINAL_RESIZE_CHANNEL,
   TABS_TERMINAL_WRITE_CHANNEL,
-} from "../../../packages/harness-overlay/src/tabs/terminal-contract.ts";
+} from "@minke/harness-overlay/tabs/terminal-contract.ts";
 import {
   openNormalizedTabExternally,
   protectTabWebviewGuest,

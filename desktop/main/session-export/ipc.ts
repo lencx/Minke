@@ -13,7 +13,7 @@ import {
   SESSION_LOG_EXPORT_PATH,
   SESSION_LOG_EXPORT_TOKEN_PARAMETER,
   sessionLogExportFilename,
-} from "../../../packages/harness-overlay/src/session-export-contract.ts";
+} from "@minke/harness-overlay/session-export-contract.ts";
 
 type DownloadState = "completed" | "cancelled" | "interrupted";
 type DownloadDoneListener = (

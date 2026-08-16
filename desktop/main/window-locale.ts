@@ -2,7 +2,7 @@ import {
   isDesktopLocale,
   WINDOW_LOCALE_CHANNEL,
   type DesktopLocale,
-} from "../locale-contract.ts";
+} from "@minke/desktop/locale-contract.ts";
 
 /** Lifecycle handle for a window-scoped Harness locale listener. */
 export type WindowLocaleBinding = Readonly<{

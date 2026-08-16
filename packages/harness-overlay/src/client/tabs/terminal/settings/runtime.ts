@@ -2,10 +2,10 @@ import {
   DEFAULT_TERMINAL_SETTINGS,
   parseTerminalSettings,
   type TerminalSettings,
-} from "../../../../terminal-settings-contract.ts";
+} from "@minke/harness-overlay/terminal-settings-contract.ts";
 import type {
   TerminalSettingsStore,
-} from "../../../bridge.ts";
+} from "@minke/harness-overlay/client/bridge.ts";
 
 export type TerminalSettingsErrorKind =
   | "unavailable"

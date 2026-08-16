@@ -10,30 +10,30 @@ import { afterEach, test } from "node:test";
 import {
   bindTerminalSettingsIpc,
   TerminalSettingsStore,
-} from "../desktop/main/terminal-settings.ts";
+} from "@minke/desktop/main/terminal-settings.ts";
 import {
   DEFAULT_TERMINAL_SETTINGS,
   parseTerminalSettings,
   TERMINAL_SETTINGS_READ_CHANNEL,
   TERMINAL_SETTINGS_WRITE_CHANNEL,
-} from "../packages/harness-overlay/src/terminal-settings-contract.ts";
+} from "@minke/harness-overlay/terminal-settings-contract.ts";
 import {
   TerminalSettingsRuntime,
-} from "../packages/harness-overlay/src/client/tabs/terminal/settings/runtime.ts";
+} from "@minke/harness-overlay/client/tabs/terminal/settings/runtime.ts";
 import {
   reconcileTerminalSettingsNavigationIcon,
   TERMINAL_SETTINGS_STYLES,
-} from "../packages/harness-overlay/src/client/tabs/terminal/settings/styles.ts";
+} from "@minke/harness-overlay/client/tabs/terminal/settings/styles.ts";
 import {
   applyTerminalRenderingSettings,
-} from "../packages/harness-overlay/src/client/tabs/terminal/settings/rendering.ts";
+} from "@minke/harness-overlay/client/tabs/terminal/settings/rendering.ts";
 import {
   stageDraftChange,
-} from "../packages/harness-overlay/src/client/tabs/terminal/settings/drafts.ts";
+} from "@minke/harness-overlay/client/tabs/terminal/settings/drafts.ts";
 import {
   terminalTabsEn,
   terminalTabsZh,
-} from "../packages/harness-overlay/src/client/tabs/terminal/locales.ts";
+} from "@minke/harness-overlay/client/tabs/terminal/locales.ts";
 
 const roots = [];
 

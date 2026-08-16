@@ -13,10 +13,10 @@ import type {
 } from "electron";
 import {
   TABS_WEB_PARTITION,
-} from "../../../tabs/contract.ts";
+} from "@minke/harness-overlay/tabs/contract.ts";
 import type {
   ManagedTab,
-} from "../types.ts";
+} from "@minke/harness-overlay/client/tabs/types.ts";
 import {
   ExternalIcon,
   WebIcon,

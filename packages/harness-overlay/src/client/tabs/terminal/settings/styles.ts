@@ -4,7 +4,7 @@ import {
   installSettingsNavigationIcon,
   reconcileSettingsNavigationIcon,
   type SettingsNavigationRoot,
-} from "../../../settings-navigation.ts";
+} from "@minke/harness-overlay/client/settings-navigation.ts";
 
 const TERMINAL_SETTINGS_NAV_MARKER =
   "data-minke-terminal-settings-nav";

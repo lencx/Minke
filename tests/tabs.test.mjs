@@ -6,47 +6,47 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   normalizeWebTabUrl,
   TABS_WEB_PARTITION,
-} from "../packages/harness-overlay/src/tabs/contract.ts";
+} from "@minke/harness-overlay/tabs/contract.ts";
 import {
   NewSessionTabsHeaderAction,
   SESSION_HEADER_ACTION_STYLES,
   SessionLogHeaderAction,
   TabsHeaderAction,
-} from "../packages/harness-overlay/src/client/tabs/HeaderActions.ts";
+} from "@minke/harness-overlay/client/tabs/HeaderActions.ts";
 import {
   tabsEn,
   tabsZh,
-} from "../packages/harness-overlay/src/client/tabs/locales.ts";
+} from "@minke/harness-overlay/client/tabs/locales.ts";
 import {
   TabRendererRegistry,
-} from "../packages/harness-overlay/src/client/tabs/registry.ts";
+} from "@minke/harness-overlay/client/tabs/registry.ts";
 import {
   TABS_CHROME_HEIGHT,
-} from "../packages/harness-overlay/src/client/tabs/constants.ts";
+} from "@minke/harness-overlay/client/tabs/constants.ts";
 import {
   clampTabsPanelWidth,
   TabsPanelResizeController,
   TABS_PANEL_MAX_WIDTH,
-} from "../packages/harness-overlay/src/client/tabs/resize.ts";
+} from "@minke/harness-overlay/client/tabs/resize.ts";
 import {
   TabsRuntime,
-} from "../packages/harness-overlay/src/client/tabs/runtime.ts";
+} from "@minke/harness-overlay/client/tabs/runtime.ts";
 import {
   TABS_STYLES,
-} from "../packages/harness-overlay/src/client/tabs/styles.ts";
+} from "@minke/harness-overlay/client/tabs/styles.ts";
 import {
   normalizeWebAddressInput,
   normalizeWebFaviconUrl,
   WebTabsController,
-} from "../packages/harness-overlay/src/client/tabs/web/controller.ts";
+} from "@minke/harness-overlay/client/tabs/web/controller.ts";
 import {
   DSH_PLUGINS_URL,
   openDshPlugins,
-} from "../packages/harness-overlay/src/client/tabs/web/plugins.ts";
+} from "@minke/harness-overlay/client/tabs/web/plugins.ts";
 import {
   protectTabWebviewGuest,
   secureTabWebview,
-} from "../desktop/main/tabs/security.ts";
+} from "@minke/desktop/main/tabs/security.ts";
 
 test("Web tab URLs accept only credential-free HTTP(S)", () => {
   assert.equal(

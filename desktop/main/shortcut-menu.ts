@@ -6,14 +6,14 @@ import type {
 import type {
   DesktopLocaleRuntime,
   DesktopMessageKey,
-} from "../i18n.ts";
+} from "@minke/desktop/i18n.ts";
 import {
   DEFAULT_SHORTCUT_BINDINGS,
   isShortcutBinding,
   parseShortcutBindings,
   type ProductShortcutActionId,
   type ShortcutBindings,
-} from "../../packages/harness-overlay/src/shortcut-contract.ts";
+} from "@minke/harness-overlay/shortcut-contract.ts";
 
 const OWNED_MENU_ID_PREFIX = "minke.shortcut.";
 

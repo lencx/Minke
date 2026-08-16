@@ -13,10 +13,10 @@ import {
   TERMINAL_LINE_HEIGHT_MAX,
   TERMINAL_LINE_HEIGHT_MIN,
   type TerminalSettings,
-} from "../../../../terminal-settings-contract.ts";
+} from "@minke/harness-overlay/terminal-settings-contract.ts";
 import type {
   TerminalTabsTranslate,
-} from "../locales.ts";
+} from "@minke/harness-overlay/client/tabs/terminal/locales.ts";
 import type {
   TerminalSettingsRuntime,
 } from "./runtime.ts";

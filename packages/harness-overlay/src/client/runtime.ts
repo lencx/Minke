@@ -1,7 +1,7 @@
 import {
   isShortcutBinding,
   type ShortcutBindings,
-} from "../shortcut-contract.ts";
+} from "@minke/harness-overlay/shortcut-contract.ts";
 import {
   detectShortcutPlatform,
   shortcutBindingFromEvent,

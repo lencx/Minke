@@ -5,7 +5,7 @@ import type {
 import {
   normalizeWebTabUrl,
   TABS_WEB_PARTITION,
-} from "../../../packages/harness-overlay/src/tabs/contract.ts";
+} from "@minke/harness-overlay/tabs/contract.ts";
 import type {
   ExternalTabOpener,
 } from "./types.ts";

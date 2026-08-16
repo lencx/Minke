@@ -4,7 +4,7 @@ import type {
 import type {
   ManagedTab,
   TabRenderer,
-} from "../types.ts";
+} from "@minke/harness-overlay/client/tabs/types.ts";
 import type {
   TerminalTabsController,
 } from "./controller.ts";

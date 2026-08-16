@@ -3,14 +3,14 @@ import {
   parseShortcutBindings,
   type ProductShortcutActionId,
   type ShortcutBindings,
-} from "../shortcut-contract.ts";
+} from "@minke/harness-overlay/shortcut-contract.ts";
 import {
   parseTerminalSettings,
   type TerminalSettings,
-} from "../terminal-settings-contract.ts";
+} from "@minke/harness-overlay/terminal-settings-contract.ts";
 import {
   parseSessionLogExportId,
-} from "../session-export-contract.ts";
+} from "@minke/harness-overlay/session-export-contract.ts";
 import {
   parseTerminalCreateRequest,
   parseTerminalCreateResult,
@@ -23,7 +23,7 @@ import {
   type TerminalEvent,
   type TerminalResizeRequest,
   type TerminalWriteRequest,
-} from "../tabs/terminal-contract.ts";
+} from "@minke/harness-overlay/tabs/terminal-contract.ts";
 
 export interface ShortcutStore {
   readonly available: boolean;

@@ -1,6 +1,6 @@
 import type {
   TerminalSettings,
-} from "../../../../terminal-settings-contract.ts";
+} from "@minke/harness-overlay/terminal-settings-contract.ts";
 
 const FALLBACK_TERMINAL_FONT_FAMILY =
   "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";

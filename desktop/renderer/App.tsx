@@ -1,7 +1,7 @@
 import {
   translateDesktop,
-} from "../i18n";
-import type { DesktopLocale } from "../locale-contract";
+} from "@minke/desktop/i18n";
+import type { DesktopLocale } from "@minke/desktop/locale-contract";
 
 export interface AppProps {
   locale: DesktopLocale;

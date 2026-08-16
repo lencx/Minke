@@ -5,11 +5,11 @@ import {
 } from "react";
 import {
   ToolbarButton,
-} from "../components/ToolbarButton.tsx";
+} from "@minke/harness-overlay/client/tabs/components/ToolbarButton.tsx";
 import type {
   ManagedTab,
   TabRenderer,
-} from "../types.ts";
+} from "@minke/harness-overlay/client/tabs/types.ts";
 import type {
   WebTabsController,
 } from "./controller.ts";

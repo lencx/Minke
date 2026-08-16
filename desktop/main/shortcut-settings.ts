@@ -14,7 +14,7 @@ import {
   SHORTCUT_SETTINGS_WRITE_CHANNEL,
   type ShortcutBindings,
   type ShortcutSettingsDocument,
-} from "../../packages/harness-overlay/src/shortcut-contract.ts";
+} from "@minke/harness-overlay/shortcut-contract.ts";
 
 interface IpcMainLike {
   handle(

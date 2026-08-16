@@ -1,12 +1,12 @@
 import type {
   DesktopTerminalPort,
-} from "../../bridge.ts";
+} from "@minke/harness-overlay/client/bridge.ts";
 import type {
   TerminalEvent,
-} from "../../../tabs/terminal-contract.ts";
+} from "@minke/harness-overlay/tabs/terminal-contract.ts";
 import type {
   TabsRuntime,
-} from "../runtime.ts";
+} from "@minke/harness-overlay/client/tabs/runtime.ts";
 import {
   isTerminalTab,
   type TerminalTabPayload,

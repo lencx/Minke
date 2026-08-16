@@ -1,12 +1,12 @@
 import {
   normalizeWebTabUrl,
-} from "../../../tabs/contract.ts";
+} from "@minke/harness-overlay/tabs/contract.ts";
 import type {
   DesktopTabsPort,
-} from "../../bridge.ts";
+} from "@minke/harness-overlay/client/bridge.ts";
 import type {
   TabsRuntime,
-} from "../runtime.ts";
+} from "@minke/harness-overlay/client/tabs/runtime.ts";
 import {
   isWebTab,
   type WebTabPayload,

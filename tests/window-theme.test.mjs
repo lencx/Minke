@@ -3,8 +3,8 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import {
   bindWindowTheme,
-} from "../desktop/main/window-theme.ts";
-import { WINDOW_THEME_CHANNEL } from "../desktop/window-theme-contract.ts";
+} from "@minke/desktop/main/window-theme.ts";
+import { WINDOW_THEME_CHANNEL } from "@minke/desktop/window-theme-contract.ts";
 
 function fixture() {
   const ipc = new EventEmitter();

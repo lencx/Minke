@@ -7,21 +7,21 @@ import {
   SHORTCUT_SETTINGS_WRITE_CHANNEL,
   type ProductShortcutActionId,
   type ShortcutBindings,
-} from "../../packages/harness-overlay/src/shortcut-contract.ts";
+} from "@minke/harness-overlay/shortcut-contract.ts";
 import {
   parseTerminalSettings,
   TERMINAL_SETTINGS_READ_CHANNEL,
   TERMINAL_SETTINGS_WRITE_CHANNEL,
   type TerminalSettings,
-} from "../../packages/harness-overlay/src/terminal-settings-contract.ts";
+} from "@minke/harness-overlay/terminal-settings-contract.ts";
 import {
   parseSessionLogExportId,
   SESSION_LOG_EXPORT_CHANNEL,
-} from "../../packages/harness-overlay/src/session-export-contract.ts";
+} from "@minke/harness-overlay/session-export-contract.ts";
 import {
   normalizeWebTabUrl,
   TABS_OPEN_EXTERNAL_CHANNEL,
-} from "../../packages/harness-overlay/src/tabs/contract.ts";
+} from "@minke/harness-overlay/tabs/contract.ts";
 import {
   parseTerminalCreateRequest,
   parseTerminalCreateResult,
@@ -38,19 +38,19 @@ import {
   type TerminalEvent,
   type TerminalResizeRequest,
   type TerminalWriteRequest,
-} from "../../packages/harness-overlay/src/tabs/terminal-contract.ts";
+} from "@minke/harness-overlay/tabs/terminal-contract.ts";
 import {
   isDesktopLocale,
   WINDOW_LOCALE_CHANNEL,
   type DesktopLocale,
-} from "../locale-contract.ts";
+} from "@minke/desktop/locale-contract.ts";
 import {
   isWindowThemeMessage,
   WINDOW_THEME_CHANNEL,
   type WindowColorScheme,
   type WindowThemePreference,
   type WindowThemeMessage,
-} from "../window-theme-contract.ts";
+} from "@minke/desktop/window-theme-contract.ts";
 
 let observer: MutationObserver | undefined;
 let lastMessage: WindowThemeMessage | undefined;

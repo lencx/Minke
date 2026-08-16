@@ -15,7 +15,7 @@ import {
   TERMINAL_SETTINGS_WRITE_CHANNEL,
   type TerminalSettings,
   type TerminalSettingsDocument,
-} from "../../packages/harness-overlay/src/terminal-settings-contract.ts";
+} from "@minke/harness-overlay/terminal-settings-contract.ts";
 
 interface IpcMainLike {
   handle(

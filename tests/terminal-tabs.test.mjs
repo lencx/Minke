@@ -3,21 +3,21 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   TerminalSessionRuntime,
-} from "../desktop/main/tabs/terminal.ts";
+} from "@minke/desktop/main/tabs/terminal.ts";
 import {
   TerminalTabsController,
-} from "../packages/harness-overlay/src/client/tabs/terminal/controller.ts";
+} from "@minke/harness-overlay/client/tabs/terminal/controller.ts";
 import {
   TabRendererRegistry,
-} from "../packages/harness-overlay/src/client/tabs/registry.ts";
+} from "@minke/harness-overlay/client/tabs/registry.ts";
 import {
   TabsRuntime,
-} from "../packages/harness-overlay/src/client/tabs/runtime.ts";
+} from "@minke/harness-overlay/client/tabs/runtime.ts";
 import {
   parseTerminalCreateRequest,
   parseTerminalResizeRequest,
   parseTerminalWriteRequest,
-} from "../packages/harness-overlay/src/tabs/terminal-contract.ts";
+} from "@minke/harness-overlay/tabs/terminal-contract.ts";
 
 test("terminal IPC requests keep dimensions and input bounded", () => {
   assert.deepEqual(

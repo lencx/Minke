@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   installShortcutRecordingEscapeGuard,
-} from "../packages/harness-overlay/src/client/shortcut-recording.ts";
+} from "@minke/harness-overlay/client/shortcut-recording.ts";
 
 class KeyboardTarget {
   captureListeners = [];

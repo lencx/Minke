@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindMainWindowDevToolsShortcut,
-} from "../desktop/main/main-window-devtools.ts";
+} from "@minke/desktop/main/main-window-devtools.ts";
 import {
   bindShortcutMenu,
-} from "../desktop/main/shortcut-menu.ts";
-import { DesktopLocaleRuntime } from "../desktop/i18n.ts";
+} from "@minke/desktop/main/shortcut-menu.ts";
+import { DesktopLocaleRuntime } from "@minke/desktop/i18n.ts";
 
 function menuItem(options) {
   const submenu = Array.isArray(options.submenu)

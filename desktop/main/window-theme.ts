@@ -2,7 +2,7 @@ import {
   isWindowThemeMessage,
   WINDOW_THEME_CHANNEL,
   type WindowColorScheme,
-} from "../window-theme-contract.ts";
+} from "@minke/desktop/window-theme-contract.ts";
 
 /** Lifecycle handle for a window-scoped native theme listener. */
 export type WindowThemeBinding = Readonly<{

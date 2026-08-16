@@ -7,7 +7,7 @@ import type {
   TerminalEvent,
   TerminalResizeRequest,
   TerminalWriteRequest,
-} from "../../../packages/harness-overlay/src/tabs/terminal-contract.ts";
+} from "@minke/harness-overlay/tabs/terminal-contract.ts";
 
 interface Disposable {
   dispose(): void;

@@ -1,6 +1,6 @@
 import type {
   ManagedTab,
-} from "../types.ts";
+} from "@minke/harness-overlay/client/tabs/types.ts";
 
 export interface WebTabPayload {
   readonly url?: string;

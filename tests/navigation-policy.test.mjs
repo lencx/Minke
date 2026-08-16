@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   isInternalNavigation,
-} from "../desktop/main/navigation-policy.ts";
+} from "@minke/desktop/main/navigation-policy.ts";
 
 test("development bootstrap and Harness URLs stay inside Electron", () => {
   const internalRoots = [

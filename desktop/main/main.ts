@@ -21,19 +21,19 @@ import {
   translateDesktop,
   type DesktopMessageKey,
   type DesktopTranslateParams,
-} from "../i18n";
+} from "@minke/desktop/i18n";
 import {
   resolveDesktopLocale,
   type DesktopLocale,
-} from "../locale-contract";
+} from "@minke/desktop/locale-contract";
 import {
   TABS_WEB_PARTITION,
-} from "../../packages/harness-overlay/src/tabs/contract";
+} from "@minke/harness-overlay/tabs/contract";
 import {
   SHORTCUT_INVOKE_CHANNEL,
   type ProductShortcutActionId,
   type ShortcutBindings,
-} from "../../packages/harness-overlay/src/shortcut-contract";
+} from "@minke/harness-overlay/shortcut-contract";
 import {
   HarnessRuntime,
   type HarnessRuntimeExit,

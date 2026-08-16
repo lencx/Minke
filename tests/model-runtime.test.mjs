@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   prepareModelRuntime,
   resolveLocalOpenAIBaseURL,
-} from "../packages/harness-overlay/src/model-runtime/core.ts";
+} from "@minke/harness-overlay/model-runtime/core.ts";
 
 function json(value, init = {}) {
   return new Response(JSON.stringify(value), {

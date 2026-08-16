@@ -5,14 +5,14 @@ import {
   desktopDictionaries,
   DesktopLocaleRuntime,
   translateDesktop,
-} from "../desktop/i18n.ts";
+} from "@minke/desktop/i18n.ts";
 import {
   resolveDesktopLocale,
   WINDOW_LOCALE_CHANNEL,
-} from "../desktop/locale-contract.ts";
+} from "@minke/desktop/locale-contract.ts";
 import {
   bindWindowLocale,
-} from "../desktop/main/window-locale.ts";
+} from "@minke/desktop/main/window-locale.ts";
 
 test("desktop locale follows app.getLocale semantics and falls back to en", () => {
   assert.equal(resolveDesktopLocale("zh-CN"), "zh");

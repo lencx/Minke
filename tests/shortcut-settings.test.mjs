@@ -10,11 +10,11 @@ import { afterEach, test } from "node:test";
 import {
   bindShortcutSettingsIpc,
   ShortcutSettingsStore,
-} from "../desktop/main/shortcut-settings.ts";
+} from "@minke/desktop/main/shortcut-settings.ts";
 import {
   SHORTCUT_SETTINGS_READ_CHANNEL,
   SHORTCUT_SETTINGS_WRITE_CHANNEL,
-} from "../packages/harness-overlay/src/shortcut-contract.ts";
+} from "@minke/harness-overlay/shortcut-contract.ts";
 
 const roots = [];
 

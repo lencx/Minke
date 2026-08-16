@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, test } from "node:test";
-import { verifyHarnessContract } from "../scripts/harness/contract.mjs";
+import { verifyHarnessContract } from "@@/scripts/harness/contract.mjs";
 
 const fixtures = [];
 

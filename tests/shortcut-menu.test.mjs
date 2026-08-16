@@ -3,8 +3,8 @@ import test from "node:test";
 import {
   bindShortcutMenu,
   shortcutBindingToAccelerator,
-} from "../desktop/main/shortcut-menu.ts";
-import { DesktopLocaleRuntime } from "../desktop/i18n.ts";
+} from "@minke/desktop/main/shortcut-menu.ts";
+import { DesktopLocaleRuntime } from "@minke/desktop/i18n.ts";
 
 const CUSTOM_PREFIX = "minke.shortcut.";
 
