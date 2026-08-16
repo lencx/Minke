@@ -218,10 +218,14 @@ test("macOS glass leaves shared Harness component tokens untouched", () => {
   assert.doesNotMatch(earlyCss, /--dsw-[\w-]+\s*:/);
 });
 
-test("macOS glass targets only document and shell background surfaces", () => {
+test("macOS glass keeps the conversation column on its upstream theme surface", () => {
   assert.match(earlyCss, /html,\s*body,\s*#root/);
   assert.match(earlyCss, /\[data-shell-overlay\]/);
-  assert.match(earlyCss, /\[data-conversation-scroll\]/);
+  assert.doesNotMatch(
+    earlyCss,
+    /#root :has\(> \[data-conversation-scroll\]\)/,
+    "the main content column and its scrollbar gutter must keep one background",
+  );
   assert.match(
     desktopSurfaceSource,
     /\[data-dsh-desktop-titlebar-anchor\]/,
@@ -296,7 +300,11 @@ test("the native titlebar hides only the expanded web brand", () => {
   assert.match(titlebarRule, /margin-top:\s*-4px\s*!important/);
   assert.match(titlebarRule, /padding-left:\s*56px\s*!important/);
   assert.match(collapsedRule, /height:\s*36px\s*!important/);
-  assert.match(collapsedRule, /margin-top:\s*34px\s*!important/);
+  assert.match(
+    collapsedRule,
+    /margin-top:\s*12px\s*!important/,
+    "the rail toggle must clear the traffic lights without a second titlebar-height gap",
+  );
   assert.match(collapsedRule, /padding-left:\s*0\s*!important/);
   assert.match(
     desktopSurfaceSource,
@@ -368,88 +376,130 @@ test("the desktop New Session button uses a restrained translucent fill", () => 
   );
 });
 
-test("macOS composer action buttons use translucent role-specific fills", () => {
-  const addFill = desktopSurfaceSource.match(
-    /\[data-dsh-desktop-composer-add\]\s*\{[\s\S]*?var\(--dsw-specific-selector\)\s*(\d+)%/,
-  );
-  const addHoverFill = desktopSurfaceSource.match(
-    /\[data-dsh-desktop-composer-add\]:hover:not\(:disabled\)\s*\{[\s\S]*?var\(--dsw-alias-interactive-bg-hover-solid\)\s*(\d+)%/,
-  );
-  const primaryFill = desktopSurfaceSource.match(
-    /\[data-dsh-desktop-composer-primary\]\s*\{[\s\S]*?var\(--dsw-alias-button-info-fill\)\s*(\d+)%/,
-  );
-  const primaryHoverFill = desktopSurfaceSource.match(
-    /\[data-dsh-desktop-composer-primary\]:hover:not\(:disabled\)\s*\{[\s\S]*?var\(--dsw-alias-button-info-hover\)\s*(\d+)%/,
-  );
-  assert.match(
-    desktopSurfaceSource,
-    /setAttribute\("data-dsh-desktop-composer-add"/,
-  );
-  assert.match(
-    desktopSurfaceSource,
-    /setAttribute\("data-dsh-desktop-composer-primary"/,
-  );
-  assert.match(desktopSurfaceSource, /\[data-input-scroll\]/);
-  assert.ok(addFill, "the composer add fill must remain explicit");
-  assert.ok(addHoverFill, "the composer add hover fill must remain explicit");
-  assert.ok(primaryFill, "the composer primary fill must remain explicit");
-  assert.ok(
-    primaryHoverFill,
-    "the composer primary hover fill must remain explicit",
-  );
-  assert.ok(Number(addFill[1]) > 25 && Number(addFill[1]) < 80);
-  assert.ok(Number(addHoverFill[1]) > Number(addFill[1]));
-  assert.ok(Number(primaryFill[1]) > Number(addFill[1]));
-  assert.ok(Number(primaryFill[1]) < 95);
-  assert.ok(Number(primaryHoverFill[1]) > Number(primaryFill[1]));
-  assert.ok(Number(primaryHoverFill[1]) <= 95);
+test("the desktop surface leaves composer action buttons to Harness", () => {
   assert.doesNotMatch(
-    earlyCss,
-    /data-dsh-desktop-composer-/,
-    "composer translucency must stay inside the macOS-gated overlay surface",
+    desktopSurfaceSource,
+    /data-dsh-desktop-composer-(?:add|primary)/,
+    "the overlay must not mark or restyle composer action buttons",
   );
+  assert.doesNotMatch(desktopSurfaceSource, /markComposerActions/);
+  assert.doesNotMatch(earlyCss, /data-dsh-desktop-composer-/);
 });
 
-test("the bootstrap exposes a usable top drag strip without claiming controls", () => {
-  const dragStrip = earlyCss.match(
-    /body::before\s*\{([\s\S]*?)\}/,
+test("the conversation header slot is the full-height drag target without claiming controls or text", () => {
+  const conversationRoot = earlyCss.match(
+    /\[data-phase\]:has\(> \[data-slot="conversation\.session\.header"\]\)\s*\{([\s\S]*?)\}/,
   )?.[1];
-  const collapsedDragStrip = earlyCss.match(
-    /body:has\(\[data-sidebar-collapsed\]\)::before\s*\{([\s\S]*?)\}/,
+  const sessionHeaderSlot = earlyCss.match(
+    /\[data-slot="conversation\.session\.header"\]\s*\{([\s\S]*?)\}/,
   )?.[1];
-  const sidebarMax = harnessColumnsSource.match(
-    /SIDEBAR_MAX\s*=\s*(\d+)/,
+  const blankSessionHeaderSlot = earlyCss.match(
+    /\[data-phase="hero"\] > \[data-slot="conversation\.session\.header"\],\s*\n\[data-phase="settling"\] > \[data-slot="conversation\.session\.header"\]\s*\{([\s\S]*?)\}/,
+  )?.[1];
+  const selectableHeaderText = earlyCss.match(
+    /\[data-slot="conversation\.session\.header"\] nav,\s*\n\[data-slot="conversation\.session\.header"\] nav \*,\s*\n\[data-slot="conversation\.session\.header"\] span\s*\{([\s\S]*?)\}/,
+  )?.[1];
+  const gatedDragRule = desktopSurfaceSource.match(
+    /:root\[\$\{DESKTOP_DRAG_ENABLED_ATTRIBUTE\}\]\s*\n\s*\[data-dsh-desktop-titlebar-anchor\],\s*\n:root\[\$\{DESKTOP_DRAG_ENABLED_ATTRIBUTE\}\]\s*\n\s*\[data-slot="conversation\.session\.header"\]\s*\{([\s\S]*?)\}/,
+  )?.[1];
+  assert.ok(conversationRoot, "the conversation root must anchor blank chrome");
+  assert.ok(
+    sessionHeaderSlot,
+    "conversation.session.header must own the drag region",
   );
-  const sidebarCollapsed = harnessColumnsSource.match(
-    /SIDEBAR_COLLAPSED\s*=\s*(\d+)/,
+  assert.ok(
+    blankSessionHeaderSlot,
+    "blank and settling header slots must stay out of hero layout",
   );
-  assert.ok(dragStrip, "the top drag strip must remain present");
-  assert.ok(collapsedDragStrip, "the collapsed drag strip must remain present");
-  assert.ok(sidebarMax, "the maximum sidebar width must remain explicit");
-  assert.ok(sidebarCollapsed, "the collapsed sidebar width must remain explicit");
-  assert.match(
-    dragStrip,
-    new RegExp(`inset:\\s*0 0 auto ${sidebarMax[1]}px`),
+  assert.ok(
+    selectableHeaderText,
+    "header text must remain selectable outside the drag region",
   );
-  assert.match(
-    collapsedDragStrip,
-    new RegExp(`left:\\s*${sidebarCollapsed[1]}px`),
+  assert.match(conversationRoot, /position:\s*relative/);
+  assert.match(sessionHeaderSlot, /display:\s*block\s*!important/);
+  assert.match(sessionHeaderSlot, /flex:\s*none/);
+  assert.match(sessionHeaderSlot, /min-height:\s*75px/);
+  assert.match(sessionHeaderSlot, /-webkit-app-region:\s*no-drag/);
+  assert.ok(
+    gatedDragRule,
+    "desktop drag must require the runtime safety gate",
   );
-  assert.match(dragStrip, /height:\s*28px/);
-  assert.match(dragStrip, /-webkit-app-region:\s*drag/);
+  assert.match(gatedDragRule, /-webkit-app-region:\s*drag/);
+  assert.match(blankSessionHeaderSlot, /position:\s*absolute/);
+  assert.match(blankSessionHeaderSlot, /inset:\s*0 0 auto/);
+  assert.match(selectableHeaderText, /-webkit-app-region:\s*no-drag/);
+  assert.match(selectableHeaderText, /user-select:\s*text/);
   assert.match(
     earlyCss,
     /button,[\s\S]*\[contenteditable="true"\]\s*\{[\s\S]*-webkit-app-region:\s*no-drag/,
   );
+  assert.doesNotMatch(
+    earlyCss,
+    /user-select:\s*none/,
+    "desktop drag rules must not disable text selection",
+  );
+  assert.doesNotMatch(
+    earlyCss,
+    /body(?::has\([^)]*\))?::before/,
+    "obsolete document-wide pseudo drag strips must be removed",
+  );
+  assert.equal(
+    [...earlyCss.matchAll(/-webkit-app-region:\s*drag/g)].length,
+    0,
+    "document-start CSS must fail safe before interaction-layer detection",
+  );
+  assert.equal(
+    [
+      ...desktopSurfaceSource.matchAll(
+        /-webkit-app-region:\s*drag/g,
+      ),
+    ].length,
+    1,
+    "runtime-gated targets must share one drag declaration",
+  );
+  assert.doesNotMatch(
+    earlyCss,
+    /\[data-phase="(?:active|hero|settling)"\]:has\(> \[data-conversation-scroll\]\)/,
+    "obsolete phase/header drag selectors must be removed",
+  );
 });
 
-test("desktop-only decorative and composer surfaces do not paint white", () => {
+test("interactive layers synchronously revoke the desktop drag gate", () => {
+  assert.match(
+    desktopSurfaceSource,
+    /INTERACTION_LAYER_SELECTOR[\s\S]*aria-modal[\s\S]*role="dialog"[\s\S]*role="listbox"[\s\S]*role="menu"/,
+  );
+  assert.match(desktopSurfaceSource, /querySelector\(":popover-open"\)/);
+  assert.match(desktopSurfaceSource, /appRoot\.inert/);
+  assert.match(desktopSurfaceSource, /root\.fullscreenElement/);
+  assert.match(
+    desktopSurfaceSource,
+    /style\.position === "fixed"[\s\S]*style\.pointerEvents !== "none"/,
+  );
+  assert.match(desktopSurfaceSource, /elementFromPoint/);
+  assert.match(
+    desktopSurfaceSource,
+    /new view\.MutationObserver\(\(\) => \{[\s\S]*hasDeclaredInteractionLayer[\s\S]*suspendDesktopDrag/,
+  );
+  assert.match(
+    desktopSurfaceSource,
+    /attributeFilter:\s*\[[\s\S]*"aria-modal"[\s\S]*"inert"[\s\S]*"open"[\s\S]*"style"/,
+  );
+  assert.match(desktopSurfaceSource, /"beforetoggle"/);
+  assert.match(desktopSurfaceSource, /removeAttribute\(\s*DESKTOP_DRAG_ENABLED_ATTRIBUTE/);
+  assert.match(
+    desktopSurfaceSource,
+    /clearDesktopMarkers\(root\)[\s\S]*style\.remove\(\)/,
+    "lifecycle cleanup must remove both the gate and its stylesheet",
+  );
+});
+
+test("the active composer restores its upstream theme surfaces", () => {
   assert.match(earlyCss, /\[data-conversation-composer-overlay\]/);
   assert.match(
     desktopSurfaceSource,
     /\[data-dsh-desktop-base-surface\]/,
   );
-  assert.match(earlyCss, /\[data-composer-seat\]/);
   assert.match(
     desktopSurfaceSource,
     /\[data-dsh-desktop-sidebar-fade\]/,
@@ -458,12 +508,28 @@ test("desktop-only decorative and composer surfaces do not paint white", () => {
     desktopSurfaceSource,
     /\[data-dsh-desktop-hero-glow\]/,
   );
-  assert.match(
+  assert.doesNotMatch(
     earlyCss,
-    /\[data-composer-card\][\s\S]*background-color:\s*transparent[\s\S]*box-shadow:\s*none/,
+    /\[data-composer-(?:seat|card)\]/,
+    "document-start CSS must not erase the upstream composer materials",
   );
+  const activeCard = desktopSurfaceSource.match(
+    /\[data-phase="active"\] \[data-composer-card\]\s*\{([\s\S]*?)\}/,
+  )?.[1];
+  assert.ok(activeCard, "the active input card must restore its theme surface");
   assert.match(
-    earlyCss,
-    /\[data-composer-seat\]\s*\{\s*background:\s*transparent\s*!important;/,
+    activeCard,
+    /background:\s*var\(--dsw-specific-input-major\)\s*!important/,
+  );
+  assert.doesNotMatch(activeCard, /backdrop-filter|color-mix/);
+  assert.doesNotMatch(
+    desktopSurfaceSource,
+    /conversation\.composer\.dock/,
+    "the stats row must inherit the continuous conversation surface",
+  );
+  assert.doesNotMatch(
+    desktopSurfaceSource,
+    /composer-material|height:\s*200%|mask-image/,
+    "the composer must not inject or emulate a second material tree",
   );
 });

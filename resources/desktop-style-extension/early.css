@@ -7,19 +7,8 @@ body,
 #root > *,
 #root :has(> [data-shell-overlay]),
 #root :has(> [data-shell-overlay]) > :first-child,
-#root :has(> [data-conversation-scroll]),
-[data-conversation-composer-overlay],
-[data-composer-seat],
-[data-composer-card] {
+[data-conversation-composer-overlay] {
   background-color: transparent !important;
-}
-
-[data-composer-seat] {
-  background: transparent !important;
-}
-
-[data-composer-card] {
-  box-shadow: none !important;
 }
 
 button,
@@ -33,16 +22,29 @@ select,
   app-region: no-drag;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0 0 auto 420px;
-  z-index: 19;
-  height: 28px;
-  -webkit-app-region: drag;
-  app-region: drag;
+[data-phase]:has(> [data-slot="conversation.session.header"]) {
+  position: relative;
 }
 
-body:has([data-sidebar-collapsed])::before {
-  left: 56px;
+[data-slot="conversation.session.header"] {
+  display: block !important;
+  flex: none;
+  min-height: 75px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+[data-phase="hero"] > [data-slot="conversation.session.header"],
+[data-phase="settling"] > [data-slot="conversation.session.header"] {
+  position: absolute;
+  inset: 0 0 auto;
+}
+
+[data-slot="conversation.session.header"] nav,
+[data-slot="conversation.session.header"] nav *,
+[data-slot="conversation.session.header"] span {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  -webkit-user-select: text;
+  user-select: text;
 }
