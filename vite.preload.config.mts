@@ -5,6 +5,9 @@ import { defineConfig } from "vite";
 const projectRoot = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  resolve: {
+    tsconfigPaths: true,
+  },
   build: {
     emptyOutDir: false,
     outDir: resolve(projectRoot, ".vite", "build"),

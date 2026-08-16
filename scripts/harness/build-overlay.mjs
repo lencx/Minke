@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const packageRoot = join(projectRoot, "packages", "harness-overlay");
 const outputRoot = join(packageRoot, "lib");
+const tsconfigPath = join(projectRoot, "tsconfig.json");
 const packageManifest = JSON.parse(
   await readFile(join(packageRoot, "package.json"), "utf8"),
 );
@@ -28,6 +29,7 @@ await build({
   format: "esm",
   platform: "node",
   target: "es2022",
+  tsconfig: tsconfigPath,
   sourcemap: true,
 });
 
@@ -41,6 +43,7 @@ await build({
   format: "esm",
   platform: "node",
   target: "es2022",
+  tsconfig: tsconfigPath,
   sourcemap: true,
 });
 
@@ -51,6 +54,7 @@ await build({
   format: "cjs",
   platform: "browser",
   target: "chrome120",
+  tsconfig: tsconfigPath,
   external: ["react", "react/jsx-runtime"],
   loader: {
     ".css": "text",

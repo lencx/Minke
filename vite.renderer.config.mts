@@ -10,6 +10,9 @@ export default defineConfig({
   root: resolve(projectRoot, "desktop", "renderer"),
   publicDir: resolve(projectRoot, "public"),
   plugins: [react(), tailwindcss()],
+  resolve: {
+    tsconfigPaths: true,
+  },
   build: {
     outDir: resolve(projectRoot, ".vite", "renderer", "main_window"),
   },
