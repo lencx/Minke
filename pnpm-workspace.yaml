@@ -1,0 +1,21 @@
+packages:
+  - "."
+  - "packages/*"
+
+enableGlobalVirtualStore: false
+
+# Forge's rebuild stack pins the maintained @electron/node-gyp fork from Git.
+blockExoticSubdeps: false
+
+# Electron Forge needs dependencies resolvable from a flat node_modules tree.
+nodeLinker: hoisted
+
+overrides:
+  yauzl: 3.4.0
+
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  fs-xattr: true
+  macos-alias: true
