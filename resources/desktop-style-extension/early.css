@@ -1,0 +1,48 @@
+html,
+body,
+#root {
+  background-color: transparent !important;
+}
+
+#root > *,
+#root :has(> [data-shell-overlay]),
+#root :has(> [data-shell-overlay]) > :first-child,
+#root :has(> [data-conversation-scroll]),
+[data-conversation-composer-overlay],
+[data-composer-seat],
+[data-composer-card] {
+  background-color: transparent !important;
+}
+
+[data-composer-seat] {
+  background: transparent !important;
+}
+
+[data-composer-card] {
+  box-shadow: none !important;
+}
+
+button,
+a,
+input,
+textarea,
+select,
+[role="button"],
+[contenteditable="true"] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 420px;
+  z-index: 19;
+  height: 28px;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+body:has([data-sidebar-collapsed])::before {
+  left: 56px;
+}

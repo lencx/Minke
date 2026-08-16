@@ -1,0 +1,26 @@
+{
+  "name": "sys",
+  "version": "0.0.1",
+  "private": true,
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "require": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "files": [
+    "index.d.ts",
+    "index.js",
+    "lencx_mb.node"
+  ]
+}

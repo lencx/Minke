@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    background: transparent;
+  }
+
+  body {
+    margin: 0;
+  }
+}

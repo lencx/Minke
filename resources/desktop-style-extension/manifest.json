@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Minke macOS Surface Bootstrap",
+  "version": "2.0.0",
+  "description": "Provides first-paint transparency and native drag regions for Minke.",
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ],
+      "css": [
+        "early.css"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}
