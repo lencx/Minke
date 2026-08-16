@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import Plus from "@lucide/icons/icons/plus";
-import X from "@lucide/icons/icons/x";
+import { Plus, X } from "@lucide/icons";
 import {
   LucideIcon,
 } from "./LucideIcon.tsx";

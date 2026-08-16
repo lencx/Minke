@@ -296,7 +296,7 @@ test("the shortcuts settings row receives the keyboard navigation icon", () => {
   );
   assert.match(
     shortcutStylesSource,
-    /import Keyboard from "@lucide\/icons\/icons\/keyboard";/u,
+    /import \{ Keyboard \} from "@lucide\/icons";/u,
   );
   assert.match(
     shortcutStylesSource,

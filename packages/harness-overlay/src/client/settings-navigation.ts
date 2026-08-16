@@ -6,11 +6,14 @@ export interface SettingsNavigationButton {
   toggleAttribute(name: string, force?: boolean): boolean | void;
 }
 
+export interface SettingsNavigationView {
+  readonly MutationObserver: typeof MutationObserver;
+  requestAnimationFrame(callback: FrameRequestCallback): number;
+  cancelAnimationFrame(handle: number): void;
+}
+
 export interface SettingsNavigationRoot {
-  defaultView?: Pick<
-    Window,
-    "MutationObserver" | "requestAnimationFrame" | "cancelAnimationFrame"
-  > | null;
+  defaultView?: SettingsNavigationView | null;
   documentElement?: Node;
   querySelectorAll(
     selector: string,

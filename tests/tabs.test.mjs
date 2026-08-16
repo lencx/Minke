@@ -588,7 +588,7 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   assert.match(webViewSource, /<ExternalIcon \/>/u);
   assert.match(
     webIconsSource,
-    /square-arrow-out-up-right/u,
+    /SquareArrowOutUpRight/u,
   );
   assert.doesNotMatch(webIconsSource, /external-link/u);
   assert.match(

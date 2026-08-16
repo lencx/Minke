@@ -140,6 +140,7 @@ export class WebTabsController {
     const originChanged =
       patch.url !== undefined &&
       tab.payload.url !== undefined &&
+      nextUrl !== undefined &&
       new URL(tab.payload.url).origin !== new URL(nextUrl).origin;
     const faviconUrl =
       patch.faviconUrl === undefined
@@ -161,7 +162,9 @@ export class WebTabsController {
       ...(nextUrl === undefined ? {} : { key: nextUrl }),
       ...(patch.title === undefined
         ? {}
-        : { title: readableWebTitle(patch.title, nextUrl) }),
+        : nextUrl === undefined
+          ? { title: patch.title }
+          : { title: readableWebTitle(patch.title, nextUrl) }),
       payload,
     });
   }

@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.client.json --noEmit && node ../../vendor/deepseek-harness/node_modules/typescript/bin/tsc -b tsconfig.host.json --pretty false"
+  },
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",

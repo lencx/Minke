@@ -2,6 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import * as LlmPiAi from "@deepseek-ai/dsh-llm-pi-ai";
+import type {} from "@deepseek-ai/dsh-subprocess";
 import z from "@deepseek-ai/schemastery";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -28,13 +29,21 @@ const lmStudioConfig: z<LmStudioRuntimeConfig> = z
     lifecycle: z
       .union(["external", "ensure-running", "managed"])
       .default("external"),
-    baseURL: z.string(),
-    command: z.string(),
-    apiKeyEnv: z.string().role("credential-ref"),
+    baseURL: z.string().default(""),
+    command: z.string().default(""),
+    apiKeyEnv: z.string().role("credential-ref").default(""),
     defaultContextWindow: z.number().step(1).min(1).default(32_768),
     defaultMaxTokens: z.number().step(1).min(1).default(8_192),
   })
-  .default({});
+  .default({
+    enabled: false,
+    lifecycle: "external",
+    baseURL: "",
+    command: "",
+    apiKeyEnv: "",
+    defaultContextWindow: 32_768,
+    defaultMaxTokens: 8_192,
+  });
 
 const openAICompatibleConfig: z<OpenAICompatibleRuntimeConfig> = z.object({
   id: z.string().required(),

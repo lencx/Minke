@@ -34,6 +34,11 @@ interface InlineStyleSnapshot {
   readonly priority: string;
 }
 
+type TabsPanelView = Window & {
+  readonly ResizeObserver: typeof ResizeObserver;
+  readonly MutationObserver: typeof MutationObserver;
+};
+
 /** One layer above the host shell overlay (`z-index: 20`). */
 const NATIVE_HANDLE_ACTIVE_Z_INDEX = "21";
 
@@ -65,7 +70,7 @@ export class TabsPanelResizeController {
   readonly #overlay: HTMLElement | undefined;
   readonly #detailsColumn: HTMLElement | undefined;
   readonly #frame: HTMLElement | undefined;
-  readonly #view: Window | null;
+  readonly #view: TabsPanelView | null;
   readonly #observer: ResizeObserver | undefined;
   readonly #mutationObserver: MutationObserver | undefined;
   #nativeHandle: HTMLElement | undefined;
@@ -82,23 +87,26 @@ export class TabsPanelResizeController {
       undefined;
     this.#detailsColumn = detailsColumnFor(panel);
     this.#frame = frameFor(panel);
-    this.#view = panel.ownerDocument.defaultView;
+    this.#view =
+      panel.ownerDocument.defaultView as TabsPanelView | null;
 
     if (
       this.#view !== null &&
       this.#frame !== undefined
     ) {
-      this.#observer = new this.#view.ResizeObserver(
+      const observer = new this.#view.ResizeObserver(
         this.#reconcile,
       );
+      this.#observer = observer;
       if (this.#detailsColumn !== undefined) {
-        this.#observer.observe(this.#detailsColumn);
+        observer.observe(this.#detailsColumn);
       }
-      this.#observer.observe(this.#frame);
-      this.#mutationObserver = new this.#view.MutationObserver(
+      observer.observe(this.#frame);
+      const mutationObserver = new this.#view.MutationObserver(
         this.#bindNativeHandle,
       );
-      this.#mutationObserver.observe(this.#frame, {
+      this.#mutationObserver = mutationObserver;
+      mutationObserver.observe(this.#frame, {
         childList: true,
       });
       this.#view.addEventListener("resize", this.#reconcile);

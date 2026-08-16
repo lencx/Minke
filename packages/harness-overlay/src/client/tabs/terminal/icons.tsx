@@ -1,4 +1,4 @@
-import SquareTerminal from "@lucide/icons/icons/square-terminal";
+import { SquareTerminal } from "@lucide/icons";
 import type {
   ReactNode,
 } from "react";

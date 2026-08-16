@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
-import ArrowLeft from "@lucide/icons/icons/arrow-left";
-import ArrowRight from "@lucide/icons/icons/arrow-right";
-import Globe from "@lucide/icons/icons/globe";
-import Puzzle from "@lucide/icons/icons/puzzle";
-import RotateCw from "@lucide/icons/icons/rotate-cw";
-import Square from "@lucide/icons/icons/square";
-import SquareArrowOutUpRight from "@lucide/icons/icons/square-arrow-out-up-right";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Globe,
+  Puzzle,
+  RotateCw,
+  Square,
+  SquareArrowOutUpRight,
+} from "@lucide/icons";
 import {
   LucideIcon,
 } from "@minke/harness-overlay/client/tabs/components/LucideIcon.tsx";

@@ -29,6 +29,12 @@ const INTERACTION_LAYER_SELECTOR = [
   '[role="menu"]',
 ].join(",");
 
+type DesktopSurfaceView = Window & {
+  readonly HTMLElement: typeof HTMLElement;
+  readonly HTMLButtonElement: typeof HTMLButtonElement;
+  readonly MutationObserver: typeof MutationObserver;
+};
+
 export const DESKTOP_SURFACE_STYLES = `
 #root :has(> [data-dsh-desktop-titlebar-anchor]),
 [data-dsh-desktop-base-surface] {
@@ -135,7 +141,7 @@ function installDesktopSurfaceStyles(root: Document): HTMLStyleElement {
   return style;
 }
 
-function markShell(root: Document, view: Window): void {
+function markShell(root: Document, view: DesktopSurfaceView): void {
   const overlay = root.querySelector("[data-shell-overlay]");
   const frame = overlay?.parentElement;
   if (frame === undefined || frame === null) return;
@@ -364,7 +370,7 @@ function clearDesktopMarkers(root: Document): void {
 export function installDesktopSurface(
   root: Document = document,
 ): () => void {
-  const view = root.defaultView;
+  const view = root.defaultView as DesktopSurfaceView | null;
   if (view === null) return () => {};
 
   const style = installDesktopSurfaceStyles(root);

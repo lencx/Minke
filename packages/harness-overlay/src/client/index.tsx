@@ -133,7 +133,19 @@ interface SlotService {
   register(
     options: {
       name: "shell.overlay";
-      id: string;
+      id: "minke-tabs-new-session-toggle";
+      order: number;
+      locale: string;
+      inject: () => {
+        runtime: TabsRuntime;
+      };
+    },
+    component: ComponentType<never>,
+  ): unknown;
+  register(
+    options: {
+      name: "shell.overlay";
+      id: "minke-tabs";
       order: number;
       locale: string;
       inject: () => {

@@ -1,5 +1,5 @@
 import { buildLucideDataUri } from "@lucide/icons/build";
-import SquareTerminal from "@lucide/icons/icons/square-terminal";
+import { SquareTerminal } from "@lucide/icons";
 import {
   installSettingsNavigationIcon,
   reconcileSettingsNavigationIcon,

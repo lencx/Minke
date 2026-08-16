@@ -1,5 +1,5 @@
 import { buildLucideDataUri } from "@lucide/icons/build";
-import Keyboard from "@lucide/icons/icons/keyboard";
+import { Keyboard } from "@lucide/icons";
 import {
   installSettingsNavigationIcon,
   reconcileSettingsNavigationIcon,

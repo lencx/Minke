@@ -1,6 +1,5 @@
 import { buildLucideDataUri } from "@lucide/icons/build";
-import FileDown from "@lucide/icons/icons/file-down";
-import PanelRight from "@lucide/icons/icons/panel-right";
+import { FileDown, PanelRight } from "@lucide/icons";
 import {
   createElement,
   useState,
