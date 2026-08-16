@@ -1,0 +1,379 @@
+export const TABS_PANEL_MIN_WIDTH = 300;
+export const TABS_PANEL_DEFAULT_WIDTH = 360;
+/** Harness currently owns the reflowing details track up to this width. */
+export const TABS_DETAILS_TRACK_MAX_WIDTH = 520;
+/** Tabs may continue over the conversation after the details track tops out. */
+export const TABS_PANEL_MAX_WIDTH = 760;
+export const TABS_PANEL_MIN_REMAINDER = 320;
+
+export function clampTabsPanelWidth(
+  requested: number,
+  viewport: number,
+): number {
+  const viewportMaximum = Math.max(
+    TABS_PANEL_MIN_WIDTH,
+    Math.round(viewport) - TABS_PANEL_MIN_REMAINDER,
+  );
+  const maximum = Math.min(
+    TABS_PANEL_MAX_WIDTH,
+    viewportMaximum,
+  );
+  return Math.min(
+    maximum,
+    Math.max(TABS_PANEL_MIN_WIDTH, Math.round(requested)),
+  );
+}
+
+interface DragOrigin {
+  readonly x: number;
+  readonly width: number;
+}
+
+interface InlineStyleSnapshot {
+  readonly value: string;
+  readonly priority: string;
+}
+
+/** One layer above the host shell overlay (`z-index: 20`). */
+const NATIVE_HANDLE_ACTIVE_Z_INDEX = "21";
+
+function detailsColumnFor(
+  panel: HTMLDivElement,
+): HTMLElement | undefined {
+  const detailsSlot = panel.ownerDocument.querySelector(
+    '[data-slot="details"]',
+  );
+  return detailsSlot?.parentElement ?? undefined;
+}
+
+function frameFor(
+  panel: HTMLDivElement,
+): HTMLElement | undefined {
+  const overlay = panel.closest<HTMLElement>(
+    "[data-shell-overlay]",
+  );
+  return overlay?.parentElement ?? undefined;
+}
+
+/**
+ * Extends the host details drag seamlessly beyond its 520px reflow limit.
+ * The host retains ownership of 300–520px; the Tabs surface overlays the
+ * conversation only for the newly widened 521–760px range.
+ */
+export class TabsPanelResizeController {
+  readonly #panel: HTMLDivElement;
+  readonly #overlay: HTMLElement | undefined;
+  readonly #detailsColumn: HTMLElement | undefined;
+  readonly #frame: HTMLElement | undefined;
+  readonly #view: Window | null;
+  readonly #observer: ResizeObserver | undefined;
+  readonly #mutationObserver: MutationObserver | undefined;
+  #nativeHandle: HTMLElement | undefined;
+  #nativeHandleZIndex: InlineStyleSnapshot | undefined;
+  #detachNative: (() => void) | undefined;
+  #nativeOrigin: DragOrigin | undefined;
+  #extendedOrigin: DragOrigin | undefined;
+  #extendedWidth: number | undefined;
+
+  constructor(panel: HTMLDivElement) {
+    this.#panel = panel;
+    this.#overlay =
+      panel.closest<HTMLElement>("[data-shell-overlay]") ??
+      undefined;
+    this.#detailsColumn = detailsColumnFor(panel);
+    this.#frame = frameFor(panel);
+    this.#view = panel.ownerDocument.defaultView;
+
+    if (
+      this.#view !== null &&
+      this.#frame !== undefined
+    ) {
+      this.#observer = new this.#view.ResizeObserver(
+        this.#reconcile,
+      );
+      if (this.#detailsColumn !== undefined) {
+        this.#observer.observe(this.#detailsColumn);
+      }
+      this.#observer.observe(this.#frame);
+      this.#mutationObserver = new this.#view.MutationObserver(
+        this.#bindNativeHandle,
+      );
+      this.#mutationObserver.observe(this.#frame, {
+        childList: true,
+      });
+      this.#view.addEventListener("resize", this.#reconcile);
+      this.#bindNativeHandle();
+    }
+    this.#reconcile();
+  }
+
+  beginExtendedDrag(clientX: number): void {
+    if (!this.#ownsResizeHandle()) return;
+    this.#extendedOrigin = {
+      x: clientX,
+      width:
+        this.#extendedWidth ?? this.#measuredTrackWidth(),
+    };
+    this.#panel.toggleAttribute("data-resizing", true);
+  }
+
+  moveExtendedDrag(clientX: number): void {
+    const origin = this.#extendedOrigin;
+    if (origin === undefined) return;
+    this.#setExtendedWidth(
+      origin.width - (clientX - origin.x),
+    );
+  }
+
+  endExtendedDrag(): void {
+    this.#extendedOrigin = undefined;
+    this.#panel.removeAttribute("data-resizing");
+  }
+
+  adjustExtendedWidth(delta: number): void {
+    const width =
+      this.#extendedWidth ?? this.#measuredTrackWidth();
+    this.#setExtendedWidth(width + delta);
+  }
+
+  sync(): void {
+    this.#reconcile();
+  }
+
+  dispose(): void {
+    this.#observer?.disconnect();
+    this.#mutationObserver?.disconnect();
+    this.#detachNative?.();
+    this.#view?.removeEventListener(
+      "resize",
+      this.#reconcile,
+    );
+    this.#panel.style.removeProperty(
+      "--minke-tabs-panel-width",
+    );
+    this.#overlay?.style.removeProperty(
+      "--minke-tabs-panel-width",
+    );
+    this.#panel.removeAttribute("data-extended");
+    this.#panel.removeAttribute("data-overlay");
+    this.#panel.removeAttribute("data-resizing");
+  }
+
+  readonly #bindNativeHandle = (): void => {
+    const next = Array.from(this.#frame?.children ?? []).find(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement &&
+        child.dataset.side === "details",
+    );
+    if (next === this.#nativeHandle) return;
+    this.#detachNative?.();
+    this.#nativeHandle = next;
+    if (next === undefined) {
+      this.#nativeHandleZIndex = undefined;
+      this.#detachNative = undefined;
+      this.#reconcile();
+      return;
+    }
+
+    const previousZIndex = {
+      value: next.style.getPropertyValue("z-index"),
+      priority: next.style.getPropertyPriority("z-index"),
+    };
+    this.#nativeHandleZIndex = previousZIndex;
+    next.addEventListener("pointerdown", this.#onNativeDown);
+    next.addEventListener("pointermove", this.#onNativeMove);
+    next.addEventListener("pointerup", this.#onNativeUp);
+    next.addEventListener("pointercancel", this.#onNativeCancel);
+    this.#detachNative = () => {
+      next.removeEventListener(
+        "pointerdown",
+        this.#onNativeDown,
+      );
+      next.removeEventListener(
+        "pointermove",
+        this.#onNativeMove,
+      );
+      next.removeEventListener("pointerup", this.#onNativeUp);
+      next.removeEventListener(
+        "pointercancel",
+        this.#onNativeCancel,
+      );
+      this.#restoreNativeHandleZIndex(next, previousZIndex);
+      if (this.#nativeHandle === next) {
+        this.#nativeHandleZIndex = undefined;
+      }
+    };
+    this.#syncNativeHandleStacking();
+    this.#reconcile();
+  };
+
+  #restoreNativeHandleZIndex(
+    handle: HTMLElement,
+    snapshot: InlineStyleSnapshot,
+  ): void {
+    if (snapshot.value === "") {
+      handle.style.removeProperty("z-index");
+      return;
+    }
+    handle.style.setProperty(
+      "z-index",
+      snapshot.value,
+      snapshot.priority,
+    );
+  }
+
+  #syncNativeHandleStacking(): void {
+    const handle = this.#nativeHandle;
+    const previous = this.#nativeHandleZIndex;
+    if (handle === undefined || previous === undefined) return;
+    const active =
+      this.#panel.hasAttribute("data-open") &&
+      !this.#panel.hasAttribute("data-extended");
+    if (active) {
+      handle.style.setProperty(
+        "z-index",
+        NATIVE_HANDLE_ACTIVE_Z_INDEX,
+      );
+      return;
+    }
+    this.#restoreNativeHandleZIndex(handle, previous);
+  }
+
+  readonly #onNativeDown = (event: PointerEvent): void => {
+    const measured = this.#measuredTrackWidth();
+    this.#nativeOrigin = {
+      x: event.clientX,
+      width: this.#extendedWidth ?? measured,
+    };
+  };
+
+  readonly #onNativeMove = (event: PointerEvent): void => {
+    const origin = this.#nativeOrigin;
+    if (origin === undefined) return;
+    const requested =
+      origin.width - (event.clientX - origin.x);
+    if (
+      requested > TABS_DETAILS_TRACK_MAX_WIDTH ||
+      origin.width > TABS_DETAILS_TRACK_MAX_WIDTH
+    ) {
+      this.#setExtendedWidth(requested);
+    }
+  };
+
+  readonly #onNativeUp = (event: PointerEvent): void => {
+    this.#onNativeMove(event);
+    this.#nativeOrigin = undefined;
+  };
+
+  readonly #onNativeCancel = (): void => {
+    this.#nativeOrigin = undefined;
+  };
+
+  #ownsResizeHandle(): boolean {
+    return (
+      this.#nativeHandle === undefined ||
+      this.#extendedWidth !== undefined
+    );
+  }
+
+  #setExtendedWidth(requested: number): void {
+    const next = clampTabsPanelWidth(
+      requested,
+      this.#viewportWidth(),
+    );
+    this.#extendedWidth =
+      this.#nativeHandle === undefined ||
+      next > TABS_DETAILS_TRACK_MAX_WIDTH
+        ? next
+        : undefined;
+    this.#reconcile();
+  }
+
+  #measuredTrackWidth(): number {
+    const measured = Math.round(
+      this.#detailsColumn?.getBoundingClientRect().width ?? 0,
+    );
+    return measured >= TABS_PANEL_MIN_WIDTH
+      ? measured
+      : Math.min(
+        TABS_PANEL_DEFAULT_WIDTH,
+        Math.max(
+          TABS_PANEL_MIN_WIDTH,
+          this.#viewportWidth() - 96,
+        ),
+      );
+  }
+
+  #viewportWidth(): number {
+    const measured =
+      this.#frame?.getBoundingClientRect().width ?? 0;
+    return measured > 0
+      ? measured
+      : this.#view?.innerWidth ?? TABS_PANEL_DEFAULT_WIDTH;
+  }
+
+  readonly #reconcile = (): void => {
+    const measured = this.#measuredTrackWidth();
+    if (this.#extendedWidth !== undefined) {
+      const clamped = clampTabsPanelWidth(
+        this.#extendedWidth,
+        this.#viewportWidth(),
+      );
+      this.#extendedWidth =
+        this.#nativeHandle === undefined ||
+        clamped > TABS_DETAILS_TRACK_MAX_WIDTH
+          ? clamped
+          : undefined;
+    }
+    const width = this.#extendedWidth ?? measured;
+    this.#panel.style.setProperty(
+      "--minke-tabs-panel-width",
+      `${width}px`,
+    );
+    this.#overlay?.style.setProperty(
+      "--minke-tabs-panel-width",
+      `${width}px`,
+    );
+    const extended =
+      this.#extendedWidth !== undefined &&
+      this.#extendedWidth > TABS_DETAILS_TRACK_MAX_WIDTH;
+    const overlayOwned = this.#nativeHandle === undefined;
+    const ownsResizeHandle = this.#ownsResizeHandle();
+    this.#panel.toggleAttribute("data-extended", extended);
+    this.#syncNativeHandleStacking();
+    this.#panel.toggleAttribute(
+      "data-overlay",
+      overlayOwned ||
+        measured < TABS_PANEL_MIN_WIDTH ||
+        extended,
+    );
+
+    const handle = this.#panel.querySelector<HTMLElement>(
+      ".minke-tabs-resize-handle",
+    );
+    if (handle === null) return;
+    handle.tabIndex =
+      ownsResizeHandle &&
+      this.#panel.hasAttribute("data-open")
+        ? 0
+        : -1;
+    handle.setAttribute(
+      "aria-valuemin",
+      String(
+        overlayOwned
+          ? TABS_PANEL_MIN_WIDTH
+          : TABS_DETAILS_TRACK_MAX_WIDTH,
+      ),
+    );
+    handle.setAttribute(
+      "aria-valuemax",
+      String(
+        clampTabsPanelWidth(
+          TABS_PANEL_MAX_WIDTH,
+          this.#viewportWidth(),
+        ),
+      ),
+    );
+    handle.setAttribute("aria-valuenow", String(width));
+  };
+}

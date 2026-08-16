@@ -133,6 +133,14 @@ export class ShortcutRuntime {
     };
   }
 
+  /** Run one registered action through the same path used by key events. */
+  invoke(id: string): boolean {
+    const action = this.#actions.get(id);
+    if (action === undefined) return false;
+    action.run();
+    return true;
+  }
+
   listActions(): readonly ShortcutActionView[] {
     const actions = [...this.#actions.values()];
     return actions
@@ -308,7 +316,7 @@ export class ShortcutRuntime {
     const match = matches[0];
     if (matches.length !== 1 || match === undefined) return;
     event.preventDefault();
-    match.run();
+    this.invoke(match.id);
   }
 
   #publish(): void {

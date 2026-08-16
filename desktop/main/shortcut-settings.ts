@@ -83,6 +83,7 @@ export function bindShortcutSettingsIpc(
   ipcMain: IpcMainLike,
   store: ShortcutSettingsStore,
   authorize: (event: unknown) => boolean,
+  onWrite?: (bindings: ShortcutBindings) => void,
 ): ShortcutSettingsBinding {
   const read = async (event: unknown): Promise<ShortcutBindings> => {
     assertAuthorized(authorize, event);
@@ -93,7 +94,9 @@ export function bindShortcutSettingsIpc(
     value: unknown,
   ): Promise<void> => {
     assertAuthorized(authorize, event);
-    await store.write(value);
+    const bindings = parseShortcutBindings(value);
+    await store.write(bindings);
+    onWrite?.(bindings);
   };
   ipcMain.handle(SHORTCUT_SETTINGS_READ_CHANNEL, read);
   ipcMain.handle(SHORTCUT_SETTINGS_WRITE_CHANNEL, write);

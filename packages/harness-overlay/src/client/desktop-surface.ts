@@ -5,6 +5,7 @@ const DESKTOP_MARKERS = [
   "data-dsh-desktop-base-surface",
   "data-dsh-desktop-sidebar-fade",
   "data-dsh-desktop-hero-glow",
+  "data-dsh-desktop-resize-handle",
 ] as const;
 
 const DESKTOP_MARKER_SELECTOR = DESKTOP_MARKERS
@@ -13,6 +14,8 @@ const DESKTOP_MARKER_SELECTOR = DESKTOP_MARKERS
 
 const DESKTOP_DRAG_ENABLED_ATTRIBUTE =
   "data-dsh-desktop-drag-enabled";
+const DESKTOP_RESIZE_HANDLE_SELECTOR =
+  "[data-dsh-desktop-resize-handle]";
 const DESKTOP_DRAG_TARGET_SELECTOR = [
   '[data-slot="conversation.session.header"]',
   "[data-dsh-desktop-titlebar-anchor]",
@@ -46,6 +49,11 @@ export const DESKTOP_SURFACE_STYLES = `
 }
 
 [data-slot="conversation.session.header"] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+[data-dsh-desktop-resize-handle] {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -156,6 +164,19 @@ function markShell(root: Document, view: Window): void {
   const detailsSurface = detailsSlot?.firstElementChild;
   if (detailsSurface instanceof view.HTMLElement) {
     detailsSurface.setAttribute("data-dsh-desktop-base-surface", "");
+  }
+
+  for (const candidate of frame.children) {
+    if (
+      candidate instanceof view.HTMLElement &&
+      (candidate.dataset.side === "sidebar" ||
+        candidate.dataset.side === "details")
+    ) {
+      candidate.setAttribute(
+        "data-dsh-desktop-resize-handle",
+        "",
+      );
+    }
   }
 
   if (sidebarRoot instanceof view.HTMLElement) {
@@ -289,6 +310,7 @@ function hasOccludedDragTarget(
         const top = root.elementFromPoint(x, y);
         if (
           top !== null &&
+          top.closest(DESKTOP_RESIZE_HANDLE_SELECTOR) === null &&
           !targets.some(
             (candidate) =>
               candidate.contains(top) || top.contains(candidate),

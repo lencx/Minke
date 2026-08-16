@@ -73,6 +73,20 @@ const KEY_LABELS: Readonly<Record<string, string>> = {
   PageUp: "PgUp",
   PageDown: "PgDn",
 };
+const APPLE_MODIFIER_LABELS: Readonly<Record<string, string>> = {
+  Mod: "⌘",
+  Ctrl: "⌃",
+  Meta: "⌘",
+  Alt: "⌥",
+  Shift: "⇧",
+};
+const OTHER_MODIFIER_LABELS: Readonly<Record<string, string>> = {
+  Mod: "Ctrl",
+  Ctrl: "Ctrl",
+  Meta: "Meta",
+  Alt: "Alt",
+  Shift: "Shift",
+};
 
 /** Detect the browser platform used for logical Mod semantics. */
 export function detectShortcutPlatform(): ShortcutPlatform {
@@ -126,34 +140,29 @@ export function shortcutBindingFromEvent(
   return key === null ? null : [...modifiers, key].join("+");
 }
 
-/** Format a canonical shortcut for the active platform. */
+/** Split a canonical shortcut into platform-native keys for visual keycaps. */
+export function formatShortcutBindingParts(
+  binding: string,
+  platform: ShortcutPlatform,
+): readonly string[] {
+  const parts = binding.split("+");
+  const key = parts.pop() ?? "";
+  const labels = platform === "apple"
+    ? APPLE_MODIFIER_LABELS
+    : OTHER_MODIFIER_LABELS;
+  return [
+    ...parts.map((part) => labels[part] ?? part),
+    KEY_LABELS[key] ?? key,
+  ];
+}
+
+/** Format a canonical shortcut for compact text and assistive output. */
 export function formatShortcutBinding(
   binding: string,
   platform: ShortcutPlatform,
 ): string {
-  const parts = binding.split("+");
-  const key = parts.pop() ?? "";
-  if (platform === "apple") {
-    const glyphs: Readonly<Record<string, string>> = {
-      Mod: "⌘",
-      Ctrl: "⌃",
-      Meta: "⌘",
-      Alt: "⌥",
-      Shift: "⇧",
-    };
-    return `${parts.map((part) => glyphs[part] ?? part).join("")}${
-      KEY_LABELS[key] ?? key
-    }`;
-  }
-  const labels: Readonly<Record<string, string>> = {
-    Mod: "Ctrl",
-    Ctrl: "Ctrl",
-    Meta: "Meta",
-    Alt: "Alt",
-    Shift: "Shift",
-  };
-  return [...parts.map((part) => labels[part] ?? part), KEY_LABELS[key] ?? key]
-    .join(" + ");
+  const parts = formatShortcutBindingParts(binding, platform);
+  return parts.join(platform === "apple" ? "" : " + ");
 }
 
 function normalizeKey(key: string): string | null {

@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
 } from "react";
 import {
-  formatShortcutBinding,
+  formatShortcutBindingParts,
   shortcutBindingFromEvent,
   type ShortcutPlatform,
 } from "./binding.ts";
@@ -13,6 +13,9 @@ import type { ShortcutSectionState } from "./projection.ts";
 import type {
   ShortcutMutationResult,
 } from "./runtime.ts";
+import {
+  installShortcutRecordingEscapeGuard,
+} from "./shortcut-recording.ts";
 
 export interface ShortcutSectionProps {
   useShortcuts: <T>(
@@ -44,6 +47,14 @@ export function ShortcutSection({
   const labels = new Map(
     state.actions.map((action) => [action.id, action.label]),
   );
+
+  useEffect(() => {
+    if (recording === null) return;
+    return installShortcutRecordingEscapeGuard(window, () => {
+      setRecording(null);
+      setConflict(null);
+    });
+  }, [recording]);
 
   const settle = (
     id: string,
@@ -109,10 +120,10 @@ export function ShortcutSection({
       <div className="minke-shortcuts__rows">
         {state.actions.map((action) => {
           const active = recording === action.id;
-          const display =
+          const displayParts =
             action.binding === null
-              ? t("unassigned")
-              : formatShortcutBinding(action.binding, platform);
+              ? undefined
+              : formatShortcutBindingParts(action.binding, platform);
           const runtimeConflict = action.conflicts[0];
           const conflictId =
             conflict?.id === action.id
@@ -168,7 +179,22 @@ export function ShortcutSection({
                     : undefined
                 }
               >
-                {active ? t("recording") : display}
+                {active ? (
+                  t("recording")
+                ) : displayParts === undefined ? (
+                  t("unassigned")
+                ) : (
+                  <span className="minke-shortcuts__keycaps">
+                    {displayParts.map((key, index) => (
+                      <kbd
+                        key={`${key}-${String(index)}`}
+                        className="minke-shortcuts__key"
+                      >
+                        {key}
+                      </kbd>
+                    ))}
+                  </span>
+                )}
               </button>
               <button
                 type="button"

@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   nativeImage,
   nativeTheme,
   session,
@@ -10,6 +11,7 @@ import {
   Tray,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  type SaveDialogOptions,
   type WebContents,
 } from "electron";
 import started from "electron-squirrel-startup";
@@ -25,6 +27,14 @@ import {
   type DesktopLocale,
 } from "../locale-contract";
 import {
+  TABS_WEB_PARTITION,
+} from "../../packages/harness-overlay/src/tabs/contract";
+import {
+  SHORTCUT_INVOKE_CHANNEL,
+  type ProductShortcutActionId,
+  type ShortcutBindings,
+} from "../../packages/harness-overlay/src/shortcut-contract";
+import {
   HarnessRuntime,
   type HarnessRuntimeExit,
 } from "./harness-runtime";
@@ -32,12 +42,30 @@ import {
   macOSWindowOptions,
 } from "./macos-window";
 import { bindMacOSWindowButtonSpacing } from "./macos-window-controls";
+import { bindMainWindowDevToolsShortcut } from "./main-window-devtools";
 import { isInternalNavigation } from "./navigation-policy";
+import {
+  bindShortcutMenu,
+  type ShortcutMenuBinding,
+} from "./shortcut-menu";
 import {
   bindShortcutSettingsIpc,
   ShortcutSettingsStore,
   type ShortcutSettingsBinding,
 } from "./shortcut-settings";
+import {
+  bindTerminalSettingsIpc,
+  TerminalSettingsStore,
+  type TerminalSettingsBinding,
+} from "./terminal-settings";
+import {
+  bindSessionLogExport,
+  type SessionLogExportBinding,
+} from "./session-export";
+import {
+  bindTabs,
+  type TabsBinding,
+} from "./tabs";
 import { bindWindowLocale } from "./window-locale";
 import { bindWindowTheme } from "./window-theme";
 
@@ -50,7 +78,11 @@ let harnessUrl: string | undefined;
 let quitting = false;
 let shutdownStarted = false;
 let recovering = false;
+let shortcutMenuBinding: ShortcutMenuBinding | undefined;
 let shortcutSettingsBinding: ShortcutSettingsBinding | undefined;
+let terminalSettingsBinding: TerminalSettingsBinding | undefined;
+let sessionLogExportBinding: SessionLogExportBinding | undefined;
+let tabsBinding: TabsBinding | undefined;
 let desktopLocale: DesktopLocaleRuntime | undefined;
 let appTray: Tray | undefined;
 
@@ -64,6 +96,28 @@ function desktopText(
 ): string {
   return desktopLocale?.t(key, params) ??
     translateDesktop("en", key, params);
+}
+
+function sessionExportSaveDialogOptions(
+  suggestedFilename: string,
+): SaveDialogOptions {
+  return {
+    title: desktopText("sessionExport.saveDialogTitle"),
+    defaultPath: join(
+      app.getPath("downloads"),
+      suggestedFilename,
+    ),
+    filters: [
+      {
+        name: desktopText("sessionExport.zipFilter"),
+        extensions: ["zip"],
+      },
+    ],
+    properties: [
+      "createDirectory",
+      "showOverwriteConfirmation",
+    ],
+  };
 }
 
 function runtimeRoot(): string {
@@ -102,6 +156,24 @@ function showMainWindow(): void {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+async function invokeShortcutAction(
+  id: ProductShortcutActionId,
+): Promise<void> {
+  const window = mainWindow ?? await createWindow();
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+  if (
+    harnessUrl !== undefined &&
+    !isHarnessUrl(window.webContents.getURL())
+  ) {
+    await window.loadURL(harnessUrl);
+  }
+  if (!isHarnessUrl(window.webContents.getURL())) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+  window.webContents.send(SHORTCUT_INVOKE_CHANNEL, id);
 }
 
 function installMacOSTray(): void {
@@ -192,8 +264,6 @@ function protectNavigation(webContents: WebContents): void {
     }
     return { action: "deny" };
   });
-
-  webContents.on("will-attach-webview", (event) => event.preventDefault());
 }
 
 async function createWindow(): Promise<BrowserWindow> {
@@ -213,12 +283,14 @@ async function createWindow(): Promise<BrowserWindow> {
       preload: join(__dirname, "desktop-preload.js"),
       sandbox: true,
       webSecurity: true,
+      webviewTag: true,
       transparent: process.platform === "darwin",
     },
   });
   const windowButtonSpacing = process.platform === "darwin"
     ? bindMacOSWindowButtonSpacing(window, { platform: process.platform })
     : undefined;
+  bindMainWindowDevToolsShortcut(Menu);
   const windowTheme = bindWindowTheme(window, nativeTheme);
   const localeRuntime = desktopLocale;
   if (localeRuntime === undefined) {
@@ -237,10 +309,71 @@ async function createWindow(): Promise<BrowserWindow> {
     },
   );
   mainWindow = window;
+  shortcutMenuBinding?.refreshBaseMenu();
   protectNavigation(window.webContents);
+  tabsBinding = bindTabs(
+    ipcMain,
+    window.webContents,
+    shell,
+    (candidate) => (
+      candidate.sender === window.webContents &&
+      candidate.senderFrame !== null &&
+      isHarnessUrl(candidate.senderFrame.url)
+    ),
+    {
+      runtimeRoot: runtimeRoot(),
+      defaultCwd: app.getPath("home"),
+    },
+  );
+  sessionLogExportBinding = bindSessionLogExport(
+    ipcMain,
+    window.webContents.session,
+    window.webContents,
+    shell,
+    {
+      authorize: (candidate) => (
+        candidate.sender === window.webContents &&
+        candidate.senderFrame !== null &&
+        isHarnessUrl(candidate.senderFrame.url)
+      ),
+      harnessUrl: () => harnessUrl,
+      async chooseDestination(suggestedFilename) {
+        const result = await dialog.showSaveDialog(
+          window,
+          sessionExportSaveDialogOptions(suggestedFilename),
+        );
+        return result.canceled || result.filePath === ""
+          ? undefined
+          : result.filePath;
+      },
+      saveDialogOptions: sessionExportSaveDialogOptions,
+      reportError(error) {
+        void dialog
+          .showMessageBox(window, {
+            type: "error",
+            title: desktopText("sessionExport.failedTitle"),
+            message: desktopText("sessionExport.failedMessage"),
+            detail: error.message,
+            buttons: [desktopText("sessionExport.ok")],
+            defaultId: 0,
+            noLink: true,
+          })
+          .catch((dialogError: unknown) => {
+            console.error(
+              "Unable to show Session export error:",
+              dialogError,
+            );
+          });
+      },
+    },
+  );
   window.once("ready-to-show", () => window.show());
   window.once("closed", () => {
     windowButtonSpacing?.dispose();
+    sessionLogExportBinding?.dispose();
+    sessionLogExportBinding = undefined;
+    tabsBinding?.dispose();
+    tabsBinding = undefined;
     windowLocale.dispose();
     windowTheme.dispose();
     if (mainWindow === window) mainWindow = undefined;
@@ -262,6 +395,14 @@ function installPermissionPolicy(): void {
   session.defaultSession.setPermissionRequestHandler(
     (_webContents, _permission, callback, details) =>
       callback(allows(details.requestingUrl)),
+  );
+
+  const tabsWebSession = session.fromPartition(
+    TABS_WEB_PARTITION,
+  );
+  tabsWebSession.setPermissionCheckHandler(() => false);
+  tabsWebSession.setPermissionRequestHandler(
+    (_webContents, _permission, callback) => callback(false),
   );
 }
 
@@ -337,14 +478,45 @@ async function bootstrap(): Promise<void> {
   );
   await installMacOSSurfaceBootstrap();
   installPermissionPolicy();
-  await createWindow();
-  installMacOSTray();
   const shortcutStore = new ShortcutSettingsStore(
     join(app.getPath("userData"), "settings", "shortcuts.json"),
+  );
+  const terminalSettingsStore = new TerminalSettingsStore(
+    join(app.getPath("userData"), "settings", "terminal.json"),
+  );
+  let shortcutBindings: ShortcutBindings = {};
+  try {
+    shortcutBindings = await shortcutStore.read();
+  } catch (error) {
+    console.error("Unable to read native shortcut menu settings:", error);
+  }
+  await createWindow();
+  installMacOSTray();
+  shortcutMenuBinding = bindShortcutMenu(
+    Menu,
+    desktopLocale,
+    shortcutBindings,
+    (id) => {
+      void invokeShortcutAction(id);
+    },
   );
   shortcutSettingsBinding = bindShortcutSettingsIpc(
     ipcMain,
     shortcutStore,
+    (candidate) => {
+      const event = candidate as IpcMainInvokeEvent;
+      return (
+        mainWindow !== undefined &&
+        event.sender === mainWindow.webContents &&
+        event.senderFrame !== null &&
+        isHarnessUrl(event.senderFrame.url)
+      );
+    },
+    (bindings) => shortcutMenuBinding?.updateBindings(bindings),
+  );
+  terminalSettingsBinding = bindTerminalSettingsIpc(
+    ipcMain,
+    terminalSettingsStore,
     (candidate) => {
       const event = candidate as IpcMainInvokeEvent;
       return (
@@ -373,8 +545,12 @@ app.on("before-quit", (event) => {
   quitting = true;
   appTray?.destroy();
   appTray = undefined;
+  shortcutMenuBinding?.dispose();
+  shortcutMenuBinding = undefined;
   shortcutSettingsBinding?.dispose();
   shortcutSettingsBinding = undefined;
+  terminalSettingsBinding?.dispose();
+  terminalSettingsBinding = undefined;
   if (shutdownStarted || runtime === undefined) return;
   event.preventDefault();
   shutdownStarted = true;

@@ -7,7 +7,7 @@ import type {
 
 const nativeRequire = createRequire(__filename);
 
-export const MACOS_WINDOW_BUTTON_SIZE = 12;
+export const MACOS_WINDOW_BUTTON_SIZE = 10;
 export const MACOS_WINDOW_BUTTON_CENTER_PITCH = 14;
 
 export type MacOSWindowButtonNativeAdapter = Readonly<{

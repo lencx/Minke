@@ -4,6 +4,20 @@ export const SHORTCUT_SETTINGS_READ_CHANNEL =
   "minke:shortcut-settings:read";
 export const SHORTCUT_SETTINGS_WRITE_CHANNEL =
   "minke:shortcut-settings:write";
+export const SHORTCUT_INVOKE_CHANNEL = "minke:shortcut:invoke";
+
+export const DEFAULT_SHORTCUT_BINDINGS = Object.freeze({
+  "settings.open": "Mod+Comma",
+  "session.new": "Mod+N",
+  "sidebar.toggle": "Mod+S",
+} as const);
+
+export type ProductShortcutActionId =
+  keyof typeof DEFAULT_SHORTCUT_BINDINGS;
+
+const PRODUCT_SHORTCUT_ACTION_IDS = new Set<string>(
+  Object.keys(DEFAULT_SHORTCUT_BINDINGS),
+);
 
 export const SHORTCUT_DOCUMENT_VERSION = 1;
 export const MAX_SHORTCUT_ACTIONS = 128;
@@ -56,6 +70,16 @@ export type ShortcutBindings = Record<string, string>;
 export interface ShortcutSettingsDocument {
   version: typeof SHORTCUT_DOCUMENT_VERSION;
   bindings: ShortcutBindings;
+}
+
+/** Narrow untrusted native-menu messages to Minke-owned shortcut actions. */
+export function isProductShortcutActionId(
+  value: unknown,
+): value is ProductShortcutActionId {
+  return (
+    typeof value === "string" &&
+    PRODUCT_SHORTCUT_ACTION_IDS.has(value)
+  );
 }
 
 /** Return whether a value is one canonical enabled binding. */

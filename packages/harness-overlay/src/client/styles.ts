@@ -1,4 +1,14 @@
-import { KEYBOARD_ICON_DATA_URL } from "./icons/data.ts";
+import { buildLucideDataUri } from "@lucide/icons/build";
+import Keyboard from "@lucide/icons/icons/keyboard";
+import {
+  installSettingsNavigationIcon,
+  reconcileSettingsNavigationIcon,
+  type SettingsNavigationRoot,
+} from "./settings-navigation.ts";
+
+const SHORTCUT_NAV_ICON_DATA_URL = buildLucideDataUri(Keyboard, {
+  size: 16,
+});
 
 export const SHORTCUT_STYLES = `
 .minke-shortcuts {
@@ -78,12 +88,47 @@ export const SHORTCUT_STYLES = `
   cursor: pointer;
 }
 .minke-shortcuts__binding {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 150px;
   font-family: var(--ds-font-family-code);
+}
+.minke-shortcuts__keycaps {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.minke-shortcuts__key {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-module-platform);
+  box-shadow: 0 1px 2px
+    color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
 }
 .minke-shortcuts__binding:hover,
 .minke-shortcuts__reset:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+.minke-shortcuts__binding:focus-visible,
+.minke-shortcuts__reset:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
 }
 .minke-shortcuts__binding--recording {
   border-color: var(--dsw-alias-brand-primary);
@@ -104,7 +149,7 @@ export const SHORTCUT_STYLES = `
   display: none !important;
 }
 [data-minke-shortcuts-nav]::before {
-  --minke-shortcuts-nav-icon: url("${KEYBOARD_ICON_DATA_URL}");
+  --minke-shortcuts-nav-icon: url("${SHORTCUT_NAV_ICON_DATA_URL}");
   content: "";
   flex: none;
   width: 16px;
@@ -125,36 +170,16 @@ export const SHORTCUT_STYLES = `
 `;
 
 const SHORTCUT_NAV_MARKER = "data-minke-shortcuts-nav";
-const SHORTCUT_NAV_BUTTON_SELECTOR = '[role="dialog"] nav button';
-const SHORTCUT_NAV_LABEL_SELECTOR = ":scope > span:last-child";
-
-interface ShortcutNavigationButton {
-  querySelector(selector: string): { textContent: string | null } | null;
-  toggleAttribute(name: string, force?: boolean): boolean | void;
-}
-
-interface ShortcutNavigationRoot {
-  querySelectorAll(selector: string): Iterable<ShortcutNavigationButton>;
-}
 
 /**
  * Mark the localized shortcuts navigation row without depending on its order
  * or on Harness's private CSS-module class names.
  */
 export function reconcileShortcutNavigationIcon(
-  root: ShortcutNavigationRoot,
+  root: SettingsNavigationRoot,
   label: string,
 ): void {
-  for (const button of root.querySelectorAll(SHORTCUT_NAV_BUTTON_SELECTOR)) {
-    const rowLabel = button
-      .querySelector(SHORTCUT_NAV_LABEL_SELECTOR)
-      ?.textContent
-      ?.trim();
-    button.toggleAttribute(
-      SHORTCUT_NAV_MARKER,
-      rowLabel === label,
-    );
-  }
+  reconcileSettingsNavigationIcon(root, SHORTCUT_NAV_MARKER, label);
 }
 
 /**
@@ -163,40 +188,13 @@ export function reconcileShortcutNavigationIcon(
  */
 export function installShortcutNavigationIcon(
   label: () => string,
-  root: Document = document,
+  root: SettingsNavigationRoot = document,
 ): () => void {
-  const view = root.defaultView;
-  if (view === null) return () => {};
-
-  let frame: number | undefined;
-  let disposed = false;
-  const reconcile = (): void => {
-    frame = undefined;
-    if (disposed) return;
-    reconcileShortcutNavigationIcon(root, label());
-  };
-  const scheduleReconcile = (): void => {
-    if (disposed || frame !== undefined) return;
-    frame = view.requestAnimationFrame(reconcile);
-  };
-
-  const observer = new view.MutationObserver(scheduleReconcile);
-  observer.observe(root.documentElement, {
-    childList: true,
-    characterData: true,
-    subtree: true,
-  });
-  scheduleReconcile();
-
-  return () => {
-    disposed = true;
-    observer.disconnect();
-    if (frame !== undefined) {
-      view.cancelAnimationFrame(frame);
-      frame = undefined;
-    }
-    reconcileShortcutNavigationIcon(root, "\u0000");
-  };
+  return installSettingsNavigationIcon(
+    SHORTCUT_NAV_MARKER,
+    label,
+    root,
+  );
 }
 
 /** Install one plugin-owned stylesheet and return its disposer. */

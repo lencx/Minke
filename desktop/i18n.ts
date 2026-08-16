@@ -10,6 +10,16 @@ const zh = {
   "runtime.quit": "退出 Minke",
   "runtime.restartFailedTitle": "无法重新启动 DeepSeek Harness",
   "runtime.startupFailedTitle": "Minke 启动失败",
+  "menu.file": "文件",
+  "menu.view": "视图",
+  "menu.settings": "设置…",
+  "menu.newSession": "新建会话",
+  "menu.toggleSidebar": "展开或折叠左侧栏",
+  "sessionExport.saveDialogTitle": "导出 Session 日志",
+  "sessionExport.zipFilter": "ZIP 归档",
+  "sessionExport.failedTitle": "无法导出 Session 日志",
+  "sessionExport.failedMessage": "Session 日志导出失败。",
+  "sessionExport.ok": "确定",
 } as const;
 
 export type DesktopMessageKey = keyof typeof zh;
@@ -26,6 +36,17 @@ const en: Record<DesktopMessageKey, string> = {
   "runtime.restartFailedTitle":
     "Unable to restart DeepSeek Harness",
   "runtime.startupFailedTitle": "Minke failed to start",
+  "menu.file": "File",
+  "menu.view": "View",
+  "menu.settings": "Settings…",
+  "menu.newSession": "New Session",
+  "menu.toggleSidebar": "Toggle Sidebar",
+  "sessionExport.saveDialogTitle": "Export Session log",
+  "sessionExport.zipFilter": "ZIP archives",
+  "sessionExport.failedTitle": "Unable to export Session log",
+  "sessionExport.failedMessage":
+    "The Session log could not be exported.",
+  "sessionExport.ok": "OK",
 };
 
 export const desktopDictionaries = Object.freeze({
