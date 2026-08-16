@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-desktop-external-web-plugin
+      name: '@dsh-desktop/smoke-web-plugin'
