@@ -12,6 +12,10 @@ import {
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  harnessWebArguments,
+  readHarnessRuntimeLayout,
+} from "../../desktop/main/harness-launch.ts";
 import { verifyHarnessContract } from "./contract.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -138,23 +142,12 @@ async function waitForChangedRevision(baseUrl, pluginId, initialRevision) {
 
 async function startServer(
   electronExecutable,
-  entryPath,
-  productPatch,
+  runtimeLayout,
   env,
 ) {
   const child = spawn(
     electronExecutable,
-    [
-      "--expose-internals",
-      entryPath,
-      "web",
-      "--patch",
-      productPatch,
-      "--host",
-      "127.0.0.1",
-      "--port",
-      "0",
-    ],
+    harnessWebArguments(runtimeLayout),
     {
       cwd: projectRoot,
       detached: process.platform !== "win32",
@@ -237,22 +230,20 @@ async function main() {
   const electronExecutable = packaged
     ? join(packagedAppRoot, "Contents", "MacOS", "Minke")
     : require("electron");
-  const entryPath = join(runtimeRoot, "index.mjs");
-  const pnpmEntry = join(
-    runtimeRoot,
-    "node_modules",
-    "pnpm",
-    "bin",
-    "pnpm.cjs",
-  );
-  const productPackageName = verified.productBundle.bundle.packageName;
-  const productPatch = join(
-    runtimeRoot,
-    "node_modules",
-    ...productPackageName.split("/"),
-    verified.productBundle.bundle.patch,
-  );
-  const runtimeBin = join(runtimeRoot, "bin");
+  const runtimeLayout = await readHarnessRuntimeLayout(runtimeRoot);
+  const {
+    entryPath,
+    pnpmEntry,
+    productPackageName,
+    runtimeBin,
+  } = runtimeLayout;
+  if (
+    productPackageName !== verified.productBundle.bundle.packageName
+  ) {
+    throw new Error(
+      `staged product bundle ${productPackageName} does not match ${verified.productBundle.bundle.packageName}`,
+    );
+  }
   const temporaryRoot = await mkdtemp(join(tmpdir(), "dsh-runtime-smoke-"));
   const harnessHome = join(temporaryRoot, "home");
   const negativeHome = join(temporaryRoot, "negative-home");
@@ -336,8 +327,7 @@ async function main() {
 
     server = await startServer(
       electronExecutable,
-      entryPath,
-      productPatch,
+      runtimeLayout,
       env,
     );
     const manifest = await fetchManifest(server.baseUrl);

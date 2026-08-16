@@ -1,6 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, mkdir, readFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { access, mkdir } from "node:fs/promises";
+import { delimiter } from "node:path";
+import {
+  harnessWebArguments,
+  readHarnessRuntimeLayout,
+} from "./harness-launch";
 
 const READY_PATTERN = /dsh web:\s+(http:\/\/127\.0\.0\.1:\d+)/u;
 const MAX_CAPTURED_OUTPUT = 64 * 1024;
@@ -43,21 +47,12 @@ export class HarnessRuntime {
       throw new Error("Harness runtime is already running");
     }
 
-    const entryPath = join(this.#options.runtimeRoot, "index.mjs");
-    const pnpmEntry = join(
-      this.#options.runtimeRoot,
-      "node_modules",
-      "pnpm",
-      "bin",
-      "pnpm.cjs",
-    );
-    const runtimeBin = join(this.#options.runtimeRoot, "bin");
-    const productPatch = await readProductPatchPath(this.#options.runtimeRoot);
+    const layout = await readHarnessRuntimeLayout(this.#options.runtimeRoot);
     await Promise.all([
-      access(entryPath),
-      access(pnpmEntry),
-      access(runtimeBin),
-      access(productPatch),
+      access(layout.entryPath),
+      access(layout.pnpmEntry),
+      access(layout.runtimeBin),
+      access(layout.productPatch),
     ]);
     await mkdir(this.#options.dataRoot, { recursive: true });
 
@@ -67,17 +62,7 @@ export class HarnessRuntime {
 
     const child = spawn(
       this.#options.electronExecutable,
-      [
-        "--expose-internals",
-        entryPath,
-        "web",
-        "--patch",
-        productPatch,
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "0",
-      ],
+      harnessWebArguments(layout),
       {
         cwd: this.#options.dataRoot,
         detached: process.platform !== "win32",
@@ -85,9 +70,11 @@ export class HarnessRuntime {
           ...process.env,
           DSH_ELECTRON_EXECUTABLE: this.#options.electronExecutable,
           DSH_HOME: this.#options.dataRoot,
-          DSH_PNPM_ENTRY: pnpmEntry,
+          DSH_PNPM_ENTRY: layout.pnpmEntry,
           ELECTRON_RUN_AS_NODE: "1",
-          PATH: [runtimeBin, process.env.PATH].filter(Boolean).join(delimiter),
+          PATH: [layout.runtimeBin, process.env.PATH]
+            .filter(Boolean)
+            .join(delimiter),
         },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
@@ -222,33 +209,6 @@ export class HarnessRuntime {
       child.once("exit", onExit);
     });
   }
-}
-
-async function readProductPatchPath(runtimeRoot: string): Promise<string> {
-  const metadata = JSON.parse(
-    await readFile(join(runtimeRoot, "dsh-runtime.json"), "utf8"),
-  ) as {
-    productBundle?: {
-      packageName?: unknown;
-      patch?: unknown;
-    };
-  };
-  const packageName = metadata.productBundle?.packageName;
-  const patch = metadata.productBundle?.patch;
-  if (
-    typeof packageName !== "string" ||
-    !/^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/u.test(packageName) ||
-    typeof patch !== "string" ||
-    !/^[a-z0-9][a-z0-9._-]*$/u.test(patch)
-  ) {
-    throw new Error("staged Harness runtime has invalid product bundle metadata");
-  }
-  return join(
-    runtimeRoot,
-    "node_modules",
-    ...packageName.split("/"),
-    patch,
-  );
 }
 
 function validateReadyUrl(value: string): string {

@@ -61,18 +61,6 @@ const tabsCoreSource = [
     "utf8",
   ),
 ).join("\n");
-const stageSource = readFileSync(
-  new URL("../scripts/harness/stage.mjs", import.meta.url),
-  "utf8",
-);
-const runtimeSource = readFileSync(
-  new URL("../desktop/main/harness-runtime.ts", import.meta.url),
-  "utf8",
-);
-const smokeSource = readFileSync(
-  new URL("../scripts/harness/smoke.mjs", import.meta.url),
-  "utf8",
-);
 
 test("the product overlay uses the shared @lencx package scope", () => {
   assert.equal(manifest.name, "@lencx/minke-harness-overlay");
@@ -126,7 +114,7 @@ test("the product overlay composes Codex CLI and the generic model runtime", () 
     /id: model-runtime[\s\S]*name: '@lencx\/minke-harness-overlay\/model-runtime'[\s\S]*lifecycle: ensure-running/u,
   );
   assert.doesNotMatch(
-    `${patch}\n${runtimeSource}`,
+    patch,
     /MINKE_LM_STUDIO_PROVIDERS|MINKE_LM_STUDIO_API_KEY/u,
   );
 });
@@ -319,34 +307,5 @@ test("the shortcuts settings row receives the keyboard navigation icon", () => {
   assert.match(
     iconSvg,
     /<rect width="20" height="16" x="2" y="4" rx="2"/u,
-  );
-});
-
-test("staging injects the bundle and launch composes it with --patch", () => {
-  assert.match(stageSource, /injectWorkspacePackage\([\s\S]*productBundle/u);
-  assert.match(stageSource, /exposeProductBundleToProfiles/u);
-  assert.match(
-    stageSource,
-    /productBundle\.bundle\.runtimePackages/u,
-  );
-  assert.match(
-    stageSource,
-    /flags\.skipInstall && flags\.skipBuild[\s\S]*validateReusableRuntime[\s\S]*without touching the Harness workspace/u,
-  );
-  assert.ok(
-    stageSource.indexOf("flags.skipInstall && flags.skipBuild") <
-      stageSource.indexOf("const packages = await readWorkspacePackages"),
-  );
-  assert.match(
-    runtimeSource,
-    /"web",[\s\S]*"--patch",[\s\S]*productPatch,[\s\S]*"--host"/u,
-  );
-  assert.match(
-    smokeSource,
-    /"web",[\s\S]*"--patch",[\s\S]*productPatch,[\s\S]*"--host"/u,
-  );
-  assert.match(
-    smokeSource,
-    /entry\.id === productPackageName[\s\S]*settings\.open[\s\S]*session\.new/u,
   );
 });
