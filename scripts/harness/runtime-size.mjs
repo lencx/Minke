@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  assertRuntimeFileBudget,
   assertRuntimeSizeBudget,
   inspectRuntimeArtifacts,
 } from "./runtime-prune.mjs";
@@ -23,6 +24,10 @@ if (inspection.prunable.files > 0) {
 assertRuntimeSizeBudget(
   inspection.bytes,
   contract.runtimeSizeBudgetBytes,
+);
+assertRuntimeFileBudget(
+  inspection.files,
+  contract.runtimeFileBudget,
 );
 console.log(
   `Harness runtime: ${(inspection.bytes / 1024 / 1024).toFixed(1)} MiB across ${String(inspection.files)} files`,

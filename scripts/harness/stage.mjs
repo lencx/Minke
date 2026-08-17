@@ -20,6 +20,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyHarnessContract } from "./contract.mjs";
 import {
+  assertRuntimeFileBudget,
   assertRuntimeSizeBudget,
   inspectRuntimeArtifacts,
   isPrunableRuntimePath,
@@ -94,20 +95,28 @@ async function fingerprintProductBundle(productBundle) {
   );
 }
 
-async function inspectPrunedRuntime(runtimeRoot, budgetBytes) {
+async function inspectPrunedRuntime(runtimeRoot, contract) {
   const inspection = await inspectRuntimeArtifacts(runtimeRoot);
   if (inspection.prunable.files > 0) {
     throw new Error(
       `staged Harness runtime contains ${String(inspection.prunable.files)} prunable build artifacts`,
     );
   }
-  assertRuntimeSizeBudget(inspection.bytes, budgetBytes);
+  assertRuntimeSizeBudget(
+    inspection.bytes,
+    contract.runtimeSizeBudgetBytes,
+  );
+  assertRuntimeFileBudget(
+    inspection.files,
+    contract.runtimeFileBudget,
+  );
   return inspection;
 }
 
 function runtimeSizeContract(contract) {
   return {
     budgetBytes: contract.runtimeSizeBudgetBytes,
+    fileBudget: contract.runtimeFileBudget,
     policyVersion: RUNTIME_PRUNE_POLICY_VERSION,
   };
 }
@@ -622,10 +631,7 @@ async function validateRuntime(
       "staged Harness product bundle does not match its built source",
     );
   }
-  await inspectPrunedRuntime(
-    runtimeRoot,
-    contract.runtimeSizeBudgetBytes,
-  );
+  await inspectPrunedRuntime(runtimeRoot, contract);
   const metadata = JSON.parse(
     await readFile(join(runtimeRoot, "dsh-runtime.json"), "utf8"),
   );
@@ -680,7 +686,8 @@ async function validateReusableRuntime(
     metadata.platform !== process.platform ||
     metadata.arch !== process.arch ||
     metadata.runtimeSize?.policyVersion !== RUNTIME_PRUNE_POLICY_VERSION ||
-    metadata.runtimeSize?.budgetBytes !== contract.runtimeSizeBudgetBytes
+    metadata.runtimeSize?.budgetBytes !== contract.runtimeSizeBudgetBytes ||
+    metadata.runtimeSize?.fileBudget !== contract.runtimeFileBudget
   ) {
     throw new Error(
       "staged Harness runtime is stale; run harness:stage before harness:stage:fast",
@@ -715,10 +722,7 @@ async function validateReusableRuntime(
       );
     }
   }
-  await inspectPrunedRuntime(
-    runtimeRoot,
-    contract.runtimeSizeBudgetBytes,
-  );
+  await inspectPrunedRuntime(runtimeRoot, contract);
   return metadata;
 }
 
@@ -783,10 +787,7 @@ async function main() {
       contract,
       productBundle,
     );
-    await inspectPrunedRuntime(
-      activeRuntimeRoot,
-      contract.runtimeSizeBudgetBytes,
-    );
+    await inspectPrunedRuntime(activeRuntimeRoot, contract);
     const expectedRuntime = {
       ...expectedRuntimeBase,
       runtimeSize: runtimeSizeContract(contract),
@@ -893,7 +894,7 @@ async function main() {
     const pruneReport = await pruneRuntimeArtifacts(candidateRuntimeRoot);
     const runtimeInspection = await inspectPrunedRuntime(
       candidateRuntimeRoot,
-      contract.runtimeSizeBudgetBytes,
+      contract,
     );
     const expectedRuntime = {
       ...expectedRuntimeBase,

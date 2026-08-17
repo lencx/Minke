@@ -133,6 +133,14 @@ export async function verifyHarnessContract(projectRoot) {
       "Harness contract must declare a positive integer runtimeSizeBudgetBytes.",
     );
   }
+  if (
+    !Number.isSafeInteger(contract.runtimeFileBudget) ||
+    contract.runtimeFileBudget <= 0
+  ) {
+    throw new Error(
+      "Harness contract must declare a positive integer runtimeFileBudget.",
+    );
+  }
   if (Object.hasOwn(contract, "patches")) {
     throw new Error(
       "DeepSeek Harness source patches are forbidden; use productBundle or a desktop adapter.",

@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import {
+  assertRuntimeFileBudget,
   assertRuntimeSizeBudget,
   inspectRuntimeArtifacts,
   pruneRuntimeArtifacts,
@@ -70,6 +71,14 @@ test("runtime size budgets reject regressions at the byte boundary", () => {
   );
 });
 
+test("runtime file budgets reject small-file regressions at the boundary", () => {
+  assert.doesNotThrow(() => assertRuntimeFileBudget(100, 100));
+  assert.throws(
+    () => assertRuntimeFileBudget(101, 100),
+    /above the 100 file budget/u,
+  );
+});
+
 test("runtime pruning removes pnpm's duplicate executable artifact", async () => {
   await withTemporaryRuntime(async (root) => {
     const bundledPnpm = join(root, "node_modules", "pnpm");
@@ -96,6 +105,9 @@ test("runtime pruning removes pnpm's duplicate executable artifact", async () =>
     assert.equal(report.removed.categories.duplicateTooling.files, 1);
     assert.equal(await readFile(runtimeBundle, "utf8"), "runtime bundle");
     await assert.rejects(access(duplicateBundle), { code: "ENOENT" });
+    await assert.rejects(access(join(bundledPnpm, "artifacts")), {
+      code: "ENOENT",
+    });
   });
 });
 

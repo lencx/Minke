@@ -7,9 +7,13 @@ import { MakerZIP } from "@electron-forge/maker-zip";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import type { ForgeConfig } from "@electron-forge/shared-types";
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pruneMacElectronLocales } from "./scripts/forge/electron-locales.ts";
+import {
+  parsePackageArtifactPolicy,
+  verifyPackagedApplication,
+} from "./scripts/forge/package-artifact.ts";
 
 const projectRoot = __dirname;
 const iconRoot = join(projectRoot, "resources", "icons");
@@ -31,6 +35,37 @@ const config: ForgeConfig = {
       await cp(sysPackageRoot, join(nodeModulesRoot, "sys"), {
         recursive: true,
       });
+    },
+    postPackage: async (
+      _forgeConfig,
+      { arch, outputPaths, platform },
+    ) => {
+      const [runtimeContract, artifactPolicy] = await Promise.all([
+        readFile(
+          join(projectRoot, "config", "harness-runtime.json"),
+          "utf8",
+        ).then(JSON.parse),
+        readFile(
+          join(projectRoot, "config", "package-artifact.json"),
+          "utf8",
+        ).then(JSON.parse).then(parsePackageArtifactPolicy),
+      ]);
+      for (const outputPath of outputPaths) {
+        const report = await verifyPackagedApplication(outputPath, {
+          appSizeBudgetBytes:
+            artifactPolicy.appSizeBudgetBytes[platform],
+          arch: String(arch),
+          platform,
+          productPackageName:
+            runtimeContract.productBundle.packageName,
+          runtimeFileBudget: runtimeContract.runtimeFileBudget,
+          runtimeSizeBudgetBytes:
+            runtimeContract.runtimeSizeBudgetBytes,
+        });
+        console.log(
+          `Verified packaged Host ${(report.host.bytes / 1024 / 1024).toFixed(1)} MiB/${String(report.host.files)} files and app ${(report.app.bytes / 1024 / 1024).toFixed(1)} MiB`,
+        );
+      }
     },
   },
   packagerConfig: {

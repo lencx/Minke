@@ -38,6 +38,7 @@ function writeContract(projectRoot, commit, additions = {}) {
         packageVersion: "1.0.0",
         frontendPackageName: "@deepseek-ai/dsh-web-frontend",
         runtimeSizeBudgetBytes: 230686720,
+        runtimeFileBudget: 20000,
         productBundle: {
           packageName: "@lencx/minke-harness-overlay",
           packagePath: "packages/harness-overlay",
@@ -210,6 +211,16 @@ test("the Harness contract requires an explicit runtime size budget", async () =
   await assert.rejects(
     verifyHarnessContract(projectRoot),
     /positive integer runtimeSizeBudgetBytes/u,
+  );
+});
+
+test("the Harness contract requires an explicit runtime file budget", async () => {
+  const { commit, projectRoot } = fixture();
+  writeContract(projectRoot, commit, { runtimeFileBudget: 0 });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /positive integer runtimeFileBudget/u,
   );
 });
 

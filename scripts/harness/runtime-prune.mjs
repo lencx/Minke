@@ -9,12 +9,12 @@ import {
 } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
-export const RUNTIME_PRUNE_POLICY_VERSION = 5;
+export const RUNTIME_PRUNE_POLICY_VERSION = 6;
 
 const DOCUMENTATION_FILE =
   /^(?:readme|changelog|changes|history)(?:\.(?:md|markdown|txt))?$/iu;
-const DUPLICATE_PNPM_EXECUTABLE =
-  /(?:^|\/)node_modules\/pnpm\/artifacts(?:\/|$)/u;
+const DUPLICATE_PNPM_ARTIFACTS_DIRECTORY =
+  "node_modules/pnpm/artifacts";
 const PUBLISHED_PACKAGE_BAGGAGE_DIRECTORIES = Object.freeze([
   "node_modules/@mixmark-io/domino/.yarn",
   "node_modules/@mixmark-io/domino/test",
@@ -64,6 +64,17 @@ function prunableRuntimeDirectory(path, target = {}) {
       return { category: "publishedPackageBaggage", path: directory };
     }
   }
+  if (
+    pathInDirectory(
+      normalizedPath,
+      DUPLICATE_PNPM_ARTIFACTS_DIRECTORY,
+    )
+  ) {
+    return {
+      category: "duplicateTooling",
+      path: DUPLICATE_PNPM_ARTIFACTS_DIRECTORY,
+    };
+  }
 
   const resolvedTarget = runtimeTarget(target);
   if (resolvedTarget.platform !== "win32") {
@@ -96,9 +107,6 @@ export function runtimeArtifactCategory(path, target = {}) {
     PNPM_FASTLIST_WINDOWS_EXECUTABLE.test(normalizedPath)
   ) {
     return "incompatiblePlatformAssets";
-  }
-  if (DUPLICATE_PNPM_EXECUTABLE.test(normalizedPath)) {
-    return "duplicateTooling";
   }
   const name = basename(path);
   if (/\.map$/iu.test(name)) return "sourceMaps";
@@ -317,6 +325,19 @@ export function assertRuntimeSizeBudget(bytes, budgetBytes) {
     const budgetMiB = (budgetBytes / 1024 / 1024).toFixed(1);
     throw new Error(
       `Harness runtime is ${actualMiB} MiB, above the ${budgetMiB} MiB budget`,
+    );
+  }
+}
+
+export function assertRuntimeFileBudget(files, budgetFiles) {
+  if (!Number.isSafeInteger(budgetFiles) || budgetFiles <= 0) {
+    throw new Error(
+      `invalid Harness runtime file budget ${String(budgetFiles)}`,
+    );
+  }
+  if (files > budgetFiles) {
+    throw new Error(
+      `Harness runtime contains ${String(files)} files, above the ${String(budgetFiles)} file budget`,
     );
   }
 }
