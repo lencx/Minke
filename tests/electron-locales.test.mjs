@@ -20,7 +20,7 @@ async function assertMissing(path) {
   await assert.rejects(access(path), { code: "ENOENT" });
 }
 
-test("macOS packaging keeps only Minke's English and Chinese locales", async () => {
+test("macOS packaging keeps mainstream Browser locales", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "minke-locales-"));
   const appRoot = join(temporaryRoot, "Minke.app");
   const contentsRoot = join(appRoot, "Contents");
@@ -33,9 +33,22 @@ test("macOS packaging keeps only Minke's English and Chinese locales", async () 
     "A",
     "Resources",
   );
-  const removedLocales = ["de.lproj", "fr.lproj", "ja.lproj"];
+  const removedLocales = ["am.lproj", "kn.lproj", "sw.lproj"];
 
   try {
+    for (const locale of [
+      "ar.lproj",
+      "de.lproj",
+      "es_419.lproj",
+      "hi.lproj",
+      "ja.lproj",
+      "ko.lproj",
+      "pt_BR.lproj",
+      "ru.lproj",
+      "vi.lproj",
+    ]) {
+      assert.ok(MAC_ELECTRON_LOCALES.includes(locale));
+    }
     await mkdir(appResources, { recursive: true });
     await mkdir(frameworkResources, { recursive: true });
     for (const locale of [...MAC_ELECTRON_LOCALES, ...removedLocales]) {

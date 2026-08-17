@@ -2,8 +2,28 @@ import { readdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 export const MAC_ELECTRON_LOCALES = Object.freeze([
+  "ar.lproj",
+  "de.lproj",
   "en.lproj",
   "en_GB.lproj",
+  "es.lproj",
+  "es_419.lproj",
+  "fr.lproj",
+  "he.lproj",
+  "hi.lproj",
+  "id.lproj",
+  "it.lproj",
+  "ja.lproj",
+  "ko.lproj",
+  "nl.lproj",
+  "pl.lproj",
+  "pt_BR.lproj",
+  "pt_PT.lproj",
+  "ru.lproj",
+  "th.lproj",
+  "tr.lproj",
+  "uk.lproj",
+  "vi.lproj",
   "zh_CN.lproj",
   "zh_TW.lproj",
 ]);
@@ -25,8 +45,8 @@ async function localeDirectories(root: string): Promise<string[]> {
 }
 
 /**
- * Electron ships every Chromium locale. Minke's locale contract intentionally
- * exposes only English and Chinese, so remove the other packs before signing.
+ * Electron ships every Chromium locale. Preserve a broad mainstream set for
+ * native Browser/WebView surfaces and remove the long tail before signing.
  */
 export async function pruneMacElectronLocales(
   appRoot: string,
