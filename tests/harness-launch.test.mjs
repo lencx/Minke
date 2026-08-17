@@ -24,7 +24,7 @@ async function withRuntime(metadata, callback) {
 test("desktop and smoke launch Harness through one staged layout contract", async () => {
   await withRuntime(
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       productBundle: {
         packageName: "@lencx/minke-harness-overlay",
         patch: "cordis.patch.yml",
@@ -69,7 +69,7 @@ test("desktop and smoke launch Harness through one staged layout contract", asyn
 test("the staged layout contract rejects unsafe product metadata", async () => {
   await withRuntime(
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       productBundle: {
         packageName: "@lencx/minke-harness-overlay",
         patch: "../outside.yml",

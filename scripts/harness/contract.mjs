@@ -125,6 +125,14 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
 export async function verifyHarnessContract(projectRoot) {
   const contractPath = join(projectRoot, "config", "harness-runtime.json");
   const contract = await readJson(contractPath);
+  if (
+    !Number.isSafeInteger(contract.runtimeSizeBudgetBytes) ||
+    contract.runtimeSizeBudgetBytes <= 0
+  ) {
+    throw new Error(
+      "Harness contract must declare a positive integer runtimeSizeBudgetBytes.",
+    );
+  }
   if (Object.hasOwn(contract, "patches")) {
     throw new Error(
       "DeepSeek Harness source patches are forbidden; use productBundle or a desktop adapter.",

@@ -20,6 +20,13 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyHarnessContract } from "./contract.mjs";
 import {
+  assertRuntimeSizeBudget,
+  inspectRuntimeArtifacts,
+  isPrunableRuntimePath,
+  pruneRuntimeArtifacts,
+  RUNTIME_PRUNE_POLICY_VERSION,
+} from "./runtime-prune.mjs";
+import {
   fingerprintPaths,
   fingerprintRecord,
   publishDirectory,
@@ -30,11 +37,12 @@ import {
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const activeRuntimeRoot = join(projectRoot, "runtime", "host");
 const generatedPackageName = "@dsh-desktop/runtime-build";
-const runtimeMetadataVersion = 1;
+const runtimeMetadataVersion = 2;
 const runtimeFingerprintPaths = [
   "config/harness-runtime.json",
   "scripts/harness/build-overlay.mjs",
   "scripts/harness/contract.mjs",
+  "scripts/harness/runtime-prune.mjs",
   "scripts/harness/runtime-state.mjs",
   "scripts/harness/stage.mjs",
 ];
@@ -81,9 +89,27 @@ async function fingerprintProductBundle(productBundle) {
       "LICENSE",
     ],
     {
-      shouldIgnore: (path) => path.endsWith(".tsbuildinfo"),
+      shouldIgnore: isPrunableRuntimePath,
     },
   );
+}
+
+async function inspectPrunedRuntime(runtimeRoot, budgetBytes) {
+  const inspection = await inspectRuntimeArtifacts(runtimeRoot);
+  if (inspection.prunable.files > 0) {
+    throw new Error(
+      `staged Harness runtime contains ${String(inspection.prunable.files)} prunable build artifacts`,
+    );
+  }
+  assertRuntimeSizeBudget(inspection.bytes, budgetBytes);
+  return inspection;
+}
+
+function runtimeSizeContract(contract) {
+  return {
+    budgetBytes: contract.runtimeSizeBudgetBytes,
+    policyVersion: RUNTIME_PRUNE_POLICY_VERSION,
+  };
 }
 
 function parseFlags(argv) {
@@ -349,12 +375,13 @@ async function injectWorkspacePackage(
   runtimeRoot,
   packageName,
   packageSource,
-  { transactional = false } = {},
+  { prune = false, transactional = false } = {},
 ) {
   const destination = join(runtimeRoot, "node_modules", ...packageName.split("/"));
   if (!transactional) {
     await rm(destination, { recursive: true, force: true });
     await copyWorkspacePackage(packageName, packageSource, destination);
+    if (prune) await pruneRuntimeArtifacts(destination);
     return;
   }
 
@@ -364,6 +391,7 @@ async function injectWorkspacePackage(
   const candidate = await mkdtemp(join(parent, `.${leaf}-staging-`));
   try {
     await copyWorkspacePackage(packageName, packageSource, candidate);
+    if (prune) await pruneRuntimeArtifacts(candidate);
     await publishDirectory(candidate, destination);
   } finally {
     await rm(candidate, { recursive: true, force: true });
@@ -467,7 +495,7 @@ async function writeRuntimeAdapters(
   runtimeRoot,
   contract,
   commit,
-  { coreFingerprint, productBundleFingerprint },
+  { coreFingerprint, productBundleFingerprint, runtimeSize },
 ) {
   const binRoot = join(runtimeRoot, "bin");
   await mkdir(binRoot, { recursive: true });
@@ -526,6 +554,7 @@ exec env ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON_EXECUTABLE" "$DSH_PNPM_ENTRY" dlx
         },
         platform: process.platform,
         arch: process.arch,
+        runtimeSize,
       },
       null,
       2,
@@ -536,7 +565,7 @@ exec env ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON_EXECUTABLE" "$DSH_PNPM_ENTRY" dlx
 async function validateRuntime(
   runtimeRoot,
   contract,
-  { commit, coreFingerprint, productBundleFingerprint },
+  { commit, coreFingerprint, productBundleFingerprint, runtimeSize },
 ) {
   const productPackageRoot = join(
     runtimeRoot,
@@ -593,6 +622,10 @@ async function validateRuntime(
       "staged Harness product bundle does not match its built source",
     );
   }
+  await inspectPrunedRuntime(
+    runtimeRoot,
+    contract.runtimeSizeBudgetBytes,
+  );
   const metadata = JSON.parse(
     await readFile(join(runtimeRoot, "dsh-runtime.json"), "utf8"),
   );
@@ -611,7 +644,8 @@ async function validateRuntime(
     JSON.stringify(metadata.productBundle?.runtimePackages ?? []) !==
       JSON.stringify(contract.productBundle.runtimePackages ?? []) ||
     metadata.platform !== process.platform ||
-    metadata.arch !== process.arch
+    metadata.arch !== process.arch ||
+    JSON.stringify(metadata.runtimeSize) !== JSON.stringify(runtimeSize)
   ) {
     throw new Error("staged Harness runtime metadata does not match the contract");
   }
@@ -644,7 +678,9 @@ async function validateReusableRuntime(
     JSON.stringify(metadata.productBundle?.runtimePackages ?? []) !==
       JSON.stringify(contract.productBundle.runtimePackages ?? []) ||
     metadata.platform !== process.platform ||
-    metadata.arch !== process.arch
+    metadata.arch !== process.arch ||
+    metadata.runtimeSize?.policyVersion !== RUNTIME_PRUNE_POLICY_VERSION ||
+    metadata.runtimeSize?.budgetBytes !== contract.runtimeSizeBudgetBytes
   ) {
     throw new Error(
       "staged Harness runtime is stale; run harness:stage before harness:stage:fast",
@@ -679,6 +715,11 @@ async function validateReusableRuntime(
       );
     }
   }
+  await inspectPrunedRuntime(
+    runtimeRoot,
+    contract.runtimeSizeBudgetBytes,
+  );
+  return metadata;
 }
 
 async function main() {
@@ -718,7 +759,7 @@ async function main() {
     fingerprintRuntimeCore(contract, harnessRoot, actualCommit),
     fingerprintProductBundle(productBundle),
   ]);
-  const expectedRuntime = {
+  const expectedRuntimeBase = {
     commit: actualCommit,
     coreFingerprint,
     productBundleFingerprint,
@@ -735,13 +776,21 @@ async function main() {
       activeRuntimeRoot,
       productBundle.bundle.packageName,
       productBundle.packageRoot,
-      { transactional: true },
+      { prune: true, transactional: true },
     );
     await exposeProductBundleToProfiles(
       activeRuntimeRoot,
       contract,
       productBundle,
     );
+    await inspectPrunedRuntime(
+      activeRuntimeRoot,
+      contract.runtimeSizeBudgetBytes,
+    );
+    const expectedRuntime = {
+      ...expectedRuntimeBase,
+      runtimeSize: runtimeSizeContract(contract),
+    };
     await writeRuntimeAdapters(
       activeRuntimeRoot,
       contract,
@@ -841,6 +890,18 @@ async function main() {
       runtimeEntrySource(contract.packageName),
     );
     await pruneNodePtyPrebuilds(candidateRuntimeRoot);
+    const pruneReport = await pruneRuntimeArtifacts(candidateRuntimeRoot);
+    const runtimeInspection = await inspectPrunedRuntime(
+      candidateRuntimeRoot,
+      contract.runtimeSizeBudgetBytes,
+    );
+    const expectedRuntime = {
+      ...expectedRuntimeBase,
+      runtimeSize: runtimeSizeContract(contract),
+    };
+    console.log(
+      `Pruned ${String(pruneReport.removed.files)} build-only files (${(pruneReport.removed.bytes / 1024 / 1024).toFixed(1)} MiB); runtime payload is ${(runtimeInspection.bytes / 1024 / 1024).toFixed(1)} MiB`,
+    );
     await writeRuntimeAdapters(
       candidateRuntimeRoot,
       contract,
