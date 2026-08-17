@@ -50,6 +50,14 @@ test("shortcut dictionaries have the same complete key set", () => {
   }
   assert.equal(zh["action.toggleSidebar"], "展开或折叠左侧栏");
   assert.equal(en["action.toggleSidebar"], "Toggle Sidebar");
+  assert.equal(
+    zh["action.toggleRightSidebar"],
+    "展开或折叠右侧栏",
+  );
+  assert.equal(
+    en["action.toggleRightSidebar"],
+    "Toggle Right Sidebar",
+  );
 });
 
 test("action labels react to Harness locale changes", () => {

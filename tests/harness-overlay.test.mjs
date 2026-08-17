@@ -268,6 +268,15 @@ test("Mod+S toggles the upstream sidebar through the public layout service", () 
   assert.match(bundle, /layout\.toggleSidebar\(\)/u);
 });
 
+test("Mod+P toggles the resident right sidebar through Tabs runtime", () => {
+  assert.match(
+    clientSource,
+    /id:\s*"tabs\.toggle"[\s\S]*defaultBinding:\s*DEFAULT_SHORTCUT_BINDINGS\["tabs\.toggle"\][\s\S]*tabs\.toggle\(\)/u,
+  );
+  assert.match(bundle, /tabs\.toggle/u);
+  assert.match(bundle, /Mod\+P/u);
+});
+
 test("Minke bypasses the upstream internal-testing notice through slot shadowing", () => {
   assert.match(
     clientSource,

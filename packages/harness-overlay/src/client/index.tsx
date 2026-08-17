@@ -265,6 +265,7 @@ export function apply(ctx: HarnessClientContext): void {
   const terminalSettings = new TerminalSettingsRuntime(
     terminalSettingsStore,
   );
+  let tabsRuntime: TabsRuntime | undefined;
   const sessionLogsPort = desktopSessionLogsPort();
   const filesT = ctx.locale.bind<FilesTabsLocaleKey>(
     FILES_TABS_NAMESPACE,
@@ -394,6 +395,7 @@ export function apply(ctx: HarnessClientContext): void {
       showPanel: () => ctx.layout.openDetails(),
       hidePanel: () => ctx.layout.closeDetails(),
     });
+    tabsRuntime = tabs;
     const renderers = new TabRendererRegistry();
     const webTabs = new WebTabsController(tabs, tabsPort);
     const filesTabs = filesPort.available
@@ -564,6 +566,22 @@ export function apply(ctx: HarnessClientContext): void {
       }),
     "minke-overlay: Toggle Sidebar shortcut",
   );
+  if (tabsRuntime !== undefined) {
+    const tabs = tabsRuntime;
+    ctx.effect(
+      () =>
+        runtime.register({
+          id: "tabs.toggle",
+          label: () => t("action.toggleRightSidebar"),
+          defaultBinding: DEFAULT_SHORTCUT_BINDINGS["tabs.toggle"],
+          order: 30,
+          run: () => {
+            tabs.toggle();
+          },
+        }),
+      "minke-overlay: Toggle Right Sidebar shortcut",
+    );
+  }
   void runtime.initialize();
 
   const source: Observable<ShortcutSectionState> =

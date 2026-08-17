@@ -21,12 +21,14 @@ const MENU_ITEM_IDS = Object.freeze({
   "settings.open": `${OWNED_MENU_ID_PREFIX}settings.open`,
   "session.new": `${OWNED_MENU_ID_PREFIX}session.new`,
   "sidebar.toggle": `${OWNED_MENU_ID_PREFIX}sidebar.toggle`,
+  "tabs.toggle": `${OWNED_MENU_ID_PREFIX}tabs.toggle`,
 } satisfies Record<ProductShortcutActionId, string>);
 
 const MENU_LABEL_KEYS = Object.freeze({
   "settings.open": "menu.settings",
   "session.new": "menu.newSession",
   "sidebar.toggle": "menu.toggleSidebar",
+  "tabs.toggle": "menu.toggleRightSidebar",
 } satisfies Record<ProductShortcutActionId, DesktopMessageKey>);
 
 const KEY_ACCELERATORS: Readonly<Record<string, string>> = Object.freeze({
@@ -220,6 +222,12 @@ function injectActions(
     accelerators,
     dispatch,
   );
+  const toggleRightSidebar = actionMenuItem(
+    "tabs.toggle",
+    locale,
+    accelerators,
+    dispatch,
+  );
 
   prependGroup(
     submenuOf(fileMenu.template),
@@ -230,7 +238,7 @@ function injectActions(
   );
   prependGroup(
     submenuOf(viewMenu.template),
-    [toggleSidebar],
+    [toggleSidebar, toggleRightSidebar],
     `${OWNED_MENU_ID_PREFIX}view.separator`,
   );
   if (platform === "darwin" && appMenu !== undefined) {
