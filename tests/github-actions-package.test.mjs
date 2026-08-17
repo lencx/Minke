@@ -45,6 +45,10 @@ function releaseJobSource(source) {
   return source.slice(releaseJobIndex);
 }
 
+function withWindowsLineEndings(source) {
+  return source.replace(/\r?\n/gu, "\r\n");
+}
+
 test("GitHub Actions packages each supported desktop platform", async () => {
   const source = await readFile(workflowUrl, "utf8");
 
@@ -159,7 +163,9 @@ test("GitHub Actions packages each supported desktop platform", async () => {
 
 test("release workflow contract supports Windows line endings", async () => {
   const source = await readFile(workflowUrl, "utf8");
-  const releaseJob = releaseJobSource(source.replaceAll("\n", "\r\n"));
+  const windowsSource = withWindowsLineEndings(source);
+  assert.equal(withWindowsLineEndings(windowsSource), windowsSource);
+  const releaseJob = releaseJobSource(windowsSource);
   assert.match(releaseJob, /needs:\s*package/u);
 });
 

@@ -42,6 +42,10 @@ function assertHarnessStagingOrder(stageSource) {
   );
 }
 
+function withWindowsLineEndings(source) {
+  return source.replace(/\r?\n/gu, "\r\n");
+}
+
 test("Windows batch adapters run through ComSpec without enabling a global shell", () => {
   assert.deepEqual(
     resolveCommandInvocation(
@@ -223,7 +227,9 @@ test("Harness staging contract supports Windows line endings", async () => {
     new URL("../scripts/harness/stage.mjs", import.meta.url),
     "utf8",
   );
-  assertHarnessStagingOrder(stageSource.replaceAll("\n", "\r\n"));
+  const windowsSource = withWindowsLineEndings(stageSource);
+  assert.equal(withWindowsLineEndings(windowsSource), windowsSource);
+  assertHarnessStagingOrder(windowsSource);
 });
 
 test("Linux makers target the packaged executable with matching case", async () => {
