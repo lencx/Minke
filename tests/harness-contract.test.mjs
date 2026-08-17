@@ -98,6 +98,68 @@ function fixture(options = {}) {
   );
   write(
     harnessRoot,
+    "packages/client/ui-settings-plugins/src/client/slot-contract.ts",
+    `'settings.plugin.item': { kind: '${
+      options.settingsPluginItemKind ?? "keyed"
+    }'; scope: 'root'; owner: SettingsPluginItemOwnerProps }\n`,
+  );
+  write(
+    harnessRoot,
+    "packages/host/apiproxy/src/api-proxy.ts",
+    [
+      ...(options.settingsNotExposed === true
+        ? ["settings-not-exposed"]
+        : []),
+      ...(options.exposeAllSettings === false
+        ? [
+          "namespaces: settings.describe({ redactSecrets: true })",
+          "  .filter(descriptor => exposed.has(String(descriptor.ns)))",
+          "  .map(namespaceView),",
+        ]
+        : [
+            "namespaces: settings.describe({ redactSecrets: true }).map(namespaceView),",
+          ]),
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/llm/llm/src/types.ts",
+    options.replayEnvelope === false
+      ? "replayState?: unknown\n"
+      : [
+          "export interface ReplayEnvelope { response: unknown }",
+          "replayState?: ReplayEnvelope",
+          "",
+        ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/attachment/attachment/src/index.ts",
+    options.batchImages === false
+      ? "abstract saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>\n"
+      : "async saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]> {}\n",
+  );
+  write(
+    harnessRoot,
+    "packages/llm/llm-deepseek/src/index.ts",
+    options.deepSeekLowEffort === false
+      ? "reasoningEffort?: 'off' | 'high' | 'max'\n"
+      : "reasoningEffort?: 'off' | 'low' | 'high' | 'max'\n",
+  );
+  write(
+    harnessRoot,
+    "packages/subagent/tool-subagent/src/index.ts",
+    options.subagentJobs === false
+      ? "enableRunInBackground?: false\n"
+      : [
+          "enableRunInBackground?: boolean",
+          "backgroundMode?: 'one-shot' | 'continuable'",
+          "",
+        ].join("\n"),
+  );
+  write(
+    harnessRoot,
     "packages/client/ui-settings-general/src/client/SettingsRoot.tsx",
     '<button aria-haspopup="dialog" aria-expanded={open} />\n',
   );
@@ -239,6 +301,71 @@ test("the Harness contract rejects a missing locale change seam", async () => {
   await assert.rejects(
     verifyHarnessContract(projectRoot),
     /locale change event changed/u,
+  );
+});
+
+test("the Harness contract rejects the pre-rc.7 list settings-card API", async () => {
+  const { projectRoot } = fixture({
+    settingsPluginItemKind: "list",
+  });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /keyed plugin settings-card API changed/u,
+  );
+});
+
+test("the Harness contract rejects the pre-rc.7 settings exposure boundary", async () => {
+  const { projectRoot } = fixture({ exposeAllSettings: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /settings namespace exposure changed/u,
+  );
+});
+
+test("the Harness contract rejects the retired settings-not-exposed error", async () => {
+  const { projectRoot } = fixture({ settingsNotExposed: true });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /settings-not-exposed RPC contract returned/u,
+  );
+});
+
+test("the Harness contract rejects the pre-rc.7 replay-state API", async () => {
+  const { projectRoot } = fixture({ replayEnvelope: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /LLM ReplayEnvelope API changed/u,
+  );
+});
+
+test("the Harness contract requires durable batch-image attachments", async () => {
+  const { projectRoot } = fixture({ batchImages: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /batch image attachment API changed/u,
+  );
+});
+
+test("the Harness contract requires DeepSeek low reasoning effort", async () => {
+  const { projectRoot } = fixture({ deepSeekLowEffort: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /DeepSeek low reasoning-effort API changed/u,
+  );
+});
+
+test("the Harness contract requires one-shot subagent Job configuration", async () => {
+  const { projectRoot } = fixture({ subagentJobs: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /subagent Job API changed/u,
   );
 });
 

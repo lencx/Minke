@@ -827,9 +827,21 @@ async function main() {
 
   if (!flags.skipInstall) {
     await runPnpm(
-      ["install", "--frozen-lockfile", "--config.node-linker=isolated"],
+      [
+        "install",
+        "--recursive",
+        "--frozen-lockfile",
+        "--config.node-linker=isolated",
+      ],
       harnessRoot,
     );
+  }
+
+  if (flags.skipBuild) {
+    console.log("Skipping Harness source build (--skip-build)");
+  } else {
+    await ensureReact18TypeIsolation(harnessRoot);
+    await runPnpm(["run", "build"], harnessRoot);
   }
 
   const packages = await readWorkspacePackages(harnessRoot);
@@ -857,13 +869,6 @@ async function main() {
       ],
       harnessRoot,
     );
-    await ensureReact18TypeIsolation(harnessRoot);
-
-    if (flags.skipBuild) {
-      console.log("Skipping Harness source build (--skip-build)");
-    } else {
-      await runPnpm(["run", "build"], harnessRoot);
-    }
 
     const runtimeParent = dirname(activeRuntimeRoot);
     await mkdir(runtimeParent, { recursive: true });

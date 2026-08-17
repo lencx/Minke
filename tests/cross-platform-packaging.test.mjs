@@ -190,6 +190,29 @@ test("Windows staging refuses an ambiguous ambient pnpm command", () => {
   );
 });
 
+test("Harness builds from the complete workspace before runtime-only installation", async () => {
+  const stageSource = await readFile(
+    new URL("../scripts/harness/stage.mjs", import.meta.url),
+    "utf8",
+  );
+  const completeInstall = stageSource.indexOf(
+    '"install",\n        "--recursive",\n        "--frozen-lockfile"',
+  );
+  const build = stageSource.indexOf(
+    'await runPnpm(["run", "build"], harnessRoot);',
+  );
+  const runtimeOnlyInstall = stageSource.indexOf(
+    '"--filter",\n        `${generatedPackageName}...`',
+  );
+
+  assert.ok(completeInstall >= 0, "staging must restore every workspace link");
+  assert.ok(build > completeInstall, "Harness must build after full install");
+  assert.ok(
+    runtimeOnlyInstall > build,
+    "runtime-only installation must not remove build dependencies before build",
+  );
+});
+
 for (const platform of ["darwin", "win32", "linux"]) {
   test(`packaged application layout supports ${platform}`, () => {
     const layout = packagedApplicationLayout("/project", platform, "arm64");

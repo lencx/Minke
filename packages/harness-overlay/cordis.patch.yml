@@ -21,8 +21,8 @@
           baseURL: !!js process.env.OLLAMA_BASE_URL
 
     # Host-global provider plus tool: every Minke agent preset can delegate one
-    # self-contained task to the user's native Codex CLI without changing the
-    # shipped Harness preset files.
+    # self-contained task to the user's native Codex CLI. Optional background
+    # runs stay one-shot and surface through rc.7's Job Panel.
     - id: subagent-codex
       name: '@deepseek-ai/dsh-subagent-codex'
 
@@ -31,7 +31,8 @@
       config:
         provider: codex
         toolName: subagent_codex
-        enableRunInBackground: false
+        enableRunInBackground: true
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
     - id: minke-overlay

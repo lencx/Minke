@@ -62,16 +62,15 @@ function nativeAssetPaths(hostRoot, platform) {
   if (platform === "win32") {
     const targetRoot = join(nodePtyRoot, "prebuilds", "win32-arm64");
     return [
-      join(targetRoot, "pty.node"),
       join(targetRoot, "conpty.node"),
       join(targetRoot, "conpty_console_list.node"),
-      join(targetRoot, "winpty-agent.exe"),
-      join(targetRoot, "winpty.dll"),
       join(targetRoot, "conpty", "OpenConsole.exe"),
       join(targetRoot, "conpty", "conpty.dll"),
     ];
   }
-  return [join(nodePtyRoot, "build", "Release", "pty.node")];
+  return [
+    join(nodePtyRoot, "prebuilds", "linux-arm64", "pty.node"),
+  ];
 }
 
 async function withPackagedApp(platform, callback) {
@@ -192,7 +191,9 @@ for (const platform of ["darwin", "win32", "linux"]) {
             outputRoot,
             verificationOptions(platform),
           ),
-          /missing required file.*pty\.node/u,
+          platform === "win32"
+            ? /missing required file.*conpty\.node/u
+            : /missing required file.*pty\.node/u,
         );
         assert.ok(hostRoot);
       },

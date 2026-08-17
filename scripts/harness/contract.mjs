@@ -40,6 +40,10 @@ function requireSourceSeam(source, fragment, message) {
   if (!source.includes(fragment)) throw new Error(message);
 }
 
+function forbidSourceSeam(source, fragment, message) {
+  if (source.includes(fragment)) throw new Error(message);
+}
+
 export function runtimeSizeBudgetForPlatform(
   contract,
   platform = process.platform,
@@ -214,6 +218,12 @@ export async function verifyHarnessContract(projectRoot) {
     argsSource,
     profileBootSource,
     webStartupSource,
+    settingsPluginSlotSource,
+    settingsApiProxySource,
+    llmTypesSource,
+    attachmentSource,
+    deepSeekAdapterSource,
+    subagentToolSource,
     settingsSlotsSource,
     settingsRootSource,
     sidebarSource,
@@ -234,6 +244,73 @@ export async function verifyHarnessContract(projectRoot) {
         "web-app",
         "src",
         "startup.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "client",
+        "ui-settings-plugins",
+        "src",
+        "client",
+        "slot-contract.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "host",
+        "apiproxy",
+        "src",
+        "api-proxy.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "llm",
+        "llm",
+        "src",
+        "types.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "attachment",
+        "attachment",
+        "src",
+        "index.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "llm",
+        "llm-deepseek",
+        "src",
+        "index.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "subagent",
+        "tool-subagent",
+        "src",
+        "index.ts",
       ),
       "utf8",
     ),
@@ -359,6 +436,51 @@ export async function verifyHarnessContract(projectRoot) {
     settingsSlotsSource,
     "'settings.section'",
     "Harness settings.section extension slot changed.",
+  );
+  requireSourceSeam(
+    settingsPluginSlotSource,
+    "'settings.plugin.item': { kind: 'keyed'; scope: 'root'; owner: SettingsPluginItemOwnerProps }",
+    "Harness keyed plugin settings-card API changed.",
+  );
+  requireSourceSeam(
+    settingsApiProxySource,
+    "namespaces: settings.describe({ redactSecrets: true }).map(namespaceView),",
+    "Harness settings namespace exposure changed; review every registered Minke namespace.",
+  );
+  forbidSourceSeam(
+    settingsApiProxySource,
+    "settings-not-exposed",
+    "Harness settings-not-exposed RPC contract returned; review client error handling.",
+  );
+  requireSourceSeam(
+    llmTypesSource,
+    "export interface ReplayEnvelope",
+    "Harness LLM ReplayEnvelope API changed; review custom adapter replay metadata.",
+  );
+  requireSourceSeam(
+    llmTypesSource,
+    "replayState?: ReplayEnvelope",
+    "Harness LLM ReplayEnvelope API changed; review finish chunks.",
+  );
+  requireSourceSeam(
+    attachmentSource,
+    "async saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]>",
+    "Harness batch image attachment API changed; review MCP/ACP image persistence.",
+  );
+  requireSourceSeam(
+    deepSeekAdapterSource,
+    "reasoningEffort?: 'off' | 'low' | 'high' | 'max'",
+    "Harness DeepSeek low reasoning-effort API changed.",
+  );
+  requireSourceSeam(
+    subagentToolSource,
+    "enableRunInBackground?: boolean",
+    "Harness subagent Job API changed; review Minke Codex composition.",
+  );
+  requireSourceSeam(
+    subagentToolSource,
+    "backgroundMode?: 'one-shot' | 'continuable'",
+    "Harness subagent Job API changed; review Minke Codex composition.",
   );
   requireSourceSeam(
     settingsRootSource,

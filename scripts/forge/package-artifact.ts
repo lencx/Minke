@@ -153,10 +153,7 @@ async function assertOnlyTargetNodePtyPrebuild(
     }
     throw error;
   }
-  const target =
-    platform === "darwin" || platform === "win32"
-      ? `${platform}-${arch}`
-      : undefined;
+  const target = `${platform}-${arch}`;
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name === target) continue;
     throw new Error(
@@ -291,11 +288,8 @@ export async function verifyPackagedApplication(
       `${options.platform}-${options.arch}`,
     );
     required.push(
-      join(targetRoot, "pty.node"),
       join(targetRoot, "conpty.node"),
       join(targetRoot, "conpty_console_list.node"),
-      join(targetRoot, "winpty-agent.exe"),
-      join(targetRoot, "winpty.dll"),
       join(targetRoot, "conpty", "OpenConsole.exe"),
       join(targetRoot, "conpty", "conpty.dll"),
     );
@@ -305,8 +299,8 @@ export async function verifyPackagedApplication(
         hostRoot,
         "node_modules",
         "node-pty",
-        "build",
-        "Release",
+        "prebuilds",
+        `${options.platform}-${options.arch}`,
         "pty.node",
       ),
     );
