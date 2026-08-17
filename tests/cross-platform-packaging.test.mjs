@@ -22,6 +22,26 @@ const {
   nodePtyProbeInvocation,
 } = require("../scripts/harness/node-pty-probe.cjs");
 
+function assertHarnessStagingOrder(stageSource) {
+  stageSource = stageSource.replaceAll("\r\n", "\n");
+  const completeInstall = stageSource.indexOf(
+    '"install",\n        "--recursive",\n        "--frozen-lockfile"',
+  );
+  const build = stageSource.indexOf(
+    'await runPnpm(["run", "build"], harnessRoot);',
+  );
+  const runtimeOnlyInstall = stageSource.indexOf(
+    '"--filter",\n        `${generatedPackageName}...`',
+  );
+
+  assert.ok(completeInstall >= 0, "staging must restore every workspace link");
+  assert.ok(build > completeInstall, "Harness must build after full install");
+  assert.ok(
+    runtimeOnlyInstall > build,
+    "runtime-only installation must not remove build dependencies before build",
+  );
+}
+
 test("Windows batch adapters run through ComSpec without enabling a global shell", () => {
   assert.deepEqual(
     resolveCommandInvocation(
@@ -195,22 +215,34 @@ test("Harness builds from the complete workspace before runtime-only installatio
     new URL("../scripts/harness/stage.mjs", import.meta.url),
     "utf8",
   );
-  const completeInstall = stageSource.indexOf(
-    '"install",\n        "--recursive",\n        "--frozen-lockfile"',
+  assertHarnessStagingOrder(stageSource);
+});
+
+test("Harness staging contract supports Windows line endings", async () => {
+  const stageSource = await readFile(
+    new URL("../scripts/harness/stage.mjs", import.meta.url),
+    "utf8",
   );
-  const build = stageSource.indexOf(
-    'await runPnpm(["run", "build"], harnessRoot);',
-  );
-  const runtimeOnlyInstall = stageSource.indexOf(
-    '"--filter",\n        `${generatedPackageName}...`',
+  assertHarnessStagingOrder(stageSource.replaceAll("\n", "\r\n"));
+});
+
+test("Linux makers target the packaged executable with matching case", async () => {
+  const forgeSource = await readFile(
+    new URL("../forge.config.ts", import.meta.url),
+    "utf8",
   );
 
-  assert.ok(completeInstall >= 0, "staging must restore every workspace link");
-  assert.ok(build > completeInstall, "Harness must build after full install");
-  assert.ok(
-    runtimeOnlyInstall > build,
-    "runtime-only installation must not remove build dependencies before build",
-  );
+  for (const maker of ["MakerRpm", "MakerDeb"]) {
+    const makerStart = forgeSource.indexOf(`new ${maker}({`);
+    const makerEnd = forgeSource.indexOf("\n    }),", makerStart);
+    assert.ok(makerStart >= 0, `${maker} must be configured`);
+    assert.ok(makerEnd > makerStart, `${maker} config must be complete`);
+    assert.match(
+      forgeSource.slice(makerStart, makerEnd),
+      /options:\s*\{[\s\S]*?\bbin:\s*"Minke",/u,
+      `${maker} must use the case-sensitive packaged executable name`,
+    );
+  }
 });
 
 for (const platform of ["darwin", "win32", "linux"]) {

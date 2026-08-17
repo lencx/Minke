@@ -127,11 +127,13 @@ const config: ForgeConfig = {
     }),
     new MakerRpm({
       options: {
+        bin: "Minke",
         icon: appIcon,
       },
     }),
     new MakerDeb({
       options: {
+        bin: "Minke",
         icon: appIcon,
       },
     }),

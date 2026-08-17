@@ -38,6 +38,13 @@ function assertMatrixEntry(source, runner, platform, arch) {
   );
 }
 
+function releaseJobSource(source) {
+  source = source.replaceAll("\r\n", "\n");
+  const releaseJobIndex = source.indexOf("\n  release:\n");
+  assert.notEqual(releaseJobIndex, -1);
+  return source.slice(releaseJobIndex);
+}
+
 test("GitHub Actions packages each supported desktop platform", async () => {
   const source = await readFile(workflowUrl, "utf8");
 
@@ -118,9 +125,7 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   assert.match(source, /compression-level:\s*0/u);
   assert.doesNotMatch(source, /continue-on-error:/u);
 
-  const releaseJobIndex = source.indexOf("\n  release:\n");
-  assert.notEqual(releaseJobIndex, -1);
-  const releaseJob = source.slice(releaseJobIndex);
+  const releaseJob = releaseJobSource(source);
   assert.match(releaseJob, /needs:\s*package/u);
   assert.match(
     releaseJob,
@@ -150,6 +155,12 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   assert.match(releaseJob, /--generate-notes/u);
   assert.match(releaseJob, /gh release upload "\$GITHUB_REF_NAME"/u);
   assert.match(releaseJob, /--clobber/u);
+});
+
+test("release workflow contract supports Windows line endings", async () => {
+  const source = await readFile(workflowUrl, "utf8");
+  const releaseJob = releaseJobSource(source.replaceAll("\n", "\r\n"));
+  assert.match(releaseJob, /needs:\s*package/u);
 });
 
 test("README links directly to every latest installer", async () => {
