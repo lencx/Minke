@@ -24,6 +24,15 @@ import {
 /** Current schema version of the unified Minke desktop configuration. */
 export const MINKE_CONFIG_VERSION = 1;
 
+/** Resolve the unified desktop config path below Minke's user-data root. */
+export function minkeConfigFilePath(userDataPath: string): string {
+  return join(
+    userDataPath,
+    "desktop",
+    "minke.config.json",
+  );
+}
+
 /** Complete Minke-owned desktop configuration stored on disk. */
 export interface MinkeConfigDocument {
   version: typeof MINKE_CONFIG_VERSION;
@@ -117,11 +126,7 @@ export class MinkeConfigStore {
   #writeSequence = 0;
 
   constructor(userDataPath: string) {
-    this.path = join(
-      userDataPath,
-      "desktop",
-      "minke.config.json",
-    );
+    this.path = minkeConfigFilePath(userDataPath);
     this.shortcuts = Object.freeze({
       read: () => this.#readShortcuts(),
       write: (value: unknown) => this.#writeShortcuts(value),

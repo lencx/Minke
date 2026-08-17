@@ -9,8 +9,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import {
+  createStatefulMainWindow,
+} from "@minke/desktop/main/main-window-state.ts";
 import {
   MINKE_CONFIG_VERSION,
   MinkeConfigStore,
@@ -30,6 +33,51 @@ async function withStore(callback) {
     await rm(root, { recursive: true, force: true });
   }
 }
+
+test("main window state is restored and tracked beside minke.config.json", () => {
+  const config = new MinkeConfigStore(
+    join(tmpdir(), "minke-window-state-profile"),
+  );
+  const restoredBounds = {
+    x: 120,
+    y: 80,
+    width: 1440,
+    height: 900,
+  };
+  const window = {};
+  let stateOptions;
+  let windowBounds;
+  let managedWindow;
+
+  const result = createStatefulMainWindow(
+    config.path,
+    (bounds) => {
+      windowBounds = bounds;
+      return window;
+    },
+    (options) => {
+      stateOptions = options;
+      return {
+        ...restoredBounds,
+        manage(candidate) {
+          managedWindow = candidate;
+        },
+      };
+    },
+  );
+
+  assert.equal(result, window);
+  assert.deepEqual(stateOptions, {
+    defaultWidth: 1280,
+    defaultHeight: 820,
+    path: dirname(config.path),
+    file: "window-state.json",
+    maximize: true,
+    fullScreen: true,
+  });
+  assert.deepEqual(windowBounds, restoredBounds);
+  assert.equal(managedWindow, window);
+});
 
 test("desktop settings share one versioned Minke config", async () => {
   await withStore(async ({ root, store }) => {

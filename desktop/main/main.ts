@@ -39,7 +39,11 @@ import {
   HarnessRuntime,
   type HarnessRuntimeExit,
 } from "./harness-runtime";
-import { MinkeConfigStore } from "./minke-config";
+import { createStatefulMainWindow } from "./main-window-state";
+import {
+  minkeConfigFilePath,
+  MinkeConfigStore,
+} from "./minke-config";
 import {
   discoverLocalModelCommands,
 } from "./local-model-command";
@@ -277,26 +281,28 @@ function protectNavigation(webContents: WebContents): void {
 }
 
 async function createWindow(): Promise<BrowserWindow> {
-  const window = new BrowserWindow({
-    title: PRODUCT_NAME,
-    icon: appIconPath(),
-    width: 1280,
-    height: 820,
-    minWidth: 960,
-    minHeight: 640,
-    show: false,
-    backgroundColor: BACKGROUND_COLOR,
-    ...macOSWindowOptions(),
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      preload: join(__dirname, "desktop-preload.js"),
-      sandbox: true,
-      webSecurity: true,
-      webviewTag: true,
-      transparent: process.platform === "darwin",
-    },
-  });
+  const window = createStatefulMainWindow(
+    minkeConfigFilePath(app.getPath("userData")),
+    (bounds) => new BrowserWindow({
+      title: PRODUCT_NAME,
+      icon: appIconPath(),
+      ...bounds,
+      minWidth: 960,
+      minHeight: 640,
+      show: false,
+      backgroundColor: BACKGROUND_COLOR,
+      ...macOSWindowOptions(),
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        preload: join(__dirname, "desktop-preload.js"),
+        sandbox: true,
+        webSecurity: true,
+        webviewTag: true,
+        transparent: process.platform === "darwin",
+      },
+    }),
+  );
   const windowButtonSpacing = process.platform === "darwin"
     ? bindMacOSWindowButtonSpacing(window, { platform: process.platform })
     : undefined;
