@@ -24,6 +24,7 @@ import {
   TerminalSettingsRuntime,
 } from "@minke/harness-overlay/client/tabs/terminal/settings/runtime.ts";
 import {
+  installTerminalSettingsNavigationIcon,
   reconcileTerminalSettingsNavigationIcon,
   TERMINAL_SETTINGS_STYLES,
 } from "@minke/harness-overlay/client/tabs/terminal/settings/styles.ts";
@@ -113,8 +114,15 @@ test("Terminal settings copy stays complete in English and Chinese", () => {
 test("Terminal settings navigation uses the Terminal icon", () => {
   const createButton = (label) => {
     const attributes = new Set();
+    const declarations = new Map();
     return {
       attributes,
+      style: {
+        getPropertyPriority: () => "",
+        getPropertyValue: (name) => declarations.get(name) ?? "",
+        removeProperty: (name) => declarations.delete(name),
+        setProperty: (name, value) => declarations.set(name, value),
+      },
       querySelector: () => ({ textContent: label }),
       toggleAttribute: (name, enabled) => {
         if (enabled) attributes.add(name);
@@ -124,7 +132,20 @@ test("Terminal settings navigation uses the Terminal icon", () => {
   };
   const general = createButton("General");
   const terminal = createButton("Terminal");
+  let reconcile;
   const root = {
+    defaultView: {
+      MutationObserver: class {
+        disconnect() {}
+        observe() {}
+      },
+      requestAnimationFrame(callback) {
+        reconcile = callback;
+        return 1;
+      },
+      cancelAnimationFrame() {},
+    },
+    documentElement: {},
     querySelectorAll: () => [general, terminal],
   };
 
@@ -138,9 +159,26 @@ test("Terminal settings navigation uses the Terminal icon", () => {
     terminal.attributes.has("data-minke-terminal-settings-nav"),
     true,
   );
-  const iconDataUrl = TERMINAL_SETTINGS_STYLES.match(
-    /--minke-terminal-settings-nav-icon: url\("(data:image\/svg\+xml;base64,[^"]+)"\)/u,
-  )?.[1];
+  assert.match(
+    TERMINAL_SETTINGS_STYLES,
+    /mask:\s*var\(--minke-terminal-settings-nav-icon\)/u,
+  );
+  const dispose = installTerminalSettingsNavigationIcon(
+    () => "Terminal",
+    root,
+  );
+  reconcile();
+  const iconDataUrl = terminal.style
+    .getPropertyValue("--minke-terminal-settings-nav-icon")
+    .match(
+      /^url\("(data:image\/svg\+xml;base64,[^"]+)"\)$/u,
+    )?.[1];
+  assert.equal(
+    general.style.getPropertyValue(
+      "--minke-terminal-settings-nav-icon",
+    ),
+    "",
+  );
   assert.ok(iconDataUrl);
   const iconSvg = Buffer.from(
     iconDataUrl.slice(iconDataUrl.indexOf(",") + 1),
@@ -149,6 +187,13 @@ test("Terminal settings navigation uses the Terminal icon", () => {
   assert.match(
     iconSvg,
     /class="lucide lucide-square-terminal(?:\s|")/u,
+  );
+  dispose();
+  assert.equal(
+    terminal.style.getPropertyValue(
+      "--minke-terminal-settings-nav-icon",
+    ),
+    "",
   );
 });
 
@@ -174,6 +219,10 @@ test("the desktop store writes Terminal settings into Minke config", async () =>
       fontFamily: "JetBrains Mono",
       fontSize: 14,
       lineHeight: 1.35,
+    },
+    modelRuntime: {
+      lmStudio: { enabled: false },
+      ollama: { enabled: false },
     },
   });
 });

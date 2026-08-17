@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  installShortcutNavigationIcon,
   reconcileShortcutNavigationIcon,
   SHORTCUT_STYLES,
 } from "@minke/harness-overlay/client/styles.ts";
@@ -125,7 +126,15 @@ test("the product overlay composes Codex CLI and the generic model runtime", () 
   );
   assert.match(
     patch,
-    /id: model-runtime[\s\S]*name: '@lencx\/minke-harness-overlay\/model-runtime'[\s\S]*lifecycle: ensure-running/u,
+    /id: model-runtime[\s\S]*name: '@lencx\/minke-harness-overlay\/model-runtime'[\s\S]*enabled: true[\s\S]*lifecycle: !!js "process\.env\.MINKE_LM_STUDIO_ENABLED === '1' && process\.env\.MINKE_LM_STUDIO_COMMAND \? 'ensure-running' : 'external'"[\s\S]*command: !!js process\.env\.MINKE_LM_STUDIO_COMMAND/u,
+  );
+  assert.match(
+    patch,
+    /ollama:[\s\S]*enabled: true[\s\S]*lifecycle: !!js "process\.env\.MINKE_OLLAMA_ENABLED === '1' && process\.env\.MINKE_OLLAMA_COMMAND \? 'ensure-running' : 'external'"[\s\S]*command: !!js process\.env\.MINKE_OLLAMA_COMMAND/u,
+  );
+  assert.doesNotMatch(
+    patch,
+    /lmStudio:[\s\S]*lifecycle: ensure-running/u,
   );
   assert.doesNotMatch(
     patch,
@@ -188,6 +197,14 @@ test("the built client half is a Harness module-loader bundle", () => {
     /minke-overlay: \$\{placement\} Terminal tab renderer/u,
   );
   assert.match(bundle, /minke-overlay: Terminal settings runtime/u);
+  assert.match(bundle, /minke-overlay: local model settings runtime/u);
+  assert.match(bundle, /data-minke-local-model-settings/u);
+  assert.match(bundle, /lm-studio/u);
+  assert.match(bundle, /ollama/u);
+  assert.match(
+    bundle,
+    /setAttribute\(["']role["'],\s*["']switch["']\)/u,
+  );
   assert.match(bundle, /minke-terminal/u);
   assert.match(
     bundle,
@@ -333,8 +350,15 @@ test("Minke bypasses the upstream internal-testing notice through slot shadowing
 test("the shortcuts settings row receives the keyboard navigation icon", () => {
   const createButton = (label) => {
     const attributes = new Set();
+    const declarations = new Map();
     return {
       attributes,
+      style: {
+        getPropertyPriority: () => "",
+        getPropertyValue: (name) => declarations.get(name) ?? "",
+        removeProperty: (name) => declarations.delete(name),
+        setProperty: (name, value) => declarations.set(name, value),
+      },
       querySelector: () => ({ textContent: label }),
       toggleAttribute: (name, enabled) => {
         if (enabled) attributes.add(name);
@@ -344,7 +368,20 @@ test("the shortcuts settings row receives the keyboard navigation icon", () => {
   };
   const general = createButton("General");
   const shortcuts = createButton("Keyboard shortcuts");
+  let reconcile;
   const root = {
+    defaultView: {
+      MutationObserver: class {
+        disconnect() {}
+        observe() {}
+      },
+      requestAnimationFrame(callback) {
+        reconcile = callback;
+        return 1;
+      },
+      cancelAnimationFrame() {},
+    },
+    documentElement: {},
     querySelectorAll: () => [general, shortcuts],
   };
 
@@ -378,9 +415,26 @@ test("the shortcuts settings row receives the keyboard navigation icon", () => {
     /buildLucideDataUri\(Keyboard,\s*\{\s*size:\s*16,\s*\}\)/u,
   );
   assert.doesNotMatch(shortcutStylesSource, /KEYBOARD_ICON_PATHS|<path/u);
-  const iconDataUrl = SHORTCUT_STYLES.match(
-    /--minke-shortcuts-nav-icon: url\("(data:image\/svg\+xml;base64,[^"]+)"\)/u,
-  )?.[1];
+  assert.match(
+    SHORTCUT_STYLES,
+    /mask:\s*var\(--minke-shortcuts-nav-icon\)/u,
+  );
+  const dispose = installShortcutNavigationIcon(
+    () => "Keyboard shortcuts",
+    root,
+  );
+  reconcile();
+  const iconDataUrl = shortcuts.style
+    .getPropertyValue("--minke-shortcuts-nav-icon")
+    .match(
+      /^url\("(data:image\/svg\+xml;base64,[^"]+)"\)$/u,
+    )?.[1];
+  assert.equal(
+    general.style.getPropertyValue(
+      "--minke-shortcuts-nav-icon",
+    ),
+    "",
+  );
   assert.ok(iconDataUrl);
   const iconSvg = Buffer.from(
     iconDataUrl.slice(iconDataUrl.indexOf(",") + 1),
@@ -390,5 +444,12 @@ test("the shortcuts settings row receives the keyboard navigation icon", () => {
   assert.match(
     iconSvg,
     /<rect width="20" height="16" x="2" y="4" rx="2"/u,
+  );
+  dispose();
+  assert.equal(
+    shortcuts.style.getPropertyValue(
+      "--minke-shortcuts-nav-icon",
+    ),
+    "",
   );
 });

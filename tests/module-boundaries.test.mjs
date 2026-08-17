@@ -26,6 +26,7 @@ const sourceExtensions = new Set([
 ]);
 const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/session-export-contract",
+  "@minke/harness-overlay/model-runtime-settings-contract",
   "@minke/harness-overlay/shortcut-contract",
   "@minke/harness-overlay/tabs/contract",
   "@minke/harness-overlay/tabs/files-contract",
@@ -99,4 +100,32 @@ test("production sources do not restore retired model environment seams", () => 
     ),
   );
   assert.deepEqual(violations.map((path) => relative(projectRoot, path)), []);
+});
+
+test("overlay styles cross one lifecycle seam instead of living in TS templates", () => {
+  const overlayClientRoot = resolve(
+    projectRoot,
+    "packages/harness-overlay/src/client",
+  );
+  const styleRuntime = resolve(overlayClientRoot, "style-runtime.ts");
+  const violations = productionFiles
+    .filter(
+      (path) =>
+        path.startsWith(`${overlayClientRoot}${sep}`) &&
+        path !== styleRuntime,
+    )
+    .filter((path) => {
+      const source = readFileSync(path, "utf8");
+      return (
+        /(?:export\s+)?const\s+[A-Z][A-Z0-9_]*_STYLES\s*=\s*`/u.test(
+          source,
+        ) ||
+        /createElement\(\s*["']style["']\s*\)/u.test(source)
+      );
+    });
+
+  assert.deepEqual(
+    violations.map((path) => relative(projectRoot, path)),
+    [],
+  );
 });
