@@ -18,7 +18,11 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { verifyHarnessContract } from "./contract.mjs";
+import {
+  runtimeSizeBudgetForPlatform,
+  verifyHarnessContract,
+} from "./contract.mjs";
+import { resolvePnpmInvocation } from "./pnpm-invocation.mjs";
 import {
   assertRuntimeFileBudget,
   assertRuntimeSizeBudget,
@@ -42,7 +46,9 @@ const runtimeMetadataVersion = 2;
 const runtimeFingerprintPaths = [
   "config/harness-runtime.json",
   "scripts/harness/build-overlay.mjs",
+  "scripts/harness/command-invocation.mjs",
   "scripts/harness/contract.mjs",
+  "scripts/harness/pnpm-invocation.mjs",
   "scripts/harness/runtime-prune.mjs",
   "scripts/harness/runtime-state.mjs",
   "scripts/harness/stage.mjs",
@@ -104,7 +110,7 @@ async function inspectPrunedRuntime(runtimeRoot, contract) {
   }
   assertRuntimeSizeBudget(
     inspection.bytes,
-    contract.runtimeSizeBudgetBytes,
+    runtimeSizeBudgetForPlatform(contract),
   );
   assertRuntimeFileBudget(
     inspection.files,
@@ -115,7 +121,7 @@ async function inspectPrunedRuntime(runtimeRoot, contract) {
 
 function runtimeSizeContract(contract) {
   return {
-    budgetBytes: contract.runtimeSizeBudgetBytes,
+    budgetBytes: runtimeSizeBudgetForPlatform(contract),
     fileBudget: contract.runtimeFileBudget,
     policyVersion: RUNTIME_PRUNE_POLICY_VERSION,
   };
@@ -165,6 +171,11 @@ async function run(command, args, cwd) {
   });
 }
 
+async function runPnpm(args, cwd) {
+  const invocation = resolvePnpmInvocation(args);
+  await run(invocation.command, invocation.args, cwd);
+}
+
 function capture(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
@@ -177,6 +188,11 @@ function capture(command, args, cwd) {
     );
   }
   return result.stdout.trim();
+}
+
+function capturePnpm(args, cwd) {
+  const invocation = resolvePnpmInvocation(args);
+  return capture(invocation.command, invocation.args, cwd);
 }
 
 function assertGeneratedPath(path, label) {
@@ -192,7 +208,7 @@ function assertGeneratedPath(path, label) {
 
 async function readWorkspacePackages(harnessRoot) {
   const rows = JSON.parse(
-    capture("pnpm", ["list", "-r", "--depth", "-1", "--json"], harnessRoot),
+    capturePnpm(["list", "-r", "--depth", "-1", "--json"], harnessRoot),
   );
   const packages = new Map();
   for (const row of rows) {
@@ -686,7 +702,8 @@ async function validateReusableRuntime(
     metadata.platform !== process.platform ||
     metadata.arch !== process.arch ||
     metadata.runtimeSize?.policyVersion !== RUNTIME_PRUNE_POLICY_VERSION ||
-    metadata.runtimeSize?.budgetBytes !== contract.runtimeSizeBudgetBytes ||
+    metadata.runtimeSize?.budgetBytes !==
+      runtimeSizeBudgetForPlatform(contract) ||
     metadata.runtimeSize?.fileBudget !== contract.runtimeFileBudget
   ) {
     throw new Error(
@@ -809,8 +826,7 @@ async function main() {
   }
 
   if (!flags.skipInstall) {
-    await run(
-      "pnpm",
+    await runPnpm(
       ["install", "--frozen-lockfile", "--config.node-linker=isolated"],
       harnessRoot,
     );
@@ -830,8 +846,7 @@ async function main() {
   let stagingContainer;
   try {
     await writeDeployRoot(generatedPackageDir, selectedPackages, contract);
-    await run(
-      "pnpm",
+    await runPnpm(
       [
         "install",
         "--filter",
@@ -847,7 +862,7 @@ async function main() {
     if (flags.skipBuild) {
       console.log("Skipping Harness source build (--skip-build)");
     } else {
-      await run("pnpm", ["run", "build"], harnessRoot);
+      await runPnpm(["run", "build"], harnessRoot);
     }
 
     const runtimeParent = dirname(activeRuntimeRoot);
@@ -855,8 +870,7 @@ async function main() {
     stagingContainer = await mkdtemp(join(runtimeParent, ".host-staging-"));
     const candidateRuntimeRoot = join(stagingContainer, "host");
     assertGeneratedPath(candidateRuntimeRoot, "runtime candidate");
-    await run(
-      "pnpm",
+    await runPnpm(
       [
         "--filter",
         generatedPackageName,
@@ -916,11 +930,8 @@ async function main() {
         validateRuntime(runtimeRoot, contract, expectedRuntime),
     );
 
-    const size = capture("du", ["-sh", activeRuntimeRoot], projectRoot).split(
-      /\s+/u,
-    )[0];
     console.log(
-      `\nStaged ${contract.packageName}@${contract.packageVersion} at ${relative(projectRoot, activeRuntimeRoot)} (${size})`,
+      `\nStaged ${contract.packageName}@${contract.packageVersion} at ${relative(projectRoot, activeRuntimeRoot)} (${(runtimeInspection.bytes / 1024 / 1024).toFixed(1)} MiB/${String(runtimeInspection.files)} files)`,
     );
   } finally {
     if (stagingContainer !== undefined) {

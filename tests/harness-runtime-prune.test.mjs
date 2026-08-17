@@ -37,6 +37,7 @@ test("runtime pruning removes build artifacts and preserves executable assets", 
     await writeFile(join(root, "lib", "index.js.map"), "source map");
     await writeFile(join(root, "lib", "index.d.ts"), "export {};\n");
     await writeFile(join(root, "lib", "build.tsbuildinfo"), "cache");
+    await writeFile(join(root, "lib", "native-debug.pdb"), "debug symbols");
     await writeFile(join(root, "README.md"), "documentation");
     await writeFile(join(root, "CHANGELOG.txt"), "history");
     await writeFile(join(root, "LICENSE.md"), "license");
@@ -44,10 +45,10 @@ test("runtime pruning removes build artifacts and preserves executable assets", 
     await writeFile(join(root, "guide.md"), "runtime content");
 
     const before = await inspectRuntimeArtifacts(root);
-    assert.equal(before.prunable.files, 5);
+    assert.equal(before.prunable.files, 6);
     const report = await pruneRuntimeArtifacts(root);
 
-    assert.equal(report.removed.files, 5);
+    assert.equal(report.removed.files, 6);
     assert.equal(report.afterFiles, 4);
     assert.equal(
       await readFile(join(root, "lib", "index.js"), "utf8"),
@@ -346,14 +347,12 @@ test("runtime pruning replaces esbuild's duplicate binary with a launcher", asyn
     const esbuildRoot = join(root, "node_modules", "esbuild");
     const launcher = join(esbuildRoot, "bin", "esbuild");
     const binaryPackage = "@esbuild/test-platform";
-    const binarySubpath = `${binaryPackage}/bin/esbuild`;
+    const binarySubpath =
+      process.platform === "win32"
+        ? `${binaryPackage}/esbuild.exe`
+        : `${binaryPackage}/bin/esbuild`;
     const binary = join(root, "node_modules", ...binarySubpath.split("/"));
-    const binarySource = [
-      "#!/usr/bin/env node",
-      'process.stdout.write("0.0.0-test\\n");',
-      ...Array.from({ length: 8_000 }, () => "// executable padding"),
-      "",
-    ].join("\n");
+    const binarySource = await readFile(process.execPath);
     const binaryHash = createHash("sha256").update(binarySource).digest("hex");
 
     await mkdir(join(esbuildRoot, "bin"), { recursive: true });
@@ -395,7 +394,7 @@ test("runtime pruning replaces esbuild's duplicate binary with a launcher", asyn
       encoding: "utf8",
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, "0.0.0-test\n");
+    assert.equal(result.stdout.trim(), process.version);
     assert.equal((await inspectRuntimeArtifacts(root)).prunable.files, 0);
   });
 });

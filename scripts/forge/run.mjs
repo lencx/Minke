@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { forgeUsesElectronWorker } from "./runtime-selection.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(scriptPath), "../..");
@@ -13,7 +14,10 @@ if (command !== "package" && command !== "make") {
   throw new Error(`expected "package" or "make", received ${JSON.stringify(command)}`);
 }
 
-if (process.env.DSH_FORGE_WORKER !== "1") {
+if (
+  process.env.DSH_FORGE_WORKER !== "1" &&
+  forgeUsesElectronWorker()
+) {
   const require = createRequire(import.meta.url);
   const electronExecutable = require("electron");
 
@@ -68,9 +72,13 @@ if (process.env.DSH_FORGE_WORKER !== "1") {
   }
   process.exitCode = result.status;
 } else {
-  // Electron's Node runtime treats .asar paths specially by default. Packager
-  // must be able to create them as ordinary files.
-  process.noAsar = true;
+  if (process.env.DSH_FORGE_WORKER === "1") {
+    // Electron's Node runtime treats .asar paths specially by default.
+    // Packager must be able to create them as ordinary files.
+    process.noAsar = true;
+  }
+  // Windows and Linux use Forge's standard Node runtime so large dependency
+  // graphs are not constrained by Electron's lower worker heap ceiling.
   const { api } = await import("@electron-forge/core");
   const options = {
     dir: projectRoot,

@@ -16,6 +16,11 @@ import {
   harnessWebArguments,
   readHarnessRuntimeLayout,
 } from "../../desktop/main/harness-launch.ts";
+import { packagedApplicationLayout } from "../forge/application-layout.mjs";
+import {
+  isCommandUnavailableResult,
+  resolveCommandInvocation,
+} from "./command-invocation.mjs";
 import { verifyHarnessContract } from "./contract.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -26,70 +31,19 @@ if (
 ) {
   throw new Error("usage: smoke.mjs [--packaged]");
 }
-if (packaged && process.platform !== "darwin") {
-  throw new Error("packaged smoke currently supports macOS");
-}
-const packagedAppRoot = join(
-  projectRoot,
-  "out",
-  `Minke-${process.platform}-${process.arch}`,
-  "Minke.app",
-);
+const packagedLayout = packagedApplicationLayout(projectRoot);
 const runtimeRoot = packaged
-  ? join(packagedAppRoot, "Contents", "Resources", "host")
+  ? join(packagedLayout.resourcesRoot, "host")
   : join(projectRoot, "runtime", "host");
 const fixtureSource = join(projectRoot, "tests", "fixtures", "web-plugin");
+const ptyProbePath = join(
+  projectRoot,
+  "scripts",
+  "harness",
+  "node-pty-probe.cjs",
+);
 const startupTimeoutMs = 90_000;
 const hmrTimeoutMs = 15_000;
-const ptyProbeSource = String.raw`
-const { createRequire } = require("node:module");
-const { join } = require("node:path");
-
-const runtimeRoot = process.argv[1];
-const runtimeRequire = createRequire(join(runtimeRoot, "package.json"));
-const pty = runtimeRequire("node-pty");
-const expected = "minke-pty-ok";
-let output = "";
-let settled = false;
-const timeout = setTimeout(() => {
-  if (settled) return;
-  settled = true;
-  terminal.kill();
-  process.stderr.write("node-pty probe timed out\n");
-  process.exitCode = 1;
-}, 10_000);
-const terminal = pty.spawn(
-  process.execPath,
-  ["--eval", "process.stdout.write('minke-pty-ok')"],
-  {
-    name: "xterm-256color",
-    cols: 80,
-    rows: 24,
-    cwd: process.cwd(),
-    env: process.env,
-  },
-);
-terminal.onData((data) => {
-  output += data;
-});
-terminal.onExit(({ exitCode }) => {
-  setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timeout);
-    if (exitCode !== 0 || !output.includes(expected)) {
-      process.stderr.write(
-        "node-pty probe failed: exit " +
-          String(exitCode) +
-          ", output " +
-          JSON.stringify(output) +
-          "\n",
-      );
-      process.exitCode = 1;
-    }
-  }, 25);
-});
-`;
 const mistralProbeSource = String.raw`
 const { createRequire } = require("node:module");
 const { join } = require("node:path");
@@ -156,7 +110,8 @@ function formatOutput(stdout, stderr) {
 
 async function run(command, args, options = {}) {
   return await new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
+    const invocation = resolveCommandInvocation(command, args);
+    const child = spawn(invocation.command, invocation.args, {
       ...options,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -313,7 +268,7 @@ async function main() {
   const verified = await verifyHarnessContract(projectRoot);
   const require = createRequire(import.meta.url);
   const electronExecutable = packaged
-    ? join(packagedAppRoot, "Contents", "MacOS", "Minke")
+    ? packagedLayout.executablePath
     : require("electron");
   const runtimeLayout = await readHarnessRuntimeLayout(runtimeRoot);
   const {
@@ -373,10 +328,7 @@ async function main() {
         },
       },
     );
-    if (
-      negative.code !== 127 ||
-      !negative.stderr.includes("pnpm not found on PATH")
-    ) {
+    if (!isCommandUnavailableResult(negative, "pnpm")) {
       throw new Error(
         `negative control did not prove the pnpm seam (exit ${String(negative.code)})\n${formatOutput(negative.stdout, negative.stderr)}`,
       );
@@ -396,15 +348,15 @@ async function main() {
       );
     }
     await runSuccessful(
-      executable("node"),
-      ["--eval", ptyProbeSource, runtimeRoot],
+      electronExecutable,
+      [ptyProbePath, runtimeRoot],
       {
         cwd: projectRoot,
         env,
       },
     );
     await runSuccessful(
-      executable("node"),
+      electronExecutable,
       ["--eval", mistralProbeSource, runtimeRoot],
       {
         cwd: projectRoot,

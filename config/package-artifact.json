@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "appSizeBudgetBytes": {
-    "darwin": 440401920
+    "darwin": 440401920,
+    "linux": 536870912,
+    "win32": 536870912
   }
 }

@@ -8,6 +8,7 @@ import {
   assertRuntimeSizeBudget,
   inspectRuntimeArtifacts,
 } from "./runtime-prune.mjs";
+import { runtimeSizeBudgetForPlatform } from "./contract.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const contract = JSON.parse(
@@ -23,7 +24,7 @@ if (inspection.prunable.files > 0) {
 }
 assertRuntimeSizeBudget(
   inspection.bytes,
-  contract.runtimeSizeBudgetBytes,
+  runtimeSizeBudgetForPlatform(contract),
 );
 assertRuntimeFileBudget(
   inspection.files,

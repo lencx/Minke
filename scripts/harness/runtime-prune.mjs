@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
-export const RUNTIME_PRUNE_POLICY_VERSION = 7;
+export const RUNTIME_PRUNE_POLICY_VERSION = 8;
 
 const DOCUMENTATION_FILE =
   /^(?:readme|changelog|changes|history)(?:\.(?:md|markdown|txt))?$/iu;
@@ -115,6 +115,7 @@ export function runtimeArtifactCategory(path, target = {}) {
   if (/\.map$/iu.test(name)) return "sourceMaps";
   if (/\.d\.(?:ts|mts|cts)$/iu.test(name)) return "typeDeclarations";
   if (/\.tsbuildinfo$/iu.test(name)) return "buildCaches";
+  if (/\.pdb$/iu.test(name)) return "debugSymbols";
   if (DOCUMENTATION_FILE.test(name)) return "documentation";
   return undefined;
 }

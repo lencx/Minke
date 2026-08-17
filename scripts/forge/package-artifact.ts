@@ -5,6 +5,12 @@ import {
   assertRuntimeSizeBudget,
   inspectRuntimeArtifacts,
 } from "../harness/runtime-prune.mjs";
+import {
+  applicationExecutablePath,
+  applicationResourcesRoot,
+} from "./application-layout.mjs";
+
+const desktopPlatforms = Object.freeze(["darwin", "linux", "win32"]);
 
 export interface PackageArtifactPolicy {
   readonly schemaVersion: number;
@@ -118,21 +124,45 @@ async function applicationRoot(
   return outputPath;
 }
 
-function resourcesRoot(appRoot: string, platform: string): string {
-  return platform === "darwin"
-    ? join(appRoot, "Contents", "Resources")
-    : join(appRoot, "resources");
-}
-
-function executablePath(appRoot: string, platform: string): string {
-  if (platform === "darwin") {
-    return join(appRoot, "Contents", "MacOS", "Minke");
-  }
-  return join(appRoot, platform === "win32" ? "Minke.exe" : "Minke");
-}
-
 function runtimeAdapterName(platform: string, name: string): string {
   return platform === "win32" ? `${name}.cmd` : name;
+}
+
+async function assertOnlyTargetNodePtyPrebuild(
+  hostRoot: string,
+  platform: string,
+  arch: string,
+): Promise<void> {
+  const prebuildsRoot = join(
+    hostRoot,
+    "node_modules",
+    "node-pty",
+    "prebuilds",
+  );
+  let entries;
+  try {
+    entries = await readdir(prebuildsRoot, { withFileTypes: true });
+  } catch (error) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return;
+    }
+    throw error;
+  }
+  const target =
+    platform === "darwin" || platform === "win32"
+      ? `${platform}-${arch}`
+      : undefined;
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name === target) continue;
+    throw new Error(
+      `packaged application contains foreign node-pty prebuild ${join(prebuildsRoot, entry.name)}`,
+    );
+  }
 }
 
 function hasSourceCondition(value: unknown): boolean {
@@ -162,8 +192,9 @@ export function parsePackageArtifactPolicy(
   ) {
     throw new Error("package artifact policy must declare appSizeBudgetBytes");
   }
+  const budgets = candidate.appSizeBudgetBytes as Record<string, unknown>;
   for (const [platform, budget] of Object.entries(
-    candidate.appSizeBudgetBytes,
+    budgets,
   )) {
     if (
       platform.length === 0 ||
@@ -175,6 +206,16 @@ export function parsePackageArtifactPolicy(
       );
     }
   }
+  for (const platform of desktopPlatforms) {
+    if (
+      !Number.isSafeInteger(budgets[platform]) ||
+      (budgets[platform] as number) <= 0
+    ) {
+      throw new Error(
+        `package artifact policy must declare a positive size budget for ${platform}`,
+      );
+    }
+  }
   return candidate as PackageArtifactPolicy;
 }
 
@@ -183,7 +224,7 @@ export async function verifyPackagedApplication(
   options: PackageArtifactVerificationOptions,
 ): Promise<PackageArtifactReport> {
   const appRoot = await applicationRoot(outputPath, options.platform);
-  const appResources = resourcesRoot(appRoot, options.platform);
+  const appResources = applicationResourcesRoot(appRoot, options.platform);
   const hostRoot = join(appResources, "host");
   const productRoot = join(
     hostRoot,
@@ -200,7 +241,7 @@ export async function verifyPackagedApplication(
     "mistralai",
   );
   const required = [
-    executablePath(appRoot, options.platform),
+    applicationExecutablePath(appRoot, options.platform),
     join(appResources, "app.asar"),
     join(hostRoot, "index.mjs"),
     join(hostRoot, "dsh-runtime.json"),
@@ -241,8 +282,45 @@ export async function verifyPackagedApplication(
         "lencx_mb.node",
       ),
     );
+  } else if (options.platform === "win32") {
+    const targetRoot = join(
+      hostRoot,
+      "node_modules",
+      "node-pty",
+      "prebuilds",
+      `${options.platform}-${options.arch}`,
+    );
+    required.push(
+      join(targetRoot, "pty.node"),
+      join(targetRoot, "conpty.node"),
+      join(targetRoot, "conpty_console_list.node"),
+      join(targetRoot, "winpty-agent.exe"),
+      join(targetRoot, "winpty.dll"),
+      join(targetRoot, "conpty", "OpenConsole.exe"),
+      join(targetRoot, "conpty", "conpty.dll"),
+    );
+  } else if (options.platform === "linux") {
+    required.push(
+      join(
+        hostRoot,
+        "node_modules",
+        "node-pty",
+        "build",
+        "Release",
+        "pty.node",
+      ),
+    );
+  } else {
+    throw new Error(
+      `unsupported packaged application platform ${options.platform}`,
+    );
   }
   await Promise.all(required.map(requireRegularFile));
+  await assertOnlyTargetNodePtyPrebuild(
+    hostRoot,
+    options.platform,
+    options.arch,
+  );
 
   const forbidden = [
     join(appResources, "node"),

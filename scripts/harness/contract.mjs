@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 
+const desktopPlatforms = Object.freeze(["darwin", "linux", "win32"]);
+
 function capture(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
@@ -36,6 +38,19 @@ function resolveInside(root, value, label) {
 
 function requireSourceSeam(source, fragment, message) {
   if (!source.includes(fragment)) throw new Error(message);
+}
+
+export function runtimeSizeBudgetForPlatform(
+  contract,
+  platform = process.platform,
+) {
+  const budget = contract?.runtimeSizeBudgetBytes?.[platform];
+  if (!Number.isSafeInteger(budget) || budget <= 0) {
+    throw new Error(
+      `Harness contract must declare a positive integer runtimeSizeBudgetBytes.${platform}.`,
+    );
+  }
+  return budget;
 }
 
 async function verifyProductBundle(projectRoot, harnessRoot, contract) {
@@ -125,13 +140,8 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
 export async function verifyHarnessContract(projectRoot) {
   const contractPath = join(projectRoot, "config", "harness-runtime.json");
   const contract = await readJson(contractPath);
-  if (
-    !Number.isSafeInteger(contract.runtimeSizeBudgetBytes) ||
-    contract.runtimeSizeBudgetBytes <= 0
-  ) {
-    throw new Error(
-      "Harness contract must declare a positive integer runtimeSizeBudgetBytes.",
-    );
+  for (const platform of desktopPlatforms) {
+    runtimeSizeBudgetForPlatform(contract, platform);
   }
   if (
     !Number.isSafeInteger(contract.runtimeFileBudget) ||

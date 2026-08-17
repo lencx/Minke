@@ -6,7 +6,11 @@
   "packageVersion": "0.1.0-rc.5",
   "frontendPackageName": "@deepseek-ai/dsh-web-frontend",
   "pnpmVersion": "11.21.0",
-  "runtimeSizeBudgetBytes": 157286400,
+  "runtimeSizeBudgetBytes": {
+    "darwin": 157286400,
+    "linux": 268435456,
+    "win32": 268435456
+  },
   "runtimeFileBudget": 15000,
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",

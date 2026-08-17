@@ -60,7 +60,7 @@ const config: ForgeConfig = {
             runtimeContract.productBundle.packageName,
           runtimeFileBudget: runtimeContract.runtimeFileBudget,
           runtimeSizeBudgetBytes:
-            runtimeContract.runtimeSizeBudgetBytes,
+            runtimeContract.runtimeSizeBudgetBytes[platform],
         });
         console.log(
           `Verified packaged Host ${(report.host.bytes / 1024 / 1024).toFixed(1)} MiB/${String(report.host.files)} files and app ${(report.app.bytes / 1024 / 1024).toFixed(1)} MiB`,
@@ -76,6 +76,11 @@ const config: ForgeConfig = {
     asar: {
       unpack: "**/node_modules/sys/**/*.node",
     },
+    // The Vite plugin copies only .vite and packageAfterCopy injects the sole
+    // external native package on macOS. Packager pruning would otherwise walk
+    // the complete pnpm graph before that ignore policy, retaining redundant
+    // production packages and consuming several GiB on every desktop OS.
+    prune: false,
     icon: join(iconRoot, "icon"),
     afterCopyExtraResources: [
       (buildPath, _electronVersion, platform, _arch, callback) => {
