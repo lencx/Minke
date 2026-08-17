@@ -9,6 +9,7 @@ import { VitePlugin } from "@electron-forge/plugin-vite";
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { cp, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { pruneMacElectronLocales } from "./scripts/forge/electron-locales.ts";
 
 const projectRoot = __dirname;
 const iconRoot = join(projectRoot, "resources", "icons");
@@ -41,6 +42,29 @@ const config: ForgeConfig = {
       unpack: "**/node_modules/sys/**/*.node",
     },
     icon: join(iconRoot, "icon"),
+    afterCopyExtraResources: [
+      (buildPath, _electronVersion, platform, _arch, callback) => {
+        if (platform !== "darwin") {
+          callback();
+          return;
+        }
+        void pruneMacElectronLocales(join(buildPath, "Minke.app")).then(
+          (result) => {
+            console.log(
+              `Pruned ${String(result.removed.length)} unused Electron locales`,
+            );
+            callback();
+          },
+          (error: unknown) => {
+            callback(
+              error instanceof Error
+                ? error
+                : new Error(String(error)),
+            );
+          },
+        );
+      },
+    ],
     extraResource: [
       join(projectRoot, "runtime", "host"),
       join(projectRoot, "resources", "desktop-style-extension"),
