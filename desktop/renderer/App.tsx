@@ -13,7 +13,7 @@ export default function App({ locale }: AppProps) {
       <div className="flex flex-col items-center gap-5">
         <img
           className="size-20 rounded-[22%] shadow-2xl shadow-black/30"
-          src="/minke.svg"
+          src="./minke.svg"
           alt="Minke"
         />
         <div className="flex items-center gap-2.5 text-sm text-slate-300">

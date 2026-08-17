@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -9,6 +15,24 @@ import {
 } from "../scripts/forge/package-artifact.ts";
 
 const productPackageName = "@lencx/minke-harness-overlay";
+
+test("the packaged bootstrap resolves its logo beside the renderer document", async () => {
+  const source = await readFile(
+    new URL("../desktop/renderer/App.tsx", import.meta.url),
+    "utf8",
+  );
+  const logoSource = source.match(
+    /<img[\s\S]*?src="([^"]+minke\.svg)"/u,
+  )?.[1];
+  assert.ok(logoSource, "the bootstrap must render the Minke logo");
+  const documentUrl = new URL(
+    "file:///app.asar/.vite/renderer/main_window/index.html",
+  );
+  assert.equal(
+    new URL(logoSource, documentUrl).href,
+    "file:///app.asar/.vite/renderer/main_window/minke.svg",
+  );
+});
 
 function verificationOptions(platform) {
   return {
