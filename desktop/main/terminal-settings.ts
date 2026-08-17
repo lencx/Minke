@@ -1,20 +1,8 @@
 import {
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { dirname } from "node:path";
-import {
-  DEFAULT_TERMINAL_SETTINGS,
   parseTerminalSettings,
-  parseTerminalSettingsDocument,
-  TERMINAL_SETTINGS_DOCUMENT_VERSION,
   TERMINAL_SETTINGS_READ_CHANNEL,
   TERMINAL_SETTINGS_WRITE_CHANNEL,
   type TerminalSettings,
-  type TerminalSettingsDocument,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 
 interface IpcMainLike {
@@ -29,53 +17,10 @@ export interface TerminalSettingsBinding {
   dispose(): void;
 }
 
-/** Durable, validated Terminal rendering preferences owned by Minke. */
-export class TerminalSettingsStore {
-  readonly path: string;
-  #writeSequence = 0;
-
-  constructor(path: string) {
-    this.path = path;
-  }
-
-  async read(): Promise<TerminalSettings> {
-    let source: string;
-    try {
-      source = await readFile(this.path, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return { ...DEFAULT_TERMINAL_SETTINGS };
-      }
-      throw error;
-    }
-    const document = parseTerminalSettingsDocument(JSON.parse(source));
-    return { ...document.settings };
-  }
-
-  async write(value: unknown): Promise<void> {
-    const settings = parseTerminalSettings(value);
-    const document: TerminalSettingsDocument = {
-      version: TERMINAL_SETTINGS_DOCUMENT_VERSION,
-      settings,
-    };
-    await mkdir(dirname(this.path), { recursive: true });
-    const temporaryPath = `${this.path}.${String(process.pid)}.${String(
-      ++this.#writeSequence,
-    )}.tmp`;
-    try {
-      await writeFile(
-        temporaryPath,
-        `${JSON.stringify(document, null, 2)}\n`,
-        {
-          encoding: "utf8",
-          mode: 0o600,
-        },
-      );
-      await rename(temporaryPath, this.path);
-    } finally {
-      await rm(temporaryPath, { force: true });
-    }
-  }
+/** Terminal section supplied by the unified Minke configuration store. */
+export interface TerminalSettingsStore {
+  read(): Promise<TerminalSettings>;
+  write(value: unknown): Promise<void>;
 }
 
 /** Bind the two authorized Terminal settings IPC verbs. */

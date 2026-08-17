@@ -34,10 +34,12 @@ import {
   type ProductShortcutActionId,
   type ShortcutBindings,
 } from "@minke/harness-overlay/shortcut-contract";
+import { configureAppDataPaths } from "./app-data-paths";
 import {
   HarnessRuntime,
   type HarnessRuntimeExit,
 } from "./harness-runtime";
+import { MinkeConfigStore } from "./minke-config";
 import {
   macOSWindowOptions,
 } from "./macos-window";
@@ -50,12 +52,10 @@ import {
 } from "./shortcut-menu";
 import {
   bindShortcutSettingsIpc,
-  ShortcutSettingsStore,
   type ShortcutSettingsBinding,
 } from "./shortcut-settings";
 import {
   bindTerminalSettingsIpc,
-  TerminalSettingsStore,
   type TerminalSettingsBinding,
 } from "./terminal-settings";
 import {
@@ -464,6 +464,7 @@ async function handleUnexpectedExit(exit: HarnessRuntimeExit): Promise<void> {
 
 async function bootstrap(): Promise<void> {
   app.setName(PRODUCT_NAME);
+  configureAppDataPaths(app);
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
@@ -479,12 +480,9 @@ async function bootstrap(): Promise<void> {
   );
   await installMacOSSurfaceBootstrap();
   installPermissionPolicy();
-  const shortcutStore = new ShortcutSettingsStore(
-    join(app.getPath("userData"), "settings", "shortcuts.json"),
-  );
-  const terminalSettingsStore = new TerminalSettingsStore(
-    join(app.getPath("userData"), "settings", "terminal.json"),
-  );
+  const minkeConfig = new MinkeConfigStore(app.getPath("userData"));
+  const shortcutStore = minkeConfig.shortcuts;
+  const terminalSettingsStore = minkeConfig.terminal;
   let shortcutBindings: ShortcutBindings = {};
   try {
     shortcutBindings = await shortcutStore.read();

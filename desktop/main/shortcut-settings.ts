@@ -1,19 +1,8 @@
 import {
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { dirname } from "node:path";
-import {
   parseShortcutBindings,
-  parseShortcutSettingsDocument,
-  SHORTCUT_DOCUMENT_VERSION,
   SHORTCUT_SETTINGS_READ_CHANNEL,
   SHORTCUT_SETTINGS_WRITE_CHANNEL,
   type ShortcutBindings,
-  type ShortcutSettingsDocument,
 } from "@minke/harness-overlay/shortcut-contract.ts";
 
 interface IpcMainLike {
@@ -28,54 +17,10 @@ export interface ShortcutSettingsBinding {
   dispose(): void;
 }
 
-/**
- * Durable Minke-owned shortcut document. Harness sees only the small preload
- * port, so its settings namespaces and source tree remain untouched.
- */
-export class ShortcutSettingsStore {
-  readonly path: string;
-  #writeSequence = 0;
-
-  constructor(path: string) {
-    this.path = path;
-  }
-
-  async read(): Promise<ShortcutBindings> {
-    let source: string;
-    try {
-      source = await readFile(this.path, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw error;
-    }
-    const document = parseShortcutSettingsDocument(JSON.parse(source));
-    return { ...document.bindings };
-  }
-
-  async write(value: unknown): Promise<void> {
-    const bindings = parseShortcutBindings(value);
-    const document: ShortcutSettingsDocument = {
-      version: SHORTCUT_DOCUMENT_VERSION,
-      bindings,
-    };
-    await mkdir(dirname(this.path), { recursive: true });
-    const temporaryPath = `${this.path}.${String(process.pid)}.${String(
-      ++this.#writeSequence,
-    )}.tmp`;
-    try {
-      await writeFile(
-        temporaryPath,
-        `${JSON.stringify(document, null, 2)}\n`,
-        {
-          encoding: "utf8",
-          mode: 0o600,
-        },
-      );
-      await rename(temporaryPath, this.path);
-    } finally {
-      await rm(temporaryPath, { force: true });
-    }
-  }
+/** Shortcut section supplied by the unified Minke configuration store. */
+export interface ShortcutSettingsStore {
+  read(): Promise<ShortcutBindings>;
+  write(value: unknown): Promise<void>;
 }
 
 /** Bind the two validated IPC verbs and keep their lifecycle explicit. */

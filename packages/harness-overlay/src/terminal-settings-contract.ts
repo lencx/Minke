@@ -5,7 +5,6 @@ export const TERMINAL_SETTINGS_READ_CHANNEL =
 export const TERMINAL_SETTINGS_WRITE_CHANNEL =
   "minke:terminal-settings:write";
 
-export const TERMINAL_SETTINGS_DOCUMENT_VERSION = 1;
 export const TERMINAL_FONT_SIZE_MIN = 8;
 export const TERMINAL_FONT_SIZE_MAX = 32;
 export const TERMINAL_LINE_HEIGHT_MIN = 1;
@@ -16,11 +15,6 @@ export interface TerminalSettings {
   fontFamily: string;
   fontSize: number;
   lineHeight: number;
-}
-
-export interface TerminalSettingsDocument {
-  version: typeof TERMINAL_SETTINGS_DOCUMENT_VERSION;
-  settings: TerminalSettings;
 }
 
 export const DEFAULT_TERMINAL_SETTINGS: Readonly<TerminalSettings> =
@@ -90,29 +84,5 @@ export function parseTerminalSettings(value: unknown): TerminalSettings {
     fontFamily,
     fontSize,
     lineHeight: Math.round(lineHeight * 100) / 100,
-  };
-}
-
-/** Validate one exact versioned Terminal settings document read from disk. */
-export function parseTerminalSettingsDocument(
-  value: unknown,
-): TerminalSettingsDocument {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new TypeError("terminal settings document must be an object");
-  }
-  const record = value as Record<string, unknown>;
-  if (
-    Object.keys(record).length !== 2 ||
-    record.version !== TERMINAL_SETTINGS_DOCUMENT_VERSION
-  ) {
-    throw new TypeError("unsupported terminal settings document");
-  }
-  return {
-    version: TERMINAL_SETTINGS_DOCUMENT_VERSION,
-    settings: parseTerminalSettings(record.settings),
   };
 }

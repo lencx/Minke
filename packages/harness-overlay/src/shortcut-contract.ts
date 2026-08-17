@@ -19,7 +19,6 @@ const PRODUCT_SHORTCUT_ACTION_IDS = new Set<string>(
   Object.keys(DEFAULT_SHORTCUT_BINDINGS),
 );
 
-export const SHORTCUT_DOCUMENT_VERSION = 1;
 export const MAX_SHORTCUT_ACTIONS = 128;
 
 const ACTION_ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u;
@@ -66,11 +65,6 @@ export const SHORTCUT_BINDING_PATTERN = new RegExp(
 );
 
 export type ShortcutBindings = Record<string, string>;
-
-export interface ShortcutSettingsDocument {
-  version: typeof SHORTCUT_DOCUMENT_VERSION;
-  bindings: ShortcutBindings;
-}
 
 /** Narrow untrusted native-menu messages to Minke-owned shortcut actions. */
 export function isProductShortcutActionId(
@@ -123,28 +117,4 @@ export function parseShortcutBindings(value: unknown): ShortcutBindings {
     bindings[id] = binding;
   }
   return bindings;
-}
-
-/** Validate one versioned settings document read from disk. */
-export function parseShortcutSettingsDocument(
-  value: unknown,
-): ShortcutSettingsDocument {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new TypeError("shortcut settings document must be an object");
-  }
-  const record = value as Record<string, unknown>;
-  if (
-    Object.keys(record).length !== 2 ||
-    record.version !== SHORTCUT_DOCUMENT_VERSION
-  ) {
-    throw new TypeError("unsupported shortcut settings document");
-  }
-  return {
-    version: SHORTCUT_DOCUMENT_VERSION,
-    bindings: parseShortcutBindings(record.bindings),
-  };
 }

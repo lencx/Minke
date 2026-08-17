@@ -9,23 +9,28 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
   bindShortcutSettingsIpc,
-  ShortcutSettingsStore,
 } from "@minke/desktop/main/shortcut-settings.ts";
+import {
+  MINKE_CONFIG_VERSION,
+  MinkeConfigStore,
+} from "@minke/desktop/main/minke-config.ts";
 import {
   SHORTCUT_SETTINGS_READ_CHANNEL,
   SHORTCUT_SETTINGS_WRITE_CHANNEL,
 } from "@minke/harness-overlay/shortcut-contract.ts";
+import {
+  DEFAULT_TERMINAL_SETTINGS,
+} from "@minke/harness-overlay/terminal-settings-contract.ts";
 
 const roots = [];
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "minke-shortcuts-"));
   roots.push(root);
+  const config = new MinkeConfigStore(root);
   return {
-    path: join(root, "settings", "shortcuts.json"),
-    store: new ShortcutSettingsStore(
-      join(root, "settings", "shortcuts.json"),
-    ),
+    path: config.path,
+    store: config.shortcuts,
   };
 }
 
@@ -37,7 +42,7 @@ afterEach(async () => {
   );
 });
 
-test("the desktop store writes a versioned atomic document", async () => {
+test("the desktop store writes the shared Minke config", async () => {
   const { path, store } = await fixture();
   assert.deepEqual(await store.read(), {});
 
@@ -51,11 +56,12 @@ test("the desktop store writes a versioned atomic document", async () => {
     "session.new": "",
   });
   assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
-    version: 1,
-    bindings: {
+    version: MINKE_CONFIG_VERSION,
+    shortcuts: {
       "settings.open": "Mod+Comma",
       "session.new": "",
     },
+    terminal: DEFAULT_TERMINAL_SETTINGS,
   });
 });
 

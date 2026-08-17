@@ -9,8 +9,11 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
   bindTerminalSettingsIpc,
-  TerminalSettingsStore,
 } from "@minke/desktop/main/terminal-settings.ts";
+import {
+  MINKE_CONFIG_VERSION,
+  MinkeConfigStore,
+} from "@minke/desktop/main/minke-config.ts";
 import {
   DEFAULT_TERMINAL_SETTINGS,
   parseTerminalSettings,
@@ -40,10 +43,10 @@ const roots = [];
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "minke-terminal-settings-"));
   roots.push(root);
-  const path = join(root, "settings", "terminal.json");
+  const config = new MinkeConfigStore(root);
   return {
-    path,
-    store: new TerminalSettingsStore(path),
+    path: config.path,
+    store: config.terminal,
   };
 }
 
@@ -149,7 +152,7 @@ test("Terminal settings navigation uses the Terminal icon", () => {
   );
 });
 
-test("the desktop store writes a versioned atomic Terminal document", async () => {
+test("the desktop store writes Terminal settings into Minke config", async () => {
   const { path, store } = await fixture();
   assert.deepEqual(await store.read(), DEFAULT_TERMINAL_SETTINGS);
 
@@ -165,8 +168,9 @@ test("the desktop store writes a versioned atomic Terminal document", async () =
     lineHeight: 1.35,
   });
   assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
-    version: 1,
-    settings: {
+    version: MINKE_CONFIG_VERSION,
+    shortcuts: {},
+    terminal: {
       fontFamily: "JetBrains Mono",
       fontSize: 14,
       lineHeight: 1.35,
