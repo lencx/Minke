@@ -42,6 +42,12 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   );
   assert.match(source, /fail-fast:\s*false/u);
   assertMatrixEntry(source, "macos-15", "darwin", "arm64");
+  assertMatrixEntry(
+    source,
+    "macos-15-intel",
+    "darwin",
+    "x64",
+  );
   assertMatrixEntry(source, "windows-2025", "win32", "x64");
   assertMatrixEntry(source, "ubuntu-24\\.04", "linux", "x64");
 
@@ -61,6 +67,22 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   );
   assert.match(source, /node-version:\s*"24"/u);
   assert.match(source, /cache:\s*pnpm/u);
+  assert.match(
+    source,
+    /EXPECTED_PLATFORM:\s*\$\{\{\s*matrix\.platform\s*\}\}/u,
+  );
+  assert.match(
+    source,
+    /EXPECTED_ARCH:\s*\$\{\{\s*matrix\.arch\s*\}\}/u,
+  );
+  assert.match(
+    source,
+    /process\.platform !== process\.env\.EXPECTED_PLATFORM/u,
+  );
+  assert.match(
+    source,
+    /process\.arch !== process\.env\.EXPECTED_ARCH/u,
+  );
   assert.match(source, /pnpm install --frozen-lockfile/u);
 
   assert.match(source, /runner\.os == 'Linux'/u);

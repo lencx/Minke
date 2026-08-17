@@ -25,6 +25,9 @@ jobs:
           - runner: macos-15
             platform: darwin
             arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
           - runner: windows-2025
             platform: win32
             arch: x64
@@ -52,6 +55,17 @@ jobs:
           cache-dependency-path: |
             pnpm-lock.yaml
             vendor/deepseek-harness/pnpm-lock.yaml
+
+      - name: Verify runner target
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: >-
+          node -e "if (process.platform !== process.env.EXPECTED_PLATFORM ||
+          process.arch !== process.env.EXPECTED_ARCH) { throw new Error(
+          'Runner target mismatch: expected ' + process.env.EXPECTED_PLATFORM +
+          '-' + process.env.EXPECTED_ARCH + ', received ' + process.platform +
+          '-' + process.arch); }"
 
       - name: Install Linux maker prerequisites
         if: runner.os == 'Linux'
