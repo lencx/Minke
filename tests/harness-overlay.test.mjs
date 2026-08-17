@@ -308,6 +308,15 @@ test("right and bottom panels own separate Tabs workspaces", () => {
   );
 });
 
+test("Mod+B toggles the independent bottom Tabs panel", () => {
+  assert.match(
+    clientSource,
+    /id:\s*"tabs\.bottom\.toggle"[\s\S]*defaultBinding:\s*DEFAULT_SHORTCUT_BINDINGS\["tabs\.bottom\.toggle"\][\s\S]*tabsRuntimes\.bottom\.toggle\(\)/u,
+  );
+  assert.match(bundle, /tabs\.bottom\.toggle/u);
+  assert.match(bundle, /Mod\+B/u);
+});
+
 test("Minke bypasses the upstream internal-testing notice through slot shadowing", () => {
   assert.match(
     clientSource,

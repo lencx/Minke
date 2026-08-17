@@ -635,6 +635,20 @@ export function apply(ctx: HarnessClientContext): void {
         }),
       "minke-overlay: Toggle Right Sidebar shortcut",
     );
+    ctx.effect(
+      () =>
+        runtime.register({
+          id: "tabs.bottom.toggle",
+          label: () => t("action.toggleBottomPanel"),
+          defaultBinding:
+            DEFAULT_SHORTCUT_BINDINGS["tabs.bottom.toggle"],
+          order: 40,
+          run: () => {
+            tabsRuntimes.bottom.toggle();
+          },
+        }),
+      "minke-overlay: Toggle Bottom Panel shortcut",
+    );
   }
   void runtime.initialize();
 

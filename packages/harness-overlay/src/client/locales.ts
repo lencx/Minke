@@ -12,6 +12,7 @@ export const zh = {
   "action.newSession": "新建会话",
   "action.toggleSidebar": "展开或折叠左侧栏",
   "action.toggleRightSidebar": "展开或折叠右侧栏",
+  "action.toggleBottomPanel": "展开或折叠底部栏",
   "error.unavailable": "当前页面没有连接到 Minke 桌面设置。",
   "error.read": "无法读取快捷键设置，请重新启动 Minke 后重试。",
   "error.write": "快捷键暂时无法保存，请再次修改以重试。",
@@ -39,6 +40,7 @@ export const en: Record<ShortcutLocaleKey, string> = {
   "action.newSession": "New Session",
   "action.toggleSidebar": "Toggle Sidebar",
   "action.toggleRightSidebar": "Toggle Right Sidebar",
+  "action.toggleBottomPanel": "Toggle Bottom Panel",
   "error.unavailable":
     "This page is not connected to Minke desktop settings.",
   "error.read":

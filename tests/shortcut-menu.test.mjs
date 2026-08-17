@@ -156,16 +156,22 @@ test("all product shortcuts are visible native menu commands", () => {
     customItem(host, "tabs.toggle").accelerator,
     "CommandOrControl+P",
   );
+  assert.equal(
+    customItem(host, "tabs.bottom.toggle").accelerator,
+    "CommandOrControl+B",
+  );
 
   customItem(host, "settings.open").click();
   customItem(host, "session.new").click();
   customItem(host, "sidebar.toggle").click();
   customItem(host, "tabs.toggle").click();
+  customItem(host, "tabs.bottom.toggle").click();
   assert.deepEqual(dispatched, [
     "settings.open",
     "session.new",
     "sidebar.toggle",
     "tabs.toggle",
+    "tabs.bottom.toggle",
   ]);
   binding.dispose();
 });
@@ -205,13 +211,17 @@ test("persisted and localized changes rebuild menu accelerators", () => {
     customItem(host, "tabs.toggle").label,
     "展开或折叠右侧栏",
   );
+  assert.equal(
+    customItem(host, "tabs.bottom.toggle").label,
+    "展开或折叠底部栏",
+  );
 
   binding.refreshBaseMenu();
   assert.equal(
     latestItems(host).filter(
       (item) => item.id?.startsWith(CUSTOM_PREFIX),
     ).filter((item) => item.type !== "separator").length,
-    4,
+    5,
   );
 
   const rebuilds = host.templates.length;

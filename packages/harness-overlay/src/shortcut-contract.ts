@@ -11,6 +11,7 @@ export const DEFAULT_SHORTCUT_BINDINGS = Object.freeze({
   "session.new": "Mod+N",
   "sidebar.toggle": "Mod+S",
   "tabs.toggle": "Mod+P",
+  "tabs.bottom.toggle": "Mod+B",
 } as const);
 
 export type ProductShortcutActionId =
