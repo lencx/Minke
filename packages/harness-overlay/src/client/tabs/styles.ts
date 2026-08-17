@@ -58,9 +58,14 @@ export const TABS_STYLES = `
   transform: translateY(24px);
 }
 
-[data-minke-tabs-right-open]
-  .minke-tabs-panel[data-placement="bottom"] {
-  right: var(--minke-tabs-panel-width);
+[data-minke-tabs-bottom-open]
+  .minke-tabs-panel[data-placement="right"] {
+  bottom: var(--minke-tabs-panel-height);
+}
+
+[data-minke-tabs-bottom-open]
+  > [data-side="details"] {
+  bottom: calc(var(--minke-tabs-panel-height) + 5px);
 }
 
 .minke-tabs-panel[data-open] {
@@ -309,9 +314,10 @@ export const TABS_STYLES = `
   position: relative;
   display: flex;
   min-width: 60px;
-  max-width: 176px;
+  max-width: 160px;
+  width: max-content;
   height: var(--minke-tabs-control-height);
-  flex: 1 1 60px;
+  flex: 0 1 auto;
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--minke-tabs-control-radius);

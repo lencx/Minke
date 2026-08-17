@@ -1768,6 +1768,18 @@ test("Tabs bottom placement has independent height and resize affordances", () =
   );
   assert.match(
     TABS_STYLES,
+    /\[data-minke-tabs-bottom-open\][\s\S]*?\.minke-tabs-panel\[data-placement="right"\][\s\S]*?bottom:\s*var\(--minke-tabs-panel-height\);/u,
+  );
+  assert.doesNotMatch(
+    TABS_STYLES,
+    /\[data-minke-tabs-right-open\][\s\S]*?\.minke-tabs-panel\[data-placement="bottom"\][\s\S]*?right:\s*var\(--minke-tabs-panel-width\);/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\[data-minke-tabs-bottom-open\][\s\S]*?>\s*\[data-side="details"\][\s\S]*?bottom:\s*calc\(var\(--minke-tabs-panel-height\) \+ 5px\);/u,
+  );
+  assert.match(
+    TABS_STYLES,
     /\[data-placement="bottom"\]\s*\.minke-tabs-resize-handle[\s\S]*?cursor:\s*row-resize;/u,
   );
 });
@@ -1944,7 +1956,7 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   );
   assert.match(
     TABS_STYLES,
-    /\.minke-tab\s*\{[\s\S]*?min-width:\s*60px;[\s\S]*?max-width:\s*176px;[\s\S]*?flex:\s*1 1 60px;/u,
+    /\.minke-tab\s*\{[\s\S]*?min-width:\s*60px;[\s\S]*?max-width:\s*160px;[\s\S]*?width:\s*max-content;[\s\S]*?flex:\s*0 1 auto;/u,
   );
   assert.match(
     webStylesSource,
