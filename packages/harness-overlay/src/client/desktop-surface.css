@@ -82,9 +82,29 @@
   background: var(--dsw-alias-interactive-bg-hover) !important;
 }
 
+[data-phase="hero"] {
+  background: transparent !important;
+}
+
 [data-phase="hero"] [data-composer-card] {
   background-color: transparent !important;
   box-shadow: none !important;
+}
+
+[data-phase="hero"] [data-dsh-desktop-composer-add],
+[data-phase="hero"] [data-dsh-desktop-composer-primary] {
+  background: var(--dsw-alias-interactive-bg-active) !important;
+}
+
+[data-phase="hero"] [data-dsh-desktop-composer-primary] {
+  color: var(--dsw-alias-state-business-primary) !important;
+}
+
+[data-phase="hero"]
+  [data-dsh-desktop-composer-add]:hover:not(:disabled),
+[data-phase="hero"]
+  [data-dsh-desktop-composer-primary]:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-accent) !important;
 }
 
 [data-phase="active"] [data-composer-card] {

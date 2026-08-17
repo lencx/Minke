@@ -149,6 +149,14 @@ test("all product shortcuts are visible native menu commands", () => {
     "CommandOrControl+N",
   );
   assert.equal(
+    customItem(host, "session.back").accelerator,
+    "CommandOrControl+[",
+  );
+  assert.equal(
+    customItem(host, "session.forward").accelerator,
+    "CommandOrControl+]",
+  );
+  assert.equal(
     customItem(host, "sidebar.toggle").accelerator,
     "CommandOrControl+S",
   );
@@ -163,12 +171,16 @@ test("all product shortcuts are visible native menu commands", () => {
 
   customItem(host, "settings.open").click();
   customItem(host, "session.new").click();
+  customItem(host, "session.back").click();
+  customItem(host, "session.forward").click();
   customItem(host, "sidebar.toggle").click();
   customItem(host, "tabs.toggle").click();
   customItem(host, "tabs.bottom.toggle").click();
   assert.deepEqual(dispatched, [
     "settings.open",
     "session.new",
+    "session.back",
+    "session.forward",
     "sidebar.toggle",
     "tabs.toggle",
     "tabs.bottom.toggle",
@@ -203,6 +215,8 @@ test("persisted and localized changes rebuild menu accelerators", () => {
   locale.setLocale("zh");
   assert.equal(customItem(host, "settings.open").label, "设置…");
   assert.equal(customItem(host, "session.new").label, "新建会话");
+  assert.equal(customItem(host, "session.back").label, "返回上一会话");
+  assert.equal(customItem(host, "session.forward").label, "前往下一会话");
   assert.equal(
     customItem(host, "sidebar.toggle").label,
     "展开或折叠左侧栏",
@@ -221,7 +235,7 @@ test("persisted and localized changes rebuild menu accelerators", () => {
     latestItems(host).filter(
       (item) => item.id?.startsWith(CUSTOM_PREFIX),
     ).filter((item) => item.type !== "separator").length,
-    5,
+    7,
   );
 
   const rebuilds = host.templates.length;

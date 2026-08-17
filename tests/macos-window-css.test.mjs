@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import {
+  hasMacOSDesktopSurface,
+} from "@minke/harness-overlay/client/bridge.ts";
 
 const macOSWindowSource = readFileSync(
   new URL("../desktop/main/macos-window.ts", import.meta.url),
@@ -67,6 +70,13 @@ const harnessColumnsSource = readFileSync(
 const harnessSidebarCss = readFileSync(
   new URL(
     "../vendor/deepseek-harness/packages/client/ui-sidebar/src/client/SidebarRoot.module.css",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const harnessConversationCss = readFileSync(
+  new URL(
+    "../vendor/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.module.css",
     import.meta.url,
   ),
   "utf8",
@@ -159,7 +169,11 @@ test("Electron wires native desktop capabilities through preload", () => {
   );
   assert.match(
     desktopPreloadSource,
-    /Object\.freeze\(\{\s*files,\s*locale,\s*modelRuntime,\s*sessionLogs,\s*tabs,\s*terminal,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
+    /const about = Object\.freeze\(\{[\s\S]*productName:\s*appManifest\.productName[\s\S]*version:\s*appManifest\.version[\s\S]*platform:\s*process\.platform[\s\S]*arch:\s*process\.arch/u,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /Object\.freeze\(\{\s*about,\s*files,\s*locale,\s*modelRuntime,\s*sessionLogs,\s*tabs,\s*terminal,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
   );
   assert.match(
     desktopPreloadSource,
@@ -287,6 +301,45 @@ test("macOS glass keeps the conversation column on its upstream theme surface", 
     /\[data-dsh-desktop-titlebar-anchor\]/,
   );
   assert.doesNotMatch(`${earlyCss}\n${desktopSurfaceCss}`, /rgb\(/);
+});
+
+test("only macOS New Session makes the content background transparent", () => {
+  const heroSurface = desktopSurfaceCss.match(
+    /\[data-phase="hero"\]\s*\{([\s\S]*?)\}/,
+  )?.[1];
+  assert.ok(heroSurface, "the New Session surface override must exist");
+  assert.match(
+    heroSurface,
+    /background:\s*transparent\s*!important/,
+  );
+  assert.doesNotMatch(
+    desktopSurfaceCss,
+    /\[data-phase="(?:active|settling)"\]\s*\{[^}]*background:\s*transparent/,
+    "existing and unresolved sessions must keep the upstream surface",
+  );
+  assert.match(
+    harnessConversationCss,
+    /\.root\s*\{[\s\S]*background:\s*var\(--dsw-alias-bg-base\);/,
+    "non-New-Session content must fall back to the Harness default",
+  );
+  assert.equal(
+    hasMacOSDesktopSurface({
+      minkeDesktop: { surface: { kind: "macos" } },
+    }),
+    true,
+  );
+  assert.equal(
+    hasMacOSDesktopSurface({
+      minkeDesktop: { surface: { kind: "standard" } },
+    }),
+    false,
+  );
+  assert.equal(hasMacOSDesktopSurface({}), false);
+  assert.match(
+    overlayClientSource,
+    /if \(hasMacOSDesktopSurface\(\)\) \{[\s\S]*installDesktopSurface\(\)/,
+    "Windows and Linux must not install the macOS transparency stylesheet",
+  );
 });
 
 test("the smaller traffic lights are centered in the default rail", () => {
@@ -435,13 +488,35 @@ test("the desktop New Session button is transparent only before conversation con
   );
 });
 
-test("the desktop surface leaves composer action buttons to Harness", () => {
-  assert.doesNotMatch(
-    `${desktopSurfaceSource}\n${desktopSurfaceCss}`,
-    /data-dsh-desktop-composer-(?:add|primary)/,
-    "the overlay must not mark or restyle composer action buttons",
+test("macOS New Session uses quieter composer action colors", () => {
+  assert.match(
+    desktopSurfaceSource,
+    /data-dsh-desktop-composer-add/,
+    "the overlay must mark the add action without relying on localized labels",
   );
-  assert.doesNotMatch(desktopSurfaceSource, /markComposerActions/);
+  assert.match(
+    desktopSurfaceSource,
+    /data-dsh-desktop-composer-primary/,
+    "the overlay must mark the primary action without relying on localized labels",
+  );
+  assert.match(desktopSurfaceSource, /markComposerActions/);
+  assert.match(
+    desktopSurfaceCss,
+    /\[data-phase="hero"\]\s+\[data-dsh-desktop-composer-add\],[\s\S]*?\[data-phase="hero"\]\s+\[data-dsh-desktop-composer-primary\]\s*\{[\s\S]*?background:\s*var\(--dsw-alias-interactive-bg-active\)\s*!important;/,
+  );
+  assert.match(
+    desktopSurfaceCss,
+    /\[data-phase="hero"\]\s+\[data-dsh-desktop-composer-primary\]\s*\{[\s\S]*?color:\s*var\(--dsw-alias-state-business-primary\)\s*!important;/,
+  );
+  assert.match(
+    desktopSurfaceCss,
+    /\[data-phase="hero"\]\s+\[data-dsh-desktop-composer-add\]:hover:not\(:disabled\),[\s\S]*?\[data-phase="hero"\]\s+\[data-dsh-desktop-composer-primary\]:hover:not\(:disabled\)\s*\{[\s\S]*?background:\s*var\(--dsw-alias-interactive-bg-hover-accent\)\s*!important;/,
+  );
+  assert.doesNotMatch(
+    desktopSurfaceCss,
+    /\[data-phase="active"\][\s\S]*?data-dsh-desktop-composer-(?:add|primary)/,
+    "existing sessions must keep the upstream composer action colors",
+  );
   assert.doesNotMatch(earlyCss, /data-dsh-desktop-composer-/);
 });
 

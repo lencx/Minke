@@ -1,0 +1,283 @@
+/* Minke's compact sidebar About action and focused project-identity dialog. */
+
+.minke-about {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 36px;
+  height: 36px;
+  margin: 4px 2px 0 auto;
+}
+
+.minke-about[data-wide="true"] {
+  position: absolute;
+  right: 0;
+  bottom: 7px;
+  z-index: 2;
+  margin: 0;
+}
+
+:where(div):has(
+  > div
+    > [data-slot="sidebar.footer.action"]
+    > .minke-about[data-wide="true"]
+) {
+  position: relative;
+}
+
+:where(div):has(
+  > div
+    > [data-slot="sidebar.footer.action"]
+    > .minke-about[data-wide="true"]
+)
+  > :where(div):has(> [data-slot="sidebar.settings"]) {
+  box-sizing: border-box;
+  padding-right: 40px;
+}
+
+.minke-about[data-wide="false"] {
+  justify-content: center;
+  margin: 0;
+}
+
+.minke-about__trigger,
+.minke-about__close {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.minke-about__trigger {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+
+.minke-about[data-wide="false"] .minke-about__trigger {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-about__trigger:hover,
+.minke-about__close:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-about__trigger:focus-visible,
+.minke-about__close:focus-visible,
+.minke-about__inline-link:focus-visible,
+.minke-about__action:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+[data-slot="sidebar.footer.action"]:has(> .minke-about)
+  > :not(.minke-about) {
+  flex: 1 1 auto !important;
+  min-width: 0;
+  width: auto !important;
+}
+
+.minke-about__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.minke-about__mask {
+  position: absolute;
+  inset: 0;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
+  animation: minke-about-mask-in 160ms ease-out;
+}
+
+.minke-about__panel {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 440px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 30px;
+  border-radius: 24px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary);
+  animation: minke-about-panel-in 240ms
+    cubic-bezier(0.16, 1, 0.3, 1);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.minke-about__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.minke-about__identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.minke-about__icon {
+  display: block;
+  width: 76px;
+  height: 76px;
+  border-radius: 22%;
+  box-shadow: 0 8px 24px rgba(13, 18, 35, 0.18);
+}
+
+.minke-about__tagline {
+  max-width: 100%;
+  margin: 16px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 22px;
+  text-wrap: balance;
+}
+
+.minke-about__metadata {
+  margin: 10px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+}
+
+.minke-about__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.minke-about__community {
+  margin: 0;
+}
+
+.minke-about__inline-link {
+  border-radius: 3px;
+  color: var(--dsw-alias-brand-primary);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.minke-about__inline-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.minke-about__community {
+  padding-top: 14px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.minke-about__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.minke-about__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: max-content;
+  height: 38px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.minke-about__action:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-about__action--primary {
+  border-color: transparent;
+  background: var(--dsw-alias-button-info-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-weight: 500;
+}
+
+.minke-about__action--primary:hover {
+  background: var(--dsw-alias-button-info-hover);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.minke-about__trigger > svg,
+.minke-about__close > svg,
+.minke-about__action > svg {
+  pointer-events: none;
+}
+
+.minke-about__github-mark {
+  flex: none;
+}
+
+@keyframes minke-about-mask-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes minke-about-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+@media (max-height: 560px) {
+  .minke-about__overlay {
+    align-items: flex-start;
+    padding-top: 24px;
+    box-sizing: border-box;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .minke-about__mask,
+  .minke-about__panel {
+    animation: none;
+  }
+}

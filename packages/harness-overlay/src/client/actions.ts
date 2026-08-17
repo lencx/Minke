@@ -11,7 +11,7 @@ interface SettingsQueryRoot {
 }
 
 export const SETTINGS_TRIGGER_SELECTOR =
-  'button[aria-haspopup="dialog"][aria-expanded]';
+  '[data-slot="sidebar.settings"] button[aria-haspopup="dialog"][aria-expanded]';
 
 /**
  * Open the Harness Settings shell through its accessible trigger contract.

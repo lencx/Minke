@@ -58,6 +58,7 @@ await build({
   external: ["react", "react/jsx-runtime"],
   loader: {
     ".css": "text",
+    ".png": "dataurl",
   },
   define: {
     "process.env.NODE_ENV": JSON.stringify(

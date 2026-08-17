@@ -20,6 +20,8 @@ const OWNED_MENU_ID_PREFIX = "minke.shortcut.";
 const MENU_ITEM_IDS = Object.freeze({
   "settings.open": `${OWNED_MENU_ID_PREFIX}settings.open`,
   "session.new": `${OWNED_MENU_ID_PREFIX}session.new`,
+  "session.back": `${OWNED_MENU_ID_PREFIX}session.back`,
+  "session.forward": `${OWNED_MENU_ID_PREFIX}session.forward`,
   "sidebar.toggle": `${OWNED_MENU_ID_PREFIX}sidebar.toggle`,
   "tabs.toggle": `${OWNED_MENU_ID_PREFIX}tabs.toggle`,
   "tabs.bottom.toggle": `${OWNED_MENU_ID_PREFIX}tabs.bottom.toggle`,
@@ -28,6 +30,8 @@ const MENU_ITEM_IDS = Object.freeze({
 const MENU_LABEL_KEYS = Object.freeze({
   "settings.open": "menu.settings",
   "session.new": "menu.newSession",
+  "session.back": "menu.sessionBack",
+  "session.forward": "menu.sessionForward",
   "sidebar.toggle": "menu.toggleSidebar",
   "tabs.toggle": "menu.toggleRightSidebar",
   "tabs.bottom.toggle": "menu.toggleBottomPanel",
@@ -218,6 +222,18 @@ function injectActions(
     accelerators,
     dispatch,
   );
+  const sessionBack = actionMenuItem(
+    "session.back",
+    locale,
+    accelerators,
+    dispatch,
+  );
+  const sessionForward = actionMenuItem(
+    "session.forward",
+    locale,
+    accelerators,
+    dispatch,
+  );
   const toggleSidebar = actionMenuItem(
     "sidebar.toggle",
     locale,
@@ -247,6 +263,12 @@ function injectActions(
   prependGroup(
     submenuOf(viewMenu.template),
     [
+      sessionBack,
+      sessionForward,
+      {
+        id: `${OWNED_MENU_ID_PREFIX}session-navigation.separator`,
+        type: "separator",
+      },
       toggleSidebar,
       toggleRightSidebar,
       toggleBottomPanel,

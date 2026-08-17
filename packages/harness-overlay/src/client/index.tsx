@@ -2,8 +2,17 @@ import type { ComponentType } from "react";
 import {
   DEFAULT_SHORTCUT_BINDINGS,
 } from "@minke/harness-overlay/shortcut-contract.ts";
+import {
+  aboutEn,
+  aboutZh,
+  installAboutStyles,
+  MinkeAboutDialog,
+  type AboutLocaleKey,
+  type AboutTranslate,
+} from "./about/index.tsx";
 import { openHarnessSettings } from "./actions.ts";
 import {
+  desktopAboutInfo,
   desktopFilesPort,
   desktopModelRuntimeSettingsStore,
   desktopSessionLogsPort,
@@ -14,6 +23,7 @@ import {
   desktopWindowLocalePort,
   desktopWindowThemePort,
   hasMacOSDesktopSurface,
+  type DesktopAboutInfo,
   type HarnessColorScheme,
   type HarnessLocale,
   type HarnessThemePreference,
@@ -41,6 +51,7 @@ import {
   type ShortcutSectionState,
 } from "./projection.ts";
 import { ShortcutRuntime } from "./runtime.ts";
+import { SessionNavigationHistory } from "./session-navigation.ts";
 import {
   installSessionHeaderActionStyles,
   installTabsStyles,
@@ -116,6 +127,20 @@ type TabsRuntimes = Readonly<{
 
 interface SlotService {
   inject(name: string, callback: () => unknown): void;
+  register(
+    options: {
+      name: "sidebar.footer.action";
+      id: "minke-about";
+      order: number;
+      label: () => string;
+      locale: string;
+      inject: () => {
+        info: DesktopAboutInfo;
+        openExternal(url: string): void;
+      };
+    },
+    component: ComponentType<never>,
+  ): unknown;
   register(
     options: {
       name: "settings.onboarding";
@@ -232,9 +257,17 @@ interface HarnessClientContext {
   workspaces: {
     startSession(workspaceId?: unknown): void;
   };
+  sessions: {
+    list: {
+      getSnapshot(): { current: string | undefined };
+      subscribe(listener: () => void): () => void;
+    };
+    open(sessionId: string): void;
+  };
 }
 
 const NAMESPACE = "minke.shortcuts";
+const ABOUT_NAMESPACE = "minke.about";
 const TABS_NAMESPACE = "minke.tabs";
 const FILES_TABS_NAMESPACE = "minke.tabs.files";
 const WEB_TABS_NAMESPACE = "minke.tabs.web";
@@ -247,6 +280,7 @@ export const inject = [
   "locale",
   "theme",
   "workspaces",
+  "sessions",
   "layout",
 ];
 
@@ -275,6 +309,42 @@ export function apply(ctx: HarnessClientContext): void {
   }
 
   const tabsPort = desktopTabsPort();
+  const aboutInfo = desktopAboutInfo();
+  if (aboutInfo.available) {
+    ctx.effect(
+      () =>
+        ctx.locale.register(ABOUT_NAMESPACE, {
+          zh: aboutZh,
+          en: aboutEn,
+        }),
+      "minke-overlay: About dictionaries",
+    );
+    const aboutT = ctx.locale.bind<AboutLocaleKey>(
+      ABOUT_NAMESPACE,
+    ) as AboutTranslate;
+    ctx.effect(
+      () => installAboutStyles(),
+      "minke-overlay: About styles",
+    );
+    ctx.slots.inject("sidebar.footer.action", () =>
+      ctx.slots.register(
+        {
+          name: "sidebar.footer.action",
+          id: "minke-about",
+          order: 100,
+          label: () => aboutT("trigger"),
+          locale: ABOUT_NAMESPACE,
+          inject: () => ({
+            info: aboutInfo,
+            openExternal: (url: string) => {
+              tabsPort.openExternal(url);
+            },
+          }),
+        },
+        MinkeAboutDialog as ComponentType<never>,
+      ),
+    );
+  }
   const filesPort = desktopFilesPort();
   const terminalPort = desktopTerminalPort();
   const terminalSettingsStore = desktopTerminalSettingsStore();
@@ -615,6 +685,19 @@ export function apply(ctx: HarnessClientContext): void {
 
   const shortcutStore = desktopShortcutStore();
   const runtime = new ShortcutRuntime(shortcutStore);
+  const sessionNavigation = new SessionNavigationHistory((sessionId) => {
+    ctx.sessions.open(sessionId);
+  });
+  const observeSessionSelection = (): void => {
+    sessionNavigation.observe(
+      ctx.sessions.list.getSnapshot().current,
+    );
+  };
+  observeSessionSelection();
+  ctx.effect(
+    () => ctx.sessions.list.subscribe(observeSessionSelection),
+    "minke-overlay: Session navigation history",
+  );
   ctx.effect(
     () => () => {
       runtime.dispose();
@@ -658,10 +741,36 @@ export function apply(ctx: HarnessClientContext): void {
   ctx.effect(
     () =>
       runtime.register({
+        id: "session.back",
+        label: () => t("action.sessionBack"),
+        defaultBinding: DEFAULT_SHORTCUT_BINDINGS["session.back"],
+        order: 20,
+        run: () => {
+          sessionNavigation.back();
+        },
+      }),
+    "minke-overlay: Session Back shortcut",
+  );
+  ctx.effect(
+    () =>
+      runtime.register({
+        id: "session.forward",
+        label: () => t("action.sessionForward"),
+        defaultBinding: DEFAULT_SHORTCUT_BINDINGS["session.forward"],
+        order: 30,
+        run: () => {
+          sessionNavigation.forward();
+        },
+      }),
+    "minke-overlay: Session Forward shortcut",
+  );
+  ctx.effect(
+    () =>
+      runtime.register({
         id: "sidebar.toggle",
         label: () => t("action.toggleSidebar"),
         defaultBinding: DEFAULT_SHORTCUT_BINDINGS["sidebar.toggle"],
-        order: 20,
+        order: 40,
         run: () => {
           ctx.layout.toggleSidebar();
         },
@@ -675,7 +784,7 @@ export function apply(ctx: HarnessClientContext): void {
           id: "tabs.toggle",
           label: () => t("action.toggleRightSidebar"),
           defaultBinding: DEFAULT_SHORTCUT_BINDINGS["tabs.toggle"],
-          order: 30,
+          order: 50,
           run: () => {
             tabsRuntimes.right.toggle();
           },
@@ -689,7 +798,7 @@ export function apply(ctx: HarnessClientContext): void {
           label: () => t("action.toggleBottomPanel"),
           defaultBinding:
             DEFAULT_SHORTCUT_BINDINGS["tabs.bottom.toggle"],
-          order: 40,
+          order: 60,
           run: () => {
             tabsRuntimes.bottom.toggle();
           },

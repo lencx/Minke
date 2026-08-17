@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import appManifest from "../../package.json";
 import {
   MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
   MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
@@ -296,6 +297,13 @@ const modelRuntime = Object.freeze({
   },
 });
 
+const about = Object.freeze({
+  productName: appManifest.productName,
+  version: appManifest.version,
+  platform: process.platform,
+  arch: process.arch,
+});
+
 const surface = Object.freeze({
   kind: process.platform === "darwin" ? "macos" : "standard",
 });
@@ -317,6 +325,7 @@ const windowTheme = Object.freeze({
 contextBridge.exposeInMainWorld(
   "minkeDesktop",
   Object.freeze({
+    about,
     files,
     locale,
     modelRuntime,

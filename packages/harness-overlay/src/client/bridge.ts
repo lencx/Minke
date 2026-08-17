@@ -77,6 +77,14 @@ export type HarnessThemePreference = "light" | "dark" | "system";
 export type HarnessColorScheme = "light" | "dark";
 export type HarnessLocale = "zh" | "en";
 
+export interface DesktopAboutInfo {
+  readonly available: boolean;
+  readonly productName: string;
+  readonly version: string;
+  readonly platform: string;
+  readonly arch: string;
+}
+
 export interface DesktopWindowThemePort {
   readonly available: boolean;
   publish(
@@ -143,8 +151,16 @@ interface DesktopSurfaceBridge {
   readonly kind: "macos" | "standard";
 }
 
+interface DesktopAboutBridge {
+  readonly productName: string;
+  readonly version: string;
+  readonly platform: string;
+  readonly arch: string;
+}
+
 interface DesktopBridgeWindow {
   minkeDesktop?: {
+    about?: DesktopAboutBridge;
     files?: DesktopFilesBridge;
     locale?: DesktopWindowLocaleBridge;
     modelRuntime?: DesktopModelRuntimeBridge;
@@ -154,6 +170,40 @@ interface DesktopBridgeWindow {
     shortcuts?: DesktopShortcutBridge;
     surface?: DesktopSurfaceBridge;
     windowTheme?: DesktopWindowThemeBridge;
+  };
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+/** Read immutable product metadata projected by the isolated preload. */
+export function desktopAboutInfo(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): DesktopAboutInfo {
+  const about = source.minkeDesktop?.about;
+  if (
+    about === undefined ||
+    !isNonEmptyString(about.productName) ||
+    !isNonEmptyString(about.version) ||
+    !isNonEmptyString(about.platform) ||
+    !isNonEmptyString(about.arch)
+  ) {
+    return {
+      available: false,
+      productName: "Minke",
+      version: "",
+      platform: "",
+      arch: "",
+    };
+  }
+  return {
+    available: true,
+    productName: about.productName,
+    version: about.version,
+    platform: about.platform,
+    arch: about.arch,
   };
 }
 

@@ -1,6 +1,12 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    color-scheme: light dark;
+    --minke-bootstrap-status-color: #475569;
+    --minke-bootstrap-pulse-color: #2563eb;
+  }
+
   html,
   body,
   #root {
@@ -10,5 +16,22 @@
 
   body {
     margin: 0;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --minke-bootstrap-status-color: #cbd5e1;
+      --minke-bootstrap-pulse-color: #93c5fd;
+    }
+  }
+}
+
+@layer components {
+  .minke-bootstrap__status {
+    color: var(--minke-bootstrap-status-color);
+  }
+
+  .minke-bootstrap__pulse {
+    background-color: var(--minke-bootstrap-pulse-color);
   }
 }

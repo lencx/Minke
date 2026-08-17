@@ -7,6 +7,8 @@ const DESKTOP_MARKERS = [
   "data-dsh-desktop-titlebar-anchor",
   "data-dsh-desktop-sidebar-toggle",
   "data-dsh-desktop-new-session",
+  "data-dsh-desktop-composer-add",
+  "data-dsh-desktop-composer-primary",
   "data-dsh-desktop-base-surface",
   "data-dsh-desktop-sidebar-fade",
   "data-dsh-desktop-hero-glow",
@@ -104,6 +106,37 @@ function markHeroGlow(root: Document): void {
     'svg[viewBox="0 0 1051 468"][aria-hidden="true"]',
   )) {
     candidate.setAttribute("data-dsh-desktop-hero-glow", "");
+  }
+}
+
+function markComposerActions(
+  root: Document,
+  view: DesktopSurfaceView,
+): void {
+  for (const card of root.querySelectorAll("[data-composer-card]")) {
+    const row = card.querySelector("[data-input-scroll]")
+      ?.nextElementSibling;
+    if (!(row instanceof view.HTMLElement)) continue;
+
+    const add = row.firstElementChild?.querySelector(
+      'button[aria-haspopup="listbox"]',
+    );
+    if (add instanceof view.HTMLButtonElement) {
+      add.setAttribute("data-dsh-desktop-composer-add", "");
+    }
+
+    const primaryButtons =
+      row.lastElementChild?.querySelectorAll("button");
+    const primary =
+      primaryButtons === undefined
+        ? null
+        : primaryButtons.item(primaryButtons.length - 1);
+    if (primary instanceof view.HTMLButtonElement) {
+      primary.setAttribute(
+        "data-dsh-desktop-composer-primary",
+        "",
+      );
+    }
   }
 }
 
@@ -282,6 +315,7 @@ export function installDesktopSurface(
     if (disposed) return;
     markShell(root, view);
     markHeroGlow(root);
+    markComposerActions(root, view);
     reconcileDesktopDrag(root, view);
   };
   const scheduleReconcile = (): void => {

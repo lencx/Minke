@@ -9,6 +9,8 @@ export const SHORTCUT_INVOKE_CHANNEL = "minke:shortcut:invoke";
 export const DEFAULT_SHORTCUT_BINDINGS = Object.freeze({
   "settings.open": "Mod+Comma",
   "session.new": "Mod+N",
+  "session.back": "Mod+BracketLeft",
+  "session.forward": "Mod+BracketRight",
   "sidebar.toggle": "Mod+S",
   "tabs.toggle": "Mod+P",
   "tabs.bottom.toggle": "Mod+B",
