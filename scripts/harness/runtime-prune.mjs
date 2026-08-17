@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
-export const RUNTIME_PRUNE_POLICY_VERSION = 4;
+export const RUNTIME_PRUNE_POLICY_VERSION = 5;
 
 const DOCUMENTATION_FILE =
   /^(?:readme|changelog|changes|history)(?:\.(?:md|markdown|txt))?$/iu;
@@ -22,19 +22,80 @@ const PUBLISHED_PACKAGE_BAGGAGE_DIRECTORIES = Object.freeze([
   "node_modules/@earendil-works/pi-ai/node_modules/@mistralai/mistralai/packages",
   "node_modules/@earendil-works/pi-ai/node_modules/@mistralai/mistralai/tests",
 ]);
+const NODE_PTY_WINDOWS_ONLY_DIRECTORIES = Object.freeze([
+  "node_modules/node-pty/deps/winpty",
+  "node_modules/node-pty/third_party/conpty",
+]);
+const PNPM_FASTLIST_WINDOWS_EXECUTABLE =
+  /^node_modules\/pnpm\/dist\/vendor\/fastlist-[^/]+\.exe$/u;
+const PNPM_REFLINK_PLATFORM_PACKAGE =
+  /^(node_modules\/pnpm\/dist\/node_modules\/@reflink\/(reflink-[^/]+))(?:\/|$)/u;
 const ESBUILD_LAUNCHER_PATH = "node_modules/esbuild/bin/esbuild";
 const ESBUILD_NATIVE_BINARY_MIN_BYTES = 64 * 1024;
 
-export function runtimeArtifactCategory(path) {
-  const normalizedPath = path.replaceAll("\\", "/");
+function runtimeTarget(target = {}) {
+  return {
+    arch: target.arch ?? process.arch,
+    platform: target.platform ?? process.platform,
+  };
+}
+
+function pathInDirectory(path, directory) {
+  return path === directory || path.startsWith(`${directory}/`);
+}
+
+function isCompatibleReflinkPackage(packageName, target) {
   if (
-    PUBLISHED_PACKAGE_BAGGAGE_DIRECTORIES.some(
-      (directory) =>
-        normalizedPath === directory ||
-        normalizedPath.startsWith(`${directory}/`),
-    )
+    target.platform === "darwin" &&
+    packageName === "reflink-darwin-universal"
   ) {
-    return "publishedPackageBaggage";
+    return true;
+  }
+  const targetPrefix = `reflink-${target.platform}-${target.arch}`;
+  return (
+    packageName === targetPrefix || packageName.startsWith(`${targetPrefix}-`)
+  );
+}
+
+function prunableRuntimeDirectory(path, target = {}) {
+  const normalizedPath = path.replaceAll("\\", "/");
+  for (const directory of PUBLISHED_PACKAGE_BAGGAGE_DIRECTORIES) {
+    if (pathInDirectory(normalizedPath, directory)) {
+      return { category: "publishedPackageBaggage", path: directory };
+    }
+  }
+
+  const resolvedTarget = runtimeTarget(target);
+  if (resolvedTarget.platform !== "win32") {
+    for (const directory of NODE_PTY_WINDOWS_ONLY_DIRECTORIES) {
+      if (pathInDirectory(normalizedPath, directory)) {
+        return { category: "incompatiblePlatformAssets", path: directory };
+      }
+    }
+  }
+
+  const reflinkMatch = PNPM_REFLINK_PLATFORM_PACKAGE.exec(normalizedPath);
+  if (
+    reflinkMatch !== null &&
+    !isCompatibleReflinkPackage(reflinkMatch[2], resolvedTarget)
+  ) {
+    return {
+      category: "incompatiblePlatformAssets",
+      path: reflinkMatch[1],
+    };
+  }
+  return undefined;
+}
+
+export function runtimeArtifactCategory(path, target = {}) {
+  const normalizedPath = path.replaceAll("\\", "/");
+  const directory = prunableRuntimeDirectory(normalizedPath, target);
+  if (directory !== undefined) return directory.category;
+  if (
+    runtimeTarget(target).platform !== "win32" &&
+    PNPM_FASTLIST_WINDOWS_EXECUTABLE.test(normalizedPath)
+  ) {
+    return "incompatiblePlatformAssets";
   }
   if (DUPLICATE_PNPM_EXECUTABLE.test(normalizedPath)) {
     return "duplicateTooling";
@@ -47,8 +108,8 @@ export function runtimeArtifactCategory(path) {
   return undefined;
 }
 
-export function isPrunableRuntimePath(path) {
-  return runtimeArtifactCategory(path) !== undefined;
+export function isPrunableRuntimePath(path, target = {}) {
+  return runtimeArtifactCategory(path, target) !== undefined;
 }
 
 function normalizedRuntimePath(path) {
@@ -143,7 +204,7 @@ require("node:child_process").execFileSync(
   };
 }
 
-async function collectRuntimeArtifacts(runtimeRoot) {
+async function collectRuntimeArtifacts(runtimeRoot, target = {}) {
   const absoluteRoot = resolve(runtimeRoot);
   const rootInfo = await lstat(absoluteRoot);
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
@@ -173,7 +234,7 @@ async function collectRuntimeArtifacts(runtimeRoot) {
       bytes += info.size;
       const relativePath = relative(absoluteRoot, path);
       const category =
-        runtimeArtifactCategory(relativePath) ??
+        runtimeArtifactCategory(relativePath, target) ??
         (isUnoptimizedEsbuildLauncher(relativePath, info.size)
           ? "duplicateTooling"
           : undefined);
@@ -204,8 +265,8 @@ function summarizeCandidates(candidates) {
   return { bytes, categories, files: candidates.length };
 }
 
-export async function inspectRuntimeArtifacts(runtimeRoot) {
-  const collected = await collectRuntimeArtifacts(runtimeRoot);
+export async function inspectRuntimeArtifacts(runtimeRoot, target = {}) {
+  const collected = await collectRuntimeArtifacts(runtimeRoot, target);
   return {
     bytes: collected.bytes,
     files: collected.files,
@@ -213,14 +274,22 @@ export async function inspectRuntimeArtifacts(runtimeRoot) {
   };
 }
 
-export async function pruneRuntimeArtifacts(runtimeRoot) {
+export async function pruneRuntimeArtifacts(runtimeRoot, target = {}) {
   const absoluteRoot = resolve(runtimeRoot);
   const optimized = await optimizeEsbuildLauncher(absoluteRoot);
-  const collected = await collectRuntimeArtifacts(runtimeRoot);
+  const collected = await collectRuntimeArtifacts(runtimeRoot, target);
   for (const candidate of collected.candidates) {
     await rm(candidate.path, { force: true });
   }
-  for (const directory of PUBLISHED_PACKAGE_BAGGAGE_DIRECTORIES) {
+  const prunableDirectories = new Set(
+    collected.candidates
+      .map((candidate) =>
+        prunableRuntimeDirectory(candidate.relativePath, target),
+      )
+      .filter((directory) => directory !== undefined)
+      .map((directory) => directory.path),
+  );
+  for (const directory of prunableDirectories) {
     await rm(join(absoluteRoot, ...directory.split("/")), {
       force: true,
       recursive: true,

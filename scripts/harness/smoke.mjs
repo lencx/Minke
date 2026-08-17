@@ -41,6 +41,55 @@ const runtimeRoot = packaged
 const fixtureSource = join(projectRoot, "tests", "fixtures", "web-plugin");
 const startupTimeoutMs = 90_000;
 const hmrTimeoutMs = 15_000;
+const ptyProbeSource = String.raw`
+const { createRequire } = require("node:module");
+const { join } = require("node:path");
+
+const runtimeRoot = process.argv[1];
+const runtimeRequire = createRequire(join(runtimeRoot, "package.json"));
+const pty = runtimeRequire("node-pty");
+const expected = "minke-pty-ok";
+let output = "";
+let settled = false;
+const timeout = setTimeout(() => {
+  if (settled) return;
+  settled = true;
+  terminal.kill();
+  process.stderr.write("node-pty probe timed out\n");
+  process.exitCode = 1;
+}, 10_000);
+const terminal = pty.spawn(
+  process.execPath,
+  ["--eval", "process.stdout.write('minke-pty-ok')"],
+  {
+    name: "xterm-256color",
+    cols: 80,
+    rows: 24,
+    cwd: process.cwd(),
+    env: process.env,
+  },
+);
+terminal.onData((data) => {
+  output += data;
+});
+terminal.onExit(({ exitCode }) => {
+  setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    if (exitCode !== 0 || !output.includes(expected)) {
+      process.stderr.write(
+        "node-pty probe failed: exit " +
+          String(exitCode) +
+          ", output " +
+          JSON.stringify(output) +
+          "\n",
+      );
+      process.exitCode = 1;
+    }
+  }, 25);
+});
+`;
 
 function systemPath() {
   if (process.platform === "win32") {
@@ -310,6 +359,14 @@ async function main() {
         `bundled pnpm is ${JSON.stringify(pnpmVersion.stdout.trim())}, expected ${verified.contract.pnpmVersion}`,
       );
     }
+    await runSuccessful(
+      executable("node"),
+      ["--eval", ptyProbeSource, runtimeRoot],
+      {
+        cwd: projectRoot,
+        env,
+      },
+    );
     const esbuildRoot = join(runtimeRoot, "node_modules", "esbuild");
     const esbuildManifest = JSON.parse(
       await readFile(join(esbuildRoot, "package.json"), "utf8"),
@@ -403,6 +460,7 @@ async function main() {
         "Harness runtime smoke passed:",
         `  Electron Node: ${nodeVersion.stdout.trim()}`,
         `  bundled pnpm:  ${pnpmVersion.stdout.trim()}`,
+        "  bundled node-pty: functional",
         `  bundled esbuild: ${esbuildVersion.stdout.trim()}`,
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,

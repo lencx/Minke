@@ -17,6 +17,7 @@ import {
   assertRuntimeSizeBudget,
   inspectRuntimeArtifacts,
   pruneRuntimeArtifacts,
+  runtimeArtifactCategory,
 } from "../scripts/harness/runtime-prune.mjs";
 
 async function withTemporaryRuntime(callback) {
@@ -163,6 +164,105 @@ test("runtime pruning removes published package baggage without removing runtime
       assert.equal(await readFile(path, "utf8"), source);
     }
     assert.equal((await inspectRuntimeArtifacts(root)).prunable.files, 0);
+  });
+});
+
+test("runtime pruning removes assets that cannot run on the target platform", async () => {
+  await withTemporaryRuntime(async (root) => {
+    const nodePtyRoot = join(root, "node_modules", "node-pty");
+    const pnpmRoot = join(root, "node_modules", "pnpm", "dist");
+    const incompatibleFiles = [
+      join(nodePtyRoot, "deps", "winpty", "LICENSE"),
+      join(nodePtyRoot, "third_party", "conpty", "OpenConsole.exe"),
+      join(
+        pnpmRoot,
+        "node_modules",
+        "@reflink",
+        "reflink-darwin-x64",
+        "reflink.darwin-x64.node",
+      ),
+      join(
+        pnpmRoot,
+        "node_modules",
+        "@reflink",
+        "reflink-win32-arm64-msvc",
+        "reflink.win32-arm64-msvc.node",
+      ),
+      join(
+        pnpmRoot,
+        "node_modules",
+        "@reflink",
+        "reflink-win32-x64-msvc",
+        "reflink.win32-x64-msvc.node",
+      ),
+      join(pnpmRoot, "vendor", "fastlist-0.3.0-x64.exe"),
+      join(pnpmRoot, "vendor", "fastlist-0.3.0-x86.exe"),
+    ];
+    for (const path of incompatibleFiles) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, "wrong platform");
+    }
+
+    const runtimeFiles = [
+      [join(nodePtyRoot, "lib", "index.js"), "module.exports = {};\n"],
+      [
+        join(nodePtyRoot, "prebuilds", "darwin-arm64", "pty.node"),
+        "native pty",
+      ],
+      [
+        join(
+          pnpmRoot,
+          "node_modules",
+          "@reflink",
+          "reflink-darwin-arm64",
+          "reflink.darwin-arm64.node",
+        ),
+        "native reflink",
+      ],
+      [join(pnpmRoot, "pnpm.mjs"), "export {};\n"],
+    ];
+    for (const [path, source] of runtimeFiles) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, source);
+    }
+
+    const target = { arch: "arm64", platform: "darwin" };
+    const before = await inspectRuntimeArtifacts(root, target);
+    assert.equal(
+      before.prunable.categories.incompatiblePlatformAssets.files,
+      incompatibleFiles.length,
+    );
+
+    const report = await pruneRuntimeArtifacts(root, target);
+
+    assert.equal(
+      report.removed.categories.incompatiblePlatformAssets.files,
+      incompatibleFiles.length,
+    );
+    for (const path of incompatibleFiles) {
+      await assert.rejects(access(path), { code: "ENOENT" });
+    }
+    for (const [path, source] of runtimeFiles) {
+      assert.equal(await readFile(path, "utf8"), source);
+    }
+    assert.equal(
+      runtimeArtifactCategory(
+        "node_modules/node-pty/third_party/conpty/OpenConsole.exe",
+        { arch: "x64", platform: "win32" },
+      ),
+      undefined,
+    );
+    assert.equal(
+      runtimeArtifactCategory(
+        "node_modules/pnpm/dist/vendor/fastlist-0.3.0-x64.exe",
+        { arch: "x64", platform: "win32" },
+      ),
+      undefined,
+    );
+    assert.equal(
+      (await inspectRuntimeArtifacts(root, target)).prunable.files,
+      0,
+    );
   });
 });
 
