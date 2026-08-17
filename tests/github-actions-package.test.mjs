@@ -110,7 +110,7 @@ test("native makers receive required distribution metadata", async () => {
     await readFile(packageManifestUrl, "utf8"),
   );
 
-  assert.equal(manifest.author, "Lencx");
+  assert.equal(manifest.author, "lencx <lencx.me@gmail.com>");
   assert.equal(manifest.license, "Apache-2.0");
   assert.equal(
     manifest.repository?.url,
