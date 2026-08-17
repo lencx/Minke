@@ -2,7 +2,7 @@
   "name": "minke",
   "productName": "Minke",
   "description": "Minke desktop agent powered by DeepSeek Harness",
-  "author": "Lencx",
+  "author": "lencx <lencx.me@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/lencx/Minke#readme",
   "repository": {

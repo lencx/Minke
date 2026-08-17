@@ -30,6 +30,10 @@ Minke brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 - **Local-first by design** — DeepSeek Harness runs locally, while Minke keeps its application state and browser session data on your machine. Desktop preferences live under `~/.minke`, giving the app one clear and predictable data boundary.
 - **A native desktop experience** — Native menus, configurable shortcuts, Session log export, synchronized themes, and English and Chinese UI make Minke comfortable for daily use. macOS receives native window polish, Windows and Linux retain platform-appropriate defaults, and automated releases target all three desktop platforms.
 
+![Minke 01](./assets/01.png)
+
+![Minke 02](./assets/02.png)
+
 ## Installation
 
 Download Minke only from the official [GitHub Releases](https://github.com/lencx/Minke/releases) page.
@@ -122,6 +126,7 @@ pnpm make
 如在使用中遇到问题，或希望进一步交流 Minke，可关注公众号「浮之静」，发送 `dsh` 获取进群码。也欢迎大家贡献 PR 或分享给更多朋友，您的每一次 Star 都是对开源项目的巨大支持，感恩。
 
 <p>
+  <img width="150" alt="qrcode" src="https://github.com/user-attachments/assets/f7194e28-a290-444f-89a2-9f656c59e218" />
   <img width="172" src="https://user-images.githubusercontent.com/16164244/207228300-ea5c4688-c916-4c55-a8c3-7f862888f351.png" alt="浮之静公众号">
   <img width="200" src="https://user-images.githubusercontent.com/16164244/207228025-117b5f77-c5d2-48c2-a070-774b7a1596f2.png" alt="Minke 用户交流群">
 </p>
