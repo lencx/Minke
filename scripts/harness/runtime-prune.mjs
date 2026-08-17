@@ -9,17 +9,33 @@ import {
 } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
-export const RUNTIME_PRUNE_POLICY_VERSION = 3;
+export const RUNTIME_PRUNE_POLICY_VERSION = 4;
 
 const DOCUMENTATION_FILE =
   /^(?:readme|changelog|changes|history)(?:\.(?:md|markdown|txt))?$/iu;
 const DUPLICATE_PNPM_EXECUTABLE =
   /(?:^|\/)node_modules\/pnpm\/artifacts(?:\/|$)/u;
+const PUBLISHED_PACKAGE_BAGGAGE_DIRECTORIES = Object.freeze([
+  "node_modules/@mixmark-io/domino/.yarn",
+  "node_modules/@mixmark-io/domino/test",
+  "node_modules/@earendil-works/pi-ai/node_modules/@mistralai/mistralai/examples",
+  "node_modules/@earendil-works/pi-ai/node_modules/@mistralai/mistralai/packages",
+  "node_modules/@earendil-works/pi-ai/node_modules/@mistralai/mistralai/tests",
+]);
 const ESBUILD_LAUNCHER_PATH = "node_modules/esbuild/bin/esbuild";
 const ESBUILD_NATIVE_BINARY_MIN_BYTES = 64 * 1024;
 
 export function runtimeArtifactCategory(path) {
   const normalizedPath = path.replaceAll("\\", "/");
+  if (
+    PUBLISHED_PACKAGE_BAGGAGE_DIRECTORIES.some(
+      (directory) =>
+        normalizedPath === directory ||
+        normalizedPath.startsWith(`${directory}/`),
+    )
+  ) {
+    return "publishedPackageBaggage";
+  }
   if (DUPLICATE_PNPM_EXECUTABLE.test(normalizedPath)) {
     return "duplicateTooling";
   }
@@ -47,7 +63,9 @@ function isUnoptimizedEsbuildLauncher(path, bytes) {
 }
 
 async function sha256(path) {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
 async function optimizeEsbuildLauncher(runtimeRoot) {
@@ -196,10 +214,17 @@ export async function inspectRuntimeArtifacts(runtimeRoot) {
 }
 
 export async function pruneRuntimeArtifacts(runtimeRoot) {
-  const optimized = await optimizeEsbuildLauncher(resolve(runtimeRoot));
+  const absoluteRoot = resolve(runtimeRoot);
+  const optimized = await optimizeEsbuildLauncher(absoluteRoot);
   const collected = await collectRuntimeArtifacts(runtimeRoot);
   for (const candidate of collected.candidates) {
     await rm(candidate.path, { force: true });
+  }
+  for (const directory of PUBLISHED_PACKAGE_BAGGAGE_DIRECTORIES) {
+    await rm(join(absoluteRoot, ...directory.split("/")), {
+      force: true,
+      recursive: true,
+    });
   }
   const removed = summarizeCandidates(collected.candidates);
   return {
@@ -213,11 +238,10 @@ export async function pruneRuntimeArtifacts(runtimeRoot) {
 }
 
 export function assertRuntimeSizeBudget(bytes, budgetBytes) {
-  if (
-    !Number.isSafeInteger(budgetBytes) ||
-    budgetBytes <= 0
-  ) {
-    throw new Error(`invalid Harness runtime size budget ${String(budgetBytes)}`);
+  if (!Number.isSafeInteger(budgetBytes) || budgetBytes <= 0) {
+    throw new Error(
+      `invalid Harness runtime size budget ${String(budgetBytes)}`,
+    );
   }
   if (bytes > budgetBytes) {
     const actualMiB = (bytes / 1024 / 1024).toFixed(1);

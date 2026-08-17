@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import {
   assertRuntimeSizeBudget,
@@ -47,10 +47,16 @@ test("runtime pruning removes build artifacts and preserves executable assets", 
 
     assert.equal(report.removed.files, 5);
     assert.equal(report.afterFiles, 4);
-    assert.equal(await readFile(join(root, "lib", "index.js"), "utf8"), "export {};\n");
+    assert.equal(
+      await readFile(join(root, "lib", "index.js"), "utf8"),
+      "export {};\n",
+    );
     assert.equal(await readFile(join(root, "LICENSE.md"), "utf8"), "license");
     assert.equal(await readFile(join(root, "NOTICE"), "utf8"), "notice");
-    assert.equal(await readFile(join(root, "guide.md"), "utf8"), "runtime content");
+    assert.equal(
+      await readFile(join(root, "guide.md"), "utf8"),
+      "runtime content",
+    );
     assert.equal((await inspectRuntimeArtifacts(root)).prunable.files, 0);
   });
 });
@@ -92,6 +98,74 @@ test("runtime pruning removes pnpm's duplicate executable artifact", async () =>
   });
 });
 
+test("runtime pruning removes published package baggage without removing runtime code", async () => {
+  await withTemporaryRuntime(async (root) => {
+    const dominoRoot = join(root, "node_modules", "@mixmark-io", "domino");
+    const mistralRoot = join(
+      root,
+      "node_modules",
+      "@earendil-works",
+      "pi-ai",
+      "node_modules",
+      "@mistralai",
+      "mistralai",
+    );
+    const baggageFiles = [
+      join(dominoRoot, ".yarn", "plugins", "plugin.cjs"),
+      join(dominoRoot, "test", "domino.test.js"),
+      join(mistralRoot, "examples", "chat.js"),
+      join(mistralRoot, "packages", "mistralai-azure", "src", "index.ts"),
+      join(mistralRoot, "tests", "sdk.test.ts"),
+    ];
+    for (const path of baggageFiles) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, "development-only package content");
+    }
+
+    const runtimeFiles = [
+      [join(dominoRoot, "lib", "index.js"), "module.exports = {};\n"],
+      [join(mistralRoot, "esm", "index.js"), "export class Mistral {}\n"],
+      [join(mistralRoot, "src", "index.ts"), "export class Mistral {}\n"],
+    ];
+    for (const [path, source] of runtimeFiles) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, source);
+    }
+
+    const before = await inspectRuntimeArtifacts(root);
+    assert.equal(before.prunable.files, baggageFiles.length);
+    assert.equal(
+      before.prunable.categories.publishedPackageBaggage.files,
+      baggageFiles.length,
+    );
+
+    const report = await pruneRuntimeArtifacts(root);
+
+    assert.equal(
+      report.removed.categories.publishedPackageBaggage.files,
+      baggageFiles.length,
+    );
+    for (const path of baggageFiles) {
+      await assert.rejects(access(path), { code: "ENOENT" });
+    }
+    await assert.rejects(access(join(dominoRoot, ".yarn")), { code: "ENOENT" });
+    await assert.rejects(access(join(dominoRoot, "test")), { code: "ENOENT" });
+    await assert.rejects(access(join(mistralRoot, "examples")), {
+      code: "ENOENT",
+    });
+    await assert.rejects(access(join(mistralRoot, "packages")), {
+      code: "ENOENT",
+    });
+    await assert.rejects(access(join(mistralRoot, "tests")), {
+      code: "ENOENT",
+    });
+    for (const [path, source] of runtimeFiles) {
+      assert.equal(await readFile(path, "utf8"), source);
+    }
+    assert.equal((await inspectRuntimeArtifacts(root)).prunable.files, 0);
+  });
+});
+
 test("runtime pruning replaces esbuild's duplicate binary with a launcher", async () => {
   await withTemporaryRuntime(async (root) => {
     const esbuildRoot = join(root, "node_modules", "esbuild");
@@ -105,9 +179,7 @@ test("runtime pruning replaces esbuild's duplicate binary with a launcher", asyn
       ...Array.from({ length: 8_000 }, () => "// executable padding"),
       "",
     ].join("\n");
-    const binaryHash = createHash("sha256")
-      .update(binarySource)
-      .digest("hex");
+    const binaryHash = createHash("sha256").update(binarySource).digest("hex");
 
     await mkdir(join(esbuildRoot, "bin"), { recursive: true });
     await mkdir(join(root, "node_modules", ...binaryPackage.split("/")), {
