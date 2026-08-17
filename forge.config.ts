@@ -35,14 +35,25 @@ const config: ForgeConfig = {
       buildPath,
       _electronVersion,
       platform,
-      _arch,
+      arch,
     ) => {
-      if (platform !== "darwin") return;
-      const nodeModulesRoot = join(buildPath, "node_modules");
-      await mkdir(nodeModulesRoot, { recursive: true });
-      await cp(sysPackageRoot, join(nodeModulesRoot, "sys"), {
-        recursive: true,
-      });
+      logPackageStage(
+        platform,
+        String(arch),
+        "package copy hook started",
+      );
+      if (platform === "darwin") {
+        const nodeModulesRoot = join(buildPath, "node_modules");
+        await mkdir(nodeModulesRoot, { recursive: true });
+        await cp(sysPackageRoot, join(nodeModulesRoot, "sys"), {
+          recursive: true,
+        });
+      }
+      logPackageStage(
+        platform,
+        String(arch),
+        "package copy hook completed",
+      );
     },
     postPackage: async (
       _forgeConfig,

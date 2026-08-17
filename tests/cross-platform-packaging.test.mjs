@@ -198,6 +198,8 @@ test("Forge logs the boundaries around slow packaging stages", async () => {
     );
   }
   for (const stage of [
+    "package copy hook started",
+    "package copy hook completed",
     "native dependencies ready",
     "asar started",
     "asar completed",
