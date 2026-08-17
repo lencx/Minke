@@ -2,6 +2,15 @@ name: Package
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: Package target to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - win32-x64
   push:
     tags:
       - "v*"
@@ -20,20 +29,14 @@ jobs:
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            platform: darwin
-            arch: arm64
-          - runner: macos-15-intel
-            platform: darwin
-            arch: x64
-          - runner: windows-2025
-            platform: win32
-            arch: x64
-          - runner: ubuntu-24.04
-            platform: linux
-            arch: x64
+      matrix: >-
+        ${{
+          fromJSON(
+            inputs.target == 'win32-x64'
+            && '{"include":[{"runner":"windows-2025","platform":"win32","arch":"x64"}]}'
+            || '{"include":[{"runner":"macos-15","platform":"darwin","arch":"arm64"},{"runner":"macos-15-intel","platform":"darwin","arch":"x64"},{"runner":"windows-2025","platform":"win32","arch":"x64"},{"runner":"ubuntu-24.04","platform":"linux","arch":"x64"}]}'
+          )
+        }}
     env:
       CI: "true"
 

@@ -25,13 +25,15 @@ const releaseAssetNames = [
 ];
 
 function assertMatrixEntry(source, runner, platform, arch) {
+  const field = (name, value) =>
+    `["']?${name}["']?\\s*:\\s*["']?${value}["']?`;
   assert.match(
     source,
     new RegExp(
       [
-        `runner:\\s*${runner}`,
-        `platform:\\s*${platform}`,
-        `arch:\\s*${arch}`,
+        field("runner", runner),
+        field("platform", platform),
+        field("arch", arch),
       ].join("[\\s\\S]*?"),
       "u",
     ),
@@ -159,6 +161,26 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   assert.match(releaseJob, /--generate-notes/u);
   assert.match(releaseJob, /gh release upload "\$GITHUB_REF_NAME"/u);
   assert.match(releaseJob, /--clobber/u);
+});
+
+test("workflow dispatch can isolate the Windows package target", async () => {
+  const source = await readFile(workflowUrl, "utf8");
+
+  assert.match(
+    source,
+    /workflow_dispatch:\s*\n\s*inputs:\s*\n\s*target:/u,
+  );
+  assert.match(source, /type:\s*choice/u);
+  assert.match(source, /default:\s*all/u);
+  assert.match(source, /-\s*win32-x64/u);
+  assert.match(
+    source,
+    /inputs\.target\s*==\s*'win32-x64'/u,
+  );
+  assert.match(
+    source,
+    /fromJSON\([\s\S]*?"runner":"windows-2025"[\s\S]*?"platform":"win32"[\s\S]*?"arch":"x64"/u,
+  );
 });
 
 test("release workflow contract supports Windows line endings", async () => {

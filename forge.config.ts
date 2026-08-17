@@ -20,6 +20,14 @@ const iconRoot = join(projectRoot, "resources", "icons");
 const appIcon = join(iconRoot, "icon.png");
 const sysPackageRoot = join(projectRoot, "packages", "sys");
 
+function logPackageStage(
+  platform: string,
+  arch: string,
+  stage: string,
+): void {
+  console.log(`[packager:${platform}-${arch}] ${stage}`);
+}
+
 const config: ForgeConfig = {
   hooks: {
     packageAfterCopy: async (
@@ -82,9 +90,70 @@ const config: ForgeConfig = {
     // production packages and consuming several GiB on every desktop OS.
     prune: false,
     icon: join(iconRoot, "icon"),
+    afterCopy: [
+      (
+        _buildPath,
+        _electronVersion,
+        platform,
+        arch,
+        callback,
+      ) => {
+        logPackageStage(
+          platform,
+          String(arch),
+          "native dependencies ready",
+        );
+        callback();
+      },
+    ],
+    beforeAsar: [
+      (
+        _buildPath,
+        _electronVersion,
+        platform,
+        arch,
+        callback,
+      ) => {
+        logPackageStage(platform, String(arch), "asar started");
+        callback();
+      },
+    ],
+    afterAsar: [
+      (
+        _buildPath,
+        _electronVersion,
+        platform,
+        arch,
+        callback,
+      ) => {
+        logPackageStage(platform, String(arch), "asar completed");
+        callback();
+      },
+    ],
+    beforeCopyExtraResources: [
+      (
+        _buildPath,
+        _electronVersion,
+        platform,
+        arch,
+        callback,
+      ) => {
+        logPackageStage(
+          platform,
+          String(arch),
+          "extra resources started",
+        );
+        callback();
+      },
+    ],
     afterCopyExtraResources: [
-      (buildPath, _electronVersion, platform, _arch, callback) => {
+      (buildPath, _electronVersion, platform, arch, callback) => {
         if (platform !== "darwin") {
+          logPackageStage(
+            platform,
+            String(arch),
+            "extra resources completed",
+          );
           callback();
           return;
         }
@@ -92,6 +161,11 @@ const config: ForgeConfig = {
           (result) => {
             console.log(
               `Pruned ${String(result.removed.length)} unused Electron locales`,
+            );
+            logPackageStage(
+              platform,
+              String(arch),
+              "extra resources completed",
             );
             callback();
           },
@@ -103,6 +177,22 @@ const config: ForgeConfig = {
             );
           },
         );
+      },
+    ],
+    afterComplete: [
+      (
+        _buildPath,
+        _electronVersion,
+        platform,
+        arch,
+        callback,
+      ) => {
+        logPackageStage(
+          platform,
+          String(arch),
+          "package completed",
+        );
+        callback();
       },
     ],
     extraResource: [

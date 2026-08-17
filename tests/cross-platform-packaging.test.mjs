@@ -178,6 +178,37 @@ test("Forge Vite packaging bypasses the redundant production-tree prune", async 
   );
 });
 
+test("Forge logs the boundaries around slow packaging stages", async () => {
+  const forgeConfig = await readFile(
+    new URL("../forge.config.ts", import.meta.url),
+    "utf8",
+  );
+
+  for (const hookName of [
+    "afterCopy",
+    "beforeAsar",
+    "afterAsar",
+    "beforeCopyExtraResources",
+    "afterCopyExtraResources",
+    "afterComplete",
+  ]) {
+    assert.match(
+      forgeConfig,
+      new RegExp(`\\b${hookName}:\\s*\\[`, "u"),
+    );
+  }
+  for (const stage of [
+    "native dependencies ready",
+    "asar started",
+    "asar completed",
+    "extra resources started",
+    "extra resources completed",
+    "package completed",
+  ]) {
+    assert.ok(forgeConfig.includes(stage));
+  }
+});
+
 test("pnpm package scripts reuse the active cross-platform entrypoint", () => {
   assert.deepEqual(
     resolvePnpmInvocation(["install"], {
