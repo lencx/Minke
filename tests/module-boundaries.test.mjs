@@ -28,6 +28,7 @@ const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/session-export-contract",
   "@minke/harness-overlay/shortcut-contract",
   "@minke/harness-overlay/tabs/contract",
+  "@minke/harness-overlay/tabs/files-contract",
   "@minke/harness-overlay/tabs/terminal-contract",
   "@minke/harness-overlay/terminal-settings-contract",
 ]);

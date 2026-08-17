@@ -56,6 +56,7 @@ export interface TabRenderer {
   loadingLabel?(
     tab: ManagedTab,
   ): string;
+  beforeClose?(tab: ManagedTab): boolean;
   renderView(
     tab: ManagedTab,
     active: boolean,

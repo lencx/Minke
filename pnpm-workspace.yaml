@@ -11,6 +11,7 @@ blockExoticSubdeps: false
 nodeLinker: hoisted
 
 overrides:
+  '@codemirror/view': 6.43.9
   yauzl: 3.4.0
 
 allowBuilds:
@@ -19,3 +20,6 @@ allowBuilds:
   esbuild: true
   fs-xattr: true
   macos-alias: true
+
+minimumReleaseAgeExclude:
+  - '@codemirror/view@6.43.9'

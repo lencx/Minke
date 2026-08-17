@@ -23,6 +23,23 @@ import {
   TABS_OPEN_EXTERNAL_CHANNEL,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
+  parseFileManagerListRequest,
+  parseFileManagerListResult,
+  parseFileManagerOpenRequest,
+  parseFileManagerPreviewRequest,
+  parseFileManagerPreviewResult,
+  parseFileManagerWriteRequest,
+  parseFileManagerWriteResult,
+  TABS_FILES_LIST_CHANNEL,
+  TABS_FILES_OPEN_CHANNEL,
+  TABS_FILES_PREVIEW_CHANNEL,
+  TABS_FILES_WRITE_CHANNEL,
+  type FileManagerListRequest,
+  type FileManagerOpenRequest,
+  type FileManagerPreviewRequest,
+  type FileManagerWriteRequest,
+} from "@minke/harness-overlay/tabs/files-contract.ts";
+import {
   parseTerminalCreateRequest,
   parseTerminalCreateResult,
   parseTerminalEvent,
@@ -167,6 +184,41 @@ const tabs = Object.freeze({
   },
 });
 
+const files = Object.freeze({
+  async list(request: FileManagerListRequest): Promise<unknown> {
+    return parseFileManagerListResult(
+      await ipcRenderer.invoke(
+        TABS_FILES_LIST_CHANNEL,
+        parseFileManagerListRequest(request),
+      ),
+    );
+  },
+  async open(request: FileManagerOpenRequest): Promise<void> {
+    await ipcRenderer.invoke(
+      TABS_FILES_OPEN_CHANNEL,
+      parseFileManagerOpenRequest(request),
+    );
+  },
+  async preview(
+    request: FileManagerPreviewRequest,
+  ): Promise<unknown> {
+    return parseFileManagerPreviewResult(
+      await ipcRenderer.invoke(
+        TABS_FILES_PREVIEW_CHANNEL,
+        parseFileManagerPreviewRequest(request),
+      ),
+    );
+  },
+  async write(request: FileManagerWriteRequest): Promise<unknown> {
+    return parseFileManagerWriteResult(
+      await ipcRenderer.invoke(
+        TABS_FILES_WRITE_CHANNEL,
+        parseFileManagerWriteRequest(request),
+      ),
+    );
+  },
+});
+
 const terminal = Object.freeze({
   async readSettings(): Promise<unknown> {
     return await ipcRenderer.invoke(TERMINAL_SETTINGS_READ_CHANNEL);
@@ -245,6 +297,7 @@ const windowTheme = Object.freeze({
 contextBridge.exposeInMainWorld(
   "minkeDesktop",
   Object.freeze({
+    files,
     locale,
     sessionLogs,
     tabs,

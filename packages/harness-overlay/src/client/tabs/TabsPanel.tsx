@@ -243,6 +243,13 @@ export function TabsPanel({
   };
 
   const closeTab = (id: string): void => {
+    const tab = runtime.tab(id);
+    if (
+      tab !== undefined &&
+      renderers.get(tab.kind)?.beforeClose?.(tab) === false
+    ) {
+      return;
+    }
     runtime.close(id);
     if (runtime.getSnapshot().activeId !== undefined) {
       focusActiveTab();

@@ -4,6 +4,7 @@ import {
 } from "@minke/harness-overlay/shortcut-contract.ts";
 import { openHarnessSettings } from "./actions.ts";
 import {
+  desktopFilesPort,
   desktopSessionLogsPort,
   desktopShortcutStore,
   desktopTabsPort,
@@ -43,6 +44,15 @@ import {
   TabsRuntime,
   tabsZh,
 } from "./tabs/index.ts";
+import {
+  createFilesTabRenderer,
+  filesTabsEn,
+  filesTabsZh,
+  FilesTabsController,
+  installFilesTabStyles,
+  type FilesTabsLocaleKey,
+  type FilesTabsTranslate,
+} from "./tabs/files/index.ts";
 import {
   createWebTabRenderer,
   installWebLinkTabs,
@@ -211,6 +221,7 @@ interface HarnessClientContext {
 
 const NAMESPACE = "minke.shortcuts";
 const TABS_NAMESPACE = "minke.tabs";
+const FILES_TABS_NAMESPACE = "minke.tabs.files";
 const WEB_TABS_NAMESPACE = "minke.tabs.web";
 const TERMINAL_TABS_NAMESPACE = "minke.tabs.terminal";
 
@@ -248,12 +259,26 @@ export function apply(ctx: HarnessClientContext): void {
   }
 
   const tabsPort = desktopTabsPort();
+  const filesPort = desktopFilesPort();
   const terminalPort = desktopTerminalPort();
   const terminalSettingsStore = desktopTerminalSettingsStore();
   const terminalSettings = new TerminalSettingsRuntime(
     terminalSettingsStore,
   );
   const sessionLogsPort = desktopSessionLogsPort();
+  const filesT = ctx.locale.bind<FilesTabsLocaleKey>(
+    FILES_TABS_NAMESPACE,
+  ) as FilesTabsTranslate;
+  if (filesPort.available) {
+    ctx.effect(
+      () =>
+        ctx.locale.register(FILES_TABS_NAMESPACE, {
+          zh: filesTabsZh,
+          en: filesTabsEn,
+        }),
+      "minke-overlay: Files tab dictionaries",
+    );
+  }
   ctx.effect(
     () => () => {
       terminalSettings.dispose();
@@ -353,6 +378,12 @@ export function apply(ctx: HarnessClientContext): void {
       () => installWebTabStyles(),
       "minke-overlay: Web tab styles",
     );
+    if (filesPort.available) {
+      ctx.effect(
+        () => installFilesTabStyles(),
+        "minke-overlay: Files tab styles",
+      );
+    }
     if (terminalPort.available) {
       ctx.effect(
         () => installTerminalTabStyles(),
@@ -365,6 +396,9 @@ export function apply(ctx: HarnessClientContext): void {
     });
     const renderers = new TabRendererRegistry();
     const webTabs = new WebTabsController(tabs, tabsPort);
+    const filesTabs = filesPort.available
+      ? new FilesTabsController(tabs, filesPort)
+      : undefined;
     const terminalTabs = terminalPort.available
       ? new TerminalTabsController(tabs, terminalPort)
       : undefined;
@@ -374,12 +408,22 @@ export function apply(ctx: HarnessClientContext): void {
     ctx.effect(
       () => () => {
         terminalTabs?.dispose();
+        filesTabs?.dispose();
         webTabs.dispose();
         renderers.clear();
         tabs.dispose();
       },
       "minke-overlay: tabs runtime",
     );
+    if (filesTabs !== undefined) {
+      ctx.effect(
+        () =>
+          renderers.register(
+            createFilesTabRenderer(filesTabs, filesT),
+          ),
+        "minke-overlay: Files tab renderer",
+      );
+    }
     if (terminalTabs !== undefined) {
       ctx.effect(
         () =>

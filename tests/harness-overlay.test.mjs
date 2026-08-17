@@ -94,6 +94,20 @@ test("the product overlay uses the shared @lencx package scope", () => {
     manifest.devDependencies?.["@lucide/icons"] ?? "",
     /^\d+\.\d+\.\d+$/u,
   );
+  assert.equal(
+    manifest.devDependencies?.["@iconify-json/vscode-icons"],
+    "1.2.73",
+  );
+  assert.equal(manifest.devDependencies?.shiki, "4.4.3");
+  assert.equal(manifest.devDependencies?.codemirror, "6.0.2");
+  assert.equal(
+    manifest.devDependencies?.["@codemirror/state"],
+    "6.7.1",
+  );
+  assert.equal(
+    manifest.devDependencies?.["@codemirror/view"],
+    "6.43.9",
+  );
 });
 
 test("the product overlay composes Codex CLI and the generic model runtime", () => {
@@ -149,6 +163,20 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.match(bundle, /data-minke-shortcuts-nav/u);
   assert.doesNotMatch(bundle, /IconKeyboardOutline16/u);
   assert.match(bundle, /minke-overlay: tabs runtime/u);
+  assert.match(bundle, /minke-overlay: Files tab renderer/u);
+  assert.match(bundle, /minke-files-row/u);
+  assert.match(bundle, /minke-files-tree/u);
+  assert.match(bundle, /minke-files-preview/u);
+  assert.match(bundle, /minke-files-preview-resize/u);
+  assert.match(
+    bundle,
+    /["']data-highlighter["']:\s*["']shiki["']/u,
+  );
+  assert.match(bundle, /github-dark-default/u);
+  assert.match(bundle, /data-editor/u);
+  assert.match(bundle, /codemirror/u);
+  assert.match(bundle, /minke-vscode-file-icon/u);
+  assert.match(bundle, /file-type-rust/u);
   assert.match(bundle, /minke-overlay: Terminal tab renderer/u);
   assert.match(bundle, /minke-overlay: Terminal settings runtime/u);
   assert.match(bundle, /minke-terminal/u);
@@ -166,7 +194,11 @@ test("the built client half is a Harness module-loader bundle", () => {
 test("Tabs stays generic while content types register as adapters", () => {
   assert.match(
     clientSource,
-    /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new WebTabsController[\s\S]*new TerminalTabsController/u,
+    /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new WebTabsController[\s\S]*new FilesTabsController[\s\S]*new TerminalTabsController/u,
+  );
+  assert.match(
+    clientSource,
+    /createFilesTabRenderer\(filesTabs,\s*filesT\)/u,
   );
   assert.match(
     clientSource,
@@ -190,7 +222,9 @@ test("Tabs stays generic while content types register as adapters", () => {
     /from\s+["']\.\/(?:terminal|web)\//u,
   );
   assert.match(clientSource, /installTerminalTabStyles\(\)/u);
+  assert.match(clientSource, /installFilesTabStyles\(\)/u);
   assert.match(clientSource, /installWebTabStyles\(\)/u);
+  assert.match(clientSource, /FILES_TABS_NAMESPACE/u);
   assert.match(clientSource, /TERMINAL_TABS_NAMESPACE/u);
   assert.match(clientSource, /WEB_TABS_NAMESPACE/u);
 });

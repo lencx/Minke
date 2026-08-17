@@ -11,6 +11,16 @@ import {
   TABS_OPEN_EXTERNAL_CHANNEL,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
+  parseFileManagerListRequest,
+  parseFileManagerOpenRequest,
+  parseFileManagerPreviewRequest,
+  parseFileManagerWriteRequest,
+  TABS_FILES_LIST_CHANNEL,
+  TABS_FILES_OPEN_CHANNEL,
+  TABS_FILES_PREVIEW_CHANNEL,
+  TABS_FILES_WRITE_CHANNEL,
+} from "@minke/harness-overlay/tabs/files-contract.ts";
+import {
   parseTerminalCreateRequest,
   parseTerminalResizeRequest,
   parseTerminalSessionId,
@@ -22,11 +32,15 @@ import {
   TABS_TERMINAL_WRITE_CHANNEL,
 } from "@minke/harness-overlay/tabs/terminal-contract.ts";
 import {
+  FileManagerRuntime,
+} from "./files.ts";
+import {
   openNormalizedTabExternally,
   protectTabWebviewGuest,
   secureTabWebview,
 } from "./security.ts";
 import type {
+  ExternalPathOpener,
   ExternalTabOpener,
   TabsAuthorization,
   TabsBinding,
@@ -36,9 +50,10 @@ import {
   TerminalSessionRuntime,
 } from "./terminal.ts";
 
-interface TerminalBindingOptions {
+interface TabsBindingOptions {
   readonly runtimeRoot: string;
   readonly defaultCwd: string;
+  readonly fileSystemRoot: string;
 }
 
 async function resolveTerminalCwd(candidate: string): Promise<string> {
@@ -78,16 +93,16 @@ export function bindTabs(
     "handle" | "on" | "removeHandler" | "removeListener"
   >,
   embedder: WebContents,
-  external: ExternalTabOpener,
+  external: ExternalTabOpener & ExternalPathOpener,
   authorize: TabsAuthorization,
-  terminalOptions: TerminalBindingOptions,
+  options: TabsBindingOptions,
 ): TabsBinding {
   const terminalShell = defaultTerminalShell();
   const terminal = new TerminalSessionRuntime({
-    pty: loadTerminalPty(terminalOptions.runtimeRoot),
+    pty: loadTerminalPty(options.runtimeRoot),
     shell: terminalShell.shell,
     shellArgs: terminalShell.args,
-    defaultCwd: terminalOptions.defaultCwd,
+    defaultCwd: options.defaultCwd,
     environment: process.env,
     resolveCwd: resolveTerminalCwd,
     send: (event) => {
@@ -95,6 +110,10 @@ export function bindTabs(
         embedder.send(TABS_TERMINAL_EVENT_CHANNEL, event);
       }
     },
+  });
+  const files = new FileManagerRuntime({
+    rootPath: options.fileSystemRoot,
+    openPath: (path) => external.openPath(path),
   });
   const handleWillAttach = (
     event: Electron.Event,
@@ -162,6 +181,48 @@ export function bindTabs(
       // Invalid close traffic is ignored at the trusted boundary.
     }
   };
+  const handleFilesList = async (
+    event: IpcMainInvokeEvent,
+    request: unknown,
+  ): Promise<unknown> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized Files request");
+    }
+    return await files.list(
+      parseFileManagerListRequest(request),
+    );
+  };
+  const handleFilesOpen = async (
+    event: IpcMainInvokeEvent,
+    request: unknown,
+  ): Promise<void> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized Files request");
+    }
+    await files.open(parseFileManagerOpenRequest(request));
+  };
+  const handleFilesPreview = async (
+    event: IpcMainInvokeEvent,
+    request: unknown,
+  ): Promise<unknown> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized Files request");
+    }
+    return await files.preview(
+      parseFileManagerPreviewRequest(request),
+    );
+  };
+  const handleFilesWrite = async (
+    event: IpcMainInvokeEvent,
+    request: unknown,
+  ): Promise<unknown> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized Files request");
+    }
+    return await files.write(
+      parseFileManagerWriteRequest(request),
+    );
+  };
 
   embedder.on("will-attach-webview", handleWillAttach);
   embedder.on("did-attach-webview", handleDidAttach);
@@ -170,6 +231,10 @@ export function bindTabs(
   ipc.on(TABS_TERMINAL_WRITE_CHANNEL, handleTerminalWrite);
   ipc.on(TABS_TERMINAL_RESIZE_CHANNEL, handleTerminalResize);
   ipc.on(TABS_TERMINAL_CLOSE_CHANNEL, handleTerminalClose);
+  ipc.handle(TABS_FILES_LIST_CHANNEL, handleFilesList);
+  ipc.handle(TABS_FILES_OPEN_CHANNEL, handleFilesOpen);
+  ipc.handle(TABS_FILES_PREVIEW_CHANNEL, handleFilesPreview);
+  ipc.handle(TABS_FILES_WRITE_CHANNEL, handleFilesWrite);
 
   let disposed = false;
   return {
@@ -195,6 +260,10 @@ export function bindTabs(
         TABS_TERMINAL_CLOSE_CHANNEL,
         handleTerminalClose,
       );
+      ipc.removeHandler(TABS_FILES_LIST_CHANNEL);
+      ipc.removeHandler(TABS_FILES_OPEN_CHANNEL);
+      ipc.removeHandler(TABS_FILES_PREVIEW_CHANNEL);
+      ipc.removeHandler(TABS_FILES_WRITE_CHANNEL);
       void terminal.dispose();
     },
   };

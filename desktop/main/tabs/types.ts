@@ -7,6 +7,10 @@ export interface ExternalTabOpener {
   openExternal(url: string): Promise<void>;
 }
 
+export interface ExternalPathOpener {
+  openPath(path: string): Promise<string>;
+}
+
 export interface TabsBinding {
   dispose(): void;
 }

@@ -15,7 +15,7 @@ import {
   type WebContents,
 } from "electron";
 import started from "electron-squirrel-startup";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import {
   DesktopLocaleRuntime,
   translateDesktop,
@@ -323,6 +323,7 @@ async function createWindow(): Promise<BrowserWindow> {
     {
       runtimeRoot: runtimeRoot(),
       defaultCwd: app.getPath("home"),
+      fileSystemRoot: parse(app.getPath("home")).root,
     },
   );
   sessionLogExportBinding = bindSessionLogExport(

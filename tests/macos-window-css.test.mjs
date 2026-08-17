@@ -152,7 +152,7 @@ test("Electron wires native desktop capabilities through preload", () => {
   );
   assert.match(
     desktopPreloadSource,
-    /Object\.freeze\(\{\s*locale,\s*sessionLogs,\s*tabs,\s*terminal,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
+    /Object\.freeze\(\{\s*files,\s*locale,\s*sessionLogs,\s*tabs,\s*terminal,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
   );
   assert.match(
     desktopPreloadSource,
@@ -172,6 +172,18 @@ test("Electron wires native desktop capabilities through preload", () => {
   );
   assert.match(
     desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*TABS_FILES_LIST_CHANNEL/u,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*TABS_FILES_PREVIEW_CHANNEL/u,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*TABS_FILES_WRITE_CHANNEL/u,
+  );
+  assert.match(
+    desktopPreloadSource,
     /ipcRenderer\.invoke\(TERMINAL_SETTINGS_READ_CHANNEL\)/u,
   );
   assert.match(
@@ -182,6 +194,10 @@ test("Electron wires native desktop capabilities through preload", () => {
   assert.match(
     desktopPreloadSource,
     /ipcRenderer\.on\(TABS_TERMINAL_EVENT_CHANNEL,\s*wrapped\)/u,
+  );
+  assert.match(
+    desktopMainSource,
+    /fileSystemRoot:\s*parse\(app\.getPath\("home"\)\)\.root/u,
   );
   assert.match(overlayBridgeSource, /hasMacOSDesktopSurface/);
 });

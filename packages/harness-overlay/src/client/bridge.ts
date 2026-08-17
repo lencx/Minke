@@ -12,6 +12,22 @@ import {
   parseSessionLogExportId,
 } from "@minke/harness-overlay/session-export-contract.ts";
 import {
+  parseFileManagerListRequest,
+  parseFileManagerListResult,
+  parseFileManagerOpenRequest,
+  parseFileManagerPreviewRequest,
+  parseFileManagerPreviewResult,
+  parseFileManagerWriteRequest,
+  parseFileManagerWriteResult,
+  type FileManagerListRequest,
+  type FileManagerListResult,
+  type FileManagerOpenRequest,
+  type FileManagerPreviewRequest,
+  type FileManagerPreviewResult,
+  type FileManagerWriteRequest,
+  type FileManagerWriteResult,
+} from "@minke/harness-overlay/tabs/files-contract.ts";
+import {
   parseTerminalCreateRequest,
   parseTerminalCreateResult,
   parseTerminalEvent,
@@ -83,6 +99,13 @@ interface DesktopTabsBridge {
   openExternal(url: string): void;
 }
 
+interface DesktopFilesBridge {
+  list(request: FileManagerListRequest): Promise<unknown>;
+  open(request: FileManagerOpenRequest): Promise<void>;
+  preview(request: FileManagerPreviewRequest): Promise<unknown>;
+  write(request: FileManagerWriteRequest): Promise<unknown>;
+}
+
 interface DesktopTerminalBridge {
   create(request: TerminalCreateRequest): Promise<unknown>;
   write(request: TerminalWriteRequest): void;
@@ -103,6 +126,7 @@ interface DesktopSurfaceBridge {
 
 interface DesktopBridgeWindow {
   minkeDesktop?: {
+    files?: DesktopFilesBridge;
     locale?: DesktopWindowLocaleBridge;
     sessionLogs?: DesktopSessionLogsBridge;
     tabs?: DesktopTabsBridge;
@@ -202,6 +226,20 @@ export interface DesktopTabsPort {
   openExternal(url: string): void;
 }
 
+export interface DesktopFilesPort {
+  readonly available: boolean;
+  list(
+    request: FileManagerListRequest,
+  ): Promise<FileManagerListResult>;
+  open(request: FileManagerOpenRequest): Promise<void>;
+  preview(
+    request: FileManagerPreviewRequest,
+  ): Promise<FileManagerPreviewResult>;
+  write(
+    request: FileManagerWriteRequest,
+  ): Promise<FileManagerWriteResult>;
+}
+
 export interface DesktopTerminalPort {
   readonly available: boolean;
   create(
@@ -258,6 +296,66 @@ export function desktopTabsPort(
     available: true,
     openExternal(url) {
       bridge.openExternal(url);
+    },
+  };
+}
+
+/** Adapt the isolated preload bridge used by host-backed Files tabs. */
+export function desktopFilesPort(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): DesktopFilesPort {
+  const bridge = source.minkeDesktop?.files;
+  if (bridge === undefined) {
+    return {
+      available: false,
+      async list() {
+        throw new Error(
+          "Minke desktop Files bridge is unavailable",
+        );
+      },
+      async open() {
+        throw new Error(
+          "Minke desktop Files bridge is unavailable",
+        );
+      },
+      async preview() {
+        throw new Error(
+          "Minke desktop Files bridge is unavailable",
+        );
+      },
+      async write() {
+        throw new Error(
+          "Minke desktop Files bridge is unavailable",
+        );
+      },
+    };
+  }
+  return {
+    available: true,
+    async list(request) {
+      return parseFileManagerListResult(
+        await bridge.list(
+          parseFileManagerListRequest(request),
+        ),
+      );
+    },
+    async open(request) {
+      await bridge.open(parseFileManagerOpenRequest(request));
+    },
+    async preview(request) {
+      return parseFileManagerPreviewResult(
+        await bridge.preview(
+          parseFileManagerPreviewRequest(request),
+        ),
+      );
+    },
+    async write(request) {
+      return parseFileManagerWriteResult(
+        await bridge.write(
+          parseFileManagerWriteRequest(request),
+        ),
+      );
     },
   };
 }

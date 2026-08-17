@@ -266,9 +266,23 @@ test("Terminal controller closes a PTY created after its tab was removed", async
   tabs.dispose();
 });
 
-test("empty Tabs offers Terminal, Browser, and Plugins without chrome", () => {
+test("empty Tabs offers Files, Terminal, Browser, and Plugins without chrome", () => {
   const registry = new TabRendererRegistry();
   const created = [];
+  registry.register({
+    kind: "files",
+    createOptions: () => [
+      {
+        id: "files",
+        label: "File manager",
+        order: 0,
+        icon: null,
+        create: () => created.push("files"),
+      },
+    ],
+    renderIcon: () => null,
+    renderView: () => null,
+  });
   registry.register({
     kind: "web",
     createOptions: () => [
@@ -306,7 +320,7 @@ test("empty Tabs offers Terminal, Browser, and Plugins without chrome", () => {
   });
   assert.deepEqual(
     registry.creators().map((option) => option.id),
-    ["terminal", "browser", "plugins"],
+    ["files", "terminal", "browser", "plugins"],
   );
   registry.creators().at(-1).create({});
   assert.deepEqual(created, ["plugins"]);
