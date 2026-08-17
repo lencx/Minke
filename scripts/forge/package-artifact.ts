@@ -135,6 +135,13 @@ function runtimeAdapterName(platform: string, name: string): string {
   return platform === "win32" ? `${name}.cmd` : name;
 }
 
+function hasSourceCondition(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(hasSourceCondition);
+  if (Object.hasOwn(value, "source")) return true;
+  return Object.values(value).some(hasSourceCondition);
+}
+
 export function parsePackageArtifactPolicy(
   value: unknown,
 ): PackageArtifactPolicy {
@@ -183,6 +190,15 @@ export async function verifyPackagedApplication(
     "node_modules",
     ...options.productPackageName.split("/"),
   );
+  const mistralRoot = join(
+    hostRoot,
+    "node_modules",
+    "@earendil-works",
+    "pi-ai",
+    "node_modules",
+    "@mistralai",
+    "mistralai",
+  );
   const required = [
     executablePath(appRoot, options.platform),
     join(appResources, "app.asar"),
@@ -196,6 +212,8 @@ export async function verifyPackagedApplication(
     join(productRoot, "package.json"),
     join(productRoot, "lib", "index.js"),
     join(productRoot, "lib", "client.js"),
+    join(mistralRoot, "package.json"),
+    join(mistralRoot, "esm", "index.js"),
   ];
   if (options.platform === "darwin") {
     required.push(
@@ -254,6 +272,7 @@ export async function verifyPackagedApplication(
       "mistralai",
       "packages",
     ),
+    join(mistralRoot, "src"),
     join(
       hostRoot,
       "node_modules",
@@ -288,6 +307,19 @@ export async function verifyPackagedApplication(
     );
   }
   await Promise.all(forbidden.map(requireMissing));
+
+  const mistralManifest = JSON.parse(
+    await readFile(join(mistralRoot, "package.json"), "utf8"),
+  );
+  if (
+    mistralManifest.name !== "@mistralai/mistralai" ||
+    mistralManifest.main !== "./esm/index.js" ||
+    hasSourceCondition(mistralManifest.exports)
+  ) {
+    throw new Error(
+      "packaged Mistral SDK must resolve only through compiled esm exports",
+    );
+  }
 
   const nodeAdapter = await readFile(
     join(hostRoot, "bin", runtimeAdapterName(options.platform, "node")),

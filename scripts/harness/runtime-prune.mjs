@@ -9,18 +9,21 @@ import {
 } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
-export const RUNTIME_PRUNE_POLICY_VERSION = 6;
+export const RUNTIME_PRUNE_POLICY_VERSION = 7;
 
 const DOCUMENTATION_FILE =
   /^(?:readme|changelog|changes|history)(?:\.(?:md|markdown|txt))?$/iu;
 const DUPLICATE_PNPM_ARTIFACTS_DIRECTORY =
   "node_modules/pnpm/artifacts";
+const MISTRAL_PACKAGE_DIRECTORY =
+  "node_modules/@earendil-works/pi-ai/node_modules/@mistralai/mistralai";
 const PUBLISHED_PACKAGE_BAGGAGE_DIRECTORIES = Object.freeze([
   "node_modules/@mixmark-io/domino/.yarn",
   "node_modules/@mixmark-io/domino/test",
-  "node_modules/@earendil-works/pi-ai/node_modules/@mistralai/mistralai/examples",
-  "node_modules/@earendil-works/pi-ai/node_modules/@mistralai/mistralai/packages",
-  "node_modules/@earendil-works/pi-ai/node_modules/@mistralai/mistralai/tests",
+  `${MISTRAL_PACKAGE_DIRECTORY}/examples`,
+  `${MISTRAL_PACKAGE_DIRECTORY}/packages`,
+  `${MISTRAL_PACKAGE_DIRECTORY}/src`,
+  `${MISTRAL_PACKAGE_DIRECTORY}/tests`,
 ]);
 const NODE_PTY_WINDOWS_ONLY_DIRECTORIES = Object.freeze([
   "node_modules/node-pty/deps/winpty",
@@ -135,6 +138,77 @@ async function sha256(path) {
   return createHash("sha256")
     .update(await readFile(path))
     .digest("hex");
+}
+
+function withoutMistralSourceConditions(value, location = "exports") {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { changes: 0, value };
+  }
+
+  const result = { ...value };
+  let changes = 0;
+  if (Object.hasOwn(result, "source")) {
+    if (
+      typeof result.source !== "string" ||
+      !result.source.startsWith("./src/") ||
+      typeof result.default !== "string" ||
+      !result.default.startsWith("./esm/")
+    ) {
+      throw new Error(
+        `cannot prune Mistral ${location}.source without a compiled esm default`,
+      );
+    }
+    delete result.source;
+    changes += 1;
+  }
+  for (const [key, child] of Object.entries(result)) {
+    const normalized = withoutMistralSourceConditions(
+      child,
+      `${location}.${key}`,
+    );
+    result[key] = normalized.value;
+    changes += normalized.changes;
+  }
+  return { changes, value: result };
+}
+
+async function normalizeMistralManifest(runtimeRoot) {
+  const manifestPath = join(
+    runtimeRoot,
+    ...MISTRAL_PACKAGE_DIRECTORY.split("/"),
+    "package.json",
+  );
+  let source;
+  try {
+    source = await readFile(manifestPath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return { bytes: 0, files: 0 };
+    throw error;
+  }
+  const manifest = JSON.parse(source);
+  if (
+    manifest.name !== "@mistralai/mistralai" ||
+    manifest.main !== "./esm/index.js" ||
+    manifest.exports === null ||
+    typeof manifest.exports !== "object" ||
+    Array.isArray(manifest.exports)
+  ) {
+    throw new Error(
+      "cannot prune Mistral sources without its compiled esm export contract",
+    );
+  }
+  const normalized = withoutMistralSourceConditions(manifest.exports);
+  manifest.exports = normalized.value;
+  const nextSource = `${JSON.stringify(manifest, null, 2)}\n`;
+  if (nextSource === source) return { bytes: 0, files: 0 };
+  await writeFile(manifestPath, nextSource);
+  return {
+    bytes: Math.max(
+      Buffer.byteLength(source) - Buffer.byteLength(nextSource),
+      0,
+    ),
+    files: normalized.changes > 0 ? 1 : 0,
+  };
 }
 
 async function optimizeEsbuildLauncher(runtimeRoot) {
@@ -284,6 +358,7 @@ export async function inspectRuntimeArtifacts(runtimeRoot, target = {}) {
 
 export async function pruneRuntimeArtifacts(runtimeRoot, target = {}) {
   const absoluteRoot = resolve(runtimeRoot);
+  const normalized = await normalizeMistralManifest(absoluteRoot);
   const optimized = await optimizeEsbuildLauncher(absoluteRoot);
   const collected = await collectRuntimeArtifacts(runtimeRoot, target);
   for (const candidate of collected.candidates) {
@@ -307,8 +382,9 @@ export async function pruneRuntimeArtifacts(runtimeRoot, target = {}) {
   return {
     afterBytes: collected.bytes - removed.bytes,
     afterFiles: collected.files - removed.files,
-    beforeBytes: collected.bytes + optimized.bytes,
+    beforeBytes: collected.bytes + optimized.bytes + normalized.bytes,
     beforeFiles: collected.files,
+    normalized,
     optimized,
     removed,
   };

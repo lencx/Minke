@@ -90,6 +90,42 @@ terminal.onExit(({ exitCode }) => {
   }, 25);
 });
 `;
+const mistralProbeSource = String.raw`
+const { createRequire } = require("node:module");
+const { join } = require("node:path");
+const { pathToFileURL } = require("node:url");
+
+const runtimeRoot = process.argv[1];
+const piRequire = createRequire(
+  join(
+    runtimeRoot,
+    "node_modules",
+    "@earendil-works",
+    "pi-ai",
+    "package.json",
+  ),
+);
+const entry = piRequire.resolve("@mistralai/mistralai");
+const expectedSuffix = join(
+  "@mistralai",
+  "mistralai",
+  "esm",
+  "index.js",
+);
+if (!entry.endsWith(expectedSuffix)) {
+  throw new Error("Mistral resolved outside compiled esm: " + entry);
+}
+import(pathToFileURL(entry).href)
+  .then((sdk) => {
+    if (typeof sdk.Mistral !== "function") {
+      throw new Error("Mistral SDK has no Mistral export");
+    }
+  })
+  .catch((error) => {
+    process.stderr.write(String(error.stack || error) + "\n");
+    process.exitCode = 1;
+  });
+`;
 
 function systemPath() {
   if (process.platform === "win32") {
@@ -367,6 +403,14 @@ async function main() {
         env,
       },
     );
+    await runSuccessful(
+      executable("node"),
+      ["--eval", mistralProbeSource, runtimeRoot],
+      {
+        cwd: projectRoot,
+        env,
+      },
+    );
     const esbuildRoot = join(runtimeRoot, "node_modules", "esbuild");
     const esbuildManifest = JSON.parse(
       await readFile(join(esbuildRoot, "package.json"), "utf8"),
@@ -461,6 +505,7 @@ async function main() {
         `  Electron Node: ${nodeVersion.stdout.trim()}`,
         `  bundled pnpm:  ${pnpmVersion.stdout.trim()}`,
         "  bundled node-pty: functional",
+        "  bundled Mistral SDK: esm",
         `  bundled esbuild: ${esbuildVersion.stdout.trim()}`,
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,

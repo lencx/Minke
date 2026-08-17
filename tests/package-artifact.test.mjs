@@ -35,6 +35,15 @@ async function withPackagedApp(callback) {
     "node_modules",
     ...productPackageName.split("/"),
   );
+  const mistralRoot = join(
+    hostRoot,
+    "node_modules",
+    "@earendil-works",
+    "pi-ai",
+    "node_modules",
+    "@mistralai",
+    "mistralai",
+  );
   try {
     await Promise.all([
       write(join(appRoot, "Contents", "MacOS", "Minke")),
@@ -64,6 +73,19 @@ async function withPackagedApp(callback) {
       write(join(productRoot, "lib", "index.js")),
       write(join(productRoot, "lib", "client.js")),
       write(
+        join(mistralRoot, "package.json"),
+        `${JSON.stringify({
+          name: "@mistralai/mistralai",
+          main: "./esm/index.js",
+          exports: {
+            ".": {
+              default: "./esm/index.js",
+            },
+          },
+        })}\n`,
+      ),
+      write(join(mistralRoot, "esm", "index.js")),
+      write(
         join(
           hostRoot,
           "node_modules",
@@ -84,7 +106,12 @@ async function withPackagedApp(callback) {
         ),
       ),
     ]);
-    await callback({ appRoot, hostRoot, outputRoot: temporaryRoot });
+    await callback({
+      appRoot,
+      hostRoot,
+      mistralRoot,
+      outputRoot: temporaryRoot,
+    });
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
@@ -138,6 +165,29 @@ test("the final package gate rejects a missing native runtime asset", async () =
     await assert.rejects(
       verifyPackagedApplication(appRoot, verificationOptions),
       /missing required file.*pty\.node/u,
+    );
+  });
+});
+
+test("the final package gate rejects dangling Mistral source exports", async () => {
+  await withPackagedApp(async ({ appRoot, mistralRoot }) => {
+    await write(
+      join(mistralRoot, "package.json"),
+      `${JSON.stringify({
+        name: "@mistralai/mistralai",
+        main: "./esm/index.js",
+        exports: {
+          ".": {
+            source: "./src/index.ts",
+            default: "./esm/index.js",
+          },
+        },
+      })}\n`,
+    );
+
+    await assert.rejects(
+      verifyPackagedApplication(appRoot, verificationOptions),
+      /resolve only through compiled esm exports/u,
     );
   });
 });

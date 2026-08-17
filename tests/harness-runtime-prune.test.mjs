@@ -128,6 +128,7 @@ test("runtime pruning removes published package baggage without removing runtime
       join(dominoRoot, "test", "domino.test.js"),
       join(mistralRoot, "examples", "chat.js"),
       join(mistralRoot, "packages", "mistralai-azure", "src", "index.ts"),
+      join(mistralRoot, "src", "index.ts"),
       join(mistralRoot, "tests", "sdk.test.ts"),
     ];
     for (const path of baggageFiles) {
@@ -138,7 +139,24 @@ test("runtime pruning removes published package baggage without removing runtime
     const runtimeFiles = [
       [join(dominoRoot, "lib", "index.js"), "module.exports = {};\n"],
       [join(mistralRoot, "esm", "index.js"), "export class Mistral {}\n"],
-      [join(mistralRoot, "src", "index.ts"), "export class Mistral {}\n"],
+      [
+        join(mistralRoot, "package.json"),
+        `${JSON.stringify(
+          {
+            name: "@mistralai/mistralai",
+            main: "./esm/index.js",
+            exports: {
+              ".": {
+                source: "./src/index.ts",
+                types: "./esm/index.d.ts",
+                default: "./esm/index.js",
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      ],
     ];
     for (const [path, source] of runtimeFiles) {
       await mkdir(dirname(path), { recursive: true });
@@ -158,6 +176,7 @@ test("runtime pruning removes published package baggage without removing runtime
       report.removed.categories.publishedPackageBaggage.files,
       baggageFiles.length,
     );
+    assert.equal(report.normalized.files, 1);
     for (const path of baggageFiles) {
       await assert.rejects(access(path), { code: "ENOENT" });
     }
@@ -173,9 +192,53 @@ test("runtime pruning removes published package baggage without removing runtime
       code: "ENOENT",
     });
     for (const [path, source] of runtimeFiles) {
+      if (path.endsWith("package.json")) continue;
       assert.equal(await readFile(path, "utf8"), source);
     }
+    const manifest = JSON.parse(
+      await readFile(join(mistralRoot, "package.json"), "utf8"),
+    );
+    assert.equal(manifest.exports["."].source, undefined);
+    assert.equal(manifest.exports["."].default, "./esm/index.js");
     assert.equal((await inspectRuntimeArtifacts(root)).prunable.files, 0);
+  });
+});
+
+test("runtime pruning refuses Mistral sources without a compiled export", async () => {
+  await withTemporaryRuntime(async (root) => {
+    const mistralRoot = join(
+      root,
+      "node_modules",
+      "@earendil-works",
+      "pi-ai",
+      "node_modules",
+      "@mistralai",
+      "mistralai",
+    );
+    const sourcePath = join(mistralRoot, "src", "index.ts");
+    await mkdir(dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, "export class Mistral {}\n");
+    await writeFile(
+      join(mistralRoot, "package.json"),
+      JSON.stringify({
+        name: "@mistralai/mistralai",
+        main: "./esm/index.js",
+        exports: {
+          ".": {
+            source: "./src/index.ts",
+          },
+        },
+      }),
+    );
+
+    await assert.rejects(
+      pruneRuntimeArtifacts(root),
+      /without a compiled esm default/u,
+    );
+    assert.equal(
+      await readFile(sourcePath, "utf8"),
+      "export class Mistral {}\n",
+    );
   });
 });
 
