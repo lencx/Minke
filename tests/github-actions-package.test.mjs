@@ -84,6 +84,12 @@ test("GitHub Actions packages each supported desktop platform", async () => {
     /process\.arch !== process\.env\.EXPECTED_ARCH/u,
   );
   assert.match(source, /pnpm install --frozen-lockfile/u);
+  const harnessInstallIndex = source.indexOf(
+    "run: pnpm --dir vendor/deepseek-harness install --recursive --frozen-lockfile --config.node-linker=isolated",
+  );
+  const typecheckIndex = source.indexOf("run: pnpm typecheck");
+  assert.notEqual(harnessInstallIndex, -1);
+  assert.ok(harnessInstallIndex < typecheckIndex);
 
   assert.match(source, /runner\.os == 'Linux'/u);
   assert.match(source, /sudo apt-get install --yes fakeroot rpm/u);
