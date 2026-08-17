@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -51,4 +58,33 @@ test("runtime size budgets reject regressions at the byte boundary", () => {
     () => assertRuntimeSizeBudget(101, 100),
     /above the 0\.0 MiB budget/u,
   );
+});
+
+test("runtime pruning removes pnpm's duplicate executable artifact", async () => {
+  await withTemporaryRuntime(async (root) => {
+    const bundledPnpm = join(root, "node_modules", "pnpm");
+    const runtimeBundle = join(bundledPnpm, "dist", "pnpm.mjs");
+    const duplicateBundle = join(
+      bundledPnpm,
+      "artifacts",
+      "exe",
+      "dist",
+      "pnpm.mjs",
+    );
+    await mkdir(join(bundledPnpm, "dist"), { recursive: true });
+    await mkdir(join(bundledPnpm, "artifacts", "exe", "dist"), {
+      recursive: true,
+    });
+    await writeFile(runtimeBundle, "runtime bundle");
+    await writeFile(duplicateBundle, "duplicate executable bundle");
+
+    const before = await inspectRuntimeArtifacts(root);
+    assert.equal(before.prunable.categories.duplicateTooling.files, 1);
+
+    const report = await pruneRuntimeArtifacts(root);
+
+    assert.equal(report.removed.categories.duplicateTooling.files, 1);
+    assert.equal(await readFile(runtimeBundle, "utf8"), "runtime bundle");
+    await assert.rejects(access(duplicateBundle), { code: "ENOENT" });
+  });
 });

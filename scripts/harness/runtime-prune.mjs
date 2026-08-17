@@ -1,12 +1,18 @@
 import { lstat, readdir, rm } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
-export const RUNTIME_PRUNE_POLICY_VERSION = 1;
+export const RUNTIME_PRUNE_POLICY_VERSION = 2;
 
 const DOCUMENTATION_FILE =
   /^(?:readme|changelog|changes|history)(?:\.(?:md|markdown|txt))?$/iu;
+const DUPLICATE_PNPM_EXECUTABLE =
+  /(?:^|\/)node_modules\/pnpm\/artifacts(?:\/|$)/u;
 
 export function runtimeArtifactCategory(path) {
+  const normalizedPath = path.replaceAll("\\", "/");
+  if (DUPLICATE_PNPM_EXECUTABLE.test(normalizedPath)) {
+    return "duplicateTooling";
+  }
   const name = basename(path);
   if (/\.map$/iu.test(name)) return "sourceMaps";
   if (/\.d\.(?:ts|mts|cts)$/iu.test(name)) return "typeDeclarations";
@@ -47,7 +53,7 @@ async function collectRuntimeArtifacts(runtimeRoot) {
       const info = await lstat(path);
       files += 1;
       bytes += info.size;
-      const category = runtimeArtifactCategory(entry.name);
+      const category = runtimeArtifactCategory(relative(absoluteRoot, path));
       if (category !== undefined) {
         candidates.push({
           bytes: info.size,
