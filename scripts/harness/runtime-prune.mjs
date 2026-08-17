@@ -1,12 +1,22 @@
-import { lstat, readdir, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  chmod,
+  lstat,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
-export const RUNTIME_PRUNE_POLICY_VERSION = 2;
+export const RUNTIME_PRUNE_POLICY_VERSION = 3;
 
 const DOCUMENTATION_FILE =
   /^(?:readme|changelog|changes|history)(?:\.(?:md|markdown|txt))?$/iu;
 const DUPLICATE_PNPM_EXECUTABLE =
   /(?:^|\/)node_modules\/pnpm\/artifacts(?:\/|$)/u;
+const ESBUILD_LAUNCHER_PATH = "node_modules/esbuild/bin/esbuild";
+const ESBUILD_NATIVE_BINARY_MIN_BYTES = 64 * 1024;
 
 export function runtimeArtifactCategory(path) {
   const normalizedPath = path.replaceAll("\\", "/");
@@ -23,6 +33,96 @@ export function runtimeArtifactCategory(path) {
 
 export function isPrunableRuntimePath(path) {
   return runtimeArtifactCategory(path) !== undefined;
+}
+
+function normalizedRuntimePath(path) {
+  return path.replaceAll("\\", "/");
+}
+
+function isUnoptimizedEsbuildLauncher(path, bytes) {
+  return (
+    normalizedRuntimePath(path) === ESBUILD_LAUNCHER_PATH &&
+    bytes > ESBUILD_NATIVE_BINARY_MIN_BYTES
+  );
+}
+
+async function sha256(path) {
+  return createHash("sha256").update(await readFile(path)).digest("hex");
+}
+
+async function optimizeEsbuildLauncher(runtimeRoot) {
+  const nodeModulesRoot = join(runtimeRoot, "node_modules");
+  const esbuildRoot = join(nodeModulesRoot, "esbuild");
+  const launcherPath = join(esbuildRoot, "bin", "esbuild");
+  let launcherInfo;
+  try {
+    launcherInfo = await lstat(launcherPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return { bytes: 0, files: 0 };
+    throw error;
+  }
+  if (
+    !launcherInfo.isFile() ||
+    launcherInfo.size <= ESBUILD_NATIVE_BINARY_MIN_BYTES
+  ) {
+    return { bytes: 0, files: 0 };
+  }
+
+  const manifest = JSON.parse(
+    await readFile(join(esbuildRoot, "package.json"), "utf8"),
+  );
+  const binaryHashes = manifest["esbuild.binaryHashes"];
+  if (
+    binaryHashes === null ||
+    typeof binaryHashes !== "object" ||
+    Array.isArray(binaryHashes)
+  ) {
+    throw new Error("cannot deduplicate esbuild without its binary hash map");
+  }
+
+  const launcherHash = await sha256(launcherPath);
+  const matches = [];
+  for (const [subpath, expectedHash] of Object.entries(binaryHashes)) {
+    if (
+      typeof expectedHash !== "string" ||
+      !/^@esbuild\/[a-z0-9-]+\/(?:bin\/esbuild|esbuild\.exe)$/u.test(subpath)
+    ) {
+      continue;
+    }
+    const binaryPath = join(nodeModulesRoot, ...subpath.split("/"));
+    try {
+      const binaryInfo = await lstat(binaryPath);
+      if (
+        binaryInfo.isFile() &&
+        expectedHash === launcherHash &&
+        (await sha256(binaryPath)) === launcherHash
+      ) {
+        matches.push(subpath);
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  if (matches.length !== 1) {
+    throw new Error(
+      `cannot identify esbuild's canonical platform binary (found ${String(matches.length)})`,
+    );
+  }
+
+  const launcherSource = `#!/usr/bin/env node
+"use strict";
+require("node:child_process").execFileSync(
+  require.resolve(${JSON.stringify(matches[0])}),
+  process.argv.slice(2),
+  { stdio: "inherit" },
+);
+`;
+  await writeFile(launcherPath, launcherSource);
+  await chmod(launcherPath, 0o755);
+  return {
+    bytes: launcherInfo.size - Buffer.byteLength(launcherSource),
+    files: 1,
+  };
 }
 
 async function collectRuntimeArtifacts(runtimeRoot) {
@@ -53,13 +153,18 @@ async function collectRuntimeArtifacts(runtimeRoot) {
       const info = await lstat(path);
       files += 1;
       bytes += info.size;
-      const category = runtimeArtifactCategory(relative(absoluteRoot, path));
+      const relativePath = relative(absoluteRoot, path);
+      const category =
+        runtimeArtifactCategory(relativePath) ??
+        (isUnoptimizedEsbuildLauncher(relativePath, info.size)
+          ? "duplicateTooling"
+          : undefined);
       if (category !== undefined) {
         candidates.push({
           bytes: info.size,
           category,
           path,
-          relativePath: relative(absoluteRoot, path),
+          relativePath,
         });
       }
     }
@@ -91,6 +196,7 @@ export async function inspectRuntimeArtifacts(runtimeRoot) {
 }
 
 export async function pruneRuntimeArtifacts(runtimeRoot) {
+  const optimized = await optimizeEsbuildLauncher(resolve(runtimeRoot));
   const collected = await collectRuntimeArtifacts(runtimeRoot);
   for (const candidate of collected.candidates) {
     await rm(candidate.path, { force: true });
@@ -99,8 +205,9 @@ export async function pruneRuntimeArtifacts(runtimeRoot) {
   return {
     afterBytes: collected.bytes - removed.bytes,
     afterFiles: collected.files - removed.files,
-    beforeBytes: collected.bytes,
+    beforeBytes: collected.bytes + optimized.bytes,
     beforeFiles: collected.files,
+    optimized,
     removed,
   };
 }

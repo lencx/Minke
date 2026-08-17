@@ -900,7 +900,7 @@ async function main() {
       runtimeSize: runtimeSizeContract(contract),
     };
     console.log(
-      `Pruned ${String(pruneReport.removed.files)} build-only files (${(pruneReport.removed.bytes / 1024 / 1024).toFixed(1)} MiB); runtime payload is ${(runtimeInspection.bytes / 1024 / 1024).toFixed(1)} MiB`,
+      `Pruned ${String(pruneReport.removed.files)} build-only files (${(pruneReport.removed.bytes / 1024 / 1024).toFixed(1)} MiB) and deduplicated ${(pruneReport.optimized.bytes / 1024 / 1024).toFixed(1)} MiB of tooling; runtime payload is ${(runtimeInspection.bytes / 1024 / 1024).toFixed(1)} MiB`,
     );
     await writeRuntimeAdapters(
       candidateRuntimeRoot,

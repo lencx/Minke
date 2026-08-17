@@ -310,6 +310,20 @@ async function main() {
         `bundled pnpm is ${JSON.stringify(pnpmVersion.stdout.trim())}, expected ${verified.contract.pnpmVersion}`,
       );
     }
+    const esbuildRoot = join(runtimeRoot, "node_modules", "esbuild");
+    const esbuildManifest = JSON.parse(
+      await readFile(join(esbuildRoot, "package.json"), "utf8"),
+    );
+    const esbuildVersion = await runSuccessful(
+      electronExecutable,
+      [join(esbuildRoot, "bin", "esbuild"), "--version"],
+      { cwd: projectRoot, env },
+    );
+    if (esbuildVersion.stdout.trim() !== esbuildManifest.version) {
+      throw new Error(
+        `bundled esbuild is ${JSON.stringify(esbuildVersion.stdout.trim())}, expected ${JSON.stringify(esbuildManifest.version)}`,
+      );
+    }
 
     await runSuccessful(
       electronExecutable,
@@ -389,6 +403,7 @@ async function main() {
         "Harness runtime smoke passed:",
         `  Electron Node: ${nodeVersion.stdout.trim()}`,
         `  bundled pnpm:  ${pnpmVersion.stdout.trim()}`,
+        `  bundled esbuild: ${esbuildVersion.stdout.trim()}`,
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,
         `  external plugin install/load/HMR: ${server.baseUrl}`,
