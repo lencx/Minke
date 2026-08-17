@@ -10,8 +10,9 @@ import {
   ExternalLink,
   FileText,
   FileQuestion,
-  FolderTree,
   FolderOpen,
+  FolderSymlink,
+  FolderTree,
   Image,
   Link,
   List,
@@ -104,6 +105,10 @@ export function UpIcon(props: IconProps): ReactNode {
 
 export function OpenSystemIcon(props: IconProps): ReactNode {
   return <LucideIcon icon={ExternalLink} size={props.size} />;
+}
+
+export function OpenFolderIcon(props: IconProps): ReactNode {
+  return <LucideIcon icon={FolderSymlink} size={props.size} />;
 }
 
 export function EnterDirectoryIcon(

@@ -16,7 +16,7 @@ import {
   FilesIcon,
   ForwardIcon,
   ListModeIcon,
-  OpenSystemIcon,
+  OpenFolderIcon,
   TreeModeIcon,
   UpIcon,
 } from "./icons.tsx";
@@ -131,7 +131,7 @@ export function createFilesTabRenderer(
             }
           }}
         >
-          <OpenSystemIcon />
+          <OpenFolderIcon />
         </ToolbarButton>
       </>
     ),
