@@ -36,14 +36,17 @@ Minke brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 ## Installation
 
-Download Minke only from the official [GitHub Releases](https://github.com/lencx/Minke/releases) page.
+Download Minke only from the official [GitHub Releases](https://github.com/lencx/Minke/releases) page. The links below always point to the latest stable release.
 
 | Platform | Architecture | Package |
 | --- | --- | --- |
-| macOS | Apple Silicon (`arm64`) | `.dmg` |
-| macOS | Intel (`x64`) | `.dmg` |
-| Windows | `x64` | `.exe` |
-| Linux | `x64` | `.deb` or `.rpm` |
+| macOS | Apple Silicon (`arm64`) | [Download `.dmg`](https://github.com/lencx/Minke/releases/latest/download/Minke-macos-arm64.dmg) |
+| macOS | Intel (`x64`) | [Download `.dmg`](https://github.com/lencx/Minke/releases/latest/download/Minke-macos-x64.dmg) |
+| Windows | `x64` | [Download `.exe`](https://github.com/lencx/Minke/releases/latest/download/Minke-windows-x64.exe) |
+| Linux | Debian / Ubuntu (`x64`) | [Download `.deb`](https://github.com/lencx/Minke/releases/latest/download/Minke-linux-x64.deb) |
+| Linux | Fedora / RHEL (`x64`) | [Download `.rpm`](https://github.com/lencx/Minke/releases/latest/download/Minke-linux-x64.rpm) |
+
+Release checksums are available in [`SHA256SUMS`](https://github.com/lencx/Minke/releases/latest/download/SHA256SUMS).
 
 ### macOS
 

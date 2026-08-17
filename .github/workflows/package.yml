@@ -96,3 +96,89 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download distributables
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: minke-*
+          path: release-artifacts
+          merge-multiple: false
+
+      - name: Stage stable installer names
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+
+          stage_asset() {
+            local destination="$1"
+            local artifact="$2"
+            local pattern="$3"
+            local matches=()
+            mapfile -d '' matches < <(
+              find "release-artifacts/$artifact" \
+                -type f \
+                -name "$pattern" \
+                -print0
+            )
+            if (( ${#matches[@]} != 1 )); then
+              echo "Expected one $artifact/$pattern asset, found ${#matches[@]}" >&2
+              exit 1
+            fi
+            cp -- "${matches[0]}" "release-assets/$destination"
+          }
+
+          stage_asset Minke-macos-arm64.dmg \
+            minke-darwin-arm64 \
+            'Minke-*.dmg'
+          stage_asset Minke-macos-x64.dmg \
+            minke-darwin-x64 \
+            'Minke-*.dmg'
+          stage_asset Minke-windows-x64.exe \
+            minke-win32-x64 \
+            'Minke-* Setup.exe'
+          stage_asset Minke-linux-x64.deb \
+            minke-linux-x64 \
+            'minke_*_amd64.deb'
+          stage_asset Minke-linux-x64.rpm \
+            minke-linux-x64 \
+            'minke-*.x86_64.rpm'
+
+          (
+            cd release-assets
+            sha256sum Minke-* > SHA256SUMS
+          )
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' assets < <(
+            find release-assets -type f -print0 | sort -z
+          )
+          if (( ${#assets[@]} == 0 )); then
+            echo "No release assets found" >&2
+            exit 1
+          fi
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag \
+              --generate-notes \
+              --title "Minke $GITHUB_REF_NAME"
+          fi

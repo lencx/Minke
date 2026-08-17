@@ -6,6 +6,7 @@ const workflowUrl = new URL(
   "../.github/workflows/package.yml",
   import.meta.url,
 );
+const readmeUrl = new URL("../README.md", import.meta.url);
 const packageManifestUrl = new URL("../package.json", import.meta.url);
 const harnessManifestUrl = new URL(
   "../vendor/deepseek-harness/package.json",
@@ -15,6 +16,13 @@ const harnessRuntimeContractUrl = new URL(
   "../config/harness-runtime.json",
   import.meta.url,
 );
+const releaseAssetNames = [
+  "Minke-macos-arm64.dmg",
+  "Minke-macos-x64.dmg",
+  "Minke-windows-x64.exe",
+  "Minke-linux-x64.deb",
+  "Minke-linux-x64.rpm",
+];
 
 function assertMatrixEntry(source, runner, platform, arch) {
   assert.match(
@@ -109,6 +117,51 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   assert.match(source, /if-no-files-found:\s*error/u);
   assert.match(source, /compression-level:\s*0/u);
   assert.doesNotMatch(source, /continue-on-error:/u);
+
+  const releaseJobIndex = source.indexOf("\n  release:\n");
+  assert.notEqual(releaseJobIndex, -1);
+  const releaseJob = source.slice(releaseJobIndex);
+  assert.match(releaseJob, /needs:\s*package/u);
+  assert.match(
+    releaseJob,
+    /if:\s*startsWith\(github\.ref,\s*'refs\/tags\/v'\)/u,
+  );
+  assert.match(
+    releaseJob,
+    /permissions:\s*\n\s*contents:\s*write/u,
+  );
+  assert.match(
+    releaseJob,
+    /uses:\s*actions\/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c\s+# v8\.0\.1/u,
+  );
+  assert.match(releaseJob, /pattern:\s*minke-\*/u);
+  assert.match(releaseJob, /merge-multiple:\s*false/u);
+  for (const assetName of releaseAssetNames) {
+    assert.ok(releaseJob.includes(`stage_asset ${assetName}`));
+  }
+  assert.match(releaseJob, /sha256sum Minke-\* > SHA256SUMS/u);
+  assert.match(releaseJob, /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/u);
+  assert.match(
+    releaseJob,
+    /GH_REPO:\s*\$\{\{\s*github\.repository\s*\}\}/u,
+  );
+  assert.match(releaseJob, /gh release create "\$GITHUB_REF_NAME"/u);
+  assert.match(releaseJob, /--verify-tag/u);
+  assert.match(releaseJob, /--generate-notes/u);
+  assert.match(releaseJob, /gh release upload "\$GITHUB_REF_NAME"/u);
+  assert.match(releaseJob, /--clobber/u);
+});
+
+test("README links directly to every latest installer", async () => {
+  const readme = await readFile(readmeUrl, "utf8");
+
+  for (const assetName of releaseAssetNames) {
+    assert.ok(
+      readme.includes(
+        `https://github.com/lencx/Minke/releases/latest/download/${assetName}`,
+      ),
+    );
+  }
 });
 
 test("native makers receive required distribution metadata", async () => {
