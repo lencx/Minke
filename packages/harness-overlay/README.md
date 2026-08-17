@@ -13,8 +13,14 @@ The host composition also exposes two optional capabilities:
 - `model-runtime` is a DSH plugin that owns local model discovery and optional
   service lifecycle for exactly two product runtimes: LM Studio and Ollama.
   LM Studio uses `lms server status --json` / `lms server start` and enriches
-  its OpenAI-compatible catalog with LM Studio metadata. Ollama uses its
-  OpenAI-compatible `/v1/models` endpoint and starts through `ollama serve`.
+  its OpenAI-compatible catalog with LM Studio's v1 loaded-instance metadata.
+  Before dispatch, it verifies that the selected instance has the configured
+  context window. An externally started service is never reconfigured: Minke
+  reports the current and required context lengths and asks the user to reload
+  the model in LM Studio. If Minke started the service itself, it may load or
+  reload the default model instance with the configured context while
+  preserving its supported load parameters. Ollama uses its OpenAI-compatible
+  `/v1/models` endpoint and starts through `ollama serve`.
   A generic `openAICompatible` adapter remains available for manually
   configured loopback servers; it does not gain command discovery or process
   management.

@@ -1,6 +1,10 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
+import type {
+  GenerateOptions,
+  StreamChunk,
+} from "@deepseek-ai/dsh-llm";
 import * as LlmPiAi from "@deepseek-ai/dsh-llm-pi-ai";
 import type {} from "@deepseek-ai/dsh-subprocess";
 import type {
@@ -13,6 +17,7 @@ import {
   prepareModelRuntime,
   type CommandResult,
   type LmStudioRuntimeConfig,
+  ModelRuntimeRequestError,
   type ModelRuntimeConfig,
   type ModelRuntimeHost,
   type OpenAICompatibleRuntimeConfig,
@@ -245,6 +250,46 @@ function createHost(
   };
 }
 
+function preparedStream(
+  prepared: Awaited<ReturnType<typeof prepareModelRuntime>>,
+  options: GenerateOptions,
+  next: () => AsyncIterable<StreamChunk>,
+): AsyncIterable<StreamChunk> {
+  return (async function* (): AsyncIterable<StreamChunk> {
+    try {
+      await prepared.prepareRequest({
+        provider: options.provider,
+        model: options.model,
+        ...(options.signal === undefined
+          ? {}
+          : { signal: options.signal }),
+      });
+    } catch (error) {
+      const aborted = options.signal?.aborted === true;
+      const failure = {
+        message: aborted
+          ? "Local model request preparation was aborted"
+          : error instanceof Error
+            ? error.message
+            : String(error),
+        code: aborted
+          ? "ABORTED"
+          : error instanceof ModelRuntimeRequestError
+            ? error.code
+            : "LOCAL_MODEL_PREPARATION_FAILED",
+      };
+      yield {
+        type: "finish",
+        reason: aborted
+          ? { kind: "aborted", failure }
+          : { kind: "error", failure },
+      };
+      return;
+    }
+    yield* next();
+  })();
+}
+
 /**
  * Prepare local model services, mount the upstream configurable LLM adapter,
  * and bind only plugin-owned processes to this DSH fiber's lifetime.
@@ -254,6 +299,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.effect(
     () => async () => await prepared.dispose(),
     "model-runtime service cleanup",
+  );
+  ctx.on("llm/stream", (options, next) =>
+    preparedStream(prepared, options, next)
   );
   await ctx.plugin(LlmPiAi, { providers: prepared.providers });
 }
