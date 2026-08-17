@@ -64,6 +64,7 @@
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "6.0.5",
     "electron": "43.4.0",
+    "electron-winstaller": "5.4.4",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "8.2.1"

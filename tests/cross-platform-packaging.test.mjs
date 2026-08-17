@@ -155,6 +155,18 @@ test("Forge package and make reserve enough standard Node heap", async () => {
   }
 });
 
+test("Squirrel maker has a required Windows installer graph", async () => {
+  const manifest = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(
+    manifest.devDependencies["electron-winstaller"],
+    "5.4.4",
+  );
+  assert.doesNotThrow(() => require("electron-winstaller"));
+});
+
 test("Forge Vite packaging bypasses the redundant production-tree prune", async () => {
   const forgeConfig = await readFile(
     new URL("../forge.config.ts", import.meta.url),
