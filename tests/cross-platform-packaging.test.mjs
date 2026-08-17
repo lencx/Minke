@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import {
   isCommandUnavailableResult,
@@ -175,6 +175,26 @@ test("Forge Vite packaging bypasses the redundant production-tree prune", async 
   assert.match(
     forgeConfig,
     /packagerConfig:\s*\{[\s\S]*?\n\s*prune:\s*false,/u,
+  );
+});
+
+test("patched Forge skips bin cleanup when the packaged app has no node_modules", async () => {
+  const forgePackageSource = await readFile(
+    join(dirname(require.resolve("@electron-forge/core")), "package.js"),
+    "utf8",
+  );
+
+  assert.match(
+    forgePackageSource,
+    /const nodeModulesPath = .*?join\(buildPath, 'node_modules'\);/u,
+  );
+  assert.match(
+    forgePackageSource,
+    /pathExists\(nodeModulesPath\)/u,
+  );
+  assert.doesNotMatch(
+    forgePackageSource,
+    /join\(buildPath, '\*\*\/\.bin\/\*\*\/\*'\)/u,
   );
 });
 

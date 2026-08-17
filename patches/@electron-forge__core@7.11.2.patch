@@ -1,0 +1,46 @@
+diff --git a/dist/api/package.js b/dist/api/package.js
+index 8fb0bea8296b4426389441e2ade33d976262f865..5ea425c9fcf88a0a560d3dcf248ded9979a773f7 100644
+--- a/dist/api/package.js
++++ b/dist/api/package.js
+@@ -163,9 +163,15 @@ const listrPackage = (childTrace, { dir: providedDir = process.cwd(), interactiv
+                         done();
+                     }),
+                     hidePromiseFromPromisify(async (buildPath, electronVersion, pPlatform, pArch, done) => {
+-                        const bins = await (0, fast_glob_1.default)(node_path_1.default.join(buildPath, '**/.bin/**/*'));
+-                        for (const bin of bins) {
+-                            await fs_extra_1.default.remove(bin);
++                        const nodeModulesPath = node_path_1.default.join(buildPath, 'node_modules');
++                        if (await fs_extra_1.default.pathExists(nodeModulesPath)) {
++                            const bins = await (0, fast_glob_1.default)('**/.bin/**/*', {
++                                absolute: true,
++                                cwd: nodeModulesPath,
++                            });
++                            for (const bin of bins) {
++                                await fs_extra_1.default.remove(bin);
++                            }
+                         }
+                         done();
+                     }),
+diff --git a/src/api/package.ts b/src/api/package.ts
+index 0dd30927c17c8c1c95557dc8e951016b0004e51f..f69a3a286736478f7be12a45438c086be0329b83 100644
+--- a/src/api/package.ts
++++ b/src/api/package.ts
+@@ -347,9 +347,15 @@ export const listrPackage = (
+               ),
+               hidePromiseFromPromisify(
+                 async (buildPath, electronVersion, pPlatform, pArch, done) => {
+-                  const bins = await glob(path.join(buildPath, '**/.bin/**/*'));
+-                  for (const bin of bins) {
+-                    await fs.remove(bin);
++                  const nodeModulesPath = path.join(buildPath, 'node_modules');
++                  if (await fs.pathExists(nodeModulesPath)) {
++                    const bins = await glob('**/.bin/**/*', {
++                      absolute: true,
++                      cwd: nodeModulesPath,
++                    });
++                    for (const bin of bins) {
++                      await fs.remove(bin);
++                    }
+                   }
+                   done();
+                 },

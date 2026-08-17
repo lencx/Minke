@@ -23,3 +23,6 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - '@codemirror/view@6.43.9'
+
+patchedDependencies:
+  '@electron-forge/core@7.11.2': patches/@electron-forge__core@7.11.2.patch
