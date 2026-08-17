@@ -1,5 +1,127 @@
-# Minke
+<p align="center">
+  <img src="./resources/icons/icon.png" width="112" alt="Minke icon">
+</p>
 
-Minke is a desktop AI agent powered by
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It runs
-Harness locally and provides a native desktop experience through Electron.
+<h1 align="center">Minke</h1>
+
+<p align="center">
+  <strong>A native desktop workspace for DeepSeek Harness</strong>
+</p>
+
+<p align="center">
+  English · <a href="./README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/lencx/Minke/releases"><img src="https://img.shields.io/github/downloads/lencx/Minke/total.svg?style=flat" alt="Minke downloads"></a>
+  <a href="https://discord.gg/XMX5BEX8K"><img src="https://img.shields.io/badge/Minke-discord-blue?style=flat&logo=discord&logoColor=f2f0ea" alt="Minke Discord"></a>
+  <a href="https://x.com/lencx_"><img src="https://img.shields.io/twitter/url?url=https%3A%2F%2Fx.com%2Flencx_" alt="Follow @lencx_ on X"></a>
+  <a href="https://www.buymeacoffee.com/lencx"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" height="20"></a>
+</p>
+
+Minke brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) to the desktop as a focused, local-first workspace for agentic work. Conversations, project files, terminals, web tools, and native desktop actions stay within reach—without fragmenting your workflow across multiple apps.
+
+> [!IMPORTANT]
+> Minke is under active development. Features, packaging, and the local data schema may change as the project evolves. Minke is an independent community project, not an official DeepSeek product.
+
+## Highlights
+
+- **A complete workspace for agentic work** — Minke turns DeepSeek Harness into more than a conversation window. Files, terminals, web tools, and plugin discovery live in independent right and bottom workspaces, keeping the tools for understanding, changing, and validating a project beside the active conversation.
+- **Local-first by design** — DeepSeek Harness runs locally, while Minke keeps its application state and browser session data on your machine. Desktop preferences live under `~/.minke`, giving the app one clear and predictable data boundary.
+- **A native desktop experience** — Native menus, configurable shortcuts, Session log export, synchronized themes, and English and Chinese UI make Minke comfortable for daily use. macOS receives native window polish, Windows and Linux retain platform-appropriate defaults, and automated releases target all three desktop platforms.
+
+## Installation
+
+Download Minke only from the official [GitHub Releases](https://github.com/lencx/Minke/releases) page.
+
+| Platform | Architecture | Package |
+| --- | --- | --- |
+| macOS | Apple Silicon (`arm64`) | `.dmg` |
+| macOS | Intel (`x64`) | `.dmg` |
+| Windows | `x64` | `.exe` |
+| Linux | `x64` | `.deb` or `.rpm` |
+
+### macOS
+
+1. Download the `.dmg` file and open it.
+2. Drag `Minke.app` into the Applications folder.
+3. Current pre-release builds are not notarized. Open Terminal and remove the quarantine attribute from the installed app:
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Minke.app"
+   ```
+
+4. Open Minke from the Applications folder.
+
+> [!CAUTION]
+> Removing the quarantine attribute bypasses a macOS security check. Run this command only for `Minke.app` downloaded from the official Releases page, and never replace the path with a broad directory. You can also try Apple's [Open Anyway](https://support.apple.com/en-us/102445) flow under **System Settings → Privacy & Security**.
+
+### Windows
+
+1. Download the Windows x64 `.exe` installer.
+2. Run the installer and follow the on-screen instructions.
+3. Windows may show a reputation-based warning for a new pre-release build. Continue only after confirming that the installer came from the official Minke Releases page.
+
+### Linux
+
+Download the package for your distribution, then open it with your graphical package manager or install it from a terminal.
+
+Debian / Ubuntu:
+
+```bash
+sudo apt install "/path/to/minke-package.deb"
+```
+
+Fedora / RHEL:
+
+```bash
+sudo dnf install "/path/to/minke-package.rpm"
+```
+
+Replace the example path with the downloaded package path.
+
+## Build from source
+
+Build Minke on the same operating system and CPU architecture as the package you need. The build produces distributables for the current host under `out/make`; this project does not support cross-platform packaging from a single host.
+
+Prerequisites:
+
+- Git with submodule support. The `vendor/deepseek-harness` submodule must be checked out.
+- Node.js 24 or newer.
+- pnpm 11.7.0, with the repository dependencies installed before running the scripts.
+- macOS: an Apple Silicon or Intel Mac with Xcode Command Line Tools. The `.dmg` target can only be built on macOS.
+- Windows: a Windows x64 host. Visual Studio 2022 Build Tools with the **Desktop development with C++** workload may be needed if a native dependency must be compiled locally.
+- Linux: a Linux x64 host with a native build toolchain, `fakeroot`, `dpkg`, and either `rpm` or `rpm-build`.
+
+On a fresh checkout, first install the repository dependencies, then prepare the Harness runtime:
+
+```bash
+pnpm run harness:stage
+```
+
+This command installs and builds the pinned DeepSeek Harness source, then stages the reusable desktop runtime under `runtime/host`. Run it after a fresh checkout, or whenever the pinned Harness source or runtime contract changes.
+
+Start Minke in development mode with:
+
+```bash
+pnpm start
+```
+
+`pnpm start` refreshes the Minke integration in the prepared runtime and launches the development app.
+
+Create the distributable package for the current platform with:
+
+```bash
+pnpm make
+```
+
+`pnpm make` performs a full runtime stage again before writing the platform package to `out/make`.
+
+## 中国用户
+
+如在使用中遇到问题，或希望进一步交流 Minke，可关注公众号「浮之静」，发送 `dsh` 获取进群码。也欢迎大家贡献 PR 或分享给更多朋友，您的每一次 Star 都是对开源项目的巨大支持，感恩。
+
+<p>
+  <img width="172" src="https://user-images.githubusercontent.com/16164244/207228300-ea5c4688-c916-4c55-a8c3-7f862888f351.png" alt="浮之静公众号">
+  <img width="200" src="https://user-images.githubusercontent.com/16164244/207228025-117b5f77-c5d2-48c2-a070-774b7a1596f2.png" alt="Minke 用户交流群">
+</p>

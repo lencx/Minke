@@ -12,6 +12,7 @@ node_modules
 .vite
 out
 runtime/host
+docs/research
 /packages/harness-overlay/lib/
 
 # Local verification artifacts
