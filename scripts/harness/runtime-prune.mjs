@@ -8,6 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
+import { writeFileAtomic } from "./runtime-state.mjs";
 
 export const RUNTIME_PRUNE_POLICY_VERSION = 8;
 
@@ -279,8 +280,9 @@ require("node:child_process").execFileSync(
   { stdio: "inherit" },
 );
 `;
-  await writeFile(launcherPath, launcherSource);
-  await chmod(launcherPath, 0o755);
+  // The esbuild installer may hard-link this launcher to the canonical binary.
+  // Replace the directory entry instead of mutating the shared inode in place.
+  await writeFileAtomic(launcherPath, launcherSource, { mode: 0o755 });
   return {
     bytes: launcherInfo.size - Buffer.byteLength(launcherSource),
     files: 1,
