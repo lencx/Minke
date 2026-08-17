@@ -403,10 +403,11 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
         : [nonEmptyText(this.config.command) as string]),
       ...host.lmStudioCommands,
     ]);
+    const configuredBaseURL = nonEmptyText(this.config.baseURL);
     const explicitBaseURL =
-      this.config.baseURL === undefined
+      configuredBaseURL === undefined
         ? undefined
-        : resolveLocalOpenAIBaseURL(this.config.baseURL);
+        : resolveLocalOpenAIBaseURL(configuredBaseURL);
     const explicitApiKeyEnv = nonEmptyText(this.config.apiKeyEnv);
     const apiKeyEnv = explicitApiKeyEnv ?? "LM_API_TOKEN";
     const token = await host.resolveCredential(apiKeyEnv);

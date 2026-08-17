@@ -138,6 +138,24 @@ test("LM Studio adapter enriches the authoritative OpenAI model catalog", async 
   await prepared.dispose();
 });
 
+test("a blank LM Studio base URL behaves like an omitted optional value", async () => {
+  const { host } = createHost();
+
+  const prepared = await prepareModelRuntime(
+    {
+      lmStudio: {
+        enabled: true,
+        lifecycle: "external",
+        baseURL: "",
+      },
+    },
+    host,
+  );
+
+  assert.deepEqual(prepared.providers, {});
+  await prepared.dispose();
+});
+
 test("ensure-running starts an unavailable LM Studio service and leaves it shared", async () => {
   let running = false;
   const { host, commands } = createHost({
