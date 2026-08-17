@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   access,
   chmod,
+  link,
   mkdir,
   mkdtemp,
   readFile,
@@ -382,6 +383,9 @@ test("runtime pruning replaces esbuild's duplicate binary with a launcher", asyn
     await chmod(launcher, 0o755);
     await chmod(binary, 0o755);
 
+    await rm(launcher);
+    await link(binary, launcher);
+
     const before = await inspectRuntimeArtifacts(root);
     assert.equal(before.prunable.categories.duplicateTooling.files, 1);
 
@@ -390,6 +394,7 @@ test("runtime pruning replaces esbuild's duplicate binary with a launcher", asyn
     assert.equal(report.optimized.files, 1);
     assert.ok(report.optimized.bytes > 100_000);
     assert.match(await readFile(launcher, "utf8"), /require\.resolve/u);
+    assert.deepEqual(await readFile(binary), binarySource);
     const result = spawnSync(process.execPath, [launcher, "--version"], {
       encoding: "utf8",
     });
