@@ -1,0 +1,69 @@
+[data-minke-tabs-layout-actions] {
+  display: inline-flex;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-minke-session-log-action],
+[data-minke-tabs-header-action] {
+  display: inline-grid !important;
+  width: 32px;
+  min-width: 32px !important;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  gap: 0 !important;
+  box-sizing: border-box;
+  padding: 0 !important;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+[data-minke-session-log-action]:hover:not(:disabled),
+[data-minke-tabs-header-action]:hover:not(:disabled),
+[data-minke-tabs-header-action][aria-expanded="true"] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+[data-minke-session-log-action]:focus-visible,
+[data-minke-tabs-header-action]:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+[data-minke-session-log-action]:disabled {
+  cursor: wait;
+}
+
+[data-minke-new-session-tabs-action] {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  pointer-events: none !important;
+}
+
+[data-shell-overlay]:has(
+    .minke-tabs-panel[data-placement="right"][data-open]
+  )
+  [data-minke-new-session-tabs-action] {
+  right: calc(var(--minke-tabs-panel-width, 360px) + 16px);
+}
+
+[data-minke-new-session-tabs-action]
+  > [data-minke-tabs-layout-actions] {
+  pointer-events: auto;
+}
+
+[data-minke-session-log-action] > svg,
+[data-minke-tabs-header-action] > svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}

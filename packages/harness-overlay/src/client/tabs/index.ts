@@ -1,11 +1,13 @@
 export { TabsPanel } from "./TabsPanel.tsx";
 export { TabsEmptyState } from "./TabsEmptyState.tsx";
 export {
-  installSessionHeaderActionStyles,
   NewSessionTabsHeaderAction,
   SessionLogHeaderAction,
   TabsHeaderAction,
 } from "./HeaderActions.ts";
+export {
+  installSessionHeaderActionStyles,
+} from "./HeaderActions.styles.ts";
 export {
   tabsEn,
   tabsZh,

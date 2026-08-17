@@ -36,6 +36,13 @@ const desktopSurfaceSource = readFileSync(
   ),
   "utf8",
 );
+const desktopSurfaceCss = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/desktop-surface.css",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const overlayBridgeSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/bridge.ts",
@@ -152,7 +159,11 @@ test("Electron wires native desktop capabilities through preload", () => {
   );
   assert.match(
     desktopPreloadSource,
-    /Object\.freeze\(\{\s*files,\s*locale,\s*sessionLogs,\s*tabs,\s*terminal,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
+    /Object\.freeze\(\{\s*files,\s*locale,\s*modelRuntime,\s*sessionLogs,\s*tabs,\s*terminal,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*MODEL_RUNTIME_SETTINGS_READ_CHANNEL/u,
   );
   assert.match(
     desktopPreloadSource,
@@ -240,7 +251,7 @@ test("the product overlay owns post-boot desktop adaptation", () => {
   assert.match(desktopSurfaceSource, /new view\.MutationObserver/);
   assert.match(desktopSurfaceSource, /observer\.disconnect\(\)/);
   assert.match(desktopSurfaceSource, /cancelAnimationFrame/);
-  assert.match(desktopSurfaceSource, /style\.remove\(\)/);
+  assert.match(desktopSurfaceSource, /disposeStyles\(\)/);
   assert.match(
     overlayClientSource,
     /hasMacOSDesktopSurface\(\)[\s\S]*ctx\.effect\([\s\S]*installDesktopSurface\(\)/,
@@ -259,7 +270,7 @@ test("the overlay composes around upstream slots instead of replacing shells", (
 });
 
 test("macOS glass leaves shared Harness component tokens untouched", () => {
-  assert.doesNotMatch(desktopSurfaceSource, /--dsw-[\w-]+\s*:/);
+  assert.doesNotMatch(desktopSurfaceCss, /--dsw-[\w-]+\s*:/);
   assert.doesNotMatch(earlyCss, /--dsw-[\w-]+\s*:/);
 });
 
@@ -272,10 +283,10 @@ test("macOS glass keeps the conversation column on its upstream theme surface", 
     "the main content column and its scrollbar gutter must keep one background",
   );
   assert.match(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-dsh-desktop-titlebar-anchor\]/,
   );
-  assert.doesNotMatch(`${earlyCss}\n${desktopSurfaceSource}`, /rgb\(/);
+  assert.doesNotMatch(`${earlyCss}\n${desktopSurfaceCss}`, /rgb\(/);
 });
 
 test("the smaller traffic lights are centered in the default rail", () => {
@@ -308,10 +319,10 @@ test("the smaller traffic lights are centered in the default rail", () => {
 });
 
 test("the native titlebar hides only the expanded web brand", () => {
-  const titlebarRule = desktopSurfaceSource.match(
+  const titlebarRule = desktopSurfaceCss.match(
     /\[data-dsh-desktop-titlebar-anchor\]\s*\{([\s\S]*?)\}/,
   )?.[1];
-  const collapsedRule = desktopSurfaceSource.match(
+  const collapsedRule = desktopSurfaceCss.match(
     /\[data-sidebar-collapsed\] \[data-dsh-desktop-titlebar-anchor\]\s*\{([\s\S]*?)\}/,
   )?.[1];
   const sidebarWidth = harnessColumnsSource.match(
@@ -352,17 +363,17 @@ test("the native titlebar hides only the expanded web brand", () => {
   );
   assert.match(collapsedRule, /padding-left:\s*0\s*!important/);
   assert.match(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-dsh-desktop-titlebar-anchor\]\s*>\s*button:first-child:not\(:last-child\)\s*\{[^}]*display:\s*none/,
     "the web wordmark must not duplicate the native titlebar",
   );
   assert.doesNotMatch(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-dsh-desktop-titlebar-anchor\]\s*>\s*button:first-child\s*\{/,
     "the collapsed titlebar's only button must remain visible",
   );
   assert.doesNotMatch(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-sidebar-collapsed\]\s+:has\(> \[data-dsh-desktop-titlebar-anchor\]\)/,
   );
   assert.match(
@@ -381,49 +392,52 @@ test("the desktop sidebar toggle keeps one stable glyph across hover", () => {
     /data-dsh-desktop-sidebar-toggle/,
   );
   assert.doesNotMatch(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-dsh-desktop-titlebar-anchor\][\s\S]*button:only-child/,
   );
   assert.match(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-dsh-desktop-sidebar-toggle\]\s*>\s*svg:first-child:not\(:last-child\)[\s\S]*display:\s*none\s*!important/,
   );
   assert.match(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-dsh-desktop-sidebar-toggle\]\s*>\s*svg:last-child[\s\S]*display:\s*inline\s*!important/,
   );
   assert.match(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-sidebar-collapsed\] \[data-dsh-desktop-sidebar-toggle\]\s*\{[^}]*animation:\s*none\s*!important;[^}]*transform:\s*none\s*!important;/,
     "hover-driven rerenders must not restart Harness's rail-in slide",
   );
 });
 
-test("the desktop New Session button uses a restrained translucent fill", () => {
-  const baseFill = desktopSurfaceSource.match(
-    /\[data-dsh-desktop-new-session\]\s*\{[\s\S]*?var\(--dsw-alias-button-elevated-fill\)\s*(\d+)%/,
-  );
-  const hoverFill = desktopSurfaceSource.match(
-    /\[data-dsh-desktop-new-session\]:hover\s*\{[\s\S]*?var\(--dsw-alias-button-floating-hover\)\s*(\d+)%/,
-  );
+test("the desktop New Session button is transparent only before conversation content", () => {
   assert.match(
     desktopSurfaceSource,
-    /data-dsh-desktop-new-session/,
+    /setAttribute\("data-dsh-desktop-frame"/,
   );
-  assert.ok(baseFill, "the desktop New Session fill must remain explicit");
-  assert.ok(hoverFill, "the desktop New Session hover fill must remain explicit");
-  assert.ok(Number(baseFill[1]) < 50);
-  assert.ok(Number(hoverFill[1]) > Number(baseFill[1]));
-  assert.ok(Number(hoverFill[1]) < 80);
   assert.match(
-    desktopSurfaceSource,
-    /\[data-sidebar-collapsed\] \[data-dsh-desktop-new-session\]\s*\{\s*background:\s*transparent\s*!important;/,
+    desktopSurfaceCss,
+    /\[data-dsh-desktop-frame\]:has\(\[data-phase="hero"\]\)[\s\S]*?\[data-dsh-desktop-new-session\],[\s\S]*?\[data-dsh-desktop-frame\]:has\(\[data-phase="settling"\]\)[\s\S]*?\[data-dsh-desktop-new-session\]\s*\{[\s\S]*?background:\s*transparent\s*!important;/,
+  );
+  assert.match(
+    desktopSurfaceCss,
+    /\[data-dsh-desktop-frame\]:has\(\[data-phase="hero"\]\)[\s\S]*?\[data-dsh-desktop-new-session\]:hover,[\s\S]*?\[data-dsh-desktop-frame\]:has\(\[data-phase="settling"\]\)[\s\S]*?\[data-dsh-desktop-new-session\]:hover\s*\{[\s\S]*?background:\s*var\(--dsw-alias-interactive-bg-hover\)\s*!important;/,
+  );
+  assert.match(
+    harnessSidebarCss,
+    /\.newSession\s*\{[\s\S]*?background:\s*var\(--dsw-alias-button-elevated-fill\);/,
+    "active conversations must fall back to the upstream default fill",
+  );
+  assert.doesNotMatch(
+    desktopSurfaceCss,
+    /data-phase="active"[\s\S]*?data-dsh-desktop-new-session/,
+    "the active phase must not override the upstream New Session material",
   );
 });
 
 test("the desktop surface leaves composer action buttons to Harness", () => {
   assert.doesNotMatch(
-    desktopSurfaceSource,
+    `${desktopSurfaceSource}\n${desktopSurfaceCss}`,
     /data-dsh-desktop-composer-(?:add|primary)/,
     "the overlay must not mark or restyle composer action buttons",
   );
@@ -444,8 +458,8 @@ test("the conversation header slot is the full-height drag target without claimi
   const selectableHeaderText = earlyCss.match(
     /\[data-slot="conversation\.session\.header"\] nav,\s*\n\[data-slot="conversation\.session\.header"\] nav \*,\s*\n\[data-slot="conversation\.session\.header"\] span\s*\{([\s\S]*?)\}/,
   )?.[1];
-  const gatedDragRule = desktopSurfaceSource.match(
-    /:root\[\$\{DESKTOP_DRAG_ENABLED_ATTRIBUTE\}\]\s*\n\s*\[data-dsh-desktop-titlebar-anchor\],\s*\n:root\[\$\{DESKTOP_DRAG_ENABLED_ATTRIBUTE\}\]\s*\n\s*\[data-slot="conversation\.session\.header"\]\s*\{([\s\S]*?)\}/,
+  const gatedDragRule = desktopSurfaceCss.match(
+    /:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-dsh-desktop-titlebar-anchor\],\s*\n:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-slot="conversation\.session\.header"\]\s*\{([\s\S]*?)\}/,
   )?.[1];
   assert.ok(conversationRoot, "the conversation root must anchor blank chrome");
   assert.ok(
@@ -495,7 +509,7 @@ test("the conversation header slot is the full-height drag target without claimi
   );
   assert.equal(
     [
-      ...desktopSurfaceSource.matchAll(
+      ...desktopSurfaceCss.matchAll(
         /-webkit-app-region:\s*drag/g,
       ),
     ].length,
@@ -534,7 +548,7 @@ test("interactive layers synchronously revoke the desktop drag gate", () => {
   assert.match(desktopSurfaceSource, /removeAttribute\(\s*DESKTOP_DRAG_ENABLED_ATTRIBUTE/);
   assert.match(
     desktopSurfaceSource,
-    /clearDesktopMarkers\(root\)[\s\S]*style\.remove\(\)/,
+    /clearDesktopMarkers\(root\)[\s\S]*disposeStyles\(\)/,
     "lifecycle cleanup must remove both the gate and its stylesheet",
   );
 });
@@ -542,15 +556,15 @@ test("interactive layers synchronously revoke the desktop drag gate", () => {
 test("the active composer restores its upstream theme surfaces", () => {
   assert.match(earlyCss, /\[data-conversation-composer-overlay\]/);
   assert.match(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-dsh-desktop-base-surface\]/,
   );
   assert.match(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-dsh-desktop-sidebar-fade\]/,
   );
   assert.match(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /\[data-dsh-desktop-hero-glow\]/,
   );
   assert.doesNotMatch(
@@ -558,7 +572,7 @@ test("the active composer restores its upstream theme surfaces", () => {
     /\[data-composer-(?:seat|card)\]/,
     "document-start CSS must not erase the upstream composer materials",
   );
-  const activeCard = desktopSurfaceSource.match(
+  const activeCard = desktopSurfaceCss.match(
     /\[data-phase="active"\] \[data-composer-card\]\s*\{([\s\S]*?)\}/,
   )?.[1];
   assert.ok(activeCard, "the active input card must restore its theme surface");
@@ -568,12 +582,12 @@ test("the active composer restores its upstream theme surfaces", () => {
   );
   assert.doesNotMatch(activeCard, /backdrop-filter|color-mix/);
   assert.doesNotMatch(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /conversation\.composer\.dock/,
     "the stats row must inherit the continuous conversation surface",
   );
   assert.doesNotMatch(
-    desktopSurfaceSource,
+    desktopSurfaceCss,
     /composer-material|height:\s*200%|mask-image/,
     "the composer must not inject or emulate a second material tree",
   );

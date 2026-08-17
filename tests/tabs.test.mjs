@@ -27,10 +27,12 @@ import {
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
   NewSessionTabsHeaderAction,
-  SESSION_HEADER_ACTION_STYLES,
   SessionLogHeaderAction,
   TabsHeaderAction,
 } from "@minke/harness-overlay/client/tabs/HeaderActions.ts";
+import {
+  SESSION_HEADER_ACTION_STYLES,
+} from "@minke/harness-overlay/client/tabs/HeaderActions.styles.ts";
 import {
   tabsEn,
   tabsZh,
@@ -40,7 +42,6 @@ import {
 } from "@minke/harness-overlay/client/tabs/registry.ts";
 import {
   TABS_BOTTOM_PANEL_ID,
-  TABS_CHROME_HEIGHT,
   TABS_PANEL_ID,
 } from "@minke/harness-overlay/client/tabs/constants.ts";
 import {
@@ -1510,6 +1511,7 @@ test("Session Header groups compact Lucide actions for both Tabs placements", ()
   assert.match(exportMarkup, /aria-label="Export Session log"/u);
   assert.match(exportMarkup, /title="Export Session log"/u);
   assert.match(exportMarkup, /aria-busy="false"/u);
+  assert.match(exportMarkup, /<svg[^>]*aria-hidden="true"/u);
   assert.doesNotMatch(exportMarkup, />Session log</u);
 
   const hostEvents = [];
@@ -1562,6 +1564,7 @@ test("Session Header groups compact Lucide actions for both Tabs placements", ()
     new RegExp(`aria-controls="${TABS_PANEL_ID}"`, "u"),
   );
   assert.match(markup, /aria-expanded="false"/u);
+  assert.equal((markup.match(/<svg/gu) ?? []).length, 2);
 
   rightTabs.show();
   assert.equal(rightTabs.getSnapshot().visible, true);
@@ -1574,27 +1577,13 @@ test("Session Header groups compact Lucide actions for both Tabs placements", ()
   assert.deepEqual(Object.keys(tabsEn), Object.keys(tabsZh));
   assert.equal(tabsZh["header.sessionLog"], "导出 Session 日志");
 
-  const decodeIcon = (name) => {
-    const dataUrl = SESSION_HEADER_ACTION_STYLES.match(
-      new RegExp(
-        `--minke-${name}-icon: url\\("(data:image/svg\\+xml;base64,[^"]+)"\\)`,
-        "u",
-      ),
-    )?.[1];
-    assert.ok(dataUrl);
-    return Buffer.from(
-      dataUrl.slice(dataUrl.indexOf(",") + 1),
-      "base64",
-    ).toString("utf8");
-  };
-  assert.match(decodeIcon("file-down"), /class="lucide lucide-file-down"/u);
   assert.match(
-    decodeIcon("panel-right"),
-    /class="lucide lucide-panel-right"/u,
+    SESSION_HEADER_ACTION_STYLES,
+    /\[data-minke-session-log-action\] > svg,[\s\S]*?\[data-minke-tabs-header-action\] > svg/u,
   );
-  assert.match(
-    decodeIcon("panel-bottom"),
-    /class="lucide lucide-panel-bottom"/u,
+  assert.doesNotMatch(
+    SESSION_HEADER_ACTION_STYLES,
+    /data:image|::before/u,
   );
 });
 
@@ -1872,7 +1861,7 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   );
   const webStylesSource = readFileSync(
     new URL(
-      "../packages/harness-overlay/src/client/tabs/web/styles.ts",
+      "../packages/harness-overlay/src/client/tabs/web/styles.css",
       import.meta.url,
     ),
     "utf8",
@@ -1962,7 +1951,6 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
     webStylesSource,
     /\.minke-tabs-location\s*\{[\s\S]*?height:\s*var\(--minke-tabs-control-height\);/u,
   );
-  assert.equal(TABS_CHROME_HEIGHT, 74);
   assert.match(
     TABS_STYLES,
     /max-width:\s*min\(760px,\s*calc\(100% - 320px\)\);/u,
@@ -1987,7 +1975,7 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   assert.equal(clampTabsPanelWidth(700, 900), 580);
   const terminalStylesSource = readFileSync(
     new URL(
-      "../packages/harness-overlay/src/client/tabs/terminal/styles.ts",
+      "../packages/harness-overlay/src/client/tabs/terminal/styles.css",
       import.meta.url,
     ),
     "utf8",

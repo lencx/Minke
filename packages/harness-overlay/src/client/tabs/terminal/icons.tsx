@@ -4,7 +4,7 @@ import type {
 } from "react";
 import {
   LucideIcon,
-} from "@minke/harness-overlay/client/tabs/components/LucideIcon.tsx";
+} from "@minke/harness-overlay/client/tabs/components/LucideIcon.ts";
 
 export function TerminalIcon(props: {
   size?: number;

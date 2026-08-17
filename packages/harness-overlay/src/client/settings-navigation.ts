@@ -1,8 +1,13 @@
+import {
+  bindCssVars,
+} from "@minke/harness-overlay/client/style-runtime.ts";
+
 const SETTINGS_NAV_BUTTON_SELECTOR = '[role="dialog"] nav button';
 const SETTINGS_NAV_LABEL_SELECTOR = ":scope > span:last-child";
 
 export interface SettingsNavigationButton {
   querySelector(selector: string): { textContent: string | null } | null;
+  readonly style?: CSSStyleDeclaration;
   toggleAttribute(name: string, force?: boolean): boolean | void;
 }
 
@@ -20,12 +25,16 @@ export interface SettingsNavigationRoot {
   ): Iterable<SettingsNavigationButton>;
 }
 
-/** Mark one localized settings row without depending on private class names. */
-export function reconcileSettingsNavigationIcon(
+type SettingsNavigationIconVariables = Readonly<
+  Record<`--minke-${string}`, string>
+>;
+
+function reconcileSettingsNavigationButtons(
   root: SettingsNavigationRoot,
   marker: string,
   label: string,
-): void {
+): SettingsNavigationButton[] {
+  const matches: SettingsNavigationButton[] = [];
   for (
     const button of root.querySelectorAll(
       SETTINGS_NAV_BUTTON_SELECTOR,
@@ -35,8 +44,20 @@ export function reconcileSettingsNavigationIcon(
       .querySelector(SETTINGS_NAV_LABEL_SELECTOR)
       ?.textContent
       ?.trim();
-    button.toggleAttribute(marker, rowLabel === label);
+    const matched = rowLabel === label;
+    button.toggleAttribute(marker, matched);
+    if (matched) matches.push(button);
   }
+  return matches;
+}
+
+/** Mark one localized settings row without depending on private class names. */
+export function reconcileSettingsNavigationIcon(
+  root: SettingsNavigationRoot,
+  marker: string,
+  label: string,
+): void {
+  reconcileSettingsNavigationButtons(root, marker, label);
 }
 
 /**
@@ -47,6 +68,7 @@ export function installSettingsNavigationIcon(
   marker: string,
   label: () => string,
   root: SettingsNavigationRoot = document,
+  variables?: SettingsNavigationIconVariables,
 ): () => void {
   const view = root.defaultView;
   const documentElement = root.documentElement;
@@ -56,10 +78,40 @@ export function installSettingsNavigationIcon(
 
   let frame: number | undefined;
   let disposed = false;
+  const variableBindings = new Map<
+    SettingsNavigationButton,
+    () => void
+  >();
   const reconcile = (): void => {
     frame = undefined;
     if (disposed) return;
-    reconcileSettingsNavigationIcon(root, marker, label());
+    const matchingButtons = new Set(
+      reconcileSettingsNavigationButtons(root, marker, label()),
+    );
+
+    for (const [button, dispose] of variableBindings) {
+      if (matchingButtons.has(button)) continue;
+      dispose();
+      variableBindings.delete(button);
+    }
+    if (variables === undefined) return;
+    for (const button of matchingButtons) {
+      if (
+        button.style === undefined ||
+        variableBindings.has(button)
+      ) {
+        continue;
+      }
+      variableBindings.set(
+        button,
+        bindCssVars(
+          button as SettingsNavigationButton & {
+            readonly style: CSSStyleDeclaration;
+          },
+          variables,
+        ),
+      );
+    }
   };
   const scheduleReconcile = (): void => {
     if (disposed || frame !== undefined) return;
@@ -81,6 +133,10 @@ export function installSettingsNavigationIcon(
       view.cancelAnimationFrame(frame);
       frame = undefined;
     }
+    for (const dispose of variableBindings.values()) {
+      dispose();
+    }
+    variableBindings.clear();
     reconcileSettingsNavigationIcon(root, marker, "\u0000");
   };
 }

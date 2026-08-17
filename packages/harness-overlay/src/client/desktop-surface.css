@@ -1,0 +1,92 @@
+#root :has(> [data-dsh-desktop-titlebar-anchor]),
+[data-dsh-desktop-base-surface] {
+  background-color: transparent !important;
+}
+
+[data-dsh-desktop-sidebar-fade],
+[data-dsh-desktop-hero-glow] {
+  display: none !important;
+}
+
+[data-dsh-desktop-titlebar-anchor] {
+  height: 28px !important;
+  margin-top: -4px !important;
+  padding-left: 56px !important;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+[data-slot="conversation.session.header"] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+[data-dsh-desktop-resize-handle] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+:root[data-dsh-desktop-drag-enabled]
+  [data-dsh-desktop-titlebar-anchor],
+:root[data-dsh-desktop-drag-enabled]
+  [data-slot="conversation.session.header"] {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+[data-dsh-desktop-titlebar-anchor]
+  > button:first-child:not(:last-child) {
+  display: none !important;
+}
+
+[data-dsh-desktop-sidebar-toggle]
+  > svg:first-child:not(:last-child) {
+  display: none !important;
+}
+
+[data-dsh-desktop-sidebar-toggle] > svg:last-child {
+  display: inline !important;
+}
+
+[data-sidebar-collapsed] [data-dsh-desktop-sidebar-toggle] {
+  animation: none !important;
+  transform: none !important;
+  transition: none !important;
+}
+
+[data-sidebar-collapsed] [data-dsh-desktop-titlebar-anchor] {
+  height: 36px !important;
+  margin-top: 12px !important;
+  padding-left: 0 !important;
+}
+
+[data-dsh-desktop-frame]:has([data-phase="hero"])
+  [data-dsh-desktop-new-session],
+[data-dsh-desktop-frame]:has([data-phase="settling"])
+  [data-dsh-desktop-new-session] {
+  background: transparent !important;
+}
+
+[data-dsh-desktop-frame]:has([data-phase="hero"])
+  [data-dsh-desktop-new-session]:hover,
+[data-dsh-desktop-frame]:has([data-phase="settling"])
+  [data-dsh-desktop-new-session]:hover {
+  background: var(--dsw-alias-interactive-bg-hover) !important;
+}
+
+[data-sidebar-collapsed] [data-dsh-desktop-new-session] {
+  background: transparent !important;
+}
+
+[data-sidebar-collapsed] [data-dsh-desktop-new-session]:hover {
+  background: var(--dsw-alias-interactive-bg-hover) !important;
+}
+
+[data-phase="hero"] [data-composer-card] {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+[data-phase="active"] [data-composer-card] {
+  background: var(--dsw-specific-input-major) !important;
+}

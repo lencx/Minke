@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Plus, X } from "@lucide/icons";
 import {
   LucideIcon,
-} from "./LucideIcon.tsx";
+} from "./LucideIcon.ts";
 
 export function CloseIcon(props: { size?: number }): ReactNode {
   return (

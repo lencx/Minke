@@ -1,0 +1,185 @@
+.minke-tab__favicon-shell {
+  position: relative;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+}
+
+.minke-tab__favicon-shell::after {
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  box-sizing: border-box;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+.minke-tab__favicon-shell[data-loading]::after {
+  border-color:
+    color-mix(in srgb, currentColor 18%, transparent);
+  border-top-color: currentColor;
+  animation: minke-tab-favicon-spin 820ms linear infinite;
+  opacity: 1;
+}
+
+.minke-tab__favicon,
+.minke-tab__favicon-fallback {
+  grid-area: 1 / 1;
+}
+
+.minke-tab__favicon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  object-fit: contain;
+  animation:
+    minke-tab-favicon-arrive 140ms
+    cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.minke-tab__favicon-fallback {
+  display: grid;
+  width: 12px;
+  height: 12px;
+  place-items: center;
+}
+
+.minke-tab__favicon-preload {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes minke-tab-favicon-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes minke-tab-favicon-arrive {
+  from {
+    opacity: 0.72;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.minke-tabs-location {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: var(--minke-tabs-control-height);
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--minke-tabs-control-radius);
+  box-sizing: border-box;
+  background: var(--dsw-alias-button-floating-fill);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.minke-tabs-location:focus-within {
+  border-color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 0 0 1px
+    color-mix(
+      in srgb,
+      var(--dsw-alias-state-business-primary) 24%,
+      transparent
+    );
+}
+
+.minke-tabs-location[data-invalid] {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.minke-tabs-location__icon {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  place-items: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.minke-tabs-location input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+}
+
+.minke-tabs-location input::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.minke-tabs-blank {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 24px;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-primary);
+  text-align: center;
+}
+
+.minke-tabs-blank__icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 16px;
+  place-items: center;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.minke-tabs-blank h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.minke-tabs-blank p {
+  margin: 7px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.minke-tabs-view__guest {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .minke-tab__favicon-shell[data-loading]::after,
+  .minke-tab__favicon {
+    animation: none;
+  }
+}

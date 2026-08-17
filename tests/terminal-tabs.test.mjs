@@ -339,9 +339,9 @@ test("empty Tabs offers Files, Terminal, Browser, and Plugins without chrome", (
     ),
     "utf8",
   );
-  const stylesSource = readFileSync(
+  const stylesCss = readFileSync(
     new URL(
-      "../packages/harness-overlay/src/client/tabs/styles.ts",
+      "../packages/harness-overlay/src/client/tabs/styles.css",
       import.meta.url,
     ),
     "utf8",
@@ -360,14 +360,14 @@ test("empty Tabs offers Files, Terminal, Browser, and Plugins without chrome", (
   assert.match(emptySource, /minke-tabs-empty__option/u);
   assert.match(emptySource, /option\.create\(context\)/u);
   assert.match(emptySource, /onCreated\?\.\(\)/u);
-  assert.match(stylesSource, /\.minke-tabs-empty\s*\{/u);
-  assert.match(stylesSource, /\.minke-tabs-empty__option\s*\{/u);
+  assert.match(stylesCss, /\.minke-tabs-empty\s*\{/u);
+  assert.match(stylesCss, /\.minke-tabs-empty__option\s*\{/u);
   assert.match(
-    stylesSource,
+    stylesCss,
     /\.minke-tabs-empty__option\s*\{[\s\S]*?border:\s*1px solid transparent;[\s\S]*?background:\s*var\(--dsw-alias-interactive-bg-hover\);/u,
   );
   assert.doesNotMatch(
-    stylesSource,
+    stylesCss,
     /\.minke-tabs-empty__option:hover\s*\{[^}]*transform:/u,
   );
 });

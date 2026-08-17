@@ -1,4 +1,9 @@
+import {
+  installDesktopSurfaceStyles,
+} from "./desktop-surface.styles.ts";
+
 const DESKTOP_MARKERS = [
+  "data-dsh-desktop-frame",
   "data-dsh-desktop-titlebar-anchor",
   "data-dsh-desktop-sidebar-toggle",
   "data-dsh-desktop-new-session",
@@ -35,116 +40,11 @@ type DesktopSurfaceView = Window & {
   readonly MutationObserver: typeof MutationObserver;
 };
 
-export const DESKTOP_SURFACE_STYLES = `
-#root :has(> [data-dsh-desktop-titlebar-anchor]),
-[data-dsh-desktop-base-surface] {
-  background-color: transparent !important;
-}
-
-[data-dsh-desktop-sidebar-fade],
-[data-dsh-desktop-hero-glow] {
-  display: none !important;
-}
-
-[data-dsh-desktop-titlebar-anchor] {
-  height: 28px !important;
-  margin-top: -4px !important;
-  padding-left: 56px !important;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-[data-slot="conversation.session.header"] {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-[data-dsh-desktop-resize-handle] {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-:root[${DESKTOP_DRAG_ENABLED_ATTRIBUTE}]
-  [data-dsh-desktop-titlebar-anchor],
-:root[${DESKTOP_DRAG_ENABLED_ATTRIBUTE}]
-  [data-slot="conversation.session.header"] {
-  -webkit-app-region: drag;
-  app-region: drag;
-}
-
-[data-dsh-desktop-titlebar-anchor]
-  > button:first-child:not(:last-child) {
-  display: none !important;
-}
-
-[data-dsh-desktop-sidebar-toggle]
-  > svg:first-child:not(:last-child) {
-  display: none !important;
-}
-
-[data-dsh-desktop-sidebar-toggle] > svg:last-child {
-  display: inline !important;
-}
-
-[data-sidebar-collapsed] [data-dsh-desktop-sidebar-toggle] {
-  animation: none !important;
-  transform: none !important;
-  transition: none !important;
-}
-
-[data-sidebar-collapsed] [data-dsh-desktop-titlebar-anchor] {
-  height: 36px !important;
-  margin-top: 12px !important;
-  padding-left: 0 !important;
-}
-
-[data-dsh-desktop-new-session] {
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-button-elevated-fill) 28%,
-    transparent
-  ) !important;
-}
-
-[data-dsh-desktop-new-session]:hover {
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-button-floating-hover) 44%,
-    transparent
-  ) !important;
-}
-
-[data-sidebar-collapsed] [data-dsh-desktop-new-session] {
-  background: transparent !important;
-}
-
-[data-sidebar-collapsed] [data-dsh-desktop-new-session]:hover {
-  background: var(--dsw-alias-interactive-bg-hover) !important;
-}
-
-[data-phase="hero"] [data-composer-card] {
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-
-[data-phase="active"] [data-composer-card] {
-  background: var(--dsw-specific-input-major) !important;
-}
-`;
-
-function installDesktopSurfaceStyles(root: Document): HTMLStyleElement {
-  const style = root.createElement("style");
-  style.dataset.plugin = "@lencx/minke-harness-overlay";
-  style.dataset.minkeDesktopSurface = "";
-  style.textContent = DESKTOP_SURFACE_STYLES;
-  (root.head ?? root.documentElement).append(style);
-  return style;
-}
-
 function markShell(root: Document, view: DesktopSurfaceView): void {
   const overlay = root.querySelector("[data-shell-overlay]");
   const frame = overlay?.parentElement;
   if (frame === undefined || frame === null) return;
+  frame.setAttribute("data-dsh-desktop-frame", "");
 
   const sidebarColumn = frame.firstElementChild;
   const sidebarSlot = sidebarColumn?.querySelector(
@@ -373,7 +273,7 @@ export function installDesktopSurface(
   const view = root.defaultView as DesktopSurfaceView | null;
   if (view === null) return () => {};
 
-  const style = installDesktopSurfaceStyles(root);
+  const disposeStyles = installDesktopSurfaceStyles(root);
   let frame: number | undefined;
   let disposed = false;
 
@@ -451,6 +351,6 @@ export function installDesktopSurface(
       frame = undefined;
     }
     clearDesktopMarkers(root);
-    style.remove();
+    disposeStyles();
   };
 }

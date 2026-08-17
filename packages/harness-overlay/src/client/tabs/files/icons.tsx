@@ -22,7 +22,7 @@ import {
 } from "@lucide/icons";
 import {
   LucideIcon,
-} from "@minke/harness-overlay/client/tabs/components/LucideIcon.tsx";
+} from "@minke/harness-overlay/client/tabs/components/LucideIcon.ts";
 import {
   loadFileIcon,
   loadFolderIcon,

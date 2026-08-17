@@ -9,5 +9,3 @@ export function tabsPanelId(
     ? TABS_BOTTOM_PANEL_ID
     : TABS_PANEL_ID;
 }
-
-export const TABS_CHROME_HEIGHT = 74;

@@ -10,7 +10,7 @@ import {
 } from "@lucide/icons";
 import {
   LucideIcon,
-} from "@minke/harness-overlay/client/tabs/components/LucideIcon.tsx";
+} from "@minke/harness-overlay/client/tabs/components/LucideIcon.ts";
 
 export function BackIcon(): ReactNode {
   return <LucideIcon icon={ArrowLeft} />;

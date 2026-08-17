@@ -35,19 +35,19 @@ export function LucideIcon({
   const sourceSize = "size" in icon
     ? icon.size
     : Math.max(icon.width, icon.height);
-  return (
-    <svg
-      viewBox={`0 0 ${sourceSize} ${sourceSize}`}
-      width={size}
-      height={size}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {icon.node.map(renderNode)}
-    </svg>
+  return createElement(
+    "svg",
+    {
+      viewBox: `0 0 ${sourceSize} ${sourceSize}`,
+      width: size,
+      height: size,
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "1.75",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+    },
+    icon.node.map(renderNode),
   );
 }

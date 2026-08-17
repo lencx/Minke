@@ -51,6 +51,9 @@ async function run() {
     ],
     format: 'iife',
     globalName: 'MinkeDesktopSurface',
+    loader: {
+      '.css': 'text',
+    },
     platform: 'browser',
     target: 'chrome120',
     write: false,
@@ -524,9 +527,19 @@ async function run() {
       selection.addRange(range);
       const selectedSessionTitle = selection.toString();
       selection.removeAllRanges();
-      const background = getComputedStyle(
-        document.querySelector('.newSession'),
-      ).backgroundColor;
+      const newSession = document.querySelector('.newSession');
+      const centerColumn = document.querySelector('.centerColumn');
+      const activeBackground =
+        getComputedStyle(newSession).backgroundColor;
+      centerColumn.dataset.phase = 'hero';
+      const heroBackground =
+        getComputedStyle(newSession).backgroundColor;
+      centerColumn.dataset.phase = 'settling';
+      const settlingBackground =
+        getComputedStyle(newSession).backgroundColor;
+      centerColumn.dataset.phase = 'active';
+      const restoredBackground =
+        getComputedStyle(newSession).backgroundColor;
       const addBackground = getComputedStyle(
         document.querySelector('.composerAdd'),
       ).backgroundColor;
@@ -535,7 +548,7 @@ async function run() {
       ).backgroundColor;
       return {
         addBackground,
-        background,
+        activeBackground,
         composerMarker: document.querySelector(
           '[data-dsh-desktop-composer-add],'
             + '[data-dsh-desktop-composer-primary]',
@@ -551,6 +564,8 @@ async function run() {
           y: 32,
         },
         primaryBackground,
+        heroBackground,
+        restoredBackground,
         selectedSessionTitle,
         sessionActionPoint: {
           x: Math.round(sessionAction.x + sessionAction.width / 2),
@@ -560,6 +575,7 @@ async function run() {
           .getPropertyValue('-webkit-app-region')
           .trim(),
         sessionTitleUserSelect: sessionTitleStyle.userSelect,
+        settlingBackground,
         togglePoint: {
           x: Math.round(toggle.x + toggle.width / 2),
           y: Math.round(toggle.y + toggle.height / 2),
@@ -634,15 +650,14 @@ async function run() {
           '[data-dsh-desktop-resize-handle]',
         ) !== null,
         style: document.querySelector(
-          'style[data-minke-desktop-surface]',
+          'style[data-minke-style="desktop-surface"]',
         ) !== null,
       };
     })()
   `);
   const result = {
+    activeBackground: before.activeBackground,
     addBackground: before.addBackground,
-    background: before.background,
-    backgroundAlpha: alphaOf(before.background),
     composerMarker: before.composerMarker,
     detailsHandleAppRegion: before.detailsHandleAppRegion,
     detailsHandleMarker: before.detailsHandleMarker,
@@ -652,13 +667,18 @@ async function run() {
     initialThemeBeforeDomReady,
     initialThemeSource,
     invalidLocaleError,
+    heroBackground: before.heroBackground,
+    heroBackgroundAlpha: alphaOf(before.heroBackground),
     localeMessages,
     messagesAfterAuthoritativeDomChange,
     primaryBackground: before.primaryBackground,
+    restoredBackground: before.restoredBackground,
     selectedSessionTitle: before.selectedSessionTitle,
     sessionActionClicks: clicks.sessionAction,
     sessionTitleAppRegion: before.sessionTitleAppRegion,
     sessionTitleUserSelect: before.sessionTitleUserSelect,
+    settlingBackground: before.settlingBackground,
+    settlingBackgroundAlpha: alphaOf(before.settlingBackground),
     systemThemeSource,
     surfaceKind,
     themeMessages,
@@ -700,8 +720,17 @@ async function run() {
   ) {
     failures.push('nativeTheme did not preserve the Harness system preference');
   }
-  if (!(result.backgroundAlpha > 0 && result.backgroundAlpha < 0.8)) {
-    failures.push('New Session background is not visibly translucent');
+  if (
+    result.activeBackground !== 'rgb(255, 255, 255)' ||
+    result.restoredBackground !== result.activeBackground
+  ) {
+    failures.push('active New Session did not use the upstream default fill');
+  }
+  if (
+    result.heroBackgroundAlpha !== 0 ||
+    result.settlingBackgroundAlpha !== 0
+  ) {
+    failures.push('blank New Session did not match the transparent sidebar');
   }
   if (result.composerMarker) {
     failures.push('desktop surface marked a Harness-owned composer action');
