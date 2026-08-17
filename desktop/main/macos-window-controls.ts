@@ -12,14 +12,14 @@ export const MACOS_WINDOW_BUTTON_CENTER_PITCH = 14;
 
 export type MacOSWindowButtonNativeAdapter = Readonly<{
   enable(key: string): boolean;
-  readWindowButtonGeometry(
+  measure(
     nativeWindowHandle: Buffer,
   ): WindowButtonGeometryResult;
-  setWindowButtonCenterPitch(
+  setPitch(
     nativeWindowHandle: Buffer,
     centerPitch: number,
   ): WindowButtonGeometryResult;
-  setWindowButtonSize(
+  setSize(
     nativeWindowHandle: Buffer,
     buttonSize: number,
   ): WindowButtonGeometryResult;
@@ -62,9 +62,9 @@ function loadNativeAdapter(): MacOSWindowButtonNativeAdapter | null {
     ) as Partial<MacOSWindowButtonNativeAdapter>;
     if (
       typeof candidate.enable === "function" &&
-      typeof candidate.readWindowButtonGeometry === "function" &&
-      typeof candidate.setWindowButtonCenterPitch === "function" &&
-      typeof candidate.setWindowButtonSize === "function" &&
+      typeof candidate.measure === "function" &&
+      typeof candidate.setPitch === "function" &&
+      typeof candidate.setSize === "function" &&
       candidate.enable("sys.lencx.me")
     ) {
       cachedNativeAdapter = candidate as MacOSWindowButtonNativeAdapter;
@@ -96,12 +96,12 @@ export function reconcileMacOSWindowButtonSpacing(
   if (adapter === null) return skipped("native_adapter_unavailable");
   try {
     const nativeWindowHandle = host.getNativeWindowHandle();
-    const sizeResult = adapter.setWindowButtonSize(
+    const sizeResult = adapter.setSize(
       nativeWindowHandle,
       MACOS_WINDOW_BUTTON_SIZE,
     );
     if (sizeResult.status === "skipped") return sizeResult;
-    return adapter.setWindowButtonCenterPitch(
+    return adapter.setPitch(
       nativeWindowHandle,
       MACOS_WINDOW_BUTTON_CENTER_PITCH,
     );
@@ -164,7 +164,7 @@ export function bindMacOSWindowButtonSpacing(
       const adapter = resolveAdapter(facts);
       if (adapter === null) return skipped("native_adapter_unavailable");
       try {
-        return adapter.readWindowButtonGeometry(
+        return adapter.measure(
           host.getNativeWindowHandle(),
         );
       } catch {

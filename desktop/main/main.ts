@@ -4,11 +4,11 @@ import {
   dialog,
   ipcMain,
   Menu,
-  nativeImage,
+  // nativeImage,
   nativeTheme,
   session,
   shell,
-  Tray,
+  // Tray,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
   type SaveDialogOptions,
@@ -84,7 +84,7 @@ let terminalSettingsBinding: TerminalSettingsBinding | undefined;
 let sessionLogExportBinding: SessionLogExportBinding | undefined;
 let tabsBinding: TabsBinding | undefined;
 let desktopLocale: DesktopLocaleRuntime | undefined;
-let appTray: Tray | undefined;
+// let appTray: Tray | undefined;
 
 function activeDesktopLocale(): DesktopLocale {
   return desktopLocale?.getSnapshot().active ?? "en";
@@ -142,11 +142,11 @@ function appIconPath(): string {
     : join(app.getAppPath(), "resources", "icons", "icon.png");
 }
 
-function trayIconPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, "trayTemplate.png")
-    : join(app.getAppPath(), "resources", "icons", "trayTemplate.png");
-}
+// function trayIconPath(): string {
+//   return app.isPackaged
+//     ? join(process.resourcesPath, "trayTemplate.png")
+//     : join(app.getAppPath(), "resources", "icons", "trayTemplate.png");
+// }
 
 function showMainWindow(): void {
   if (mainWindow === undefined) {
@@ -176,17 +176,17 @@ async function invokeShortcutAction(
   window.webContents.send(SHORTCUT_INVOKE_CHANNEL, id);
 }
 
-function installMacOSTray(): void {
-  if (process.platform !== "darwin") return;
-  const image = nativeImage.createFromPath(trayIconPath());
-  if (image.isEmpty()) {
-    throw new Error(`Tray image is missing at ${trayIconPath()}`);
-  }
-  image.setTemplateImage(true);
-  appTray = new Tray(image);
-  appTray.setToolTip(PRODUCT_NAME);
-  appTray.on("click", showMainWindow);
-}
+// function installMacOSTray(): void {
+//   if (process.platform !== "darwin") return;
+//   const image = nativeImage.createFromPath(trayIconPath());
+//   if (image.isEmpty()) {
+//     throw new Error(`Tray image is missing at ${trayIconPath()}`);
+//   }
+//   image.setTemplateImage(true);
+//   appTray = new Tray(image);
+//   appTray.setToolTip(PRODUCT_NAME);
+//   appTray.on("click", showMainWindow);
+// }
 
 async function installMacOSSurfaceBootstrap(): Promise<void> {
   if (process.platform !== "darwin") return;
@@ -491,7 +491,7 @@ async function bootstrap(): Promise<void> {
     console.error("Unable to read native shortcut menu settings:", error);
   }
   await createWindow();
-  installMacOSTray();
+  // installMacOSTray();
   shortcutMenuBinding = bindShortcutMenu(
     Menu,
     desktopLocale,
@@ -543,8 +543,8 @@ async function bootstrap(): Promise<void> {
 
 app.on("before-quit", (event) => {
   quitting = true;
-  appTray?.destroy();
-  appTray = undefined;
+  // appTray?.destroy();
+  // appTray = undefined;
   shortcutMenuBinding?.dispose();
   shortcutMenuBinding = undefined;
   shortcutSettingsBinding?.dispose();

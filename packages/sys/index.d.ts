@@ -14,16 +14,16 @@ export type WindowButtonGeometryResult =
 
 export function enable(key: string): boolean;
 
-export function readWindowButtonGeometry(
+export function measure(
   nativeWindowHandle: Buffer,
 ): WindowButtonGeometryResult;
 
-export function setWindowButtonCenterPitch(
+export function setPitch(
   nativeWindowHandle: Buffer,
   centerPitch: number,
 ): WindowButtonGeometryResult;
 
-export function setWindowButtonSize(
+export function setSize(
   nativeWindowHandle: Buffer,
   buttonSize: number,
 ): WindowButtonGeometryResult;

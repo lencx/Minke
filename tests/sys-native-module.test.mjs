@@ -27,25 +27,28 @@ if (process.platform !== "darwin") {
     assert.equal(packageManifest.name, "sys");
     assert.equal(basename(binaryPath), "lencx_mb.node");
     assert.equal(typeof sys.enable, "function");
-    assert.equal(typeof sys.readWindowButtonGeometry, "function");
-    assert.equal(typeof sys.setWindowButtonCenterPitch, "function");
-    assert.equal(typeof sys.setWindowButtonSize, "function");
+    assert.equal(typeof sys.measure, "function");
+    assert.equal(typeof sys.setPitch, "function");
+    assert.equal(typeof sys.setSize, "function");
+    assert.equal(sys.readWindowButtonGeometry, undefined);
+    assert.equal(sys.setWindowButtonCenterPitch, undefined);
+    assert.equal(sys.setWindowButtonSize, undefined);
     assert.throws(
-      () => sys.readWindowButtonGeometry(Buffer.alloc(8)),
+      () => sys.measure(Buffer.alloc(8)),
       /not enabled/u,
     );
     assert.equal(sys.enable("sys.lencx.me "), false);
     assert.throws(
-      () => sys.readWindowButtonGeometry(Buffer.alloc(8)),
+      () => sys.measure(Buffer.alloc(8)),
       /not enabled/u,
     );
     assert.equal(sys.enable("sys.lencx.me"), true);
     assert.deepEqual(
-      sys.readWindowButtonGeometry(Buffer.alloc(8)),
+      sys.measure(Buffer.alloc(8)),
       { reason: "window_unavailable", status: "skipped" },
     );
     assert.deepEqual(
-      sys.setWindowButtonSize(Buffer.alloc(8), 10),
+      sys.setSize(Buffer.alloc(8), 10),
       { reason: "window_unavailable", status: "skipped" },
     );
     assert.equal(

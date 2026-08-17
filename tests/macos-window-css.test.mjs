@@ -304,7 +304,7 @@ test("the native titlebar hides only the expanded web brand", () => {
   assert.ok(sidebarWidth, "collapsed sidebar width must remain explicit");
   assert.match(
     macOSWindowControlsSource,
-    /adapter\.setWindowButtonSize\(/,
+    /adapter\.setSize\(/,
   );
   assert.match(
     macOSWindowControlsSource,
