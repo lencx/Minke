@@ -11,11 +11,13 @@ The host composition also exposes two optional capabilities:
   `codex app-server --stdio` process found on `PATH`. Codex keeps ownership of
   its login, model, sandbox, and workspace behavior.
 - `model-runtime` is a DSH plugin that owns local model discovery and optional
-  service lifecycle. Its LM Studio adapter asks the official
-  `lms server status --json` command for the active port, can start the service
-  through `lms server start`, and enriches the authoritative
-  OpenAI-compatible model list with LM Studio metadata. A generic
-  `openAICompatible` adapter supports other loopback model servers.
+  service lifecycle for exactly two product runtimes: LM Studio and Ollama.
+  LM Studio uses `lms server status --json` / `lms server start` and enriches
+  its OpenAI-compatible catalog with LM Studio metadata. Ollama uses its
+  OpenAI-compatible `/v1/models` endpoint and starts through `ollama serve`.
+  A generic `openAICompatible` adapter remains available for manually
+  configured loopback servers; it does not gain command discovery or process
+  management.
 
 The model runtime executes CLIs through `ctx.subprocess`, resolves credential
 references through `ctx.credentials`, and mounts the upstream
@@ -27,13 +29,25 @@ are resolved for discovery but never copied into provider profiles.
 Service policy is explicit:
 
 - `external` only discovers an already-running service;
-- `ensure-running` starts a missing service and leaves it available for other
-  applications;
+- `ensure-running` starts a missing service. LM Studio's one-shot CLI leaves
+  the shared service running; an `ollama serve` process started by Minke is
+  owned by the Harness process and stopped with it;
 - `managed` stops the service on plugin disposal only when this plugin proved
   it started that service.
 
-Minke enables LM Studio with `ensure-running`. `LM_STUDIO_BASE_URL` can select
-an explicit loopback endpoint, and `LM_API_TOKEN` is used when configured.
+Both auto-start preferences default to `false` under
+`modelRuntime.{lmStudio,ollama}.enabled` in
+`~/.minke/desktop/minke.config.json`. Electron checks known installation paths
+and `PATH` without executing either CLI. The Models page always keeps both
+provider rows available for configuration, while an auto-start switch appears
+on a row only when its command was found. Changes take effect after restarting
+Minke. `LM_STUDIO_BASE_URL` and `OLLAMA_BASE_URL` can select explicit loopback
+endpoints and are also applied to services Minke starts. Without an override,
+Minke follows the runtimes' official defaults: LM Studio uses
+`http://127.0.0.1:1234/v1` and Ollama uses
+`http://127.0.0.1:11434/v1`. Port `0` is rejected because a client Base URL
+must contain the service's resolved, connectable port. `LM_API_TOKEN` is used
+for LM Studio when configured.
 
 The browser half owns Minke's product policy, configurable keyboard shortcuts,
 and post-boot desktop surface adaptation. It uses:
