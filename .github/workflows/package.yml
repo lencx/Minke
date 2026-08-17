@@ -89,6 +89,9 @@ jobs:
         run: pnpm test:desktop
 
       - name: Make distributables
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: pnpm make
 
       - name: Upload distributables

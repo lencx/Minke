@@ -116,7 +116,10 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   assert.match(source, /sudo apt-get install --yes fakeroot rpm/u);
   assert.match(source, /run:\s*pnpm typecheck/u);
   assert.match(source, /run:\s*pnpm test:desktop/u);
-  assert.match(source, /run:\s*pnpm make/u);
+  assert.match(
+    source,
+    /name:\s*Make distributables\s*\n\s*env:\s*\n\s*TEMP:\s*\$\{\{\s*runner\.temp\s*\}\}\s*\n\s*TMP:\s*\$\{\{\s*runner\.temp\s*\}\}\s*\n\s*run:\s*pnpm make/u,
+  );
 
   assert.match(
     source,
