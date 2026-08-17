@@ -4,16 +4,21 @@
   disabled: true
 
 - insert:
-    # Generic DSH-owned local-model service lifecycle and catalog discovery.
-    # ensure-running starts LM Studio only when necessary and never claims an
-    # already-running shared service.
+    # Minke's two supported local-model runtimes stay configurable even when
+    # their service is offline. Auto-start is an explicit desktop preference.
     - id: model-runtime
       name: '@lencx/minke-harness-overlay/model-runtime'
       config:
         lmStudio:
           enabled: true
-          lifecycle: ensure-running
+          lifecycle: !!js "process.env.MINKE_LM_STUDIO_ENABLED === '1' && process.env.MINKE_LM_STUDIO_COMMAND ? 'ensure-running' : 'external'"
+          command: !!js process.env.MINKE_LM_STUDIO_COMMAND
           baseURL: !!js process.env.LM_STUDIO_BASE_URL
+        ollama:
+          enabled: true
+          lifecycle: !!js "process.env.MINKE_OLLAMA_ENABLED === '1' && process.env.MINKE_OLLAMA_COMMAND ? 'ensure-running' : 'external'"
+          command: !!js process.env.MINKE_OLLAMA_COMMAND
+          baseURL: !!js process.env.OLLAMA_BASE_URL
 
     # Host-global provider plus tool: every Minke agent preset can delegate one
     # self-contained task to the user's native Codex CLI without changing the

@@ -5,6 +5,7 @@ import {
 import { openHarnessSettings } from "./actions.ts";
 import {
   desktopFilesPort,
+  desktopModelRuntimeSettingsStore,
   desktopSessionLogsPort,
   desktopShortcutStore,
   desktopTabsPort,
@@ -17,6 +18,14 @@ import {
   type HarnessLocale,
   type HarnessThemePreference,
 } from "./bridge.ts";
+import {
+  installLocalModelSettings,
+  localModelEn,
+  localModelZh,
+  LocalModelSettingsRuntime,
+  type LocalModelLocaleKey,
+  type LocalModelTranslate,
+} from "./local-model/index.ts";
 import { installDesktopSurface } from "./desktop-surface.ts";
 import { ShortcutSection } from "./ShortcutSection.tsx";
 import {
@@ -230,6 +239,7 @@ const TABS_NAMESPACE = "minke.tabs";
 const FILES_TABS_NAMESPACE = "minke.tabs.files";
 const WEB_TABS_NAMESPACE = "minke.tabs.web";
 const TERMINAL_TABS_NAMESPACE = "minke.tabs.terminal";
+const LOCAL_MODEL_NAMESPACE = "minke.local-model";
 
 /** Cordis services required by this out-of-tree browser plugin. */
 export const inject = [
@@ -272,6 +282,43 @@ export function apply(ctx: HarnessClientContext): void {
     terminalSettingsStore,
   );
   let tabsRuntimes: TabsRuntimes | undefined;
+  const modelRuntimeSettingsStore =
+    desktopModelRuntimeSettingsStore();
+  if (modelRuntimeSettingsStore.available) {
+    ctx.effect(
+      () =>
+        ctx.locale.register(LOCAL_MODEL_NAMESPACE, {
+          zh: localModelZh,
+          en: localModelEn,
+        }),
+      "minke-overlay: local model settings dictionaries",
+    );
+    const modelRuntimeSettings = new LocalModelSettingsRuntime(
+      modelRuntimeSettingsStore,
+    );
+    const localModelT = ctx.locale.bind<LocalModelLocaleKey>(
+      LOCAL_MODEL_NAMESPACE,
+    ) as LocalModelTranslate;
+    ctx.effect(
+      () => {
+        let active = true;
+        let disposeView = (): void => {};
+        void modelRuntimeSettings.initialize().then(() => {
+          if (!active) return;
+          disposeView = installLocalModelSettings(
+            modelRuntimeSettings,
+            localModelT,
+          );
+        });
+        return () => {
+          active = false;
+          disposeView();
+          modelRuntimeSettings.dispose();
+        };
+      },
+      "minke-overlay: local model settings runtime",
+    );
+  }
   const sessionLogsPort = desktopSessionLogsPort();
   const filesT = ctx.locale.bind<FilesTabsLocaleKey>(
     FILES_TABS_NAMESPACE,

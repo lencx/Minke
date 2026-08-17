@@ -42,6 +42,10 @@ test("desktop settings share one versioned Minke config", async () => {
       await store.terminal.read(),
       DEFAULT_TERMINAL_SETTINGS,
     );
+    assert.deepEqual(await store.modelRuntime.read(), {
+      lmStudio: { enabled: false },
+      ollama: { enabled: false },
+    });
 
     await Promise.all([
       store.shortcuts.write({
@@ -52,6 +56,10 @@ test("desktop settings share one versioned Minke config", async () => {
         fontFamily: "JetBrains Mono",
         fontSize: 14,
         lineHeight: 1.35,
+      }),
+      store.modelRuntime.write({
+        lmStudio: { enabled: true },
+        ollama: { enabled: false },
       }),
     ]);
 
@@ -65,6 +73,10 @@ test("desktop settings share one versioned Minke config", async () => {
         fontFamily: "JetBrains Mono",
         fontSize: 14,
         lineHeight: 1.35,
+      },
+      modelRuntime: {
+        lmStudio: { enabled: true },
+        ollama: { enabled: false },
       },
     });
     assert.deepEqual(
@@ -90,7 +102,33 @@ test("invalid section updates leave the shared document unchanged", async () => 
       }),
       /font size/u,
     );
+    await assert.rejects(
+      store.modelRuntime.write({
+        lmStudio: { enabled: "yes" },
+        ollama: { enabled: false },
+      }),
+      /model runtime settings/u,
+    );
     assert.equal(await readFile(store.path, "utf8"), before);
+  });
+});
+
+test("legacy version 1 configs default the new model runtime off", async () => {
+  await withStore(async ({ root, store }) => {
+    await mkdir(join(root, "desktop"), { recursive: true });
+    await writeFile(
+      store.path,
+      JSON.stringify({
+        version: MINKE_CONFIG_VERSION,
+        shortcuts: {},
+        terminal: DEFAULT_TERMINAL_SETTINGS,
+      }),
+    );
+
+    assert.deepEqual(await store.modelRuntime.read(), {
+      lmStudio: { enabled: false },
+      ollama: { enabled: false },
+    });
   });
 });
 
@@ -103,6 +141,10 @@ test("the store rejects unsupported unified config documents", async () => {
         version: MINKE_CONFIG_VERSION,
         shortcuts: {},
         terminal: DEFAULT_TERMINAL_SETTINGS,
+        modelRuntime: {
+          lmStudio: { enabled: false },
+          ollama: { enabled: false },
+        },
         unknown: true,
       }),
     );

@@ -7,6 +7,11 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  DEFAULT_MODEL_RUNTIME_SETTINGS,
+  parseModelRuntimeSettings,
+  type ModelRuntimeSettings,
+} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+import {
   parseShortcutBindings,
   type ShortcutBindings,
 } from "@minke/harness-overlay/shortcut-contract.ts";
@@ -24,6 +29,7 @@ export interface MinkeConfigDocument {
   version: typeof MINKE_CONFIG_VERSION;
   shortcuts: ShortcutBindings;
   terminal: TerminalSettings;
+  modelRuntime: ModelRuntimeSettings;
 }
 
 /** One validated section of the unified desktop configuration. */
@@ -36,6 +42,7 @@ const CONFIG_KEYS = new Set([
   "version",
   "shortcuts",
   "terminal",
+  "modelRuntime",
 ]);
 
 function defaultDocument(): MinkeConfigDocument {
@@ -43,6 +50,14 @@ function defaultDocument(): MinkeConfigDocument {
     version: MINKE_CONFIG_VERSION,
     shortcuts: {},
     terminal: { ...DEFAULT_TERMINAL_SETTINGS },
+    modelRuntime: {
+      lmStudio: {
+        ...DEFAULT_MODEL_RUNTIME_SETTINGS.lmStudio,
+      },
+      ollama: {
+        ...DEFAULT_MODEL_RUNTIME_SETTINGS.ollama,
+      },
+    },
   };
 }
 
@@ -58,9 +73,12 @@ export function parseMinkeConfigDocument(
     throw new TypeError("Minke config document must be an object");
   }
   const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
   if (
-    Object.keys(record).length !== CONFIG_KEYS.size ||
-    Object.keys(record).some((key) => !CONFIG_KEYS.has(key)) ||
+    keys.some((key) => !CONFIG_KEYS.has(key)) ||
+    !Object.hasOwn(record, "version") ||
+    !Object.hasOwn(record, "shortcuts") ||
+    !Object.hasOwn(record, "terminal") ||
     record.version !== MINKE_CONFIG_VERSION
   ) {
     throw new TypeError("unsupported Minke config document");
@@ -69,6 +87,17 @@ export function parseMinkeConfigDocument(
     version: MINKE_CONFIG_VERSION,
     shortcuts: parseShortcutBindings(record.shortcuts),
     terminal: parseTerminalSettings(record.terminal),
+    modelRuntime:
+      record.modelRuntime === undefined
+        ? {
+            lmStudio: {
+              ...DEFAULT_MODEL_RUNTIME_SETTINGS.lmStudio,
+            },
+            ollama: {
+              ...DEFAULT_MODEL_RUNTIME_SETTINGS.ollama,
+            },
+          }
+        : parseModelRuntimeSettings(record.modelRuntime),
   };
 }
 
@@ -80,6 +109,7 @@ export class MinkeConfigStore {
   readonly path: string;
   readonly shortcuts: MinkeConfigSection<ShortcutBindings>;
   readonly terminal: MinkeConfigSection<TerminalSettings>;
+  readonly modelRuntime: MinkeConfigSection<ModelRuntimeSettings>;
 
   #document: MinkeConfigDocument | undefined;
   #loaded = false;
@@ -99,6 +129,10 @@ export class MinkeConfigStore {
     this.terminal = Object.freeze({
       read: () => this.#readTerminal(),
       write: (value: unknown) => this.#writeTerminal(value),
+    });
+    this.modelRuntime = Object.freeze({
+      read: () => this.#readModelRuntime(),
+      write: (value: unknown) => this.#writeModelRuntime(value),
     });
   }
 
@@ -139,6 +173,16 @@ export class MinkeConfigStore {
     }));
   }
 
+  #readModelRuntime(): Promise<ModelRuntimeSettings> {
+    return this.#runExclusive(async () => {
+      const settings = (await this.#load()).modelRuntime;
+      return {
+        lmStudio: { ...settings.lmStudio },
+        ollama: { ...settings.ollama },
+      };
+    });
+  }
+
   #writeShortcuts(value: unknown): Promise<void> {
     return this.#runExclusive(async () => {
       const shortcuts = parseShortcutBindings(value);
@@ -157,6 +201,18 @@ export class MinkeConfigStore {
       const next: MinkeConfigDocument = {
         ...(await this.#load()),
         terminal,
+      };
+      await this.#persist(next);
+      this.#document = next;
+    });
+  }
+
+  #writeModelRuntime(value: unknown): Promise<void> {
+    return this.#runExclusive(async () => {
+      const modelRuntime = parseModelRuntimeSettings(value);
+      const next: MinkeConfigDocument = {
+        ...(await this.#load()),
+        modelRuntime,
       };
       await this.#persist(next);
       this.#document = next;

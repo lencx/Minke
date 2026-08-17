@@ -41,6 +41,13 @@ import {
 } from "./harness-runtime";
 import { MinkeConfigStore } from "./minke-config";
 import {
+  discoverLocalModelCommands,
+} from "./local-model-command";
+import {
+  bindModelRuntimeSettingsIpc,
+  type ModelRuntimeSettingsBinding,
+} from "./model-runtime-settings";
+import {
   macOSWindowOptions,
 } from "./macos-window";
 import { bindMacOSWindowButtonSpacing } from "./macos-window-controls";
@@ -81,6 +88,9 @@ let recovering = false;
 let shortcutMenuBinding: ShortcutMenuBinding | undefined;
 let shortcutSettingsBinding: ShortcutSettingsBinding | undefined;
 let terminalSettingsBinding: TerminalSettingsBinding | undefined;
+let modelRuntimeSettingsBinding:
+  | ModelRuntimeSettingsBinding
+  | undefined;
 let sessionLogExportBinding: SessionLogExportBinding | undefined;
 let tabsBinding: TabsBinding | undefined;
 let desktopLocale: DesktopLocaleRuntime | undefined;
@@ -483,11 +493,33 @@ async function bootstrap(): Promise<void> {
   const minkeConfig = new MinkeConfigStore(app.getPath("userData"));
   const shortcutStore = minkeConfig.shortcuts;
   const terminalSettingsStore = minkeConfig.terminal;
+  const modelRuntimeSettingsStore = minkeConfig.modelRuntime;
+  const localModelCommands = await discoverLocalModelCommands({
+    homeDirectory: app.getPath("home"),
+    pathValue: process.env.PATH,
+    platform: process.platform,
+    ...(process.env.LOCALAPPDATA === undefined
+      ? {}
+      : { localAppData: process.env.LOCALAPPDATA }),
+  });
+  const modelRuntimeAvailability = {
+    lmStudio: localModelCommands.lmStudio !== undefined,
+    ollama: localModelCommands.ollama !== undefined,
+  };
   let shortcutBindings: ShortcutBindings = {};
+  let modelRuntimeSettings = {
+    lmStudio: { enabled: false },
+    ollama: { enabled: false },
+  };
   try {
     shortcutBindings = await shortcutStore.read();
   } catch (error) {
     console.error("Unable to read native shortcut menu settings:", error);
+  }
+  try {
+    modelRuntimeSettings = await modelRuntimeSettingsStore.read();
+  } catch (error) {
+    console.error("Unable to read model runtime settings:", error);
   }
   await createWindow();
   // installMacOSTray();
@@ -526,11 +558,43 @@ async function bootstrap(): Promise<void> {
       );
     },
   );
+  modelRuntimeSettingsBinding = bindModelRuntimeSettingsIpc(
+    ipcMain,
+    modelRuntimeSettingsStore,
+    modelRuntimeAvailability,
+    (candidate) => {
+      const event = candidate as IpcMainInvokeEvent;
+      return (
+        mainWindow !== undefined &&
+        event.sender === mainWindow.webContents &&
+        event.senderFrame !== null &&
+        isHarnessUrl(event.senderFrame.url)
+      );
+    },
+  );
 
   runtime = new HarnessRuntime({
     runtimeRoot: runtimeRoot(),
     dataRoot: join(app.getPath("userData"), "harness"),
     electronExecutable: process.execPath,
+    modelRuntimes: {
+      lmStudio: {
+        enabled:
+          modelRuntimeSettings.lmStudio.enabled &&
+          modelRuntimeAvailability.lmStudio,
+        ...(localModelCommands.lmStudio === undefined
+          ? {}
+          : { command: localModelCommands.lmStudio }),
+      },
+      ollama: {
+        enabled:
+          modelRuntimeSettings.ollama.enabled &&
+          modelRuntimeAvailability.ollama,
+        ...(localModelCommands.ollama === undefined
+          ? {}
+          : { command: localModelCommands.ollama }),
+      },
+    },
     onUnexpectedExit: (exit) => void handleUnexpectedExit(exit),
   });
   await startHarness();
@@ -550,6 +614,8 @@ app.on("before-quit", (event) => {
   shortcutSettingsBinding = undefined;
   terminalSettingsBinding?.dispose();
   terminalSettingsBinding = undefined;
+  modelRuntimeSettingsBinding?.dispose();
+  modelRuntimeSettingsBinding = undefined;
   if (shutdownStarted || runtime === undefined) return;
   event.preventDefault();
   shutdownStarted = true;

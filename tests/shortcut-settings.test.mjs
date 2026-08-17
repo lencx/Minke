@@ -62,6 +62,10 @@ test("the desktop store writes the shared Minke config", async () => {
       "session.new": "",
     },
     terminal: DEFAULT_TERMINAL_SETTINGS,
+    modelRuntime: {
+      lmStudio: { enabled: false },
+      ollama: { enabled: false },
+    },
   });
 });
 

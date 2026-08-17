@@ -2,9 +2,13 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { access, mkdir } from "node:fs/promises";
 import { delimiter } from "node:path";
 import {
+  type LocalModelRuntimeId,
+} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+import {
   harnessWebArguments,
   readHarnessRuntimeLayout,
-} from "./harness-launch";
+  type HarnessRuntimeLayout,
+} from "./harness-launch.ts";
 
 const READY_PATTERN = /dsh web:\s+(http:\/\/127\.0\.0\.1:\d+)/u;
 const MAX_CAPTURED_OUTPUT = 64 * 1024;
@@ -21,9 +25,72 @@ export interface HarnessRuntimeOptions {
   runtimeRoot: string;
   dataRoot: string;
   electronExecutable: string;
+  modelRuntimes: LocalModelRuntimeLaunchOptions;
   onUnexpectedExit(exit: HarnessRuntimeExit): void;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
+}
+
+export type LocalModelRuntimeLaunchOptions = Record<
+  LocalModelRuntimeId,
+  {
+    enabled: boolean;
+    command?: string;
+  }
+>;
+
+type HarnessRuntimeEnvironmentOptions = Pick<
+  HarnessRuntimeOptions,
+  | "dataRoot"
+  | "electronExecutable"
+  | "modelRuntimes"
+>;
+
+const LOCAL_MODEL_ENVIRONMENT = [
+  {
+    id: "lmStudio",
+    enabled: "MINKE_LM_STUDIO_ENABLED",
+    command: "MINKE_LM_STUDIO_COMMAND",
+  },
+  {
+    id: "ollama",
+    enabled: "MINKE_OLLAMA_ENABLED",
+    command: "MINKE_OLLAMA_COMMAND",
+  },
+] as const satisfies readonly {
+  id: LocalModelRuntimeId;
+  enabled: string;
+  command: string;
+}[];
+
+/** Build the explicit child environment without inheriting stale Minke flags. */
+export function harnessRuntimeEnvironment(
+  layout: Pick<HarnessRuntimeLayout, "pnpmEntry" | "runtimeBin">,
+  options: HarnessRuntimeEnvironmentOptions,
+  inherited: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {
+    ...inherited,
+    DSH_ELECTRON_EXECUTABLE: options.electronExecutable,
+    DSH_HOME: options.dataRoot,
+    DSH_PNPM_ENTRY: layout.pnpmEntry,
+    ELECTRON_RUN_AS_NODE: "1",
+    PATH: [layout.runtimeBin, inherited.PATH]
+      .filter(Boolean)
+      .join(delimiter),
+  };
+  for (const descriptor of LOCAL_MODEL_ENVIRONMENT) {
+    const runtime = options.modelRuntimes[descriptor.id];
+    environment[descriptor.enabled] =
+      runtime.enabled ? "1" : "0";
+    const command = runtime.command?.trim();
+    if (command === undefined || command === "") {
+      delete environment[descriptor.command];
+    } else {
+      environment[descriptor.command] = command;
+    }
+  }
+  return environment;
 }
 
 /**
@@ -66,16 +133,7 @@ export class HarnessRuntime {
       {
         cwd: this.#options.dataRoot,
         detached: process.platform !== "win32",
-        env: {
-          ...process.env,
-          DSH_ELECTRON_EXECUTABLE: this.#options.electronExecutable,
-          DSH_HOME: this.#options.dataRoot,
-          DSH_PNPM_ENTRY: layout.pnpmEntry,
-          ELECTRON_RUN_AS_NODE: "1",
-          PATH: [layout.runtimeBin, process.env.PATH]
-            .filter(Boolean)
-            .join(delimiter),
-        },
+        env: harnessRuntimeEnvironment(layout, this.#options),
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       },

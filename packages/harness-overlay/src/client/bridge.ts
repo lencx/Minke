@@ -1,4 +1,12 @@
 import {
+  DEFAULT_MODEL_RUNTIME_SETTINGS,
+  NO_MODEL_RUNTIME_AVAILABILITY,
+  parseModelRuntimeSettings,
+  parseModelRuntimeSettingsSnapshot,
+  type ModelRuntimeSettings,
+  type ModelRuntimeSettingsSnapshot,
+} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+import {
   isProductShortcutActionId,
   parseShortcutBindings,
   type ProductShortcutActionId,
@@ -51,6 +59,12 @@ export interface TerminalSettingsStore {
   readonly available: boolean;
   read(): Promise<TerminalSettings>;
   write(settings: TerminalSettings): Promise<void>;
+}
+
+export interface ModelRuntimeSettingsStore {
+  readonly available: boolean;
+  read(): Promise<ModelRuntimeSettingsSnapshot>;
+  write(settings: ModelRuntimeSettings): Promise<void>;
 }
 
 export interface DesktopShortcutPort extends ShortcutStore {
@@ -116,6 +130,11 @@ interface DesktopTerminalBridge {
   writeSettings(settings: TerminalSettings): Promise<void>;
 }
 
+interface DesktopModelRuntimeBridge {
+  read(): Promise<unknown>;
+  write(settings: ModelRuntimeSettings): Promise<void>;
+}
+
 interface DesktopSessionLogsBridge {
   export(sessionId: string): Promise<void>;
 }
@@ -128,12 +147,55 @@ interface DesktopBridgeWindow {
   minkeDesktop?: {
     files?: DesktopFilesBridge;
     locale?: DesktopWindowLocaleBridge;
+    modelRuntime?: DesktopModelRuntimeBridge;
     sessionLogs?: DesktopSessionLogsBridge;
     tabs?: DesktopTabsBridge;
     terminal?: DesktopTerminalBridge;
     shortcuts?: DesktopShortcutBridge;
     surface?: DesktopSurfaceBridge;
     windowTheme?: DesktopWindowThemeBridge;
+  };
+}
+
+/** Adapt the fixed two-runtime lifecycle settings bridge. */
+export function desktopModelRuntimeSettingsStore(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): ModelRuntimeSettingsStore {
+  const bridge = source.minkeDesktop?.modelRuntime;
+  if (bridge === undefined) {
+    return {
+      available: false,
+      async read() {
+        return {
+          available: { ...NO_MODEL_RUNTIME_AVAILABILITY },
+          settings: {
+            lmStudio: {
+              ...DEFAULT_MODEL_RUNTIME_SETTINGS.lmStudio,
+            },
+            ollama: {
+              ...DEFAULT_MODEL_RUNTIME_SETTINGS.ollama,
+            },
+          },
+        };
+      },
+      async write() {
+        throw new Error(
+          "Minke desktop model runtime bridge is unavailable",
+        );
+      },
+    };
+  }
+  return {
+    available: true,
+    async read() {
+      return parseModelRuntimeSettingsSnapshot(
+        await bridge.read(),
+      );
+    },
+    async write(settings) {
+      await bridge.write(parseModelRuntimeSettings(settings));
+    },
   };
 }
 

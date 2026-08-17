@@ -3,6 +3,9 @@ import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import * as LlmPiAi from "@deepseek-ai/dsh-llm-pi-ai";
 import type {} from "@deepseek-ai/dsh-subprocess";
+import type {
+  SubprocessHandle,
+} from "@deepseek-ai/dsh-subprocess";
 import z from "@deepseek-ai/schemastery";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -13,10 +16,13 @@ import {
   type ModelRuntimeConfig,
   type ModelRuntimeHost,
   type OpenAICompatibleRuntimeConfig,
+  type OllamaRuntimeConfig,
+  type RunningCommand,
 } from "./core";
 
 const COMMAND_OUTPUT_BYTES = 16 * 1024;
 const COMMAND_GRACE_MS = 500;
+const COMMAND_RESOLVE_TIMEOUT_MS = 2_000;
 
 export const name = "model-runtime";
 export const inject = ["credentials", "llm", "subprocess"];
@@ -55,18 +61,86 @@ const openAICompatibleConfig: z<OpenAICompatibleRuntimeConfig> = z.object({
   defaultMaxTokens: z.number().step(1).min(1).default(8_192),
 });
 
+const ollamaConfig: z<OllamaRuntimeConfig> = z
+  .object({
+    enabled: z.boolean().default(false),
+    lifecycle: z
+      .union(["external", "ensure-running"])
+      .default("external"),
+    baseURL: z.string().default(""),
+    command: z.string().default(""),
+    defaultContextWindow: z.number().step(1).min(1).default(32_768),
+    defaultMaxTokens: z.number().step(1).min(1).default(8_192),
+  })
+  .default({
+    enabled: false,
+    lifecycle: "external",
+    baseURL: "",
+    command: "",
+    defaultContextWindow: 32_768,
+    defaultMaxTokens: 8_192,
+  });
+
 export const Config: z<Config> = z.object({
   lmStudio: lmStudioConfig,
+  ollama: ollamaConfig,
   openAICompatible: z.array(openAICompatibleConfig).default([]),
 });
 
-function lmStudioCommands(configured: string | undefined): string[] {
+function configuredCommands(
+  configured: string | undefined,
+  fallbacks: readonly string[],
+): string[] {
   if (configured?.trim()) return [configured.trim()];
+  return [...fallbacks];
+}
+
+function lmStudioCommands(configured: string | undefined): string[] {
   const local =
     process.platform === "win32"
       ? join(homedir(), ".lmstudio", "bin", "lms.exe")
       : join(homedir(), ".lmstudio", "bin", "lms");
-  return [local, "lms"];
+  return configuredCommands(configured, [local, "lms"]);
+}
+
+function ollamaCommands(configured: string | undefined): string[] {
+  const platformCandidates =
+    process.platform === "darwin"
+      ? [
+          "/Applications/Ollama.app/Contents/Resources/ollama",
+          join(
+            homedir(),
+            "Applications",
+            "Ollama.app",
+            "Contents",
+            "Resources",
+            "ollama",
+          ),
+        ]
+      : process.platform === "win32" &&
+          process.env.LOCALAPPDATA !== undefined
+        ? [
+            join(
+              process.env.LOCALAPPDATA,
+              "Programs",
+              "Ollama",
+              "ollama.exe",
+            ),
+          ]
+        : [];
+  return configuredCommands(configured, [
+    ...platformCandidates,
+    "ollama",
+  ]);
+}
+
+function runningCommand(handle: SubprocessHandle): RunningCommand {
+  return {
+    done: handle.done,
+    terminate() {
+      handle.terminate();
+    },
+  };
 }
 
 function createHost(
@@ -74,7 +148,10 @@ function createHost(
   config: Config,
 ): ModelRuntimeHost {
   return {
-    lmStudioCommands: lmStudioCommands(config.lmStudio?.command),
+    localRuntimeCommands: {
+      lmStudio: lmStudioCommands(config.lmStudio?.command),
+      ollama: ollamaCommands(config.ollama?.command),
+    },
     fetch: globalThis.fetch,
     sleep: async (ms) =>
       await new Promise((resolve) => {
@@ -124,6 +201,41 @@ function createHost(
         } catch {
           // An optional CLI candidate may be absent or may time out. Continue
           // through the execution world's remaining candidates.
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+      return undefined;
+    },
+    start: async (candidates, args, environment = {}) => {
+      for (const candidate of candidates) {
+        const controller = new AbortController();
+        const timeout = setTimeout(
+          () => controller.abort(),
+          COMMAND_RESOLVE_TIMEOUT_MS,
+        );
+        try {
+          const executable = await ctx.subprocess.resolveExecutable(
+            candidate,
+            {},
+            controller.signal,
+          );
+          clearTimeout(timeout);
+          return runningCommand(
+            ctx.subprocess.spawn({
+              argv: [executable, ...args],
+              cwd: process.cwd(),
+              stdio: {
+                stdin: "ignore",
+                stdout: { maxBytes: COMMAND_OUTPUT_BYTES },
+                stderr: { maxBytes: COMMAND_OUTPUT_BYTES },
+              },
+              graceMs: COMMAND_GRACE_MS,
+              env: { ...environment },
+            }),
+          );
+        } catch {
+          // Continue through the execution world's remaining candidates.
         } finally {
           clearTimeout(timeout);
         }

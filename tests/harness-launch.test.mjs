@@ -7,6 +7,9 @@ import {
   harnessWebArguments,
   readHarnessRuntimeLayout,
 } from "@minke/desktop/main/harness-launch.ts";
+import {
+  harnessRuntimeEnvironment,
+} from "@minke/desktop/main/harness-runtime.ts";
 
 async function withRuntime(metadata, callback) {
   const runtimeRoot = await mkdtemp(join(tmpdir(), "minke-harness-launch-"));
@@ -81,5 +84,101 @@ test("the staged layout contract rejects unsafe product metadata", async () => {
         /invalid product bundle metadata/u,
       );
     },
+  );
+});
+
+test("the desktop runtime passes both explicit local-model opt-ins", () => {
+  const layout = {
+    pnpmEntry: "/runtime/node_modules/pnpm/bin/pnpm.cjs",
+    runtimeBin: "/runtime/bin",
+  };
+  const options = {
+    dataRoot: "/data/harness",
+    electronExecutable: "/app/electron",
+    modelRuntimes: {
+      lmStudio: {
+        enabled: false,
+        command: "/home/user/.lmstudio/bin/lms",
+      },
+      ollama: {
+        enabled: true,
+        command: "/usr/local/bin/ollama",
+      },
+    },
+  };
+  const inherited = {
+    PATH: "/usr/bin",
+    MINKE_LM_STUDIO_ENABLED: "1",
+    MINKE_LM_STUDIO_COMMAND: "/stale/lms",
+    MINKE_OLLAMA_ENABLED: "0",
+    MINKE_OLLAMA_COMMAND: "/stale/ollama",
+    PRESERVED: "yes",
+  };
+
+  assert.deepEqual(
+    harnessRuntimeEnvironment(layout, options, inherited),
+    {
+      PATH: ["/runtime/bin", "/usr/bin"].join(process.platform === "win32" ? ";" : ":"),
+      MINKE_LM_STUDIO_ENABLED: "0",
+      MINKE_LM_STUDIO_COMMAND: "/home/user/.lmstudio/bin/lms",
+      MINKE_OLLAMA_ENABLED: "1",
+      MINKE_OLLAMA_COMMAND: "/usr/local/bin/ollama",
+      PRESERVED: "yes",
+      DSH_ELECTRON_EXECUTABLE: "/app/electron",
+      DSH_HOME: "/data/harness",
+      DSH_PNPM_ENTRY: "/runtime/node_modules/pnpm/bin/pnpm.cjs",
+      ELECTRON_RUN_AS_NODE: "1",
+    },
+  );
+  assert.equal(
+    harnessRuntimeEnvironment(
+      layout,
+      {
+        ...options,
+        modelRuntimes: {
+          ...options.modelRuntimes,
+          lmStudio: {
+            ...options.modelRuntimes.lmStudio,
+            enabled: true,
+          },
+        },
+      },
+      inherited,
+    ).MINKE_LM_STUDIO_ENABLED,
+    "1",
+  );
+  assert.equal(
+    harnessRuntimeEnvironment(
+      layout,
+      {
+        ...options,
+        modelRuntimes: {
+          ...options.modelRuntimes,
+          lmStudio: {
+            enabled: false,
+            command: undefined,
+          },
+        },
+      },
+      inherited,
+    ).MINKE_LM_STUDIO_COMMAND,
+    undefined,
+  );
+  assert.equal(
+    harnessRuntimeEnvironment(
+      layout,
+      {
+        ...options,
+        modelRuntimes: {
+          ...options.modelRuntimes,
+          ollama: {
+            enabled: false,
+            command: undefined,
+          },
+        },
+      },
+      inherited,
+    ).MINKE_OLLAMA_COMMAND,
+    undefined,
   );
 });

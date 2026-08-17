@@ -1,4 +1,5 @@
 const DEFAULT_LM_STUDIO_BASE_URL = "http://127.0.0.1:1234/v1";
+const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1";
 const DEFAULT_CONTEXT_WINDOW = 32_768;
 const DEFAULT_MAX_TOKENS = 8_192;
 const MODEL_REQUEST_TIMEOUT_MS = 1_500;
@@ -41,13 +42,29 @@ export interface CommandResult {
   stderr: string;
 }
 
+export interface RunningCommand {
+  readonly done: Promise<{
+    exitCode: number | null;
+    signal: NodeJS.Signals | null;
+  }>;
+  terminate(): void;
+}
+
 export interface ModelRuntimeHost {
-  lmStudioCommands: readonly string[];
+  localRuntimeCommands: {
+    lmStudio: readonly string[];
+    ollama: readonly string[];
+  };
   run(
     candidates: readonly string[],
     args: readonly string[],
     timeoutMs: number,
   ): Promise<CommandResult | undefined>;
+  start(
+    candidates: readonly string[],
+    args: readonly string[],
+    environment?: Readonly<Record<string, string>>,
+  ): Promise<RunningCommand | undefined>;
   fetch: typeof globalThis.fetch;
   resolveCredential(ref: string): Promise<string | undefined>;
   sleep(ms: number): Promise<void>;
@@ -74,8 +91,18 @@ export interface OpenAICompatibleRuntimeConfig {
   defaultMaxTokens?: number;
 }
 
+export interface OllamaRuntimeConfig {
+  enabled?: boolean;
+  lifecycle?: Exclude<ServiceLifecycle, "managed">;
+  baseURL?: string;
+  command?: string;
+  defaultContextWindow?: number;
+  defaultMaxTokens?: number;
+}
+
 export interface ModelRuntimeConfig {
   lmStudio?: LmStudioRuntimeConfig;
+  ollama?: OllamaRuntimeConfig;
   openAICompatible?: OpenAICompatibleRuntimeConfig[];
 }
 
@@ -158,15 +185,34 @@ export function resolveLocalOpenAIBaseURL(value: string): string {
     url.username !== "" ||
     url.password !== "" ||
     url.search !== "" ||
-    url.hash !== ""
+    url.hash !== "" ||
+    url.port === "0"
   ) {
     throw new Error(
-      "model-runtime: local model base URL must be an unauthenticated loopback HTTP URL",
+      "model-runtime: local model base URL must be an unauthenticated loopback HTTP URL with a connectable port",
     );
   }
   const pathname = url.pathname.replace(/\/+$/u, "");
   url.pathname = pathname === "" || pathname === "/" ? "/v1" : pathname;
   return url.toString().replace(/\/$/u, "");
+}
+
+function localServiceAddress(baseURL: string): {
+  bind: string;
+  authority: string;
+  port: number;
+} {
+  const url = new URL(baseURL);
+  const port = url.port === "" ? 80 : Number(url.port);
+  const bind =
+    url.hostname === "localhost"
+      ? "127.0.0.1"
+      : url.hostname.replace(/^\[(.*)\]$/u, "$1");
+  return {
+    bind,
+    authority: `${url.hostname}:${String(port)}`,
+    port,
+  };
 }
 
 async function readBoundedJson(response: Response): Promise<unknown> {
@@ -401,7 +447,7 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
       ...(nonEmptyText(this.config.command) === undefined
         ? []
         : [nonEmptyText(this.config.command) as string]),
-      ...host.lmStudioCommands,
+      ...host.localRuntimeCommands.lmStudio,
     ]);
     const configuredBaseURL = nonEmptyText(this.config.baseURL);
     const explicitBaseURL =
@@ -416,7 +462,6 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
       nonEmptyText(token),
       explicitApiKeyEnv !== undefined,
     );
-
     const readStatus = async (): Promise<LmStudioStatus | undefined> =>
       parseLmStudioStatus(
         await host.run(
@@ -426,13 +471,14 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
         ),
       );
     const candidates = (status: LmStudioStatus | undefined): string[] =>
-      unique([
-        ...(explicitBaseURL === undefined ? [] : [explicitBaseURL]),
-        ...(status?.running === true && status.port !== undefined
-          ? [`http://127.0.0.1:${String(status.port)}/v1`]
-          : []),
-        DEFAULT_LM_STUDIO_BASE_URL,
-      ]);
+      explicitBaseURL === undefined
+        ? unique([
+            ...(status?.running === true && status.port !== undefined
+              ? [`http://127.0.0.1:${String(status.port)}/v1`]
+              : []),
+            DEFAULT_LM_STUDIO_BASE_URL,
+          ])
+        : [explicitBaseURL];
     const probe = async (
       status: LmStudioStatus | undefined,
     ): Promise<{ baseURL: string; models: ModelProfile[] } | undefined> => {
@@ -472,9 +518,24 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
       return { dispose: async () => {} };
     }
 
+    const explicitAddress =
+      explicitBaseURL === undefined
+        ? undefined
+        : localServiceAddress(explicitBaseURL);
     const start = await host.run(
       commands,
-      ["server", "start"],
+      [
+        "server",
+        "start",
+        ...(explicitAddress === undefined
+          ? []
+          : [
+              "--port",
+              String(explicitAddress.port),
+              "--bind",
+              explicitAddress.bind,
+            ]),
+      ],
       CLI_LIFECYCLE_TIMEOUT_MS,
     );
     if (start === undefined) {
@@ -524,6 +585,104 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
         auth,
       ),
       dispose: stopOwnedService,
+    };
+  }
+}
+
+class OllamaAdapter implements ModelRuntimeAdapter {
+  readonly providerId = "ollama";
+  private readonly config: OllamaRuntimeConfig;
+
+  constructor(config: OllamaRuntimeConfig) {
+    this.config = config;
+  }
+
+  async prepare(host: ModelRuntimeHost): Promise<PreparedAdapter> {
+    const lifecycle = this.config.lifecycle ?? "external";
+    const commands = unique([
+      ...(nonEmptyText(this.config.command) === undefined
+        ? []
+        : [nonEmptyText(this.config.command) as string]),
+      ...host.localRuntimeCommands.ollama,
+    ]);
+    const configuredBaseURL = nonEmptyText(this.config.baseURL);
+    const baseURL = configuredBaseURL === undefined
+      ? DEFAULT_OLLAMA_BASE_URL
+      : resolveLocalOpenAIBaseURL(configuredBaseURL);
+    const auth = authProfile(undefined, undefined, false);
+    const profile = (models: ModelProfile[]): ProviderProfile =>
+      providerProfile(
+        "Ollama",
+        baseURL,
+        models,
+        this.config.defaultContextWindow,
+        this.config.defaultMaxTokens,
+        auth,
+      );
+    const discover = async (): Promise<ModelProfile[]> =>
+      await discoverOpenAIModels(host, baseURL, undefined);
+
+    let models = await discover();
+    if (models.length > 0) {
+      return {
+        provider: profile(models),
+        dispose: async () => {},
+      };
+    }
+    if (lifecycle === "external") {
+      host.log(
+        "info",
+        "model-runtime: Ollama is unavailable; external lifecycle leaves it untouched",
+      );
+      return { dispose: async () => {} };
+    }
+
+    const address = localServiceAddress(baseURL);
+    const server = await host.start(
+      commands,
+      ["serve"],
+      {
+        OLLAMA_HOST: address.authority,
+      },
+    );
+    if (server === undefined) {
+      host.log(
+        "info",
+        "model-runtime: Ollama CLI is unavailable; skipping auto-start",
+      );
+      return { dispose: async () => {} };
+    }
+    void server.done.catch((error: unknown) => {
+      host.log(
+        "warn",
+        `model-runtime: owned Ollama server exited unexpectedly: ${String(error)}`,
+      );
+    });
+    for (let attempt = 0; attempt < STARTUP_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) await host.sleep(STARTUP_RETRY_DELAY_MS);
+      models = await discover();
+      if (models.length > 0) break;
+    }
+
+    let disposed = false;
+    const stopOwnedServer = async (): Promise<void> => {
+      if (disposed) return;
+      disposed = true;
+      server.terminate();
+      await server.done.catch(() => undefined);
+    };
+    if (models.length === 0) {
+      host.log(
+        "warn",
+        "model-runtime: Ollama did not expose an OpenAI-compatible model after startup",
+      );
+      return {
+        dispose: stopOwnedServer,
+      };
+    }
+    return {
+      provider: profile(models),
+      dispose: stopOwnedServer,
     };
   }
 }
@@ -578,6 +737,9 @@ export async function prepareModelRuntime(
   const adapters: ModelRuntimeAdapter[] = [];
   if (config.lmStudio?.enabled === true) {
     adapters.push(new LmStudioAdapter(config.lmStudio));
+  }
+  if (config.ollama?.enabled === true) {
+    adapters.push(new OllamaAdapter(config.ollama));
   }
   for (const endpoint of config.openAICompatible ?? []) {
     if (endpoint.enabled !== false) {

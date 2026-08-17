@@ -1,0 +1,179 @@
+[data-minke-local-model-settings] {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  margin-right: 4px;
+}
+.minke-local-model-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.minke-local-model-switch__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+.minke-local-model-switch__track {
+  box-sizing: border-box;
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 30px;
+  height: 18px;
+  padding: 2px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 9px;
+  background: var(--dsw-alias-bg-module-platform);
+  transition:
+    border-color 120ms ease-out,
+    background-color 120ms ease-out;
+}
+.minke-local-model-switch__thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary);
+  box-shadow: 0 1px 2px
+    color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
+  transform: translateX(0);
+  transition:
+    background-color 120ms ease-out,
+    transform 120ms ease-out;
+}
+.minke-local-model-switch__input:checked
+  + .minke-local-model-switch__track {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-brand-primary);
+}
+.minke-local-model-switch__input:checked
+  + .minke-local-model-switch__track
+  > .minke-local-model-switch__thumb {
+  background: var(--dsw-alias-label-primary-foreground);
+  transform: translateX(12px);
+}
+.minke-local-model-switch__input:focus-visible
+  + .minke-local-model-switch__track {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+.minke-local-model-switch__input:disabled
+  + .minke-local-model-switch__track,
+.minke-local-model-switch:has(
+  .minke-local-model-switch__input:disabled
+) {
+  cursor: default;
+  opacity: 0.45;
+}
+.minke-local-model-switch__status {
+  max-width: 180px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: right;
+}
+.minke-local-model-switch__status[data-error] {
+  color: var(--dsw-alias-state-error-primary);
+}
+.minke-local-model-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: transparent;
+}
+.minke-local-model-row__identity {
+  display: inline-flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.minke-local-model-row__heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.minke-local-model-row__tag {
+  padding: 1px 6px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+}
+.minke-local-model-row__note {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+.minke-local-model-row__actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+.minke-local-model-row__configure {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+}
+.minke-local-model-row__configure:hover:not(:disabled) {
+  border-color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-module-platform-hover);
+}
+.minke-local-model-row__configure:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+.minke-local-model-row__configure:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+[data-minke-local-model-hidden-field] {
+  display: none !important;
+}
+.minke-local-model-token-hint {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+@media (max-width: 720px) {
+  .minke-local-model-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .minke-local-model-row__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

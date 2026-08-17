@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
+  MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
+  MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
+  parseModelRuntimeSettings,
+  type ModelRuntimeSettings,
+} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+import {
   isProductShortcutActionId,
   parseShortcutBindings,
   SHORTCUT_INVOKE_CHANNEL,
@@ -276,6 +282,20 @@ const terminal = Object.freeze({
   },
 });
 
+const modelRuntime = Object.freeze({
+  async read(): Promise<unknown> {
+    return await ipcRenderer.invoke(
+      MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
+    );
+  },
+  async write(settings: ModelRuntimeSettings): Promise<void> {
+    await ipcRenderer.invoke(
+      MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
+      parseModelRuntimeSettings(settings),
+    );
+  },
+});
+
 const surface = Object.freeze({
   kind: process.platform === "darwin" ? "macos" : "standard",
 });
@@ -299,6 +319,7 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     files,
     locale,
+    modelRuntime,
     sessionLogs,
     tabs,
     terminal,
