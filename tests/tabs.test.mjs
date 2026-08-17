@@ -39,12 +39,18 @@ import {
   TabRendererRegistry,
 } from "@minke/harness-overlay/client/tabs/registry.ts";
 import {
+  TABS_BOTTOM_PANEL_ID,
   TABS_CHROME_HEIGHT,
+  TABS_PANEL_ID,
 } from "@minke/harness-overlay/client/tabs/constants.ts";
 import {
+  clampTabsPanelHeight,
   clampTabsPanelWidth,
   TabsPanelResizeController,
+  TABS_PANEL_DEFAULT_HEIGHT,
+  TABS_PANEL_MAX_HEIGHT,
   TABS_PANEL_MAX_WIDTH,
+  TABS_PANEL_MIN_HEIGHT,
 } from "@minke/harness-overlay/client/tabs/resize.ts";
 import {
   TabsRuntime,
@@ -1486,7 +1492,7 @@ test("Tabs is content-agnostic and preserves hidden tab state", () => {
   tabs.dispose();
 });
 
-test("Session Header uses compact Lucide actions for export and Tabs", () => {
+test("Session Header groups compact Lucide actions for both Tabs placements", () => {
   const sharedActionRule = SESSION_HEADER_ACTION_STYLES.match(
     /\[data-minke-session-log-action\],[\s\S]*?\{([\s\S]*?)\n\}/u,
   )?.[1];
@@ -1507,37 +1513,64 @@ test("Session Header uses compact Lucide actions for export and Tabs", () => {
   assert.doesNotMatch(exportMarkup, />Session log</u);
 
   const hostEvents = [];
-  const tabs = new TabsRuntime({
-    showPanel: () => hostEvents.push("show"),
-    hidePanel: () => hostEvents.push("hide"),
+  const rightTabs = new TabsRuntime({
+    showPanel: () => hostEvents.push("show:right"),
+    hidePanel: () => hostEvents.push("hide:right"),
   });
-  tabs.open({
+  const bottomTabs = new TabsRuntime({
+    showPanel: () => hostEvents.push("show:bottom"),
+    hidePanel: () => hostEvents.push("hide:bottom"),
+  }, {
+    idPrefix: "bottom-",
+  });
+  rightTabs.open({
     kind: "web",
     key: "https://example.com/",
     title: "Example",
     payload: {},
   });
-  tabs.hide();
+  rightTabs.hide();
   const markup = renderToStaticMarkup(
     createElement(TabsHeaderAction, {
-      runtime: tabs,
+      runtimes: {
+        bottom: bottomTabs,
+        right: rightTabs,
+      },
       t: (key) => tabsEn[key],
     }),
   );
-  assert.match(markup, /data-minke-tabs-header-action=""/u);
-  assert.match(markup, /aria-label="Open Tabs sidebar"/u);
-  assert.match(markup, /title="Open Tabs sidebar"/u);
-  assert.match(markup, /aria-controls="minke-tabs-panel"/u);
+  assert.match(markup, /data-minke-tabs-layout-actions=""/u);
+  assert.equal(
+    (markup.match(/data-minke-tabs-header-action=""/gu) ?? [])
+      .length,
+    2,
+  );
+  assert.match(
+    markup,
+    /data-minke-tabs-placement="bottom"[^>]*aria-label="Open Tabs panel at bottom"/u,
+  );
+  assert.match(
+    markup,
+    /data-minke-tabs-placement="right"[^>]*aria-label="Open Tabs panel on right"/u,
+  );
+  assert.match(
+    markup,
+    new RegExp(`aria-controls="${TABS_BOTTOM_PANEL_ID}"`, "u"),
+  );
+  assert.match(
+    markup,
+    new RegExp(`aria-controls="${TABS_PANEL_ID}"`, "u"),
+  );
   assert.match(markup, /aria-expanded="false"/u);
 
-  tabs.show();
-  assert.equal(tabs.getSnapshot().visible, true);
-  assert.equal(hostEvents.at(-1), "show");
-  tabs.toggle();
-  assert.equal(tabs.getSnapshot().visible, false);
-  assert.equal(hostEvents.at(-1), "hide");
-  tabs.toggle();
-  assert.equal(tabs.getSnapshot().visible, true);
+  rightTabs.show();
+  assert.equal(rightTabs.getSnapshot().visible, true);
+  assert.equal(hostEvents.at(-1), "show:right");
+  rightTabs.toggle();
+  assert.equal(rightTabs.getSnapshot().visible, false);
+  assert.equal(hostEvents.at(-1), "hide:right");
+  rightTabs.toggle();
+  assert.equal(rightTabs.getSnapshot().visible, true);
   assert.deepEqual(Object.keys(tabsEn), Object.keys(tabsZh));
   assert.equal(tabsZh["header.sessionLog"], "导出 Session 日志");
 
@@ -1559,26 +1592,68 @@ test("Session Header uses compact Lucide actions for export and Tabs", () => {
     decodeIcon("panel-right"),
     /class="lucide lucide-panel-right"/u,
   );
+  assert.match(
+    decodeIcon("panel-bottom"),
+    /class="lucide lucide-panel-bottom"/u,
+  );
 });
 
-test("Tabs toggle stays operable with no open tabs", () => {
+test("Tabs placement controls keep independent panels open", () => {
   const hostEvents = [];
-  const tabs = new TabsRuntime({
-    showPanel: () => hostEvents.push("show"),
-    hidePanel: () => hostEvents.push("hide"),
+  const rightTabs = new TabsRuntime({
+    showPanel: () => hostEvents.push("show:right"),
+    hidePanel: () => hostEvents.push("hide:right"),
+  });
+  const bottomTabs = new TabsRuntime({
+    showPanel: () => hostEvents.push("show:bottom"),
+    hidePanel: () => hostEvents.push("hide:bottom"),
+  }, {
+    idPrefix: "bottom-",
   });
   const markup = renderToStaticMarkup(
     createElement(TabsHeaderAction, {
-      runtime: tabs,
+      runtimes: {
+        bottom: bottomTabs,
+        right: rightTabs,
+      },
       t: (key) => tabsEn[key],
     }),
   );
 
   assert.doesNotMatch(markup, /\sdisabled(?:=""|(?=\s|>))/u);
   assert.match(markup, /aria-pressed="false"/u);
-  tabs.toggle();
-  assert.equal(tabs.getSnapshot().visible, true);
-  assert.deepEqual(hostEvents, ["show"]);
+  const rightId = rightTabs.open({
+    kind: "files",
+    key: "/workspace",
+    title: "Files",
+    payload: {},
+  });
+  const bottomId = bottomTabs.open({
+    kind: "files",
+    key: "/workspace",
+    title: "Files",
+    payload: {},
+  });
+  assert.equal(rightId, "tab-1");
+  assert.equal(bottomId, "bottom-tab-1");
+  rightTabs.hide();
+  bottomTabs.hide();
+  hostEvents.length = 0;
+  bottomTabs.toggle();
+  assert.equal(bottomTabs.getSnapshot().visible, true);
+  assert.equal(rightTabs.getSnapshot().visible, false);
+  assert.deepEqual(hostEvents, ["show:bottom"]);
+  rightTabs.toggle();
+  assert.equal(bottomTabs.getSnapshot().visible, true);
+  assert.equal(rightTabs.getSnapshot().visible, true);
+  assert.deepEqual(hostEvents, [
+    "show:bottom",
+    "show:right",
+  ]);
+  bottomTabs.toggle();
+  assert.equal(bottomTabs.getSnapshot().visible, false);
+  assert.equal(rightTabs.getSnapshot().visible, true);
+  assert.equal(hostEvents.at(-1), "hide:bottom");
 
   const panelSource = readFileSync(
     new URL(
@@ -1595,7 +1670,10 @@ test("Tabs toggle stays operable with no open tabs", () => {
 
   const newSessionMarkup = renderToStaticMarkup(
     createElement(NewSessionTabsHeaderAction, {
-      runtime: tabs,
+      runtimes: {
+        bottom: bottomTabs,
+        right: rightTabs,
+      },
       useSessions: (selector) =>
         selector({ current: undefined, byId: {} }),
       t: (key) => tabsEn[key],
@@ -1615,7 +1693,7 @@ test("Tabs toggle stays operable with no open tabs", () => {
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /right:\s*calc\(var\(--minke-tabs-panel-width,\s*360px\)\s*\+\s*16px\);/u,
+    /\.minke-tabs-panel\[data-placement="right"\]\[data-open\][\s\S]*?right:\s*calc\(var\(--minke-tabs-panel-width,\s*360px\)\s*\+\s*16px\);/u,
   );
   assert.doesNotMatch(
     SESSION_HEADER_ACTION_STYLES,
@@ -1636,7 +1714,10 @@ test("Tabs toggle stays operable with no open tabs", () => {
 
   const activeSessionMarkup = renderToStaticMarkup(
     createElement(NewSessionTabsHeaderAction, {
-      runtime: tabs,
+      runtimes: {
+        bottom: bottomTabs,
+        right: rightTabs,
+      },
       useSessions: (selector) =>
         selector({
           current: "session-1",
@@ -1646,7 +1727,49 @@ test("Tabs toggle stays operable with no open tabs", () => {
     }),
   );
   assert.equal(activeSessionMarkup, "");
-  tabs.dispose();
+  bottomTabs.dispose();
+  rightTabs.dispose();
+});
+
+test("Tabs bottom placement has independent height and resize affordances", () => {
+  assert.equal(
+    clampTabsPanelHeight(1_000, 900),
+    TABS_PANEL_MAX_HEIGHT,
+  );
+  assert.equal(clampTabsPanelHeight(700, 520), 320);
+  assert.equal(
+    clampTabsPanelHeight(10, 900),
+    TABS_PANEL_MIN_HEIGHT,
+  );
+  assert.equal(TABS_PANEL_DEFAULT_HEIGHT, 320);
+
+  const panelSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/TabsPanel.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    panelSource,
+    /data-placement=\{placement\}/u,
+  );
+  assert.match(panelSource, /event\.clientY/u);
+  assert.match(panelSource, /"ArrowUp"/u);
+  assert.match(panelSource, /placement === "bottom"[\s\S]*?"horizontal"/u);
+
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="bottom"\][\s\S]*?height:\s*var\(--minke-tabs-panel-height\);/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\[data-minke-tabs-bottom-open\][\s\S]*?padding-bottom:\s*var\(--minke-tabs-panel-height\);/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\[data-placement="bottom"\]\s*\.minke-tabs-resize-handle[\s\S]*?cursor:\s*row-resize;/u,
+  );
 });
 
 test("Tabs renderer registry notifies the shell about runtime adapters", () => {
@@ -1944,8 +2067,9 @@ test("Tabs resize stays interactive with and without a host details handle", () 
     style = new FakeStyle();
     tabIndex = -1;
 
-    constructor(width = 0) {
+    constructor(width = 0, height = 0) {
       this.width = width;
+      this.height = height;
     }
 
     addEventListener(type, listener) {
@@ -1957,7 +2081,7 @@ test("Tabs resize stays interactive with and without a host details handle", () 
     }
 
     getBoundingClientRect() {
-      return { width: this.width };
+      return { width: this.width, height: this.height };
     }
 
     setAttribute(name, value) {
@@ -1990,6 +2114,10 @@ test("Tabs resize stays interactive with and without a host details handle", () 
   let restoredZIndex = "";
   let overlayPanelWidth = "";
   let overlayHandleTabIndex = -1;
+  let bottomPanelHeight = "";
+  let bottomPanelLeft = "";
+  let bottomFrameReserved = false;
+  let bottomHandleTabIndex = -1;
   try {
     const handle = new FakeElement();
     const nativeHandle = new FakeElement();
@@ -2075,6 +2203,56 @@ test("Tabs resize stays interactive with and without a host details handle", () 
         "--minke-tabs-panel-width",
       );
     overlayResize.dispose();
+
+    const bottomHandle = new FakeElement();
+    const bottomSidebar = new FakeElement(240, 800);
+    const bottomFrame = new FakeElement(1200, 800);
+    bottomFrame.children.push(bottomSidebar);
+    const bottomOverlay = new FakeElement();
+    bottomOverlay.parentElement = bottomFrame;
+    const bottomPanel = new FakeElement();
+    bottomPanel.dataset.placement = "bottom";
+    bottomPanel.setAttribute("data-open", "");
+    bottomPanel.parentElement = bottomOverlay;
+    bottomPanel.closest = (selector) =>
+      selector === "[data-shell-overlay]"
+        ? bottomOverlay
+        : undefined;
+    bottomPanel.querySelector = (selector) =>
+      selector === ".minke-tabs-resize-handle"
+        ? bottomHandle
+        : undefined;
+    bottomPanel.ownerDocument = {
+      defaultView: {
+        ResizeObserver: FakeObserver,
+        MutationObserver: FakeObserver,
+        addEventListener() {},
+        removeEventListener() {},
+        innerHeight: 800,
+      },
+      querySelector: () => undefined,
+    };
+
+    const bottomResize =
+      new TabsPanelResizeController(bottomPanel);
+    bottomResize.beginDrag(480);
+    bottomResize.moveDrag(420);
+    bottomResize.endDrag();
+    bottomPanelHeight = bottomPanel.style.getPropertyValue(
+      "--minke-tabs-panel-height",
+    );
+    bottomPanelLeft = bottomPanel.style.getPropertyValue(
+      "--minke-tabs-panel-left",
+    );
+    bottomFrameReserved = bottomFrame.hasAttribute(
+      "data-minke-tabs-bottom-open",
+    );
+    bottomHandleTabIndex = bottomHandle.tabIndex;
+    bottomResize.dispose();
+    assert.equal(
+      bottomFrame.hasAttribute("data-minke-tabs-bottom-open"),
+      false,
+    );
   } finally {
     if (previousHTMLElement === undefined) {
       delete globalThis.HTMLElement;
@@ -2088,6 +2266,10 @@ test("Tabs resize stays interactive with and without a host details handle", () 
   assert.equal(restoredZIndex, "");
   assert.equal(overlayHandleTabIndex, 0);
   assert.equal(overlayPanelWidth, "420px");
+  assert.equal(bottomPanelHeight, "380px");
+  assert.equal(bottomPanelLeft, "240px");
+  assert.equal(bottomFrameReserved, true);
+  assert.equal(bottomHandleTabIndex, 0);
 });
 
 test("Web tab controls delegate to their attached webview", () => {

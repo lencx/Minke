@@ -5,6 +5,10 @@ export const TABS_DETAILS_TRACK_MAX_WIDTH = 520;
 /** Tabs may continue over the conversation after the details track tops out. */
 export const TABS_PANEL_MAX_WIDTH = 760;
 export const TABS_PANEL_MIN_REMAINDER = 320;
+export const TABS_PANEL_MIN_HEIGHT = 180;
+export const TABS_PANEL_DEFAULT_HEIGHT = 320;
+export const TABS_PANEL_MAX_HEIGHT = 640;
+export const TABS_PANEL_MIN_VERTICAL_REMAINDER = 200;
 
 export function clampTabsPanelWidth(
   requested: number,
@@ -24,9 +28,32 @@ export function clampTabsPanelWidth(
   );
 }
 
+export function clampTabsPanelHeight(
+  requested: number,
+  viewport: number,
+): number {
+  const viewportMaximum = Math.max(
+    TABS_PANEL_MIN_HEIGHT,
+    Math.round(viewport) - TABS_PANEL_MIN_VERTICAL_REMAINDER,
+  );
+  const maximum = Math.min(
+    TABS_PANEL_MAX_HEIGHT,
+    viewportMaximum,
+  );
+  return Math.min(
+    maximum,
+    Math.max(TABS_PANEL_MIN_HEIGHT, Math.round(requested)),
+  );
+}
+
 interface DragOrigin {
   readonly x: number;
   readonly width: number;
+}
+
+interface PanelDragOrigin {
+  readonly position: number;
+  readonly size: number;
 }
 
 interface InlineStyleSnapshot {
@@ -60,6 +87,13 @@ function frameFor(
   return overlay?.parentElement ?? undefined;
 }
 
+function sidebarColumnFor(
+  frame: HTMLElement | undefined,
+): HTMLElement | undefined {
+  const first = Array.from(frame?.children ?? [])[0];
+  return first instanceof HTMLElement ? first : undefined;
+}
+
 /**
  * Extends the host details drag seamlessly beyond its 520px reflow limit.
  * The host retains ownership of 300–520px; the Tabs surface overlays the
@@ -70,6 +104,7 @@ export class TabsPanelResizeController {
   readonly #overlay: HTMLElement | undefined;
   readonly #detailsColumn: HTMLElement | undefined;
   readonly #frame: HTMLElement | undefined;
+  readonly #sidebarColumn: HTMLElement | undefined;
   readonly #view: TabsPanelView | null;
   readonly #observer: ResizeObserver | undefined;
   readonly #mutationObserver: MutationObserver | undefined;
@@ -79,6 +114,8 @@ export class TabsPanelResizeController {
   #nativeOrigin: DragOrigin | undefined;
   #extendedOrigin: DragOrigin | undefined;
   #extendedWidth: number | undefined;
+  #bottomOrigin: PanelDragOrigin | undefined;
+  #bottomHeight = TABS_PANEL_DEFAULT_HEIGHT;
 
   constructor(panel: HTMLDivElement) {
     this.#panel = panel;
@@ -87,6 +124,7 @@ export class TabsPanelResizeController {
       undefined;
     this.#detailsColumn = detailsColumnFor(panel);
     this.#frame = frameFor(panel);
+    this.#sidebarColumn = sidebarColumnFor(this.#frame);
     this.#view =
       panel.ownerDocument.defaultView as TabsPanelView | null;
 
@@ -101,18 +139,69 @@ export class TabsPanelResizeController {
       if (this.#detailsColumn !== undefined) {
         observer.observe(this.#detailsColumn);
       }
+      if (this.#sidebarColumn !== undefined) {
+        observer.observe(this.#sidebarColumn);
+      }
       observer.observe(this.#frame);
-      const mutationObserver = new this.#view.MutationObserver(
-        this.#bindNativeHandle,
-      );
-      this.#mutationObserver = mutationObserver;
-      mutationObserver.observe(this.#frame, {
-        childList: true,
-      });
+      if (!this.#isBottom()) {
+        const mutationObserver =
+          new this.#view.MutationObserver(
+            this.#bindNativeHandle,
+          );
+        this.#mutationObserver = mutationObserver;
+        mutationObserver.observe(this.#frame, {
+          childList: true,
+        });
+      }
       this.#view.addEventListener("resize", this.#reconcile);
-      this.#bindNativeHandle();
+      if (!this.#isBottom()) {
+        this.#bindNativeHandle();
+      }
     }
     this.#reconcile();
+  }
+
+  beginDrag(position: number): void {
+    if (this.#isBottom()) {
+      this.#bottomOrigin = {
+        position,
+        size: this.#bottomHeight,
+      };
+      this.#panel.toggleAttribute("data-resizing", true);
+      this.#reconcile();
+      return;
+    }
+    this.beginExtendedDrag(position);
+  }
+
+  moveDrag(position: number): void {
+    if (this.#isBottom()) {
+      const origin = this.#bottomOrigin;
+      if (origin === undefined) return;
+      this.#setBottomHeight(
+        origin.size - (position - origin.position),
+      );
+      return;
+    }
+    this.moveExtendedDrag(position);
+  }
+
+  endDrag(): void {
+    if (this.#isBottom()) {
+      this.#bottomOrigin = undefined;
+      this.#panel.removeAttribute("data-resizing");
+      this.#reconcile();
+      return;
+    }
+    this.endExtendedDrag();
+  }
+
+  adjustSize(delta: number): void {
+    if (this.#isBottom()) {
+      this.#setBottomHeight(this.#bottomHeight + delta);
+      return;
+    }
+    this.adjustExtendedWidth(delta);
   }
 
   beginExtendedDrag(clientX: number): void {
@@ -156,12 +245,39 @@ export class TabsPanelResizeController {
       "resize",
       this.#reconcile,
     );
-    this.#panel.style.removeProperty(
-      "--minke-tabs-panel-width",
-    );
-    this.#overlay?.style.removeProperty(
-      "--minke-tabs-panel-width",
-    );
+    if (this.#isBottom()) {
+      this.#panel.style.removeProperty(
+        "--minke-tabs-panel-height",
+      );
+      this.#panel.style.removeProperty(
+        "--minke-tabs-panel-left",
+      );
+      this.#overlay?.style.removeProperty(
+        "--minke-tabs-panel-height",
+      );
+      this.#overlay?.style.removeProperty(
+        "--minke-tabs-panel-left",
+      );
+      this.#frame?.style.removeProperty(
+        "--minke-tabs-panel-height",
+      );
+      this.#frame?.removeAttribute(
+        "data-minke-tabs-bottom-open",
+      );
+      this.#frame?.removeAttribute(
+        "data-minke-tabs-bottom-resizing",
+      );
+    } else {
+      this.#panel.style.removeProperty(
+        "--minke-tabs-panel-width",
+      );
+      this.#overlay?.style.removeProperty(
+        "--minke-tabs-panel-width",
+      );
+      this.#frame?.removeAttribute(
+        "data-minke-tabs-right-open",
+      );
+    }
     this.#panel.removeAttribute("data-extended");
     this.#panel.removeAttribute("data-overlay");
     this.#panel.removeAttribute("data-resizing");
@@ -236,6 +352,7 @@ export class TabsPanelResizeController {
     if (handle === undefined || previous === undefined) return;
     const active =
       this.#panel.hasAttribute("data-open") &&
+      !this.#isBottom() &&
       !this.#panel.hasAttribute("data-extended");
     if (active) {
       handle.style.setProperty(
@@ -248,6 +365,7 @@ export class TabsPanelResizeController {
   }
 
   readonly #onNativeDown = (event: PointerEvent): void => {
+    if (this.#isBottom()) return;
     const measured = this.#measuredTrackWidth();
     this.#nativeOrigin = {
       x: event.clientX,
@@ -297,6 +415,14 @@ export class TabsPanelResizeController {
     this.#reconcile();
   }
 
+  #setBottomHeight(requested: number): void {
+    this.#bottomHeight = clampTabsPanelHeight(
+      requested,
+      this.#viewportHeight(),
+    );
+    this.#reconcile();
+  }
+
   #measuredTrackWidth(): number {
     const measured = Math.round(
       this.#detailsColumn?.getBoundingClientRect().width ?? 0,
@@ -320,7 +446,23 @@ export class TabsPanelResizeController {
       : this.#view?.innerWidth ?? TABS_PANEL_DEFAULT_WIDTH;
   }
 
+  #viewportHeight(): number {
+    const measured =
+      this.#frame?.getBoundingClientRect().height ?? 0;
+    return measured > 0
+      ? measured
+      : this.#view?.innerHeight ?? TABS_PANEL_DEFAULT_HEIGHT;
+  }
+
+  #isBottom(): boolean {
+    return this.#panel.dataset.placement === "bottom";
+  }
+
   readonly #reconcile = (): void => {
+    if (this.#isBottom()) {
+      this.#reconcileBottom();
+      return;
+    }
     const measured = this.#measuredTrackWidth();
     if (this.#extendedWidth !== undefined) {
       const clamped = clampTabsPanelWidth(
@@ -355,6 +497,10 @@ export class TabsPanelResizeController {
         measured < TABS_PANEL_MIN_WIDTH ||
         extended,
     );
+    this.#frame?.toggleAttribute(
+      "data-minke-tabs-right-open",
+      this.#panel.hasAttribute("data-open"),
+    );
 
     const handle = this.#panel.querySelector<HTMLElement>(
       ".minke-tabs-resize-handle",
@@ -384,4 +530,74 @@ export class TabsPanelResizeController {
     );
     handle.setAttribute("aria-valuenow", String(width));
   };
+
+  #reconcileBottom(): void {
+    this.#bottomHeight = clampTabsPanelHeight(
+      this.#bottomHeight,
+      this.#viewportHeight(),
+    );
+    const height = `${this.#bottomHeight}px`;
+    const left = `${Math.max(
+      0,
+      Math.round(
+        this.#sidebarColumn?.getBoundingClientRect().width ?? 0,
+      ),
+    )}px`;
+    this.#panel.style.setProperty(
+      "--minke-tabs-panel-height",
+      height,
+    );
+    this.#panel.style.setProperty(
+      "--minke-tabs-panel-left",
+      left,
+    );
+    this.#overlay?.style.setProperty(
+      "--minke-tabs-panel-height",
+      height,
+    );
+    this.#overlay?.style.setProperty(
+      "--minke-tabs-panel-left",
+      left,
+    );
+    this.#frame?.style.setProperty(
+      "--minke-tabs-panel-height",
+      height,
+    );
+    this.#panel.removeAttribute("data-extended");
+    this.#panel.removeAttribute("data-overlay");
+    this.#syncNativeHandleStacking();
+
+    const open = this.#panel.hasAttribute("data-open");
+    this.#frame?.toggleAttribute(
+      "data-minke-tabs-bottom-open",
+      open,
+    );
+    this.#frame?.toggleAttribute(
+      "data-minke-tabs-bottom-resizing",
+      open && this.#panel.hasAttribute("data-resizing"),
+    );
+
+    const handle = this.#panel.querySelector<HTMLElement>(
+      ".minke-tabs-resize-handle",
+    );
+    if (handle === null) return;
+    handle.tabIndex = open ? 0 : -1;
+    handle.setAttribute(
+      "aria-valuemin",
+      String(TABS_PANEL_MIN_HEIGHT),
+    );
+    handle.setAttribute(
+      "aria-valuemax",
+      String(
+        clampTabsPanelHeight(
+          TABS_PANEL_MAX_HEIGHT,
+          this.#viewportHeight(),
+        ),
+      ),
+    );
+    handle.setAttribute(
+      "aria-valuenow",
+      String(this.#bottomHeight),
+    );
+  }
 }

@@ -100,6 +100,11 @@ interface LocaleService extends LocaleRevisionSource {
   subscribe(listener: () => void): () => void;
 }
 
+type TabsRuntimes = Readonly<{
+  bottom: TabsRuntime;
+  right: TabsRuntime;
+}>;
+
 interface SlotService {
   inject(name: string, callback: () => unknown): void;
   register(
@@ -147,7 +152,7 @@ interface SlotService {
       order: number;
       locale: string;
       inject: () => {
-        runtime: TabsRuntime;
+        runtimes: TabsRuntimes;
       };
     },
     component: ComponentType<never>,
@@ -155,10 +160,11 @@ interface SlotService {
   register(
     options: {
       name: "shell.overlay";
-      id: "minke-tabs";
+      id: "minke-tabs-right" | "minke-tabs-bottom";
       order: number;
       locale: string;
       inject: () => {
+        placement: "right" | "bottom";
         runtime: TabsRuntime;
         renderers: TabRendererRegistry;
       };
@@ -173,7 +179,7 @@ interface SlotService {
       priority?: number;
       locale: string;
       inject: () => {
-        runtime: TabsRuntime;
+        runtimes: TabsRuntimes;
       } | {
         exportSession(sessionId: string): Promise<void>;
       };
@@ -265,7 +271,7 @@ export function apply(ctx: HarnessClientContext): void {
   const terminalSettings = new TerminalSettingsRuntime(
     terminalSettingsStore,
   );
-  let tabsRuntime: TabsRuntime | undefined;
+  let tabsRuntimes: TabsRuntimes | undefined;
   const sessionLogsPort = desktopSessionLogsPort();
   const filesT = ctx.locale.bind<FilesTabsLocaleKey>(
     FILES_TABS_NAMESPACE,
@@ -391,63 +397,92 @@ export function apply(ctx: HarnessClientContext): void {
         "minke-overlay: Terminal tab styles",
       );
     }
-    const tabs = new TabsRuntime({
+    const rightTabs = new TabsRuntime({
       showPanel: () => ctx.layout.openDetails(),
       hidePanel: () => ctx.layout.closeDetails(),
     });
-    tabsRuntime = tabs;
-    const renderers = new TabRendererRegistry();
-    const webTabs = new WebTabsController(tabs, tabsPort);
-    const filesTabs = filesPort.available
-      ? new FilesTabsController(tabs, filesPort)
-      : undefined;
-    const terminalTabs = terminalPort.available
-      ? new TerminalTabsController(tabs, terminalPort)
-      : undefined;
+    const bottomTabs = new TabsRuntime({
+      showPanel() {},
+      hidePanel() {},
+    }, {
+      idPrefix: "bottom-",
+    });
+    const runtimes = Object.freeze({
+      bottom: bottomTabs,
+      right: rightTabs,
+    });
+    tabsRuntimes = runtimes;
     const webT = ctx.locale.bind<WebTabsLocaleKey>(
       WEB_TABS_NAMESPACE,
     ) as WebTabsTranslate;
-    ctx.effect(
-      () => () => {
-        terminalTabs?.dispose();
-        filesTabs?.dispose();
-        webTabs.dispose();
-        renderers.clear();
-        tabs.dispose();
-      },
-      "minke-overlay: tabs runtime",
-    );
-    if (filesTabs !== undefined) {
+
+    const createTabsWorkspace = (
+      tabs: TabsRuntime,
+      placement: "bottom" | "right",
+    ) => {
+      const renderers = new TabRendererRegistry();
+      const webTabs = new WebTabsController(tabs, tabsPort);
+      const filesTabs = filesPort.available
+        ? new FilesTabsController(tabs, filesPort)
+        : undefined;
+      const terminalTabs = terminalPort.available
+        ? new TerminalTabsController(tabs, terminalPort)
+        : undefined;
       ctx.effect(
-        () =>
-          renderers.register(
-            createFilesTabRenderer(filesTabs, filesT),
-          ),
-        "minke-overlay: Files tab renderer",
+        () => () => {
+          terminalTabs?.dispose();
+          filesTabs?.dispose();
+          webTabs.dispose();
+          renderers.clear();
+          tabs.dispose();
+        },
+        `minke-overlay: ${placement} tabs runtime`,
       );
-    }
-    if (terminalTabs !== undefined) {
-      ctx.effect(
-        () =>
-          renderers.register(
-            createTerminalTabRenderer(
-              terminalTabs,
-              terminalSettings,
-              terminalT,
+      if (filesTabs !== undefined) {
+        ctx.effect(
+          () =>
+            renderers.register(
+              createFilesTabRenderer(filesTabs, filesT),
             ),
+          `minke-overlay: ${placement} Files tab renderer`,
+        );
+      }
+      if (terminalTabs !== undefined) {
+        ctx.effect(
+          () =>
+            renderers.register(
+              createTerminalTabRenderer(
+                terminalTabs,
+                terminalSettings,
+                terminalT,
+              ),
+            ),
+          `minke-overlay: ${placement} Terminal tab renderer`,
+        );
+      }
+      ctx.effect(
+        () =>
+          renderers.register(
+            createWebTabRenderer(webTabs, webT),
           ),
-        "minke-overlay: Terminal tab renderer",
+        `minke-overlay: ${placement} Web tab renderer`,
       );
-    }
-    ctx.effect(
-      () =>
-        renderers.register(
-          createWebTabRenderer(webTabs, webT),
-        ),
-      "minke-overlay: Web tab renderer",
+      return Object.freeze({
+        renderers,
+        webTabs,
+      });
+    };
+
+    const rightWorkspace = createTabsWorkspace(
+      rightTabs,
+      "right",
+    );
+    const bottomWorkspace = createTabsWorkspace(
+      bottomTabs,
+      "bottom",
     );
     ctx.effect(
-      () => installWebLinkTabs(webTabs),
+      () => installWebLinkTabs(rightWorkspace.webTabs),
       "minke-overlay: Web link tabs",
     );
     ctx.slots.inject("shell.overlay", () =>
@@ -457,7 +492,7 @@ export function apply(ctx: HarnessClientContext): void {
           id: "minke-tabs-new-session-toggle",
           order: 10,
           locale: TABS_NAMESPACE,
-          inject: () => ({ runtime: tabs }),
+          inject: () => ({ runtimes }),
         },
         NewSessionTabsHeaderAction as ComponentType<never>,
       ),
@@ -466,10 +501,30 @@ export function apply(ctx: HarnessClientContext): void {
       ctx.slots.register(
         {
           name: "shell.overlay",
-          id: "minke-tabs",
+          id: "minke-tabs-right",
           order: 20,
           locale: TABS_NAMESPACE,
-          inject: () => ({ runtime: tabs, renderers }),
+          inject: () => ({
+            placement: "right" as const,
+            runtime: rightTabs,
+            renderers: rightWorkspace.renderers,
+          }),
+        },
+        TabsPanel as ComponentType<never>,
+      ),
+    );
+    ctx.slots.inject("shell.overlay", () =>
+      ctx.slots.register(
+        {
+          name: "shell.overlay",
+          id: "minke-tabs-bottom",
+          order: 21,
+          locale: TABS_NAMESPACE,
+          inject: () => ({
+            placement: "bottom" as const,
+            runtime: bottomTabs,
+            renderers: bottomWorkspace.renderers,
+          }),
         },
         TabsPanel as ComponentType<never>,
       ),
@@ -483,7 +538,7 @@ export function apply(ctx: HarnessClientContext): void {
             id: "minke-tabs-toggle",
             order: 10,
             locale: TABS_NAMESPACE,
-            inject: () => ({ runtime: tabs }),
+            inject: () => ({ runtimes }),
           },
           TabsHeaderAction as ComponentType<never>,
         ),
@@ -566,8 +621,7 @@ export function apply(ctx: HarnessClientContext): void {
       }),
     "minke-overlay: Toggle Sidebar shortcut",
   );
-  if (tabsRuntime !== undefined) {
-    const tabs = tabsRuntime;
+  if (tabsRuntimes !== undefined) {
     ctx.effect(
       () =>
         runtime.register({
@@ -576,7 +630,7 @@ export function apply(ctx: HarnessClientContext): void {
           defaultBinding: DEFAULT_SHORTCUT_BINDINGS["tabs.toggle"],
           order: 30,
           run: () => {
-            tabs.toggle();
+            tabsRuntimes.right.toggle();
           },
         }),
       "minke-overlay: Toggle Right Sidebar shortcut",

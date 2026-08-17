@@ -28,13 +28,19 @@ function frozenSnapshot(
  */
 export class TabsRuntime {
   readonly #host: TabsHost;
+  readonly #idPrefix: string;
   readonly #listeners = new Set<() => void>();
   #snapshot = frozenSnapshot([], undefined, false);
   #nextId = 0;
   #disposed = false;
 
-  constructor(host: TabsHost) {
+  constructor(
+    host: TabsHost,
+    options: { idPrefix?: string } = {},
+  ) {
     this.#host = host;
+    this.#idPrefix =
+      options.idPrefix?.replace(/[^a-z0-9-]/gu, "") ?? "";
   }
 
   readonly getSnapshot = (): TabsSnapshot => this.#snapshot;
@@ -73,7 +79,7 @@ export class TabsRuntime {
       return existing.id;
     }
 
-    const id = `tab-${++this.#nextId}`;
+    const id = `${this.#idPrefix}tab-${++this.#nextId}`;
     const tab: ManagedTab<Payload> = {
       id,
       kind: input.kind,

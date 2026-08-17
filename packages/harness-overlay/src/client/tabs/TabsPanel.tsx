@@ -15,7 +15,10 @@ import {
 import {
   ToolbarButton,
 } from "./components/ToolbarButton.tsx";
-import { TABS_PANEL_ID } from "./constants.ts";
+import {
+  tabsPanelId,
+  type TabsPanelPlacement,
+} from "./constants.ts";
 import type {
   TabsTranslate,
 } from "./locales.ts";
@@ -48,6 +51,7 @@ interface DropTarget {
 }
 
 export interface TabsPanelProps {
+  placement: TabsPanelPlacement;
   runtime: TabsRuntime;
   renderers: TabRendererRegistry;
   useSessions: <T>(
@@ -81,8 +85,9 @@ function UnsupportedTabView(props: {
   );
 }
 
-/** Generic right-side tab shell; content behavior arrives through renderers. */
+/** Generic dockable tab shell; content behavior arrives through renderers. */
 export function TabsPanel({
+  placement,
   runtime,
   renderers,
   useSessions,
@@ -189,7 +194,11 @@ export function TabsPanel({
   useEffect(() => {
     const panel = panelRef.current;
     const wasVisible = wasVisibleRef.current;
-    if (snapshot.visible && !wasVisible && panel !== null) {
+    if (
+      snapshot.visible &&
+      !wasVisible &&
+      panel !== null
+    ) {
       const focused = panel.ownerDocument.activeElement;
       if (
         focused instanceof HTMLElement &&
@@ -308,15 +317,16 @@ export function TabsPanel({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    resizeRef.current?.endExtendedDrag();
+    resizeRef.current?.endDrag();
   };
 
   return (
     <aside
-      id={TABS_PANEL_ID}
+      id={tabsPanelId(placement)}
       ref={panelRef}
       className="minke-tabs-panel"
       data-minke-tabs
+      data-placement={placement}
       data-open={snapshot.visible || undefined}
       aria-label={t("panel.label")}
       aria-hidden={!snapshot.visible}
@@ -337,12 +347,24 @@ export function TabsPanel({
       <div
         className="minke-tabs-resize-handle"
         role="separator"
-        aria-label={t("panel.resize")}
-        aria-orientation="vertical"
+        aria-label={t(
+          placement === "bottom"
+            ? "panel.resizeBottom"
+            : "panel.resizeRight",
+        )}
+        aria-orientation={
+          placement === "bottom"
+            ? "horizontal"
+            : "vertical"
+        }
         onPointerDown={(event) => {
           event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);
-          resizeRef.current?.beginExtendedDrag(event.clientX);
+          resizeRef.current?.beginDrag(
+            placement === "bottom"
+              ? event.clientY
+              : event.clientX,
+          );
         }}
         onPointerMove={(event) => {
           if (
@@ -350,21 +372,26 @@ export function TabsPanel({
           ) {
             return;
           }
-          resizeRef.current?.moveExtendedDrag(event.clientX);
+          resizeRef.current?.moveDrag(
+            placement === "bottom"
+              ? event.clientY
+              : event.clientX,
+          );
         }}
         onPointerUp={releaseResize}
         onPointerCancel={releaseResize}
         onKeyDown={(event) => {
+          const bottom = placement === "bottom";
+          const decreaseKey = bottom ? "ArrowDown" : "ArrowRight";
+          const increaseKey = bottom ? "ArrowUp" : "ArrowLeft";
           if (
-            event.key !== "ArrowLeft" &&
-            event.key !== "ArrowRight"
-          ) {
-            return;
-          }
+            event.key !== decreaseKey &&
+            event.key !== increaseKey
+          ) return;
           event.preventDefault();
           const step = event.shiftKey ? 32 : 16;
-          resizeRef.current?.adjustExtendedWidth(
-            event.key === "ArrowLeft" ? step : -step,
+          resizeRef.current?.adjustSize(
+            event.key === increaseKey ? step : -step,
           );
         }}
       />

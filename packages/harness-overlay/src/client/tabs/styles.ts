@@ -6,6 +6,8 @@ import {
 export const TABS_STYLES = `
 .minke-tabs-panel {
   --minke-tabs-panel-width: 360px;
+  --minke-tabs-panel-height: 320px;
+  --minke-tabs-panel-left: 0px;
   --minke-tabs-chrome-height: ${TABS_CHROME_HEIGHT}px;
   --minke-tabs-primary-top: 8px;
   --minke-tabs-primary-height: 32px;
@@ -14,22 +16,14 @@ export const TABS_STYLES = `
   --minke-tabs-control-radius: 9px;
   --minke-tabs-secondary-control-offset-y: -4px;
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
   display: flex;
-  width: var(--minke-tabs-panel-width);
-  min-width: 300px;
-  max-width: min(760px, calc(100% - 320px));
   flex-direction: column;
   overflow: visible;
   box-sizing: border-box;
-  border-left: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
   opacity: 0;
   pointer-events: none;
-  transform: translateX(24px);
   visibility: hidden;
   transition:
     opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out),
@@ -39,10 +33,40 @@ export const TABS_STYLES = `
   app-region: no-drag;
 }
 
+.minke-tabs-panel[data-placement="right"] {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--minke-tabs-panel-width);
+  min-width: 300px;
+  max-width: min(760px, calc(100% - 320px));
+  border-left: 1px solid var(--dsw-alias-border-l2);
+  transform: translateX(24px);
+}
+
+.minke-tabs-panel[data-placement="bottom"] {
+  right: 0;
+  bottom: 0;
+  left: var(--minke-tabs-panel-left);
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  height: var(--minke-tabs-panel-height);
+  min-height: 180px;
+  max-height: min(640px, calc(100% - 200px));
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  transform: translateY(24px);
+}
+
+[data-minke-tabs-right-open]
+  .minke-tabs-panel[data-placement="bottom"] {
+  right: var(--minke-tabs-panel-width);
+}
+
 .minke-tabs-panel[data-open] {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(0);
+  transform: translate(0);
   visibility: visible;
   transition:
     opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out),
@@ -50,36 +74,65 @@ export const TABS_STYLES = `
     visibility 0s;
 }
 
-.minke-tabs-panel[data-overlay] {
+.minke-tabs-panel[data-placement="right"][data-overlay] {
   box-shadow: -18px 0 40px -28px rgba(0, 0, 0, 0.52);
+}
+
+[data-minke-tabs-bottom-open]
+  > :has([data-slot="conversation"]) {
+  box-sizing: border-box;
+  padding-bottom: var(--minke-tabs-panel-height);
+  transition:
+    padding-bottom var(--ds-transition-duration-slow)
+    var(--ds-ease-in-out);
+}
+
+[data-minke-tabs-bottom-resizing]
+  > :has([data-slot="conversation"]) {
+  transition: none;
 }
 
 .minke-tabs-resize-handle {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -5px;
   z-index: 4;
-  width: 10px;
-  cursor: col-resize;
   opacity: 0;
   outline: none;
   pointer-events: none;
   touch-action: none;
 }
 
-.minke-tabs-panel[data-extended] .minke-tabs-resize-handle,
-.minke-tabs-panel[data-overlay] .minke-tabs-resize-handle {
+.minke-tabs-panel[data-placement="right"]
+  .minke-tabs-resize-handle {
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 10px;
+  cursor: col-resize;
+}
+
+.minke-tabs-panel[data-placement="right"][data-extended]
+  .minke-tabs-resize-handle,
+.minke-tabs-panel[data-placement="right"][data-overlay]
+  .minke-tabs-resize-handle,
+.minke-tabs-panel[data-placement="bottom"][data-open]
+  .minke-tabs-resize-handle {
   opacity: 1;
   pointer-events: auto;
+}
+
+.minke-tabs-panel[data-placement="bottom"]
+  .minke-tabs-resize-handle {
+  top: -5px;
+  right: 0;
+  left: 0;
+  height: 10px;
+  cursor: row-resize;
 }
 
 .minke-tabs-resize-handle::after {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 3px;
-  height: 32px;
   border-radius: 999px;
   background: var(--dsw-alias-border-l3);
   content: "";
@@ -87,6 +140,18 @@ export const TABS_STYLES = `
   transform: translate(-50%, -50%);
   transition: opacity var(--ds-transition-duration-slow)
     var(--ds-ease-in-out);
+}
+
+.minke-tabs-panel[data-placement="right"]
+  .minke-tabs-resize-handle::after {
+  width: 3px;
+  height: 32px;
+}
+
+.minke-tabs-panel[data-placement="bottom"]
+  .minke-tabs-resize-handle::after {
+  width: 32px;
+  height: 3px;
 }
 
 .minke-tabs-resize-handle:hover::after,
@@ -558,6 +623,11 @@ export const TABS_STYLES = `
 
 @media (prefers-reduced-motion: reduce) {
   .minke-tabs-panel {
+    transition: none;
+  }
+
+  [data-minke-tabs-bottom-open]
+    > :has([data-slot="conversation"]) {
     transition: none;
   }
 

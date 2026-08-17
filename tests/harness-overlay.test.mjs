@@ -162,8 +162,14 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.match(bundle, /minke-overlay: shortcut navigation icon/u);
   assert.match(bundle, /data-minke-shortcuts-nav/u);
   assert.doesNotMatch(bundle, /IconKeyboardOutline16/u);
-  assert.match(bundle, /minke-overlay: tabs runtime/u);
-  assert.match(bundle, /minke-overlay: Files tab renderer/u);
+  assert.match(
+    bundle,
+    /minke-overlay: \$\{placement\} tabs runtime/u,
+  );
+  assert.match(
+    bundle,
+    /minke-overlay: \$\{placement\} Files tab renderer/u,
+  );
   assert.match(bundle, /minke-files-row/u);
   assert.match(bundle, /minke-files-tree/u);
   assert.match(bundle, /minke-files-preview/u);
@@ -177,10 +183,16 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.match(bundle, /codemirror/u);
   assert.match(bundle, /minke-vscode-file-icon/u);
   assert.match(bundle, /file-type-rust/u);
-  assert.match(bundle, /minke-overlay: Terminal tab renderer/u);
+  assert.match(
+    bundle,
+    /minke-overlay: \$\{placement\} Terminal tab renderer/u,
+  );
   assert.match(bundle, /minke-overlay: Terminal settings runtime/u);
   assert.match(bundle, /minke-terminal/u);
-  assert.match(bundle, /minke-overlay: Web tab renderer/u);
+  assert.match(
+    bundle,
+    /minke-overlay: \$\{placement\} Web tab renderer/u,
+  );
   assert.match(bundle, /minke-overlay: Web link tabs/u);
   assert.match(bundle, /minke-overlay: session header action styles/u);
   assert.match(bundle, /minke-tabs-toggle/u);
@@ -210,7 +222,7 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     clientSource,
-    /name:\s*"shell\.overlay"[\s\S]*id:\s*"minke-tabs"/u,
+    /name:\s*"shell\.overlay"[\s\S]*id:\s*"minke-tabs-right"[\s\S]*id:\s*"minke-tabs-bottom"/u,
   );
   assert.match(
     clientSource,
@@ -271,10 +283,29 @@ test("Mod+S toggles the upstream sidebar through the public layout service", () 
 test("Mod+P toggles the resident right sidebar through Tabs runtime", () => {
   assert.match(
     clientSource,
-    /id:\s*"tabs\.toggle"[\s\S]*defaultBinding:\s*DEFAULT_SHORTCUT_BINDINGS\["tabs\.toggle"\][\s\S]*tabs\.toggle\(\)/u,
+    /id:\s*"tabs\.toggle"[\s\S]*defaultBinding:\s*DEFAULT_SHORTCUT_BINDINGS\["tabs\.toggle"\][\s\S]*tabsRuntimes\.right\.toggle\(\)/u,
   );
   assert.match(bundle, /tabs\.toggle/u);
   assert.match(bundle, /Mod\+P/u);
+});
+
+test("right and bottom panels own separate Tabs workspaces", () => {
+  assert.match(
+    clientSource,
+    /const rightTabs = new TabsRuntime\([\s\S]*const bottomTabs = new TabsRuntime\(/u,
+  );
+  assert.match(
+    clientSource,
+    /const bottomTabs = new TabsRuntime\([\s\S]*idPrefix:\s*"bottom-"/u,
+  );
+  assert.match(
+    clientSource,
+    /createTabsWorkspace\(\s*rightTabs,\s*"right",?\s*\)[\s\S]*createTabsWorkspace\(\s*bottomTabs,\s*"bottom",?\s*\)/u,
+  );
+  assert.match(
+    clientSource,
+    /id:\s*"minke-tabs-right"[\s\S]*placement:\s*"right"[\s\S]*id:\s*"minke-tabs-bottom"[\s\S]*placement:\s*"bottom"/u,
+  );
 });
 
 test("Minke bypasses the upstream internal-testing notice through slot shadowing", () => {
