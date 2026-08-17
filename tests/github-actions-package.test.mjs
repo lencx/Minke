@@ -118,7 +118,11 @@ test("GitHub Actions packages each supported desktop platform", async () => {
   assert.match(source, /run:\s*pnpm test:desktop/u);
   assert.match(
     source,
-    /name:\s*Make distributables\s*\n\s*env:\s*\n\s*TEMP:\s*\$\{\{\s*runner\.temp\s*\}\}\s*\n\s*TMP:\s*\$\{\{\s*runner\.temp\s*\}\}\s*\n\s*run:\s*pnpm make/u,
+    /name:\s*Prepare short Windows package temp\s*\n\s*if:\s*runner\.os == 'Windows'\s*\n\s*shell:\s*pwsh\s*\n\s*run:\s*New-Item -ItemType Directory -Force -Path 'D:\\t' \| Out-Null/u,
+  );
+  assert.match(
+    source,
+    /name:\s*Make distributables\s*\n\s*env:\s*\n\s*TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*TMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*SQUIRREL_TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*run:\s*pnpm make/u,
   );
 
   assert.match(

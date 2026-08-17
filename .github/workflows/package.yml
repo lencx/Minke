@@ -88,10 +88,16 @@ jobs:
       - name: Test desktop
         run: pnpm test:desktop
 
+      - name: Prepare short Windows package temp
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path 'D:\t' | Out-Null
+
       - name: Make distributables
         env:
-          TEMP: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.os == 'Windows' && 'D:\t' || runner.temp }}
+          TMP: ${{ runner.os == 'Windows' && 'D:\t' || runner.temp }}
+          SQUIRREL_TEMP: ${{ runner.os == 'Windows' && 'D:\t' || runner.temp }}
         run: pnpm make
 
       - name: Upload distributables
