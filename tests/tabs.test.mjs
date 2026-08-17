@@ -1820,6 +1820,10 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
     /\.minke-tab\s*\{[\s\S]*?height:\s*var\(--minke-tabs-control-height\);/u,
   );
   assert.match(
+    TABS_STYLES,
+    /\.minke-tab\s*\{[\s\S]*?min-width:\s*60px;[\s\S]*?max-width:\s*176px;[\s\S]*?flex:\s*1 1 60px;/u,
+  );
+  assert.match(
     webStylesSource,
     /\.minke-tabs-location\s*\{[\s\S]*?height:\s*var\(--minke-tabs-control-height\);/u,
   );

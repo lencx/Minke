@@ -243,10 +243,10 @@ export const TABS_STYLES = `
 .minke-tab {
   position: relative;
   display: flex;
-  min-width: 112px;
+  min-width: 60px;
   max-width: 176px;
   height: var(--minke-tabs-control-height);
-  flex: 1 0 112px;
+  flex: 1 1 60px;
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--minke-tabs-control-radius);

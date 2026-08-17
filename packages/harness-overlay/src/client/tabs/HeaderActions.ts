@@ -36,7 +36,7 @@ export const SESSION_HEADER_ACTION_STYLES = `
   border: none;
   border-radius: 10px;
   background: transparent;
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   -webkit-app-region: no-drag;
   app-region: no-drag;
