@@ -5,7 +5,7 @@
   "packageName": "@deepseek-ai/dsh",
   "packageVersion": "0.1.0-rc.5",
   "frontendPackageName": "@deepseek-ai/dsh-web-frontend",
-  "pnpmVersion": "11.21.0",
+  "pnpmVersion": "11.7.0",
   "runtimeSizeBudgetBytes": {
     "darwin": 157286400,
     "linux": 268435456,
