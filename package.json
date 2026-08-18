@@ -1,6 +1,7 @@
 {
   "name": "minke",
   "productName": "Minke",
+  "desktopName": "minke.desktop",
   "description": "Minke desktop agent powered by DeepSeek Harness",
   "author": "lencx <lencx.me@gmail.com>",
   "license": "Apache-2.0",

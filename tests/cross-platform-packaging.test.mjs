@@ -316,6 +316,14 @@ test("Linux makers target the packaged executable with matching case", async () 
   }
 });
 
+test("Electron uses the Linux package desktop entry", async () => {
+  const manifest = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(manifest.desktopName, "minke.desktop");
+});
+
 for (const platform of ["darwin", "win32", "linux"]) {
   test(`packaged application layout supports ${platform}`, () => {
     const layout = packagedApplicationLayout("/project", platform, "arm64");
