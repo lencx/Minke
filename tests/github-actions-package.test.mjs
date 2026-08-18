@@ -22,6 +22,7 @@ const releaseAssetNames = [
   "Minke-windows-x64.exe",
   "Minke-linux-x64.deb",
   "Minke-linux-x64.rpm",
+  "Minke-linux-x64.AppImage",
 ];
 
 function assertMatrixEntry(source, runner, platform, arch) {
