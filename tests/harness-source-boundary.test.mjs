@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const projectRoot = new URL("..", import.meta.url);
@@ -12,21 +12,20 @@ const harnessRoot = new URL(
   projectRoot,
 );
 
-test("Minke never carries source patches for DeepSeek Harness", () => {
-  assert.equal(
-    Object.hasOwn(contract, "patches"),
-    false,
-    "move product behavior to a Harness bundle or desktop adapter",
-  );
-  assert.equal(
-    existsSync(new URL("patches/deepseek-harness", projectRoot)),
-    false,
-    "the retired Harness patch directory must not return",
-  );
+test("Minke declares every local Harness runtime patch", () => {
+  const patchDirectory = new URL("patches/deepseek-harness/", projectRoot);
+  const files = readdirSync(patchDirectory)
+    .filter((name) => name.endsWith(".patch"))
+    .map((name) => `patches/deepseek-harness/${name}`)
+    .sort();
+  assert.deepEqual([...contract.patches].sort(), files);
+  for (const patch of contract.patches) {
+    assert.equal(existsSync(new URL(patch, projectRoot)), true);
+  }
   assert.equal(
     existsSync(new URL("scripts/harness/patch.mjs", projectRoot)),
     false,
-    "the retired source patch applicator must not return",
+    "source-worktree patching must not return",
   );
 });
 

@@ -14,6 +14,7 @@ try {
       `  submodule: ${relative(projectRoot, result.harnessRoot)}`,
       `  commit:    ${result.actualCommit}`,
       `  pnpm:      ${result.contract.pnpmVersion}`,
+      `  patches:   ${result.runtimePatches.map((patch) => patch.path).join(", ")}`,
     ].join("\n"),
   );
 } catch (error) {

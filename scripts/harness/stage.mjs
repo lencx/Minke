@@ -38,6 +38,12 @@ import {
   publishValidatedDirectory,
   writeFileAtomic,
 } from "./runtime-state.mjs";
+import { runtimeEntrySource } from "./runtime-entry.mjs";
+import { runtimeAdapterSources } from "./runtime-adapters.mjs";
+import {
+  applyHarnessRuntimePatches,
+  verifyHarnessRuntimePatchesApplied,
+} from "./runtime-patches.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const activeRuntimeRoot = join(projectRoot, "runtime", "host");
@@ -45,10 +51,14 @@ const generatedPackageName = "@dsh-desktop/runtime-build";
 const runtimeMetadataVersion = 2;
 const runtimeFingerprintPaths = [
   "config/harness-runtime.json",
+  "config/embedded-node-runtime.mts",
   "scripts/harness/build-overlay.mjs",
   "scripts/harness/command-invocation.mjs",
   "scripts/harness/contract.mjs",
   "scripts/harness/pnpm-invocation.mjs",
+  "scripts/harness/runtime-entry.mjs",
+  "scripts/harness/runtime-adapters.mjs",
+  "scripts/harness/runtime-patches.mjs",
   "scripts/harness/runtime-prune.mjs",
   "scripts/harness/runtime-state.mjs",
   "scripts/harness/stage.mjs",
@@ -59,7 +69,10 @@ async function fingerprintRuntimeCore(contract, harnessRoot, commit) {
     await readFile(join(projectRoot, "package.json"), "utf8"),
   );
   const [desktopSources, harnessLockfile] = await Promise.all([
-    fingerprintPaths(projectRoot, runtimeFingerprintPaths),
+    fingerprintPaths(projectRoot, [
+      ...runtimeFingerprintPaths,
+      ...contract.patches,
+    ]),
     fingerprintPaths(harnessRoot, ["pnpm-lock.yaml"]),
   ]);
   return fingerprintRecord({
@@ -74,6 +87,7 @@ async function fingerprintRuntimeCore(contract, harnessRoot, commit) {
     harnessLockfile,
     packageName: contract.packageName,
     packageVersion: contract.packageVersion,
+    patches: contract.patches,
     platform: process.platform,
     pnpmVersion: contract.pnpmVersion,
     productBundle: {
@@ -318,33 +332,6 @@ async function ensureReact18TypeIsolation(harnessRoot) {
   }
 }
 
-function runtimeEntrySource(cliPackageName) {
-  return `delete process.env.ELECTRON_RUN_AS_NODE;
-
-function report(error, seen = new Set(), indent = "") {
-  if (error !== null && typeof error === "object") {
-    if (seen.has(error)) return;
-    seen.add(error);
-  }
-  const rendered = error instanceof Error ? error.stack || error.message : String(error);
-  console.error(\`\${indent}\${rendered}\`);
-  if (error instanceof AggregateError) {
-    for (const nested of error.errors) report(nested, seen, \`\${indent}  \`);
-  }
-  if (error instanceof Error && error.cause !== undefined) {
-    report(error.cause, seen, \`\${indent}  caused by: \`);
-  }
-}
-
-try {
-  await import("${cliPackageName}/lib/bin.js");
-} catch (error) {
-  report(error);
-  process.exitCode = 1;
-}
-`;
-}
-
 async function writeDeployRoot(
   generatedPackageDir,
   selectedPackages,
@@ -524,42 +511,12 @@ async function writeRuntimeAdapters(
 ) {
   const binRoot = join(runtimeRoot, "bin");
   await mkdir(binRoot, { recursive: true });
-  const posixScripts = {
-    node: `#!/bin/sh
-set -eu
-: "\${DSH_ELECTRON_EXECUTABLE:?DSH_ELECTRON_EXECUTABLE is required}"
-exec env ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON_EXECUTABLE" "$@"
-`,
-    pnpm: `#!/bin/sh
-set -eu
-: "\${DSH_ELECTRON_EXECUTABLE:?DSH_ELECTRON_EXECUTABLE is required}"
-: "\${DSH_PNPM_ENTRY:?DSH_PNPM_ENTRY is required}"
-exec env ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON_EXECUTABLE" "$DSH_PNPM_ENTRY" "$@"
-`,
-    pnpx: `#!/bin/sh
-set -eu
-: "\${DSH_ELECTRON_EXECUTABLE:?DSH_ELECTRON_EXECUTABLE is required}"
-: "\${DSH_PNPM_ENTRY:?DSH_PNPM_ENTRY is required}"
-exec env ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON_EXECUTABLE" "$DSH_PNPM_ENTRY" dlx "$@"
-`,
-  };
-  for (const [name, source] of Object.entries(posixScripts)) {
+  for (const [name, source] of Object.entries(runtimeAdapterSources())) {
     const path = join(binRoot, name);
-    await writeFileAtomic(path, source, { mode: 0o755 });
+    await writeFileAtomic(path, source, {
+      mode: name.endsWith(".cmd") ? 0o644 : 0o755,
+    });
   }
-
-  await writeFileAtomic(
-    join(binRoot, "node.cmd"),
-    '@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%DSH_ELECTRON_EXECUTABLE%" %*\r\n',
-  );
-  await writeFileAtomic(
-    join(binRoot, "pnpm.cmd"),
-    '@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%DSH_ELECTRON_EXECUTABLE%" "%DSH_PNPM_ENTRY%" %*\r\n',
-  );
-  await writeFileAtomic(
-    join(binRoot, "pnpx.cmd"),
-    '@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%DSH_ELECTRON_EXECUTABLE%" "%DSH_PNPM_ENTRY%" dlx %*\r\n',
-  );
   await writeFileAtomic(
     join(runtimeRoot, "dsh-runtime.json"),
     `${JSON.stringify(
@@ -570,6 +527,7 @@ exec env ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON_EXECUTABLE" "$DSH_PNPM_ENTRY" dlx
         packageName: contract.packageName,
         packageVersion: contract.packageVersion,
         pnpmVersion: contract.pnpmVersion,
+        patches: contract.patches,
         coreFingerprint,
         productBundle: {
           packageName: contract.productBundle.packageName,
@@ -591,6 +549,7 @@ async function validateRuntime(
   runtimeRoot,
   contract,
   { commit, coreFingerprint, productBundleFingerprint, runtimeSize },
+  runtimePatches,
 ) {
   const productPackageRoot = join(
     runtimeRoot,
@@ -638,6 +597,7 @@ async function validateRuntime(
       throw new Error(`staged Harness runtime is incomplete: ${path} is missing`);
     }
   }
+  await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
   const installedProductBundleFingerprint = await fingerprintProductBundle({
     bundle: contract.productBundle,
     packageRoot: productPackageRoot,
@@ -658,6 +618,7 @@ async function validateRuntime(
     metadata.packageName !== contract.packageName ||
     metadata.packageVersion !== contract.packageVersion ||
     metadata.pnpmVersion !== contract.pnpmVersion ||
+    JSON.stringify(metadata.patches) !== JSON.stringify(contract.patches) ||
     metadata.coreFingerprint !== coreFingerprint ||
     metadata.productBundle?.packageName !==
       contract.productBundle.packageName ||
@@ -678,6 +639,7 @@ async function validateReusableRuntime(
   contract,
   commit,
   coreFingerprint,
+  runtimePatches,
 ) {
   const metadataPath = join(runtimeRoot, "dsh-runtime.json");
   if (!existsSync(metadataPath)) {
@@ -693,6 +655,7 @@ async function validateReusableRuntime(
     metadata.packageName !== contract.packageName ||
     metadata.packageVersion !== contract.packageVersion ||
     metadata.pnpmVersion !== contract.pnpmVersion ||
+    JSON.stringify(metadata.patches) !== JSON.stringify(contract.patches) ||
     metadata.coreFingerprint !== coreFingerprint ||
     metadata.productBundle?.packageName !==
       contract.productBundle.packageName ||
@@ -739,6 +702,7 @@ async function validateReusableRuntime(
       );
     }
   }
+  await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
   await inspectPrunedRuntime(runtimeRoot, contract);
   return metadata;
 }
@@ -769,6 +733,7 @@ async function main() {
     harnessRoot,
     actualCommit,
     productBundle,
+    runtimePatches,
   } = verified;
 
   await run(
@@ -792,6 +757,7 @@ async function main() {
       contract,
       actualCommit,
       coreFingerprint,
+      runtimePatches,
     );
     await injectWorkspacePackage(
       activeRuntimeRoot,
@@ -815,7 +781,12 @@ async function main() {
       actualCommit,
       expectedRuntime,
     );
-    await validateRuntime(activeRuntimeRoot, contract, expectedRuntime);
+    await validateRuntime(
+      activeRuntimeRoot,
+      contract,
+      expectedRuntime,
+      runtimePatches,
+    );
     console.log(
       `\nRefreshed ${productBundle.bundle.packageName} in ${relative(
         projectRoot,
@@ -905,6 +876,7 @@ async function main() {
       productBundle,
     );
     await materializeSymlinks(candidateRuntimeRoot);
+    await applyHarnessRuntimePatches(candidateRuntimeRoot, runtimePatches);
     await writeFileAtomic(
       join(candidateRuntimeRoot, "index.mjs"),
       runtimeEntrySource(contract.packageName),
@@ -932,7 +904,12 @@ async function main() {
       candidateRuntimeRoot,
       activeRuntimeRoot,
       (runtimeRoot) =>
-        validateRuntime(runtimeRoot, contract, expectedRuntime),
+        validateRuntime(
+          runtimeRoot,
+          contract,
+          expectedRuntime,
+          runtimePatches,
+        ),
     );
 
     console.log(

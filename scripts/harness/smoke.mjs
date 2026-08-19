@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { embeddedNodeEnvironment } from "../../config/embedded-node-runtime.mts";
 import {
   harnessWebArguments,
   readHarnessRuntimeLayout,
@@ -291,10 +292,12 @@ async function main() {
   const pluginId = "@dsh-desktop/smoke-web-plugin";
   const baseEnv = {
     ...process.env,
-    DSH_ELECTRON_EXECUTABLE: electronExecutable,
-    DSH_PNPM_ENTRY: pnpmEntry,
-    ELECTRON_RUN_AS_NODE: "1",
+    [embeddedNodeEnvironment.executable]: electronExecutable,
+    [embeddedNodeEnvironment.pnpmEntry]: pnpmEntry,
+    [embeddedNodeEnvironment.mode]: "1",
   };
+  delete baseEnv.DSH_ELECTRON_EXECUTABLE;
+  delete baseEnv.DSH_PNPM_ENTRY;
   const env = {
     ...baseEnv,
     DSH_HOME: harnessHome,

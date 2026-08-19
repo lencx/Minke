@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { access, mkdir } from "node:fs/promises";
 import { delimiter } from "node:path";
+import { embeddedNodeEnvironment } from "../../config/embedded-node-runtime.mts";
 import {
   type LocalModelRuntimeId,
 } from "@minke/harness-overlay/model-runtime-settings-contract.ts";
@@ -71,14 +72,16 @@ export function harnessRuntimeEnvironment(
 ): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
     ...inherited,
-    DSH_ELECTRON_EXECUTABLE: options.electronExecutable,
+    [embeddedNodeEnvironment.executable]: options.electronExecutable,
     DSH_HOME: options.dataRoot,
-    DSH_PNPM_ENTRY: layout.pnpmEntry,
-    ELECTRON_RUN_AS_NODE: "1",
+    [embeddedNodeEnvironment.pnpmEntry]: layout.pnpmEntry,
+    [embeddedNodeEnvironment.mode]: "1",
     PATH: [layout.runtimeBin, inherited.PATH]
       .filter(Boolean)
       .join(delimiter),
   };
+  delete environment.DSH_ELECTRON_EXECUTABLE;
+  delete environment.DSH_PNPM_ENTRY;
   for (const descriptor of LOCAL_MODEL_ENVIRONMENT) {
     const runtime = options.modelRuntimes[descriptor.id];
     environment[descriptor.enabled] =

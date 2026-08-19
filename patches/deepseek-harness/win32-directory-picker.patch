@@ -1,0 +1,78 @@
+diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
+@@ -72,7 +72,10 @@
+ */
+ function spawnDialogWorker(data) {
++	const nodeExecutable = process.env.MINKE_NODE_EXECUTABLE;
++	if (nodeExecutable === void 0 || nodeExecutable === "") throw new Error("Minke managed Node executable is unavailable");
+ 	const env = {
+ 		...process.env,
++		ELECTRON_RUN_AS_NODE: "1",
+ 		DSH_DIALOG_TITLE: data.title
+ 	};
+ 	const stdio = [
+@@ -82,17 +85,17 @@
+ 		"ipc"
+ 	];
+ 	/* v8 ignore next 3 -- the built-output arm: tests always run unbuilt (src/) */
+-	if (!import.meta.url.endsWith(".ts")) return spawn(process.execPath, [fileURLToPath(new URL("./worker.cjs", import.meta.url))], {
++	if (!import.meta.url.endsWith(".ts")) return spawn(nodeExecutable, [fileURLToPath(new URL("./worker.cjs", import.meta.url))], {
+ 		env,
+ 		stdio,
+ 		windowsHide: true
+ 	});
+-	return spawn(process.execPath, [
++	return spawn(nodeExecutable, [
+ 		"--import",
+ 		import.meta.resolve("tsx/esm"),
+ 		fileURLToPath(new URL("./win32-dialog-worker.ts", import.meta.url))
+ 	], {
+ 		env,
+ 		stdio,
+ 		windowsHide: true
+ 	});
+diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
+@@ -527,12 +527,14 @@
+ 	windowsAclRunnerInvocation() {
+ 		const override = this.internals.windowsAclRunnerArgs;
+ 		if (override !== void 0) return override;
++		const nodeExecutable = process.env.MINKE_NODE_EXECUTABLE;
++		if (nodeExecutable === void 0 || nodeExecutable === "") throw new Error("Minke managed Node executable is unavailable");
+ 		const builtEntry = this.internals.windowsAclRunnerEntry ?? fileURLToPath(import.meta.resolve("@deepseek-ai/dsh-sandbox-windows-acl/runner"));
+-		if (existsSync(builtEntry)) return [process.execPath, builtEntry];
++		if (existsSync(builtEntry)) return [nodeExecutable, builtEntry];
+ 		const sourceEntry = fileURLToPath(import.meta.resolve("@deepseek-ai/dsh-sandbox-windows-acl/src/runner.ts"));
+ 		return [
+-			process.execPath,
++			nodeExecutable,
+ 			"--import",
+ 			"tsx/esm",
+ 			sourceEntry
+ 		];
+diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
+--- a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
++++ b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
+@@ -13,16 +13,12 @@
+ * object's first pointer.
+ */
+ /**
+-* Read a NUL-terminated UTF-16 string at a native address. koffi's
+-* `_Out_ void **` out-params surface a raw address, and
+-* `koffi.decode(addr, 'str16')` would dereference it as a pointer — crash
+-* on real Windows — so view the memory directly instead.
++* Copy a NUL-terminated UTF-16 string from a native address. The dedicated
++* decoder avoids both generic decode's extra indirection and view's external
++* ArrayBuffer boundary, which is unsafe in the packaged Electron/V8 runtime.
+ */
+ function readUtf16(koffi, address) {
+-	const bytes = Buffer.from(koffi.view(address, 32768));
+-	let end = 0;
+-	while (end + 1 < bytes.length && bytes[end] !== 0) end += 2;
+-	return bytes.toString("utf16le", 0, end);
++	return koffi.decode.string16(address);
+ }
+ const COINIT_APARTMENTTHREADED = 2;
+ const CLSCTX_INPROC_SERVER = 1;

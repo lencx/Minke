@@ -124,10 +124,10 @@ test("the desktop runtime passes both explicit local-model opt-ins", () => {
       MINKE_OLLAMA_ENABLED: "1",
       MINKE_OLLAMA_COMMAND: "/usr/local/bin/ollama",
       PRESERVED: "yes",
-      DSH_ELECTRON_EXECUTABLE: "/app/electron",
       DSH_HOME: "/data/harness",
-      DSH_PNPM_ENTRY: "/runtime/node_modules/pnpm/bin/pnpm.cjs",
       ELECTRON_RUN_AS_NODE: "1",
+      MINKE_NODE_EXECUTABLE: "/app/electron",
+      MINKE_PNPM_ENTRY: "/runtime/node_modules/pnpm/bin/pnpm.cjs",
     },
   );
   assert.equal(

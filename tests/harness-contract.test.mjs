@@ -43,6 +43,9 @@ function writeContract(projectRoot, commit, additions = {}) {
           win32: 268435456,
         },
         runtimeFileBudget: 20000,
+        patches: [
+          "patches/deepseek-harness/fixture.patch",
+        ],
         productBundle: {
           packageName: "@lencx/minke-harness-overlay",
           packagePath: "packages/harness-overlay",
@@ -225,6 +228,19 @@ function fixture(options = {}) {
 
   write(
     projectRoot,
+    "patches/deepseek-harness/fixture.patch",
+    [
+      "diff --git a/node_modules/@deepseek-ai/example/lib/index.js b/node_modules/@deepseek-ai/example/lib/index.js",
+      "--- a/node_modules/@deepseek-ai/example/lib/index.js",
+      "+++ b/node_modules/@deepseek-ai/example/lib/index.js",
+      "@@ -1 +1 @@",
+      "-export const mode = \"upstream\";",
+      "+export const mode = \"minke\";",
+      "",
+    ].join("\n"),
+  );
+  write(
+    projectRoot,
     "packages/harness-overlay/package.json",
     `${JSON.stringify({
       name: "@lencx/minke-harness-overlay",
@@ -258,15 +274,19 @@ test("the Harness contract accepts a clean pin plus an external bundle", async (
     verified.productBundle.bundle.packageName,
     "@lencx/minke-harness-overlay",
   );
+  assert.deepEqual(
+    verified.runtimePatches.map((patch) => patch.path),
+    ["patches/deepseek-harness/fixture.patch"],
+  );
 });
 
-test("the Harness contract rejects source patch configuration", async () => {
+test("the Harness contract requires an explicit local runtime patch", async () => {
   const { commit, projectRoot } = fixture();
-  writeContract(projectRoot, commit, { patches: ["forbidden.patch"] });
+  writeContract(projectRoot, commit, { patches: [] });
 
   await assert.rejects(
     verifyHarnessContract(projectRoot),
-    /source patches are forbidden/u,
+    /at least one local runtime patch/u,
   );
 });
 

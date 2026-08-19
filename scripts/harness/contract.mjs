@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
+import { resolveHarnessRuntimePatches } from "./runtime-patches.mjs";
 
 const desktopPlatforms = Object.freeze(["darwin", "linux", "win32"]);
 
@@ -138,8 +139,9 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
 }
 
 /**
- * Verify the pinned upstream interface and the hard no-source-modification
- * boundary. Every build and explicit verification crosses this same gate.
+ * Verify the pinned upstream interface, pristine source checkout, and
+ * explicitly declared staged-runtime patches. Every build and explicit
+ * verification crosses this same gate.
  */
 export async function verifyHarnessContract(projectRoot) {
   const contractPath = join(projectRoot, "config", "harness-runtime.json");
@@ -155,11 +157,10 @@ export async function verifyHarnessContract(projectRoot) {
       "Harness contract must declare a positive integer runtimeFileBudget.",
     );
   }
-  if (Object.hasOwn(contract, "patches")) {
-    throw new Error(
-      "DeepSeek Harness source patches are forbidden; use productBundle or a desktop adapter.",
-    );
-  }
+  const runtimePatches = await resolveHarnessRuntimePatches(
+    projectRoot,
+    contract.patches,
+  );
 
   const harnessRoot = resolveInside(
     projectRoot,
@@ -560,6 +561,7 @@ export async function verifyHarnessContract(projectRoot) {
     cliRoot,
     actualCommit,
     productBundle,
+    runtimePatches,
     relativeHarnessRoot: relative(projectRoot, harnessRoot),
   };
 }

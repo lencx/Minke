@@ -1,5 +1,6 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { embeddedNodeEnvironment } from "../../config/embedded-node-runtime.mts";
 import {
   assertRuntimeFileBudget,
   assertRuntimeSizeBudget,
@@ -399,7 +400,9 @@ export async function verifyPackagedApplication(
   );
   if (
     Buffer.byteLength(nodeAdapter) > 1024 ||
-    !nodeAdapter.includes("ELECTRON_RUN_AS_NODE")
+    !nodeAdapter.includes(embeddedNodeEnvironment.mode) ||
+    !nodeAdapter.includes(embeddedNodeEnvironment.executable) ||
+    nodeAdapter.includes("DSH_ELECTRON_EXECUTABLE")
   ) {
     throw new Error(
       "packaged node adapter must reuse Electron instead of shipping Node",

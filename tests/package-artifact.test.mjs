@@ -114,8 +114,8 @@ async function withPackagedApp(platform, callback) {
       write(
         join(hostRoot, "bin", `node${adapterSuffix}`),
         platform === "win32"
-          ? '@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n'
-          : '#!/bin/sh\nexec env ELECTRON_RUN_AS_NODE=1 electron "$@"\n',
+          ? '@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%MINKE_NODE_EXECUTABLE%" %*\r\n'
+          : '#!/bin/sh\nexec env ELECTRON_RUN_AS_NODE=1 "$MINKE_NODE_EXECUTABLE" "$@"\n',
       ),
       write(join(hostRoot, "bin", `pnpm${adapterSuffix}`)),
       write(
