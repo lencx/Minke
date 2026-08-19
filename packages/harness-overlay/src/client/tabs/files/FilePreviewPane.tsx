@@ -14,11 +14,10 @@ import type {
 } from "./controller.ts";
 import {
   ClosePreviewIcon,
+  DiffPreviewIcon,
   FileIcon,
   OpenSystemIcon,
-  SavedPreviewIcon,
-  SavePreviewIcon,
-  SavingPreviewIcon,
+  SourcePreviewIcon,
   UnsupportedPreviewIcon,
 } from "./icons.tsx";
 import type {
@@ -268,10 +267,9 @@ export function FilePreviewPane(props: {
     t,
     active,
   } = props;
-  const editableText =
+  const canDiff =
     preview.result?.kind === "text" &&
     !preview.result.truncated;
-  const canDiff = editableText;
   return (
     <aside
       id={props.id}
@@ -280,8 +278,18 @@ export function FilePreviewPane(props: {
       style={props.style}
     >
       <header className="minke-files-preview__header">
-        <span aria-hidden="true">
-          <FileIcon name={preview.entry.name} size={15} />
+        <span className="minke-files-preview__file-mark">
+          {preview.dirty && (
+            <span
+              className="minke-files-preview__dirty"
+              role="status"
+              aria-label={t("files.preview.dirty")}
+              title={t("files.preview.dirty")}
+            />
+          )}
+          <span aria-hidden="true">
+            <FileIcon name={preview.entry.name} size={15} />
+          </span>
         </span>
         <strong title={preview.entry.path}>
           <span>{preview.entry.name}</span>
@@ -301,76 +309,25 @@ export function FilePreviewPane(props: {
             <button
               type="button"
               aria-pressed={preview.mode === "source"}
+              aria-label={t("files.preview.mode.source")}
+              title={t("files.preview.mode.source")}
               onClick={() =>
                 controller.setPreviewMode(tabId, "source")}
             >
-              {t("files.preview.mode.source")}
+              <SourcePreviewIcon size={14} />
             </button>
             <button
               type="button"
               aria-pressed={preview.mode === "diff"}
+              aria-label={t("files.preview.mode.diff")}
+              title={t("files.preview.mode.diff")}
               disabled={!canDiff}
               onClick={() =>
                 controller.setPreviewMode(tabId, "diff")}
             >
-              {t("files.preview.mode.diff")}
+              <DiffPreviewIcon size={14} />
             </button>
           </div>
-        )}
-        {preview.dirty && (
-          <span
-            className="minke-files-preview__dirty"
-            aria-label={t("files.preview.dirty")}
-            title={t("files.preview.dirty")}
-          />
-        )}
-        {(preview.saving ||
-          preview.saveStatus === "saved") && (
-          <span
-            className="minke-files-preview__save-status"
-            data-state={
-              preview.saving ? "saving" : "saved"
-            }
-            role="status"
-            aria-live="polite"
-          >
-            {preview.saving ? (
-              <SavingPreviewIcon size={12} />
-            ) : (
-              <SavedPreviewIcon size={12} />
-            )}
-            <span>
-              {t(
-                preview.saving
-                  ? "files.preview.saving"
-                  : "files.preview.saved",
-              )}
-            </span>
-          </span>
-        )}
-        {editableText && preview.mode === "source" && (
-          <button
-            type="button"
-            aria-label={t(
-              preview.saving
-                ? "files.preview.saving"
-                : "files.preview.save",
-            )}
-            title={t(
-              preview.saving
-                ? "files.preview.saving"
-                : "files.preview.save",
-            )}
-            disabled={!preview.dirty || preview.saving}
-            data-saving={preview.saving || undefined}
-            onClick={() => controller.savePreview(tabId)}
-          >
-            {preview.saving ? (
-              <SavingPreviewIcon size={14} />
-            ) : (
-              <SavePreviewIcon size={14} />
-            )}
-          </button>
         )}
         <button
           type="button"

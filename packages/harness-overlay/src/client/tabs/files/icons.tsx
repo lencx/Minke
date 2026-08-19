@@ -4,10 +4,11 @@ import {
   ArrowRight,
   ArrowUp,
   Binary,
-  Check,
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  FileCode,
+  FileDiff,
   FileText,
   FileQuestion,
   FolderOpen,
@@ -16,8 +17,6 @@ import {
   Image,
   Link,
   List,
-  LoaderCircle,
-  Save,
   X,
 } from "@lucide/icons";
 import {
@@ -135,16 +134,12 @@ export function ClosePreviewIcon(props: IconProps): ReactNode {
   return <LucideIcon icon={X} size={props.size} />;
 }
 
-export function SavePreviewIcon(props: IconProps): ReactNode {
-  return <LucideIcon icon={Save} size={props.size} />;
+export function SourcePreviewIcon(props: IconProps): ReactNode {
+  return <LucideIcon icon={FileCode} size={props.size} />;
 }
 
-export function SavingPreviewIcon(props: IconProps): ReactNode {
-  return <LucideIcon icon={LoaderCircle} size={props.size} />;
-}
-
-export function SavedPreviewIcon(props: IconProps): ReactNode {
-  return <LucideIcon icon={Check} size={props.size} />;
+export function DiffPreviewIcon(props: IconProps): ReactNode {
+  return <LucideIcon icon={FileDiff} size={props.size} />;
 }
 
 export function TextPreviewIcon(props: IconProps): ReactNode {

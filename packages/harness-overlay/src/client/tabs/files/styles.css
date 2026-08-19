@@ -406,33 +406,32 @@
   font-weight: 400;
 }
 
+.minke-files-preview__file-mark {
+  position: relative;
+  display: grid;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  place-items: center;
+}
+
 .minke-files-preview__mode {
   display: inline-flex;
-  height: 24px;
+  height: 26px;
   flex: none;
   align-items: center;
-  padding: 2px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 7px;
-  background: var(--dsw-alias-button-floating-fill);
+  gap: 1px;
 }
 
 .minke-files-preview__header
   .minke-files-preview__mode
   button {
-  display: inline-flex;
-  width: auto;
-  min-width: 34px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 6px;
-  border-radius: 5px;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
   color: var(--dsw-alias-label-tertiary);
-  font: inherit;
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 18px;
 }
 
 .minke-files-preview__header
@@ -461,6 +460,11 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.minke-files-preview__header button:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
 .minke-files-preview__header button:disabled {
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
@@ -469,11 +473,14 @@
 }
 
 .minke-files-preview__dirty {
+  position: absolute;
+  top: 50%;
+  left: -8px;
   width: 6px;
   height: 6px;
-  flex: none;
   border-radius: 999px;
   background: var(--dsw-alias-state-business-primary);
+  transform: translateY(-50%);
 }
 
 .minke-files-preview__document {
@@ -482,35 +489,6 @@
   flex: 1;
   flex-direction: column;
   overflow: hidden;
-}
-
-.minke-files-preview__save-status {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 10px;
-  line-height: 16px;
-  white-space: nowrap;
-}
-
-.minke-files-preview__save-status[data-state="saving"] svg,
-.minke-files-preview__header button[data-saving] svg {
-  animation: minke-files-spin 0.8s linear infinite;
-}
-
-@keyframes minke-files-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .minke-files-preview__save-status[data-state="saving"] svg,
-  .minke-files-preview__header button[data-saving] svg {
-    animation: none;
-  }
 }
 
 .minke-files-preview__save-error,
