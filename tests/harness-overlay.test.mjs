@@ -76,6 +76,13 @@ const aboutViewSource = readFileSync(
   ),
   "utf8",
 );
+const dataHomeStylesSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/data-home/styles.css",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const overlayBuildSource = readFileSync(
   new URL("../scripts/harness/build-overlay.mjs", import.meta.url),
   "utf8",
@@ -248,6 +255,13 @@ test("the built client half is a Harness module-loader bundle", () => {
     /minke-overlay: \$\{placement\} Terminal tab renderer/u,
   );
   assert.match(bundle, /minke-overlay: Terminal settings runtime/u);
+  assert.match(bundle, /minke-overlay: data-home runtime/u);
+  assert.match(bundle, /data-minke-data-home-nav/u);
+  assert.match(bundle, /data-minke-data-home/u);
+  assert.match(bundle, /minke-data-home__plan/u);
+  assert.match(bundle, /minke-data-home-mode/u);
+  assert.match(bundle, /Use as a fresh directory/u);
+  assert.match(bundle, /Check fresh directory/u);
   assert.match(bundle, /minke-overlay: local model settings runtime/u);
   assert.match(bundle, /data-minke-local-model-settings/u);
   assert.match(bundle, /lm-studio/u);
@@ -490,6 +504,24 @@ test("Terminal settings register as a separate settings section", () => {
   assert.match(
     clientSource,
     /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,/u,
+  );
+});
+
+test("Data Home settings remain registered across preload capability upgrades", () => {
+  assert.match(
+    clientSource,
+    /const dataHomePort = desktopDataHomeSettingsPort\(\);\s*if \(shouldExposeDesktopDataHomeSettings\(\)\) \{[\s\S]*id:\s*"minke-data-home"[\s\S]*DataHomeSettingsSection as ComponentType<never>/u,
+  );
+  assert.doesNotMatch(
+    clientSource,
+    /if \(dataHomePort\.available\) \{[\s\S]*id:\s*"minke-data-home"/u,
+  );
+});
+
+test("Data Home primary action keeps readable colors on hover", () => {
+  assert.match(
+    dataHomeStylesSource,
+    /\.minke-data-home__button--primary:hover:not\(:disabled\) \{[\s\S]*background:\s*var\(--dsw-alias-button-primary-hover\);[\s\S]*color:\s*var\(--dsw-alias-label-primary-foreground\);[\s\S]*\}/u,
   );
 });
 

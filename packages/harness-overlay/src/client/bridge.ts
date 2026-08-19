@@ -17,6 +17,19 @@ import {
   type TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import {
+  parseDataHomeMigrationPlan,
+  parseDataHomeMigrationPlanRequest,
+  parseDataHomeMigrationScheduleRequest,
+  parseDataHomeMigrationScheduleResult,
+  parseDataHomePath,
+  parseDataHomeSettingsSnapshot,
+  type DataHomeMigrationPlan,
+  type DataHomeMigrationPlanRequest,
+  type DataHomeMigrationScheduleRequest,
+  type DataHomeMigrationScheduleResult,
+  type DataHomeSettingsSnapshot,
+} from "@minke/harness-overlay/data-home-contract.ts";
+import {
   parseSessionLogExportId,
 } from "@minke/harness-overlay/session-export-contract.ts";
 import {
@@ -65,6 +78,18 @@ export interface ModelRuntimeSettingsStore {
   readonly available: boolean;
   read(): Promise<ModelRuntimeSettingsSnapshot>;
   write(settings: ModelRuntimeSettings): Promise<void>;
+}
+
+export interface DataHomeSettingsPort {
+  readonly available: boolean;
+  read(): Promise<DataHomeSettingsSnapshot>;
+  chooseDirectory(): Promise<string | undefined>;
+  plan(
+    request: DataHomeMigrationPlanRequest,
+  ): Promise<DataHomeMigrationPlan>;
+  schedule(
+    request: DataHomeMigrationScheduleRequest,
+  ): Promise<DataHomeMigrationScheduleResult>;
 }
 
 export interface DesktopShortcutPort extends ShortcutStore {
@@ -143,6 +168,15 @@ interface DesktopModelRuntimeBridge {
   write(settings: ModelRuntimeSettings): Promise<void>;
 }
 
+interface DesktopDataHomeBridge {
+  read(): Promise<unknown>;
+  chooseDirectory(): Promise<string | undefined>;
+  plan(request: DataHomeMigrationPlanRequest): Promise<unknown>;
+  schedule(
+    request: DataHomeMigrationScheduleRequest,
+  ): Promise<unknown>;
+}
+
 interface DesktopSessionLogsBridge {
   export(sessionId: string): Promise<void>;
 }
@@ -161,6 +195,7 @@ interface DesktopAboutBridge {
 interface DesktopBridgeWindow {
   minkeDesktop?: {
     about?: DesktopAboutBridge;
+    dataHome?: DesktopDataHomeBridge;
     files?: DesktopFilesBridge;
     locale?: DesktopWindowLocaleBridge;
     modelRuntime?: DesktopModelRuntimeBridge;
@@ -170,6 +205,79 @@ interface DesktopBridgeWindow {
     shortcuts?: DesktopShortcutBridge;
     surface?: DesktopSurfaceBridge;
     windowTheme?: DesktopWindowThemeBridge;
+  };
+}
+
+/**
+ * Keep desktop-owned Settings entries discoverable across preload upgrades.
+ *
+ * An older preload can expose the Minke desktop namespace without a newly
+ * added capability. The Settings section should still render its explicit
+ * unavailable state instead of disappearing without explanation.
+ */
+export function shouldExposeDesktopDataHomeSettings(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): boolean {
+  return source.minkeDesktop !== undefined;
+}
+
+/** Adapt the isolated preload bridge for DSH data-directory migration. */
+export function desktopDataHomeSettingsPort(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): DataHomeSettingsPort {
+  const bridge = source.minkeDesktop?.dataHome;
+  if (bridge === undefined) {
+    return {
+      available: false,
+      async read() {
+        throw new Error(
+          "Minke desktop data-home bridge is unavailable",
+        );
+      },
+      async chooseDirectory() {
+        throw new Error(
+          "Minke desktop data-home bridge is unavailable",
+        );
+      },
+      async plan() {
+        throw new Error(
+          "Minke desktop data-home bridge is unavailable",
+        );
+      },
+      async schedule() {
+        throw new Error(
+          "Minke desktop data-home bridge is unavailable",
+        );
+      },
+    };
+  }
+  return {
+    available: true,
+    async read() {
+      return parseDataHomeSettingsSnapshot(await bridge.read());
+    },
+    async chooseDirectory() {
+      const selected = await bridge.chooseDirectory();
+      return selected === undefined
+        ? undefined
+        : parseDataHomePath(selected);
+    },
+    async plan(request) {
+      return parseDataHomeMigrationPlan(
+        await bridge.plan(
+          parseDataHomeMigrationPlanRequest(request),
+        ),
+      );
+    },
+    async schedule(request) {
+      return parseDataHomeMigrationScheduleResult(
+        await bridge.schedule(
+          parseDataHomeMigrationScheduleRequest(request),
+        ),
+      );
+    },
   };
 }
 

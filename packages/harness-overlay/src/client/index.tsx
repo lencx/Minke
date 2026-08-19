@@ -13,6 +13,7 @@ import {
 import { openHarnessSettings } from "./actions.ts";
 import {
   desktopAboutInfo,
+  desktopDataHomeSettingsPort,
   desktopFilesPort,
   desktopModelRuntimeSettingsStore,
   desktopSessionLogsPort,
@@ -23,11 +24,22 @@ import {
   desktopWindowLocalePort,
   desktopWindowThemePort,
   hasMacOSDesktopSurface,
+  shouldExposeDesktopDataHomeSettings,
   type DesktopAboutInfo,
   type HarnessColorScheme,
   type HarnessLocale,
   type HarnessThemePreference,
 } from "./bridge.ts";
+import {
+  dataHomeEn,
+  dataHomeZh,
+  DataHomeSettingsRuntime,
+  DataHomeSettingsSection,
+  installDataHomeNavigationIcon,
+  installDataHomeStyles,
+  type DataHomeLocaleKey,
+  type DataHomeTranslate,
+} from "./data-home/index.ts";
 import {
   installLocalModelSettings,
   localModelEn,
@@ -174,6 +186,19 @@ interface SlotService {
       label: () => string;
       locale: string;
       inject: () => {
+        runtime: DataHomeSettingsRuntime;
+      };
+    },
+    component: ComponentType<never>,
+  ): unknown;
+  register(
+    options: {
+      name: "settings.section";
+      id: string;
+      order: number;
+      label: () => string;
+      locale: string;
+      inject: () => {
         runtime: TerminalSettingsRuntime;
       };
     },
@@ -273,6 +298,7 @@ const FILES_TABS_NAMESPACE = "minke.tabs.files";
 const WEB_TABS_NAMESPACE = "minke.tabs.web";
 const TERMINAL_TABS_NAMESPACE = "minke.tabs.terminal";
 const LOCAL_MODEL_NAMESPACE = "minke.local-model";
+const DATA_HOME_NAMESPACE = "minke.data-home";
 
 /** Cordis services required by this out-of-tree browser plugin. */
 export const inject = [
@@ -351,6 +377,55 @@ export function apply(ctx: HarnessClientContext): void {
   const terminalSettings = new TerminalSettingsRuntime(
     terminalSettingsStore,
   );
+  const dataHomePort = desktopDataHomeSettingsPort();
+  if (shouldExposeDesktopDataHomeSettings()) {
+    ctx.effect(
+      () =>
+        ctx.locale.register(DATA_HOME_NAMESPACE, {
+          zh: dataHomeZh,
+          en: dataHomeEn,
+        }),
+      "minke-overlay: data-home dictionaries",
+    );
+    const dataHomeT = ctx.locale.bind<DataHomeLocaleKey>(
+      DATA_HOME_NAMESPACE,
+    ) as DataHomeTranslate;
+    const dataHomeSettings = new DataHomeSettingsRuntime(
+      dataHomePort,
+    );
+    ctx.effect(
+      () => {
+        void dataHomeSettings.initialize();
+        return () => {
+          dataHomeSettings.dispose();
+        };
+      },
+      "minke-overlay: data-home runtime",
+    );
+    ctx.effect(
+      () => installDataHomeStyles(),
+      "minke-overlay: data-home styles",
+    );
+    ctx.effect(
+      () => installDataHomeNavigationIcon(() => dataHomeT("nav")),
+      "minke-overlay: data-home navigation icon",
+    );
+    ctx.slots.inject("settings.section", () =>
+      ctx.slots.register(
+        {
+          name: "settings.section",
+          id: "minke-data-home",
+          order: 4,
+          label: () => dataHomeT("nav"),
+          locale: DATA_HOME_NAMESPACE,
+          inject: () => ({
+            runtime: dataHomeSettings,
+          }),
+        },
+        DataHomeSettingsSection as ComponentType<never>,
+      ),
+    );
+  }
   let tabsRuntimes: TabsRuntimes | undefined;
   const modelRuntimeSettingsStore =
     desktopModelRuntimeSettingsStore();

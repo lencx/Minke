@@ -22,6 +22,20 @@ import {
   type TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import {
+  DATA_HOME_CHOOSE_DIRECTORY_CHANNEL,
+  DATA_HOME_MIGRATION_PLAN_CHANNEL,
+  DATA_HOME_MIGRATION_SCHEDULE_CHANNEL,
+  DATA_HOME_SETTINGS_READ_CHANNEL,
+  parseDataHomeMigrationPlan,
+  parseDataHomeMigrationPlanRequest,
+  parseDataHomeMigrationScheduleRequest,
+  parseDataHomeMigrationScheduleResult,
+  parseDataHomePath,
+  parseDataHomeSettingsSnapshot,
+  type DataHomeMigrationPlanRequest,
+  type DataHomeMigrationScheduleRequest,
+} from "@minke/harness-overlay/data-home-contract.ts";
+import {
   parseSessionLogExportId,
   SESSION_LOG_EXPORT_CHANNEL,
 } from "@minke/harness-overlay/session-export-contract.ts";
@@ -297,6 +311,42 @@ const modelRuntime = Object.freeze({
   },
 });
 
+const dataHome = Object.freeze({
+  async read(): Promise<unknown> {
+    return parseDataHomeSettingsSnapshot(
+      await ipcRenderer.invoke(DATA_HOME_SETTINGS_READ_CHANNEL),
+    );
+  },
+  async chooseDirectory(): Promise<string | undefined> {
+    const selected = await ipcRenderer.invoke(
+      DATA_HOME_CHOOSE_DIRECTORY_CHANNEL,
+    );
+    return selected === undefined
+      ? undefined
+      : parseDataHomePath(selected);
+  },
+  async plan(
+    request: DataHomeMigrationPlanRequest,
+  ): Promise<unknown> {
+    return parseDataHomeMigrationPlan(
+      await ipcRenderer.invoke(
+        DATA_HOME_MIGRATION_PLAN_CHANNEL,
+        parseDataHomeMigrationPlanRequest(request),
+      ),
+    );
+  },
+  async schedule(
+    request: DataHomeMigrationScheduleRequest,
+  ): Promise<unknown> {
+    return parseDataHomeMigrationScheduleResult(
+      await ipcRenderer.invoke(
+        DATA_HOME_MIGRATION_SCHEDULE_CHANNEL,
+        parseDataHomeMigrationScheduleRequest(request),
+      ),
+    );
+  },
+});
+
 const about = Object.freeze({
   productName: appManifest.productName,
   version: appManifest.version,
@@ -326,6 +376,7 @@ contextBridge.exposeInMainWorld(
   "minkeDesktop",
   Object.freeze({
     about,
+    dataHome,
     files,
     locale,
     modelRuntime,

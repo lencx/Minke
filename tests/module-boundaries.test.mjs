@@ -27,6 +27,7 @@ const sourceExtensions = new Set([
 const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/session-export-contract",
   "@minke/harness-overlay/model-runtime-settings-contract",
+  "@minke/harness-overlay/data-home-contract",
   "@minke/harness-overlay/shortcut-contract",
   "@minke/harness-overlay/tabs/contract",
   "@minke/harness-overlay/tabs/files-contract",
