@@ -20,6 +20,9 @@ import {
   parseTerminalSettings,
   type TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
+import {
+  parseDataHomePath,
+} from "@minke/harness-overlay/data-home-contract.ts";
 
 /** Current schema version of the unified Minke desktop configuration. */
 export const MINKE_CONFIG_VERSION = 1;
@@ -39,6 +42,7 @@ export interface MinkeConfigDocument {
   shortcuts: ShortcutBindings;
   terminal: TerminalSettings;
   modelRuntime: ModelRuntimeSettings;
+  dshHome?: string;
 }
 
 /** One validated section of the unified desktop configuration. */
@@ -52,6 +56,7 @@ const CONFIG_KEYS = new Set([
   "shortcuts",
   "terminal",
   "modelRuntime",
+  "dshHome",
 ]);
 
 function defaultDocument(): MinkeConfigDocument {
@@ -107,6 +112,9 @@ export function parseMinkeConfigDocument(
             },
           }
         : parseModelRuntimeSettings(record.modelRuntime),
+    ...(record.dshHome === undefined
+      ? {}
+      : { dshHome: parseDataHomePath(record.dshHome) }),
   };
 }
 
@@ -119,6 +127,7 @@ export class MinkeConfigStore {
   readonly shortcuts: MinkeConfigSection<ShortcutBindings>;
   readonly terminal: MinkeConfigSection<TerminalSettings>;
   readonly modelRuntime: MinkeConfigSection<ModelRuntimeSettings>;
+  readonly dshHome: MinkeConfigSection<string | undefined>;
 
   #document: MinkeConfigDocument | undefined;
   #loaded = false;
@@ -138,6 +147,10 @@ export class MinkeConfigStore {
     this.modelRuntime = Object.freeze({
       read: () => this.#readModelRuntime(),
       write: (value: unknown) => this.#writeModelRuntime(value),
+    });
+    this.dshHome = Object.freeze({
+      read: () => this.#readDshHome(),
+      write: (value: unknown) => this.#writeDshHome(value),
     });
   }
 
@@ -188,6 +201,12 @@ export class MinkeConfigStore {
     });
   }
 
+  #readDshHome(): Promise<string | undefined> {
+    return this.#runExclusive(async () => {
+      return (await this.#load()).dshHome;
+    });
+  }
+
   #writeShortcuts(value: unknown): Promise<void> {
     return this.#runExclusive(async () => {
       const shortcuts = parseShortcutBindings(value);
@@ -219,6 +238,22 @@ export class MinkeConfigStore {
         ...(await this.#load()),
         modelRuntime,
       };
+      await this.#persist(next);
+      this.#document = next;
+    });
+  }
+
+  #writeDshHome(value: unknown): Promise<void> {
+    return this.#runExclusive(async () => {
+      const dshHome =
+        value === undefined ? undefined : parseDataHomePath(value);
+      const next: MinkeConfigDocument = {
+        ...(await this.#load()),
+        ...(dshHome === undefined ? {} : { dshHome }),
+      };
+      if (dshHome === undefined) {
+        Reflect.deleteProperty(next, "dshHome");
+      }
       await this.#persist(next);
       this.#document = next;
     });
