@@ -410,7 +410,6 @@ export class FilesTabsController {
           dirty,
           draft,
           saveError: undefined,
-          saveStatus: undefined,
         },
       },
     });
@@ -443,7 +442,6 @@ export class FilesTabsController {
           ...preview,
           saving: true,
           saveError: undefined,
-          saveStatus: undefined,
         },
       },
     });
@@ -493,9 +491,6 @@ export class FilesTabsController {
               dirty: changedAfterSave,
               saving: false,
               saveError: undefined,
-              saveStatus: changedAfterSave
-                ? undefined
-                : "saved",
               diskChanged: undefined,
             },
           },
@@ -525,7 +520,6 @@ export class FilesTabsController {
               ...currentPreview,
               saving: false,
               saveError: errorMessage(error),
-              saveStatus: undefined,
             },
           },
         });

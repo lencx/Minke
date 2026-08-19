@@ -869,7 +869,7 @@ test("Files editor folds indented code blocks without a language parser", () => 
   );
 });
 
-test("Files editor exposes visible save progress and errors", () => {
+test("Files preview keeps editing state compact and preserves save errors", () => {
   const previewSource = readFileSync(
     new URL(
       "../packages/harness-overlay/src/client/tabs/files/FilePreviewPane.tsx",
@@ -884,15 +884,29 @@ test("Files editor exposes visible save progress and errors", () => {
     ),
     "utf8",
   );
-  assert.match(
-    previewSource,
-    /className="minke-files-preview__save-status"[\s\S]*data-state=/u,
+  const headerStart = previewSource.indexOf(
+    '<header className="minke-files-preview__header">',
   );
-  assert.match(previewSource, /role="status"/u);
-  assert.match(previewSource, /aria-live="polite"/u);
-  assert.match(previewSource, /SavingPreviewIcon/u);
-  assert.match(previewSource, /SavedPreviewIcon/u);
-  assert.match(previewSource, /data-saving=/u);
+  const headerEnd = previewSource.indexOf("</header>", headerStart);
+  const headerSource = previewSource.slice(headerStart, headerEnd);
+  const dirtyIndex = headerSource.indexOf(
+    'className="minke-files-preview__dirty"',
+  );
+  const fileIconIndex = headerSource.indexOf("<FileIcon");
+  assert.ok(headerStart >= 0);
+  assert.ok(headerEnd > headerStart);
+  assert.ok(dirtyIndex >= 0);
+  assert.ok(fileIconIndex > dirtyIndex);
+  assert.match(headerSource, /SourcePreviewIcon/u);
+  assert.match(headerSource, /DiffPreviewIcon/u);
+  assert.doesNotMatch(headerSource, /SavePreviewIcon/u);
+  assert.doesNotMatch(headerSource, /SavingPreviewIcon/u);
+  assert.doesNotMatch(headerSource, /SavedPreviewIcon/u);
+  assert.doesNotMatch(
+    headerSource,
+    /minke-files-preview__save-status/u,
+  );
+  assert.doesNotMatch(headerSource, /data-saving=/u);
   assert.match(
     previewSource,
     /className="minke-files-preview__save-error"[\s\S]*role="alert"/u,
@@ -916,11 +930,23 @@ test("Files editor exposes visible save progress and errors", () => {
   assert.doesNotMatch(previewSource, /<figcaption>/u);
   assert.match(
     FILES_TAB_STYLES,
+    /\.minke-files-preview__file-mark/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-preview__dirty/u,
+  );
+  assert.doesNotMatch(
+    FILES_TAB_STYLES,
     /\.minke-files-preview__save-status/u,
   );
-  assert.match(FILES_TAB_STYLES, /@keyframes minke-files-spin/u);
-  assert.match(localeSource, /"files\.preview\.saving"/u);
-  assert.match(localeSource, /"files\.preview\.saved"/u);
+  assert.doesNotMatch(
+    FILES_TAB_STYLES,
+    /@keyframes minke-files-spin/u,
+  );
+  assert.doesNotMatch(localeSource, /"files\.preview\.saving"/u);
+  assert.doesNotMatch(localeSource, /"files\.preview\.saved"/u);
+  assert.doesNotMatch(localeSource, /"files\.preview\.save":/u);
   assert.match(localeSource, /"files\.preview\.saveError"/u);
 });
 
@@ -1116,10 +1142,6 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   assert.equal(
     tabs.tab(projectTab).payload.preview.result.version,
     editedReadmeVersion,
-  );
-  assert.equal(
-    tabs.tab(projectTab).payload.preview.saveStatus,
-    "saved",
   );
   assert.equal(
     confirmFilesTabClose(
@@ -1384,11 +1406,6 @@ test("Files keeps newer edits and failed-save drafts intact", async () => {
   );
   assert.equal(tabs.tab(tabId).payload.preview.dirty, true);
   assert.equal(tabs.tab(tabId).payload.preview.saving, false);
-  assert.equal(
-    tabs.tab(tabId).payload.preview.saveStatus,
-    undefined,
-  );
-
   files.savePreview(tabId);
   await settleAsyncWork();
   assert.equal(

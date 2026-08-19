@@ -28,7 +28,6 @@ export interface FilesPreviewState {
   readonly draft?: string;
   readonly error?: string;
   readonly saveError?: string;
-  readonly saveStatus?: "saved";
   readonly diskChanged?: boolean;
   readonly comparison?: {
     readonly loading: boolean;

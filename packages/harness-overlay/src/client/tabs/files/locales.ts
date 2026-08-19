@@ -44,9 +44,6 @@ export const filesTabsZh = {
     "此文件不在 Git 仓库中，无法加载源码差异。",
   "files.preview.diff.tooLarge":
     "Git 基线超过 8 MB，无法加载源码差异。",
-  "files.preview.save": "保存（⌘/Ctrl+S）",
-  "files.preview.saving": "正在保存",
-  "files.preview.saved": "已保存",
   "files.preview.dirty": "有未保存的更改",
   "files.preview.diskChanged":
     "文件已在磁盘上更改。为保护未保存内容，预览未自动重载。",
@@ -116,9 +113,6 @@ export const filesTabsEn: Record<
     "This file is not in a Git repository.",
   "files.preview.diff.tooLarge":
     "The Git baseline is larger than 8 MB.",
-  "files.preview.save": "Save (⌘/Ctrl+S)",
-  "files.preview.saving": "Saving",
-  "files.preview.saved": "Saved",
   "files.preview.dirty": "Unsaved changes",
   "files.preview.diskChanged":
     "This file changed on disk. The preview was not reloaded to protect your unsaved changes.",
