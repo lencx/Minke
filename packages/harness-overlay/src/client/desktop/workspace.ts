@@ -64,6 +64,21 @@ export function desktopPluginCatalogPort(
           "Minke desktop plugin catalog bridge is unavailable",
         );
       },
+      async install() {
+        throw new Error(
+          "Minke desktop plugin catalog bridge is unavailable",
+        );
+      },
+      async setToken() {
+        throw new Error(
+          "Minke desktop plugin catalog bridge is unavailable",
+        );
+      },
+      async clearToken() {
+        throw new Error(
+          "Minke desktop plugin catalog bridge is unavailable",
+        );
+      },
     };
   }
   return {
@@ -76,6 +91,21 @@ export function desktopPluginCatalogPort(
     },
     async cancel() {
       return parsePluginCatalogSnapshot(await bridge.cancel());
+    },
+    async install(pluginId) {
+      return parsePluginCatalogSnapshot(
+        await bridge.install(pluginId),
+      );
+    },
+    async setToken(token) {
+      return parsePluginCatalogSnapshot(
+        await bridge.setToken(token),
+      );
+    },
+    async clearToken() {
+      return parsePluginCatalogSnapshot(
+        await bridge.clearToken(),
+      );
     },
   };
 }

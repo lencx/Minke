@@ -9,6 +9,8 @@ export interface PluginCatalogTabPayload {
   readonly loading: boolean;
   readonly refreshing: boolean;
   readonly cancelling: boolean;
+  readonly installingPluginId?: string;
+  readonly credentialSaving?: boolean;
   readonly snapshot?: PluginCatalogSnapshot;
   readonly error?: string;
 }

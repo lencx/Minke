@@ -160,6 +160,9 @@ export interface PluginCatalogPort {
   read(): Promise<PluginCatalogSnapshot>;
   refresh(): Promise<PluginCatalogSnapshot>;
   cancel(): Promise<PluginCatalogSnapshot>;
+  install(pluginId: string): Promise<PluginCatalogSnapshot>;
+  setToken(token: string): Promise<PluginCatalogSnapshot>;
+  clearToken(): Promise<PluginCatalogSnapshot>;
 }
 
 export interface DesktopShortcutBridge {
@@ -224,6 +227,9 @@ export interface DesktopPluginCatalogBridge {
   read(): Promise<unknown>;
   refresh(): Promise<unknown>;
   cancel(): Promise<unknown>;
+  install(pluginId: string): Promise<unknown>;
+  setToken(token: string): Promise<unknown>;
+  clearToken(): Promise<unknown>;
 }
 
 export interface DesktopDataHomeBridge {

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import {
+  mkdir,
   mkdtemp,
   readFile,
   rm,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,8 +16,11 @@ import {
 } from "@lencx/minke-plugin-catalog";
 import {
   PLUGIN_CATALOG_CANCEL_CHANNEL,
+  PLUGIN_CATALOG_INSTALL_CHANNEL,
   PLUGIN_CATALOG_READ_CHANNEL,
   PLUGIN_CATALOG_REFRESH_CHANNEL,
+  PLUGIN_CATALOG_TOKEN_CLEAR_CHANNEL,
+  PLUGIN_CATALOG_TOKEN_SET_CHANNEL,
 } from "@minke/desktop/plugin-catalog-contract.ts";
 import {
   parsePluginCatalogSnapshot,
@@ -23,6 +28,13 @@ import {
 import {
   bindPluginCatalogIpc,
 } from "@minke/desktop/main/plugin-catalog.ts";
+import {
+  EncryptedGitHubTokenStore,
+  pluginCatalogCredentialFilePath,
+} from "@minke/desktop/main/plugin-catalog-credential.ts";
+import {
+  PluginCatalogInstallationRuntime,
+} from "@minke/desktop/main/plugin-catalog-installation.ts";
 import {
   desktopPluginCatalogPort,
 } from "@minke/harness-overlay/client/desktop/workspace.ts";
@@ -82,7 +94,7 @@ function pluginTranslate(key, params = {}) {
 
 function pluginSnapshot(overrides = {}) {
   return {
-    version: 1,
+    version: 2,
     generatedAt: "2026-08-19T00:00:00.000Z",
     lastRefreshAt: "2026-08-19T00:00:00.000Z",
     lastFullScanAt: "2026-08-19T00:00:00.000Z",
@@ -109,9 +121,31 @@ function pluginSnapshot(overrides = {}) {
         installSpec: "github:minke-labs/useful-plugin",
         installVerification: "verified",
         requiresBuildAllowance: false,
+        installed: false,
       },
     ],
+    candidates: [],
+    credential: {
+      configured: false,
+      writable: true,
+    },
     ...overrides,
+  };
+}
+
+function secureStorage(available = true) {
+  const transform = (input) =>
+    Buffer.from(input).map((value) => value ^ 0xa5);
+  return {
+    isEncryptionAvailable() {
+      return available;
+    },
+    encryptString(value) {
+      return transform(Buffer.from(value, "utf8"));
+    },
+    decryptString(value) {
+      return transform(value).toString("utf8");
+    },
   };
 }
 
@@ -130,6 +164,19 @@ function repository() {
     archived: false,
     disabled: false,
     owner: { login: "minke-labs" },
+  };
+}
+
+function candidateRepository(index) {
+  const suffix = String(index).padStart(3, "0");
+  return {
+    ...repository(),
+    id: 1_000 + index,
+    full_name: `minke-labs/candidate-${suffix}`,
+    html_url:
+      `https://github.com/minke-labs/candidate-${suffix}`,
+    description: `Candidate repository ${suffix}`,
+    stargazers_count: index,
   };
 }
 
@@ -243,6 +290,60 @@ function catalogFetcher() {
   };
 }
 
+test("the catalog exposes a bounded, ranked list of pending candidates", async () => {
+  const userDataPath = await temporaryRoot();
+  const repositories = Array.from(
+    { length: 205 },
+    (_, index) => candidateRepository(index),
+  );
+  const catalog = new PluginCatalogService({
+    userDataPath,
+    token: "test-token",
+    repositoryBudget: 0,
+    searchPaceMs: 0,
+    fetcher: async (input) => {
+      const url = new URL(input);
+      assert.equal(url.pathname, "/search/repositories");
+      const page = Number(url.searchParams.get("page"));
+      const start = (page - 1) * 100;
+      return json({
+        total_count: repositories.length,
+        incomplete_results: false,
+        items: repositories.slice(start, start + 100),
+      });
+    },
+  });
+
+  const snapshot = await catalog.refresh();
+  assert.deepEqual(snapshot.counts, {
+    repositories: 205,
+    pendingRepositories: 205,
+    plugins: 0,
+  });
+  assert.equal(snapshot.candidates.length, 200);
+  assert.deepEqual(
+    snapshot.candidates.slice(0, 3).map(
+      ({ repository: name, stars }) => ({ name, stars }),
+    ),
+    [
+      { name: "minke-labs/candidate-204", stars: 204 },
+      { name: "minke-labs/candidate-203", stars: 203 },
+      { name: "minke-labs/candidate-202", stars: 202 },
+    ],
+  );
+  assert.equal(
+    snapshot.candidates.at(-1).repository,
+    "minke-labs/candidate-005",
+  );
+  assert.equal(
+    snapshot.candidates.some(
+      (candidate) => "installSpec" in candidate,
+    ),
+    false,
+  );
+  catalog.dispose();
+});
+
 test("the local catalog resumes monorepo validation and reloads its cache", async () => {
   const userDataPath = await temporaryRoot();
   const remote = catalogFetcher();
@@ -319,6 +420,54 @@ test("the local catalog resumes monorepo validation and reloads its cache", asyn
   );
   catalog.dispose();
   offline.dispose();
+});
+
+test("only validated prebuilt catalog entries can be installed", async () => {
+  const userDataPath = await temporaryRoot();
+  const remote = catalogFetcher();
+  const installedPackageNames = new Set();
+  const installs = [];
+  const catalog = new PluginCatalogService({
+    userDataPath,
+    token: "test-token",
+    fetcher: remote.fetch,
+    delay: async () => {},
+    searchPaceMs: 0,
+    repositoryBudget: 1,
+    manifestBudget: 10,
+    installation: {
+      async listInstalledPackageNames() {
+        return [...installedPackageNames];
+      },
+      async install(installSpec) {
+        installs.push(installSpec);
+        installedPackageNames.add("useful-plugin");
+      },
+    },
+  });
+
+  const discovered = await catalog.refresh();
+  const plugin = discovered.plugins.find(
+    ({ id }) => id === "minke-labs/useful-plugin",
+  );
+  assert.equal(plugin.installed, false);
+
+  const installed = await catalog.install(plugin.id);
+  assert.deepEqual(installs, [
+    "github:minke-labs/useful-plugin",
+  ]);
+  assert.equal(
+    installed.plugins.find(({ id }) => id === plugin.id).installed,
+    true,
+  );
+
+  await catalog.install(plugin.id);
+  assert.equal(installs.length, 1);
+  await assert.rejects(
+    catalog.install("minke-labs/not-in-the-catalog"),
+    /not found/u,
+  );
+  catalog.dispose();
 });
 
 test("a completed full scan retires repositories that lost discovery eligibility", async () => {
@@ -421,6 +570,20 @@ test("rate-limited validation leaves candidates pending and reports the failed s
     pendingRepositories: 1,
     plugins: 0,
   });
+  assert.deepEqual(snapshot.candidates, [
+    {
+      id: "minke-labs/useful-plugin",
+      repository: "minke-labs/useful-plugin",
+      repositoryUrl:
+        "https://github.com/minke-labs/useful-plugin",
+      description: "Useful local tools",
+      topics: ["dsh-plugin", "local-tools"],
+      language: "TypeScript",
+      stars: 25,
+      pushedAt: "2026-08-18T00:00:00Z",
+      status: "error",
+    },
+  ]);
   assert.equal(requests, 2);
   catalog.dispose();
 });
@@ -504,10 +667,233 @@ test(
   },
 );
 
+test("GitHub tokens are value-free on reads and encrypted at rest", async () => {
+  const userDataPath = await temporaryRoot();
+  const token = "github_pat_minke_test_token_123";
+  const store = new EncryptedGitHubTokenStore({
+    userDataPath,
+    environment: {},
+    secureStorage: secureStorage(),
+  });
+
+  assert.deepEqual(await store.describe(), {
+    configured: false,
+    writable: true,
+  });
+  await store.set(token);
+  assert.deepEqual(await store.describe(), {
+    configured: true,
+    writable: true,
+    source: "secure-storage",
+  });
+  assert.equal(await store.resolve(), token);
+
+  const credentialPath =
+    pluginCatalogCredentialFilePath(userDataPath);
+  const persisted = await readFile(credentialPath, "utf8");
+  assert.doesNotMatch(persisted, new RegExp(token, "u"));
+  assert.deepEqual(Object.keys(JSON.parse(persisted)).sort(), [
+    "encryptedToken",
+    "version",
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(await store.describe()),
+    new RegExp(token, "u"),
+  );
+  if (process.platform !== "win32") {
+    assert.equal(
+      (await stat(credentialPath)).mode & 0o777,
+      0o600,
+    );
+  }
+
+  const lockedStore = new EncryptedGitHubTokenStore({
+    userDataPath,
+    environment: {},
+    secureStorage: secureStorage(false),
+  });
+  assert.deepEqual(await lockedStore.describe(), {
+    configured: true,
+    writable: false,
+    source: "secure-storage",
+  });
+  await assert.rejects(
+    lockedStore.resolve(),
+    /secure storage is unavailable/u,
+  );
+  await lockedStore.unset();
+  assert.deepEqual(await lockedStore.describe(), {
+    configured: false,
+    writable: false,
+  });
+
+  const inherited = new EncryptedGitHubTokenStore({
+    userDataPath,
+    environment: { GITHUB_TOKEN: token },
+    secureStorage: secureStorage(),
+  });
+  assert.deepEqual(await inherited.describe(), {
+    configured: true,
+    writable: false,
+    source: "environment",
+  });
+  assert.equal(await inherited.resolve(), token);
+  await assert.rejects(
+    inherited.set("github_pat_replacement"),
+    /comes from the environment/u,
+  );
+});
+
+test("a saved GitHub token is applied to the next scan without a restart", async () => {
+  const userDataPath = await temporaryRoot();
+  const token = "github_pat_hot_update_123";
+  const store = new EncryptedGitHubTokenStore({
+    userDataPath,
+    environment: {},
+    secureStorage: secureStorage(),
+  });
+  let expectedAuthorization = `Bearer ${token}`;
+  const authorizations = [];
+  const catalog = new PluginCatalogService({
+    userDataPath,
+    credentialProvider: store,
+    searchPaceMs: 0,
+    fetcher: async (_input, init = {}) => {
+      const authorization =
+        new Headers(init.headers).get("authorization");
+      authorizations.push(authorization);
+      assert.equal(authorization, expectedAuthorization);
+      return json({
+        total_count: 0,
+        incomplete_results: false,
+        items: [],
+      });
+    },
+  });
+
+  const saved = await catalog.saveGitHubToken(token);
+  assert.deepEqual(saved.credential, {
+    configured: true,
+    writable: true,
+    source: "secure-storage",
+  });
+  assert.doesNotMatch(
+    JSON.stringify(saved),
+    new RegExp(token, "u"),
+  );
+  await catalog.refresh();
+  assert.ok(authorizations.length > 0);
+
+  expectedAuthorization = null;
+  const cleared = await catalog.clearGitHubToken();
+  assert.deepEqual(cleared.credential, {
+    configured: false,
+    writable: true,
+  });
+  const authenticatedRequestCount = authorizations.length;
+  await catalog.refresh();
+  assert.ok(authorizations.length > authenticatedRequestCount);
+  catalog.dispose();
+});
+
+test("the installation runtime uses the bundled command without a shell", async () => {
+  const root = await temporaryRoot();
+  const dshHome = join(root, "dsh-home");
+  const profileDirectory = join(
+    dshHome,
+    "profiles",
+    "web",
+  );
+  await mkdir(profileDirectory, { recursive: true });
+  await writeFile(
+    join(profileDirectory, "package.json"),
+    JSON.stringify({
+      dependencies: {
+        "useful-plugin": "github:minke-labs/useful-plugin",
+        "@minke/nested": "github:minke-labs/nested#path:plugin",
+      },
+    }),
+  );
+  const layout = {
+    entryPath: join(root, "runtime", "index.mjs"),
+    pnpmEntry: join(root, "runtime", "pnpm.cjs"),
+    productPackageName: "@minke/runtime",
+    productPatch: join(root, "runtime", "product.yml"),
+    runtimeBin: join(root, "runtime", "bin"),
+  };
+  const commands = [];
+  const installation = new PluginCatalogInstallationRuntime({
+    runtimeRoot: join(root, "runtime"),
+    dshHome,
+    electronExecutable: join(root, "Minke"),
+    environment: {
+      PATH: "/usr/bin",
+      DSH_ELECTRON_EXECUTABLE: "ambient-electron",
+      DSH_PNPM_ENTRY: "ambient-pnpm",
+    },
+    readRuntimeLayout: async () => layout,
+    runCommand: async (command, args, options) => {
+      commands.push({ command, args, options });
+    },
+  });
+
+  assert.deepEqual(
+    (await installation.listInstalledPackageNames()).sort(),
+    ["@minke/nested", "useful-plugin"],
+  );
+  await installation.install(
+    "github:minke-labs/useful-plugin#path:packages/plugin",
+  );
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0].command, join(root, "Minke"));
+  assert.deepEqual(commands[0].args, [
+    "--expose-internals",
+    layout.entryPath,
+    "plugin",
+    "--profile",
+    "web",
+    "add",
+    "github:minke-labs/useful-plugin#path:packages/plugin",
+  ]);
+  assert.equal(commands[0].options.cwd, dshHome);
+  assert.equal(commands[0].options.env.DSH_HOME, dshHome);
+  assert.equal(
+    commands[0].options.env.ELECTRON_RUN_AS_NODE,
+    "1",
+  );
+  assert.equal(
+    commands[0].options.env.MINKE_NODE_EXECUTABLE,
+    join(root, "Minke"),
+  );
+  assert.equal(
+    commands[0].options.env.MINKE_PNPM_ENTRY,
+    layout.pnpmEntry,
+  );
+  assert.equal(
+    commands[0].options.env.DSH_ELECTRON_EXECUTABLE,
+    undefined,
+  );
+  assert.equal(
+    commands[0].options.env.DSH_PNPM_ENTRY,
+    undefined,
+  );
+  assert.match(
+    commands[0].options.env.PATH,
+    new RegExp(layout.runtimeBin.replaceAll("/", "\\/"), "u"),
+  );
+  await assert.rejects(
+    installation.install("https://example.com/plugin"),
+    /invalid plugin catalog install specification/u,
+  );
+});
+
 test("the desktop catalog port validates snapshots from the preload bridge", async () => {
   const snapshot = pluginSnapshot();
   let refreshes = 0;
   let cancellations = 0;
+  const installs = [];
+  const tokens = [];
+  let tokenClears = 0;
   const port = desktopPluginCatalogPort({
     minkeDesktop: {
       pluginCatalog: {
@@ -522,6 +908,18 @@ test("the desktop catalog port validates snapshots from the preload bridge", asy
           cancellations += 1;
           return snapshot;
         },
+        async install(pluginId) {
+          installs.push(pluginId);
+          return snapshot;
+        },
+        async setToken(token) {
+          tokens.push(token);
+          return snapshot;
+        },
+        async clearToken() {
+          tokenClears += 1;
+          return snapshot;
+        },
       },
     },
   });
@@ -530,8 +928,20 @@ test("the desktop catalog port validates snapshots from the preload bridge", asy
   assert.deepEqual(await port.read(), snapshot);
   assert.deepEqual(await port.refresh(), snapshot);
   assert.deepEqual(await port.cancel(), snapshot);
+  assert.deepEqual(
+    await port.install("minke-labs/useful-plugin"),
+    snapshot,
+  );
+  assert.deepEqual(
+    await port.setToken("github_pat_renderer_test"),
+    snapshot,
+  );
+  assert.deepEqual(await port.clearToken(), snapshot);
   assert.equal(refreshes, 1);
   assert.equal(cancellations, 1);
+  assert.deepEqual(installs, ["minke-labs/useful-plugin"]);
+  assert.deepEqual(tokens, ["github_pat_renderer_test"]);
+  assert.equal(tokenClears, 1);
 
   const unavailable = desktopPluginCatalogPort({});
   assert.equal(unavailable.available, false);
@@ -551,6 +961,9 @@ test("the Plugins menu opens a local catalog with sync and in-app GitHub tabs", 
   let reads = 0;
   let refreshes = 0;
   let cancellations = 0;
+  let installs = 0;
+  let tokenSaves = 0;
+  let tokenClears = 0;
   const webTabs = new WebTabsController(tabs, {
     openExternal(url) {
       external.push(url);
@@ -570,6 +983,18 @@ test("the Plugins menu opens a local catalog with sync and in-app GitHub tabs", 
       },
       async cancel() {
         cancellations += 1;
+        return snapshot;
+      },
+      async install() {
+        installs += 1;
+        return snapshot;
+      },
+      async setToken() {
+        tokenSaves += 1;
+        return snapshot;
+      },
+      async clearToken() {
+        tokenClears += 1;
         return snapshot;
       },
     },
@@ -593,6 +1018,20 @@ test("the Plugins menu opens a local catalog with sync and in-app GitHub tabs", 
   assert.equal(refreshes, 1);
   await controller.cancel(tab.id);
   assert.equal(cancellations, 1);
+  await controller.install(
+    tab.id,
+    "minke-labs/useful-plugin",
+  );
+  assert.equal(installs, 1);
+  await controller.clearToken(tab.id);
+  assert.equal(tokenClears, 1);
+  await controller.saveToken(
+    tab.id,
+    "github_pat_controller_test",
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(tokenSaves, 1);
+  assert.equal(refreshes, 2);
   controller.openDiscoveryResource();
   controller.openRepository(
     "https://github.com/minke-labs/useful-plugin",
@@ -651,6 +1090,13 @@ test("the Plugins menu opens a local catalog with sync and in-app GitHub tabs", 
   assert.match(viewSource, /controller\.cancel/u);
   assert.match(viewSource, /plugins\.action\.github/u);
   assert.match(viewSource, /minke-plugins-card/u);
+  assert.match(viewSource, /data-candidate/u);
+  assert.match(
+    viewSource,
+    /const FILTERS:[\s\S]*?"installed"/u,
+  );
+  assert.match(viewSource, /controller\.install/u);
+  assert.match(viewSource, /controller\.saveToken/u);
   assert.match(styles, /@container minke-plugin-catalog/u);
   assert.equal(
     pluginTranslate("plugins.page.title"),
@@ -692,6 +1138,15 @@ test("the plugin catalog tab can stop a background sync", async () => {
         cancellations += 1;
         return idle;
       },
+      async install() {
+        return idle;
+      },
+      async setToken() {
+        return idle;
+      },
+      async clearToken() {
+        return idle;
+      },
     },
     {
       open() {
@@ -717,7 +1172,7 @@ test("the catalog contract and IPC adapter reject malformed or unauthorized data
   assert.throws(
     () =>
       parsePluginCatalogSnapshot({
-        version: 1,
+        version: 2,
         generatedAt: null,
         lastRefreshAt: null,
         lastFullScanAt: null,
@@ -728,13 +1183,18 @@ test("the catalog contract and IPC adapter reject malformed or unauthorized data
           plugins: 1,
         },
         plugins: [],
+        candidates: [],
+        credential: {
+          configured: false,
+          writable: true,
+        },
       }),
     /count does not match/u,
   );
 
   const handlers = new Map();
   const snapshot = {
-    version: 1,
+    version: 2,
     generatedAt: null,
     lastRefreshAt: null,
     lastFullScanAt: null,
@@ -745,9 +1205,17 @@ test("the catalog contract and IPC adapter reject malformed or unauthorized data
       plugins: 0,
     },
     plugins: [],
+    candidates: [],
+    credential: {
+      configured: false,
+      writable: true,
+    },
   };
   let refreshes = 0;
   let cancellations = 0;
+  const installs = [];
+  const tokens = [];
+  let tokenClears = 0;
   const binding = bindPluginCatalogIpc(
     {
       handle(channel, listener) {
@@ -769,6 +1237,18 @@ test("the catalog contract and IPC adapter reject malformed or unauthorized data
         cancellations += 1;
         return snapshot;
       },
+      async install(pluginId) {
+        installs.push(pluginId);
+        return snapshot;
+      },
+      async saveGitHubToken(token) {
+        tokens.push(token);
+        return snapshot;
+      },
+      async clearGitHubToken() {
+        tokenClears += 1;
+        return snapshot;
+      },
     },
     (event) => event === "allowed",
   );
@@ -781,8 +1261,43 @@ test("the catalog contract and IPC adapter reject malformed or unauthorized data
   assert.equal(refreshes, 1);
   await handlers.get(PLUGIN_CATALOG_CANCEL_CHANNEL)("allowed");
   assert.equal(cancellations, 1);
+  await handlers.get(PLUGIN_CATALOG_INSTALL_CHANNEL)(
+    "allowed",
+    { pluginId: "minke-labs/useful-plugin" },
+  );
+  assert.deepEqual(installs, ["minke-labs/useful-plugin"]);
+  await handlers.get(PLUGIN_CATALOG_TOKEN_SET_CHANNEL)(
+    "allowed",
+    { token: "github_pat_ipc_test" },
+  );
+  assert.deepEqual(tokens, ["github_pat_ipc_test"]);
+  await handlers.get(PLUGIN_CATALOG_TOKEN_CLEAR_CHANNEL)(
+    "allowed",
+  );
+  assert.equal(tokenClears, 1);
+  await assert.rejects(
+    handlers.get(PLUGIN_CATALOG_INSTALL_CHANNEL)(
+      "allowed",
+      { pluginId: "", extra: true },
+    ),
+    /invalid plugin catalog install request/u,
+  );
+  await assert.rejects(
+    handlers.get(PLUGIN_CATALOG_TOKEN_SET_CHANNEL)(
+      "allowed",
+      { token: "GITHUB_TOKEN=secret" },
+    ),
+    /invalid GitHub token/u,
+  );
   await assert.rejects(
     handlers.get(PLUGIN_CATALOG_READ_CHANNEL)("denied"),
+    /unauthorized/u,
+  );
+  await assert.rejects(
+    handlers.get(PLUGIN_CATALOG_TOKEN_SET_CHANNEL)(
+      "denied",
+      { token: "" },
+    ),
     /unauthorized/u,
   );
   binding.dispose();

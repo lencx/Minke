@@ -92,6 +92,37 @@ export class PluginCatalogTabsController {
     await this.#run(tabId, "cancel");
   }
 
+  async install(
+    tabId: string,
+    pluginId: string,
+  ): Promise<void> {
+    await this.#runMutation(
+      tabId,
+      { installingPluginId: pluginId },
+      () => this.#catalog.install(pluginId),
+    );
+  }
+
+  async saveToken(
+    tabId: string,
+    token: string,
+  ): Promise<void> {
+    const saved = await this.#runMutation(
+      tabId,
+      { credentialSaving: true },
+      () => this.#catalog.setToken(token),
+    );
+    if (saved) void this.refresh(tabId);
+  }
+
+  async clearToken(tabId: string): Promise<void> {
+    await this.#runMutation(
+      tabId,
+      { credentialSaving: true },
+      () => this.#catalog.clearToken(),
+    );
+  }
+
   openDiscoveryResource(): void {
     if (this.#disposed) return;
     this.#webTabs.open(
@@ -154,6 +185,46 @@ export class PluginCatalogTabsController {
         snapshot: tab.payload.snapshot,
         error: errorMessage(error),
       });
+    }
+  }
+
+  async #runMutation(
+    tabId: string,
+    state:
+      | { installingPluginId: string }
+      | { credentialSaving: true },
+    operation: () => Promise<PluginCatalogSnapshot>,
+  ): Promise<boolean> {
+    if (this.#disposed) return false;
+    const tab = this.#tabs.tab(tabId);
+    if (tab === undefined || !isPluginCatalogTab(tab)) {
+      return false;
+    }
+    const revision = (this.#revisions.get(tabId) ?? 0) + 1;
+    this.#revisions.set(tabId, revision);
+    this.#clearPoll(tabId);
+    this.#update(tabId, {
+      loading: false,
+      refreshing: tab.payload.refreshing,
+      cancelling: false,
+      snapshot: tab.payload.snapshot,
+      ...state,
+    });
+    try {
+      const snapshot = await operation();
+      if (!this.#isCurrent(tabId, revision)) return false;
+      this.#applySnapshot(tabId, snapshot);
+      return true;
+    } catch (error) {
+      if (!this.#isCurrent(tabId, revision)) return false;
+      this.#update(tabId, {
+        loading: false,
+        refreshing: false,
+        cancelling: false,
+        snapshot: tab.payload.snapshot,
+        error: errorMessage(error),
+      });
+      return false;
     }
   }
 

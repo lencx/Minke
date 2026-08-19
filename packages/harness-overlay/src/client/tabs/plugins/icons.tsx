@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import {
+  CircleCheck,
   CircleAlert,
+  Download,
+  KeyRound,
   PackageOpen,
   Puzzle,
   RefreshCw,
@@ -51,4 +54,16 @@ export function PluginStarIcon(): ReactNode {
 
 export function PluginWarningIcon(): ReactNode {
   return <LucideIcon icon={CircleAlert} size={15} />;
+}
+
+export function PluginInstallIcon(): ReactNode {
+  return <LucideIcon icon={Download} size={13} />;
+}
+
+export function PluginInstalledIcon(): ReactNode {
+  return <LucideIcon icon={CircleCheck} size={13} />;
+}
+
+export function PluginCredentialIcon(): ReactNode {
+  return <LucideIcon icon={KeyRound} size={14} />;
 }

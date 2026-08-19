@@ -8,6 +8,11 @@ import {
 import { dirname, join, posix } from "node:path";
 import {
   PLUGIN_CATALOG_SNAPSHOT_VERSION,
+  PLUGIN_CATALOG_VISIBLE_CANDIDATE_LIMIT,
+  parsePluginCatalogCredentialState,
+  parsePluginCatalogGitHubToken,
+  type PluginCatalogCandidate,
+  type PluginCatalogCredentialState,
   type PluginCatalogEntry,
   type PluginCatalogSnapshot,
   type PluginInstallVerification,
@@ -102,6 +107,18 @@ export interface PluginCatalogLogger {
   warn(message: string): void;
 }
 
+export interface PluginCatalogCredentialProvider {
+  resolve(): Promise<string | undefined>;
+  describe(): Promise<PluginCatalogCredentialState>;
+  set(token: string): Promise<void>;
+  unset(): Promise<void>;
+}
+
+export interface PluginCatalogInstallationAdapter {
+  listInstalledPackageNames(): Promise<readonly string[]>;
+  install(installSpec: string): Promise<void>;
+}
+
 export interface PluginCatalogServiceOptions {
   userDataPath: string;
   fetcher?: (
@@ -109,6 +126,8 @@ export interface PluginCatalogServiceOptions {
     init?: RequestInit,
   ) => Promise<Response>;
   token?: string;
+  credentialProvider?: PluginCatalogCredentialProvider;
+  installation?: PluginCatalogInstallationAdapter;
   topic?: string;
   now?: () => Date;
   delay?: (milliseconds: number) => Promise<void>;
@@ -128,6 +147,9 @@ export interface PluginCatalogModule {
   read(): Promise<PluginCatalogSnapshot>;
   refresh(): Promise<PluginCatalogSnapshot>;
   cancelRefresh(): Promise<PluginCatalogSnapshot>;
+  install(pluginId: string): Promise<PluginCatalogSnapshot>;
+  saveGitHubToken(token: string): Promise<PluginCatalogSnapshot>;
+  clearGitHubToken(): Promise<PluginCatalogSnapshot>;
   dispose(): void;
 }
 
@@ -760,6 +782,12 @@ implements PluginCatalogModule {
     PluginCatalogServiceOptions["fetcher"]
   >;
   readonly #token: string | undefined;
+  readonly #credentialProvider:
+    | PluginCatalogCredentialProvider
+    | undefined;
+  readonly #installation:
+    | PluginCatalogInstallationAdapter
+    | undefined;
   readonly #topic: string;
   readonly #now: () => Date;
   readonly #delay: (milliseconds: number) => Promise<void>;
@@ -767,9 +795,9 @@ implements PluginCatalogModule {
   readonly #fullScanIntervalMs: number;
   readonly #validationMaxAgeMs: number;
   readonly #retryIntervalMs: number;
-  readonly #repositoryBudget: number;
-  readonly #manifestBudget: number;
-  readonly #searchPaceMs: number;
+  readonly #repositoryBudget: number | undefined;
+  readonly #manifestBudget: number | undefined;
+  readonly #searchPaceMs: number | undefined;
   readonly #requestTimeoutMs: number | undefined;
   readonly #logger: PluginCatalogLogger;
   readonly #lifetimeAbort = new AbortController();
@@ -780,12 +808,32 @@ implements PluginCatalogModule {
   #timer: NodeJS.Timeout | undefined;
   #refreshPromise: Promise<PluginCatalogSnapshot> | undefined;
   #refreshAbort: AbortController | undefined;
+  #installTask:
+    | {
+      pluginId: string;
+      promise: Promise<PluginCatalogSnapshot>;
+    }
+    | undefined;
+  #installedPackageNames = new Set<string>();
+  #credentialState: PluginCatalogCredentialState;
   #lastError: string | undefined;
 
   constructor(options: PluginCatalogServiceOptions) {
-    const token = options.token === undefined
-      ? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
-      : options.token;
+    if (
+      options.credentialProvider !== undefined &&
+      options.token !== undefined
+    ) {
+      throw new TypeError(
+        "plugin catalog token and credential provider are mutually exclusive",
+      );
+    }
+    const token = options.credentialProvider === undefined
+      ? (
+        options.token === undefined
+          ? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
+          : options.token
+      )
+      : undefined;
     const authenticated =
       token !== undefined && token.trim().length > 0;
     const topic = options.topic ?? DEFAULT_TOPIC;
@@ -794,7 +842,22 @@ implements PluginCatalogModule {
     }
     this.#store = new CatalogCacheStore(options.userDataPath);
     this.#fetcher = options.fetcher ?? fetch;
-    this.#token = authenticated ? token.trim() : undefined;
+    this.#token = authenticated
+      ? parsePluginCatalogGitHubToken(token)
+      : undefined;
+    this.#credentialProvider = options.credentialProvider;
+    this.#installation = options.installation;
+    this.#credentialState = this.#token === undefined
+      ? {
+        configured: false,
+        writable:
+          this.#credentialProvider !== undefined,
+      }
+      : {
+        configured: true,
+        writable: false,
+        source: "environment",
+      };
     this.#topic = topic;
     this.#now = options.now ?? (() => new Date());
     this.#delay =
@@ -817,26 +880,11 @@ implements PluginCatalogModule {
     this.#retryIntervalMs =
       options.retryIntervalMs ?? DEFAULT_RETRY_INTERVAL_MS;
     this.#repositoryBudget =
-      options.repositoryBudget ??
-      (
-        authenticated
-          ? AUTHENTICATED_REPOSITORY_BUDGET
-          : ANONYMOUS_REPOSITORY_BUDGET
-      );
+      options.repositoryBudget;
     this.#manifestBudget =
-      options.manifestBudget ??
-      (
-        authenticated
-          ? AUTHENTICATED_MANIFEST_BUDGET
-          : ANONYMOUS_MANIFEST_BUDGET
-      );
+      options.manifestBudget;
     this.#searchPaceMs =
-      options.searchPaceMs ??
-      (
-        authenticated
-          ? AUTHENTICATED_SEARCH_PACE_MS
-          : ANONYMOUS_SEARCH_PACE_MS
-      );
+      options.searchPaceMs;
     this.#requestTimeoutMs = options.requestTimeoutMs;
     this.#logger = options.logger ?? console;
   }
@@ -844,6 +892,10 @@ implements PluginCatalogModule {
   async start(): Promise<void> {
     this.#assertActive();
     await this.#load();
+    await Promise.all([
+      this.#refreshCredentialState(),
+      this.#refreshInstalledPackageNames(),
+    ]);
     if (this.#timer !== undefined) return;
     if (
       elapsedSince(
@@ -861,6 +913,10 @@ implements PluginCatalogModule {
 
   async read(): Promise<PluginCatalogSnapshot> {
     await this.#load();
+    await Promise.all([
+      this.#refreshCredentialState(),
+      this.#refreshInstalledPackageNames(),
+    ]);
     return this.#snapshot();
   }
 
@@ -893,6 +949,10 @@ implements PluginCatalogModule {
           );
         }
       } finally {
+        await Promise.all([
+          this.#refreshCredentialState(),
+          this.#refreshInstalledPackageNames(),
+        ]);
         this.#refreshPromise = undefined;
         if (this.#refreshAbort === refreshAbort) {
           this.#refreshAbort = undefined;
@@ -902,6 +962,64 @@ implements PluginCatalogModule {
     })();
     this.#refreshPromise = task;
     return task;
+  }
+
+  install(pluginId: string): Promise<PluginCatalogSnapshot> {
+    this.#assertActive();
+    if (
+      typeof pluginId !== "string" ||
+      pluginId.length === 0 ||
+      pluginId.length > MAX_PLUGIN_ID_LENGTH
+    ) {
+      return Promise.reject(
+        new TypeError("invalid plugin catalog id"),
+      );
+    }
+    if (this.#installTask !== undefined) {
+      return this.#installTask.pluginId === pluginId
+        ? this.#installTask.promise
+        : Promise.reject(
+          new Error(
+            "another plugin installation is already running",
+          ),
+        );
+    }
+    const operation = this.#installPlugin(pluginId);
+    const promise = operation.finally(() => {
+      if (this.#installTask?.promise === promise) {
+        this.#installTask = undefined;
+      }
+    });
+    this.#installTask = { pluginId, promise };
+    return promise;
+  }
+
+  async saveGitHubToken(
+    token: string,
+  ): Promise<PluginCatalogSnapshot> {
+    this.#assertActive();
+    if (this.#credentialProvider === undefined) {
+      throw new Error(
+        "GitHub token storage is unavailable",
+      );
+    }
+    await this.#credentialProvider.set(
+      parsePluginCatalogGitHubToken(token),
+    );
+    await this.#refreshCredentialState();
+    return this.#snapshot();
+  }
+
+  async clearGitHubToken(): Promise<PluginCatalogSnapshot> {
+    this.#assertActive();
+    if (this.#credentialProvider === undefined) {
+      throw new Error(
+        "GitHub token storage is unavailable",
+      );
+    }
+    await this.#credentialProvider.unset();
+    await this.#refreshCredentialState();
+    return this.#snapshot();
   }
 
   cancelRefresh(): Promise<PluginCatalogSnapshot> {
@@ -940,8 +1058,112 @@ implements PluginCatalogModule {
     this.#loaded = true;
   }
 
+  async #installPlugin(
+    pluginId: string,
+  ): Promise<PluginCatalogSnapshot> {
+    await this.#load();
+    await this.#refreshInstalledPackageNames();
+    const plugin = this.#snapshot().plugins.find(
+      ({ id }) => id === pluginId,
+    );
+    if (plugin === undefined) {
+      throw new Error(
+        `plugin catalog entry "${pluginId}" was not found`,
+      );
+    }
+    if (plugin.installed) return this.#snapshot();
+    if (
+      plugin.installVerification !== "verified" ||
+      plugin.requiresBuildAllowance
+    ) {
+      throw new Error(
+        `plugin catalog entry "${pluginId}" is not eligible for one-click installation`,
+      );
+    }
+    if (this.#installation === undefined) {
+      throw new Error("plugin installation is unavailable");
+    }
+    await this.#installation.install(plugin.installSpec);
+    await this.#refreshInstalledPackageNames();
+    if (!this.#installedPackageNames.has(plugin.packageName)) {
+      throw new Error(
+        `plugin catalog entry "${pluginId}" was not present after installation`,
+      );
+    }
+    return this.#snapshot();
+  }
+
+  async #refreshCredentialState(): Promise<void> {
+    if (this.#credentialProvider === undefined) return;
+    try {
+      this.#credentialState =
+        parsePluginCatalogCredentialState(
+          await this.#credentialProvider.describe(),
+        );
+    } catch (error) {
+      this.#credentialState = {
+        configured: false,
+        writable: false,
+      };
+      this.#logger.warn(
+        `Plugin catalog credential state could not be read: ${errorMessage(error)}`,
+      );
+    }
+  }
+
+  async #refreshInstalledPackageNames(): Promise<void> {
+    if (this.#installation === undefined) return;
+    try {
+      const names =
+        await this.#installation.listInstalledPackageNames();
+      if (
+        !Array.isArray(names) ||
+        names.some(
+          (name) =>
+            typeof name !== "string" ||
+            name.length === 0 ||
+            name.length > 214,
+        )
+      ) {
+        throw new TypeError(
+          "invalid installed plugin package list",
+        );
+      }
+      this.#installedPackageNames = new Set(names);
+    } catch (error) {
+      this.#logger.warn(
+        `Installed plugin state could not be read: ${errorMessage(error)}`,
+      );
+    }
+  }
+
+  async #resolveToken(): Promise<string | undefined> {
+    const value = this.#credentialProvider === undefined
+      ? this.#token
+      : await this.#credentialProvider.resolve();
+    return value === undefined || value.length === 0
+      ? undefined
+      : parsePluginCatalogGitHubToken(value);
+  }
+
   async #refresh(signal: AbortSignal): Promise<void> {
     const now = this.#now();
+    const token = await this.#resolveToken();
+    const authenticated = token !== undefined;
+    const repositoryBudget =
+      this.#repositoryBudget ??
+      (
+        authenticated
+          ? AUTHENTICATED_REPOSITORY_BUDGET
+          : ANONYMOUS_REPOSITORY_BUDGET
+      );
+    const manifestBudget =
+      this.#manifestBudget ??
+      (
+        authenticated
+          ? AUTHENTICATED_MANIFEST_BUDGET
+          : ANONYMOUS_MANIFEST_BUDGET
+      );
     const full =
       this.#cache.state.lastFullScanAt === null ||
       elapsedSince(
@@ -950,11 +1172,17 @@ implements PluginCatalogModule {
       ) >= this.#fullScanIntervalMs;
     const source = new GitHubCatalogSource({
       fetcher: this.#fetcher,
-      token: this.#token,
+      token,
       topic: this.#topic,
       signal,
       delay: this.#delay,
-      searchPaceMs: this.#searchPaceMs,
+      searchPaceMs:
+        this.#searchPaceMs ??
+        (
+          authenticated
+            ? AUTHENTICATED_SEARCH_PACE_MS
+            : ANONYMOUS_SEARCH_PACE_MS
+        ),
       requestTimeoutMs: this.#requestTimeoutMs,
     });
     const repositories = full
@@ -962,10 +1190,15 @@ implements PluginCatalogModule {
       : await source.discoverIncremental(
           this.#incrementalStart(now),
           now,
-        );
+    );
     this.#mergeRepositories(repositories, full, now);
     await this.#persist(now);
-    await this.#validateRepositories(source, now);
+    await this.#validateRepositories(
+      source,
+      now,
+      repositoryBudget,
+      manifestBudget,
+    );
 
     const completedAt = now.toISOString();
     this.#cache.state.watermark = completedAt;
@@ -1076,6 +1309,8 @@ implements PluginCatalogModule {
   async #validateRepositories(
     source: GitHubCatalogSource,
     now: Date,
+    repositoryBudget: number,
+    manifestBudget: number,
   ): Promise<void> {
     const queue = this.#cache.repositories
       .filter((repository) =>
@@ -1097,12 +1332,12 @@ implements PluginCatalogModule {
         ) ||
         left.fullName.localeCompare(right.fullName, "en")
       );
-    let manifestsRemaining = this.#manifestBudget;
+    let manifestsRemaining = manifestBudget;
     let repositoriesInspected = 0;
 
     for (const repository of queue) {
       if (
-        repositoriesInspected >= this.#repositoryBudget ||
+        repositoriesInspected >= repositoryBudget ||
         manifestsRemaining <= 0 ||
         (
           source.coreRemaining !== undefined &&
@@ -1262,7 +1497,6 @@ implements PluginCatalogModule {
   }
 
   #snapshot(): PluginCatalogSnapshot {
-    const now = this.#now();
     const present = this.#cache.repositories.filter(
       ({ present: isPresent }) => isPresent,
     );
@@ -1285,6 +1519,9 @@ implements PluginCatalogModule {
           installVerification: plugin.installVerification,
           requiresBuildAllowance:
             plugin.requiresBuildAllowance,
+          installed: this.#installedPackageNames.has(
+            plugin.packageName,
+          ),
         })),
     );
     const verificationRank: Record<
@@ -1303,6 +1540,36 @@ implements PluginCatalogModule {
         sensitivity: "base",
       })
     );
+    const candidates: PluginCatalogCandidate[] = present
+      .filter(
+        (repository) =>
+          repository.plugins.length === 0 &&
+          (
+            repository.validation.status === "pending" ||
+            repository.validation.status === "error"
+          ),
+      )
+      .map<PluginCatalogCandidate>((repository) => ({
+        id: repository.fullName,
+        repository: repository.fullName,
+        repositoryUrl: repository.repositoryUrl,
+        description: repository.description,
+        topics: [...repository.topics],
+        language: repository.language,
+        stars: repository.stars,
+        pushedAt: repository.pushedAt,
+        status:
+          repository.validation.status === "error"
+            ? "error"
+            : "pending",
+      }))
+      .sort((left, right) =>
+        right.stars - left.stars ||
+        left.id.localeCompare(right.id, "en", {
+          sensitivity: "base",
+        })
+      )
+      .slice(0, PLUGIN_CATALOG_VISIBLE_CANDIDATE_LIMIT);
     return {
       version: PLUGIN_CATALOG_SNAPSHOT_VERSION,
       generatedAt: this.#cache.savedAt,
@@ -1313,17 +1580,17 @@ implements PluginCatalogModule {
         repositories: present.length,
         pendingRepositories: present.filter(
           (repository) =>
-            repository.validation.status === "error" ||
-            repositoryNeedsValidation(
-              repository,
-              now,
-              this.#validationMaxAgeMs,
-              this.#retryIntervalMs,
+            repository.plugins.length === 0 &&
+            (
+              repository.validation.status === "pending" ||
+              repository.validation.status === "error"
             ),
         ).length,
         plugins: plugins.length,
       },
       plugins,
+      candidates,
+      credential: { ...this.#credentialState },
       ...(this.#lastError === undefined
         ? {}
         : { error: this.#lastError }),
