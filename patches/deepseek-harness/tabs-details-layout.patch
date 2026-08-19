@@ -1,0 +1,51 @@
+diff --git a/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js
+--- a/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js
++++ b/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js
+@@ -33,22 +33,13 @@
+ 		*/
+ 		function computeColumns(viewport, sidebar, details) {
+ 			const s = sidebar === 0 ? 56 : clampWidth(sidebar, 264, 420);
+-			const d0 = details === 0 ? 0 : clampWidth(details, 300, 520);
+-			if (s + d0 + 640 <= viewport) return {
+-				sidebar: s,
+-				center: viewport - s - d0,
+-				details: d0
+-			};
+-			const d1 = d0 === 0 ? 0 : Math.max(300, viewport - s - 640);
+-			if (s + d1 + 640 <= viewport) return {
+-				sidebar: s,
+-				center: 640,
+-				details: d1
+-			};
++			const available = Math.max(300, viewport - s);
++			const detailsMaximum = Math.max(300, Math.floor(available * 2 / 3));
++			const d = details === 0 ? 0 : clampWidth(details, 300, detailsMaximum);
+ 			return {
+ 				sidebar: s,
+-				center: Math.max(0, viewport - s),
+-				details: 0
++				center: Math.max(0, viewport - s - d),
++				details: d
+ 			};
+ 		}
+ 		//#endregion
+@@ -287,7 +278,7 @@
+ 						d.sidebar = clampWidth(px, 264, 420);
+ 					},
+ 					setDetails: (d, px) => {
+-						d.details = clampWidth(px, 300, 520);
++						d.details = clampWidth(px, 300, 4096);
+ 					},
+ 					toggleSidebar: (d) => {
+ 						if (d.narrow) d.narrowExpanded = !d.narrowExpanded;
+@@ -330,6 +321,10 @@
+ 			openDetails() {
+ 				this.#require().openDetails();
+ 			}
++			/** Set the details track width without changing its open state. */
++			setDetails(width) {
++				this.#require().setDetails(width);
++			}
+ 			/** Close the details panel. */
+ 			closeDetails() {
+ 				this.#require().closeDetails();

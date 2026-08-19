@@ -20,6 +20,15 @@ that every declared patch is present before publishing or fast refresh.
   `decode.string16` API instead of creating an external `ArrayBuffer` with
   `koffi.view`.
 
+`tabs-details-layout.patch` is pinned to the same Harness commit. It:
+
+- lets the details grid track reflow up to two thirds of the area remaining
+  after the sidebar, so a wider Files reader compresses the conversation;
+- exposes the existing `setDetails` store action through `ctx.layout`, allowing
+  Minke to restore a persisted width without simulating pointer input;
+- raises the stored-width guard for Minke's wider overlay continuation. Minke
+  still owns the final viewport clamp and leaves a 20px conversation remainder.
+
 After changing the upstream pin or a patch, run:
 
 ```sh
