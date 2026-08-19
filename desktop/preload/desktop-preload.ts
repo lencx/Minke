@@ -45,6 +45,8 @@ import {
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
   parseFileManagerChangeEvent,
+  parseFileManagerDiffRequest,
+  parseFileManagerDiffResult,
   parseFileManagerListRequest,
   parseFileManagerListResult,
   parseFileManagerOpenRequest,
@@ -54,6 +56,7 @@ import {
   parseFileManagerWatchRequest,
   parseFileManagerWriteRequest,
   parseFileManagerWriteResult,
+  TABS_FILES_DIFF_CHANNEL,
   TABS_FILES_CHANGE_CHANNEL,
   TABS_FILES_LIST_CHANNEL,
   TABS_FILES_OPEN_CHANNEL,
@@ -62,6 +65,7 @@ import {
   TABS_FILES_WATCH_CHANNEL,
   TABS_FILES_WRITE_CHANNEL,
   type FileManagerChangeEvent,
+  type FileManagerDiffRequest,
   type FileManagerListRequest,
   type FileManagerOpenRequest,
   type FileManagerPreviewRequest,
@@ -215,6 +219,14 @@ const tabs = Object.freeze({
 });
 
 const files = Object.freeze({
+  async diff(request: FileManagerDiffRequest): Promise<unknown> {
+    return parseFileManagerDiffResult(
+      await ipcRenderer.invoke(
+        TABS_FILES_DIFF_CHANNEL,
+        parseFileManagerDiffRequest(request),
+      ),
+    );
+  },
   async list(request: FileManagerListRequest): Promise<unknown> {
     return parseFileManagerListResult(
       await ipcRenderer.invoke(

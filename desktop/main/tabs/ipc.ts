@@ -11,12 +11,14 @@ import {
   TABS_OPEN_EXTERNAL_CHANNEL,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
+  parseFileManagerDiffRequest,
   parseFileManagerListRequest,
   parseFileManagerOpenRequest,
   parseFileManagerPreviewRequest,
   parseFileManagerUnwatchRequest,
   parseFileManagerWatchRequest,
   parseFileManagerWriteRequest,
+  TABS_FILES_DIFF_CHANNEL,
   TABS_FILES_CHANGE_CHANNEL,
   TABS_FILES_LIST_CHANNEL,
   TABS_FILES_OPEN_CHANNEL,
@@ -208,6 +210,17 @@ export function bindTabs(
       parseFileManagerListRequest(request),
     );
   };
+  const handleFilesDiff = async (
+    event: IpcMainInvokeEvent,
+    request: unknown,
+  ): Promise<unknown> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized Files request");
+    }
+    return await files.diff(
+      parseFileManagerDiffRequest(request),
+    );
+  };
   const handleFilesOpen = async (
     event: IpcMainInvokeEvent,
     request: unknown,
@@ -270,6 +283,7 @@ export function bindTabs(
   ipc.on(TABS_TERMINAL_RESIZE_CHANNEL, handleTerminalResize);
   ipc.on(TABS_TERMINAL_CLOSE_CHANNEL, handleTerminalClose);
   ipc.handle(TABS_FILES_LIST_CHANNEL, handleFilesList);
+  ipc.handle(TABS_FILES_DIFF_CHANNEL, handleFilesDiff);
   ipc.handle(TABS_FILES_OPEN_CHANNEL, handleFilesOpen);
   ipc.handle(TABS_FILES_PREVIEW_CHANNEL, handleFilesPreview);
   ipc.handle(TABS_FILES_WRITE_CHANNEL, handleFilesWrite);
@@ -301,6 +315,7 @@ export function bindTabs(
         handleTerminalClose,
       );
       ipc.removeHandler(TABS_FILES_LIST_CHANNEL);
+      ipc.removeHandler(TABS_FILES_DIFF_CHANNEL);
       ipc.removeHandler(TABS_FILES_OPEN_CHANNEL);
       ipc.removeHandler(TABS_FILES_PREVIEW_CHANNEL);
       ipc.removeHandler(TABS_FILES_WRITE_CHANNEL);

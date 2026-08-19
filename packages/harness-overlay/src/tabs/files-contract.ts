@@ -5,6 +5,8 @@ export const TABS_FILES_PREVIEW_CHANNEL =
   "minke:tabs:files:preview";
 export const TABS_FILES_WRITE_CHANNEL =
   "minke:tabs:files:write";
+export const TABS_FILES_DIFF_CHANNEL =
+  "minke:tabs:files:diff";
 export const TABS_FILES_WATCH_CHANNEL =
   "minke:tabs:files:watch";
 export const TABS_FILES_UNWATCH_CHANNEL =
@@ -44,6 +46,10 @@ export interface FileManagerWriteRequest {
   readonly expectedVersion: string;
 }
 
+export interface FileManagerDiffRequest {
+  readonly path: string;
+}
+
 export interface FileManagerWriteResult {
   readonly path: string;
   readonly size: number;
@@ -63,6 +69,22 @@ export interface FileManagerChangeEvent {
   readonly id: string;
   readonly paths: readonly string[];
 }
+
+export type FileManagerDiffResult =
+  | {
+    readonly kind: "text";
+    readonly path: string;
+    readonly original: string;
+  }
+  | {
+    readonly kind: "unavailable";
+    readonly path: string;
+    readonly reason:
+      | "binary"
+      | "git-unavailable"
+      | "not-repository"
+      | "too-large";
+  };
 
 export interface FileManagerEntry {
   readonly name: string;
@@ -234,6 +256,52 @@ function utf8ByteLength(value: string): number {
     if (bytes > FILES_TEXT_PREVIEW_MAX_BYTES) break;
   }
   return bytes;
+}
+
+export function parseFileManagerDiffRequest(
+  value: unknown,
+): FileManagerDiffRequest {
+  const candidate = record(value, "file diff request");
+  return {
+    path: pathText(candidate.path, "file diff path"),
+  };
+}
+
+export function parseFileManagerDiffResult(
+  value: unknown,
+): FileManagerDiffResult {
+  const candidate = record(value, "file diff result");
+  const path = pathText(candidate.path, "file diff result path");
+  if (candidate.kind === "text") {
+    if (
+      typeof candidate.original !== "string" ||
+      utf8ByteLength(candidate.original) >
+        FILES_TEXT_PREVIEW_MAX_BYTES
+    ) {
+      throw new TypeError("file diff original text is invalid");
+    }
+    return {
+      kind: "text",
+      path,
+      original: candidate.original,
+    };
+  }
+  if (
+    candidate.kind === "unavailable" &&
+    (
+      candidate.reason === "binary" ||
+      candidate.reason === "git-unavailable" ||
+      candidate.reason === "not-repository" ||
+      candidate.reason === "too-large"
+    )
+  ) {
+    return {
+      kind: "unavailable",
+      path,
+      reason: candidate.reason,
+    };
+  }
+  throw new TypeError("file diff result is invalid");
 }
 
 export function parseFileManagerWriteRequest(

@@ -12,17 +12,24 @@ import {
   randomUUID,
 } from "node:crypto";
 import {
+  execFile,
+} from "node:child_process";
+import {
   basename,
   dirname,
   extname,
   isAbsolute,
   join,
+  relative,
   resolve,
+  sep,
 } from "node:path";
 import {
   FILES_IMAGE_PREVIEW_MAX_BYTES,
   FILES_MAX_ENTRIES,
   FILES_TEXT_PREVIEW_MAX_BYTES,
+  parseFileManagerDiffRequest,
+  parseFileManagerDiffResult,
   parseFileManagerListRequest,
   parseFileManagerListResult,
   parseFileManagerOpenRequest,
@@ -30,6 +37,8 @@ import {
   parseFileManagerPreviewResult,
   parseFileManagerWriteRequest,
   parseFileManagerWriteResult,
+  type FileManagerDiffRequest,
+  type FileManagerDiffResult,
   type FileManagerEntry,
   type FileManagerEntryKind,
   type FileManagerListRequest,
@@ -70,6 +79,22 @@ export interface FileManagerRuntimeOptions {
     path: string,
     content: string,
   ) => Promise<void>;
+  readonly readOriginal?: (
+    path: string,
+  ) => Promise<
+    | {
+      readonly kind: "text";
+      readonly original: string;
+    }
+    | {
+      readonly kind: "unavailable";
+      readonly reason:
+        | "binary"
+        | "git-unavailable"
+        | "not-repository"
+        | "too-large";
+    }
+  >;
   readonly openPath: (path: string) => Promise<string>;
 }
 
@@ -238,6 +263,115 @@ function looksBinary(path: string, content: Buffer): boolean {
   return controlBytes / sampleLength > 0.1;
 }
 
+function gitOutput(
+  args: readonly string[],
+  maxBuffer: number,
+): Promise<Buffer> {
+  return new Promise((resolveOutput, reject) => {
+    execFile(
+      "git",
+      args,
+      {
+        encoding: "buffer",
+        maxBuffer,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        resolveOutput(stdout);
+      },
+    );
+  });
+}
+
+function processErrorCode(error: unknown): unknown {
+  return typeof error === "object" && error !== null
+    ? (error as { code?: unknown }).code
+    : undefined;
+}
+
+async function readGitOriginal(
+  path: string,
+): Promise<
+  | {
+    readonly kind: "text";
+    readonly original: string;
+  }
+  | {
+    readonly kind: "unavailable";
+    readonly reason:
+      | "binary"
+      | "git-unavailable"
+      | "not-repository"
+      | "too-large";
+  }
+> {
+  let repositoryRoot: string;
+  try {
+    repositoryRoot = (
+      await gitOutput(
+        ["-C", dirname(path), "rev-parse", "--show-toplevel"],
+        64 * 1_024,
+      )
+    ).toString("utf8").trim();
+  } catch (error) {
+    return {
+      kind: "unavailable",
+      reason:
+        processErrorCode(error) === "ENOENT"
+          ? "git-unavailable"
+          : "not-repository",
+    };
+  }
+  const repositoryPath = relative(repositoryRoot, path);
+  if (
+    repositoryPath === "" ||
+    isAbsolute(repositoryPath) ||
+    repositoryPath === ".." ||
+    repositoryPath.startsWith(`..${sep}`)
+  ) {
+    return {
+      kind: "unavailable",
+      reason: "not-repository",
+    };
+  }
+  const objectName =
+    `HEAD:${repositoryPath.split(sep).join("/")}`;
+  try {
+    await gitOutput(
+      ["-C", repositoryRoot, "cat-file", "-e", objectName],
+      64 * 1_024,
+    );
+  } catch {
+    return { kind: "text", original: "" };
+  }
+  let original: Buffer;
+  try {
+    original = await gitOutput(
+      ["-C", repositoryRoot, "show", objectName],
+      FILES_TEXT_PREVIEW_MAX_BYTES + 1,
+    );
+  } catch (error) {
+    if (
+      processErrorCode(error) ===
+      "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+    ) {
+      return { kind: "unavailable", reason: "too-large" };
+    }
+    throw error;
+  }
+  if (looksBinary(path, original)) {
+    return { kind: "unavailable", reason: "binary" };
+  }
+  return {
+    kind: "text",
+    original: original.toString("utf8"),
+  };
+}
+
 /** Trusted host filesystem adapter for Files tabs. */
 export class FileManagerRuntime {
   readonly #rootPath: string;
@@ -253,6 +387,9 @@ export class FileManagerRuntime {
   readonly #writeText: NonNullable<
     FileManagerRuntimeOptions["writeText"]
   >;
+  readonly #readOriginal: NonNullable<
+    FileManagerRuntimeOptions["readOriginal"]
+  >;
   readonly #openPath: FileManagerRuntimeOptions["openPath"];
 
   constructor(options: FileManagerRuntimeOptions) {
@@ -262,6 +399,8 @@ export class FileManagerRuntime {
     this.#inspectPath = options.inspectPath ?? inspectHostPath;
     this.#readBytes = options.readBytes ?? readHostBytes;
     this.#writeText = options.writeText ?? writeHostText;
+    this.#readOriginal =
+      options.readOriginal ?? readGitOriginal;
     this.#openPath = options.openPath;
   }
 
@@ -320,6 +459,17 @@ export class FileManagerRuntime {
     if (error !== "") {
       throw new Error(error);
     }
+  }
+
+  async diff(
+    request: FileManagerDiffRequest,
+  ): Promise<FileManagerDiffResult> {
+    const parsed = parseFileManagerDiffRequest(request);
+    const path = normalizedAbsolutePath(parsed.path);
+    return parseFileManagerDiffResult({
+      path,
+      ...await this.#readOriginal(path),
+    });
   }
 
   async preview(

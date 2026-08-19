@@ -34,6 +34,8 @@ import {
 } from "@minke/harness-overlay/session-export-contract.ts";
 import {
   parseFileManagerChangeEvent,
+  parseFileManagerDiffRequest,
+  parseFileManagerDiffResult,
   parseFileManagerListRequest,
   parseFileManagerListResult,
   parseFileManagerOpenRequest,
@@ -44,6 +46,8 @@ import {
   type FileManagerListRequest,
   type FileManagerListResult,
   type FileManagerChangeEvent,
+  type FileManagerDiffRequest,
+  type FileManagerDiffResult,
   type FileManagerOpenRequest,
   type FileManagerPreviewRequest,
   type FileManagerPreviewResult,
@@ -149,6 +153,7 @@ interface DesktopTabsBridge {
 }
 
 interface DesktopFilesBridge {
+  diff(request: FileManagerDiffRequest): Promise<unknown>;
   list(request: FileManagerListRequest): Promise<unknown>;
   open(request: FileManagerOpenRequest): Promise<void>;
   preview(request: FileManagerPreviewRequest): Promise<unknown>;
@@ -454,6 +459,9 @@ export interface DesktopTabsPort {
 
 export interface DesktopFilesPort {
   readonly available: boolean;
+  diff(
+    request: FileManagerDiffRequest,
+  ): Promise<FileManagerDiffResult>;
   list(
     request: FileManagerListRequest,
   ): Promise<FileManagerListResult>;
@@ -539,6 +547,11 @@ export function desktopFilesPort(
   if (bridge === undefined) {
     return {
       available: false,
+      async diff() {
+        throw new Error(
+          "Minke desktop Files bridge is unavailable",
+        );
+      },
       async list() {
         throw new Error(
           "Minke desktop Files bridge is unavailable",
@@ -566,6 +579,13 @@ export function desktopFilesPort(
   }
   return {
     available: true,
+    async diff(request) {
+      return parseFileManagerDiffResult(
+        await bridge.diff(
+          parseFileManagerDiffRequest(request),
+        ),
+      );
+    },
     async list(request) {
       return parseFileManagerListResult(
         await bridge.list(
