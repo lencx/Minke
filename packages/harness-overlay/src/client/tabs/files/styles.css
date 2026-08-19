@@ -66,27 +66,44 @@
   user-select: none;
 }
 
-.minke-files-mode {
-  display: flex;
+.minke-files-mode-select {
+  position: relative;
+  display: grid;
+  width: 28px;
   height: var(--minke-tabs-control-height);
   flex: none;
-  align-items: center;
-  padding: 1px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: var(--minke-tabs-control-radius);
+  place-items: center;
+  border-radius: 7px;
   box-sizing: border-box;
+  color: var(--dsw-alias-label-secondary);
 }
 
-.minke-files-mode .minke-tabs-toolbar__button {
-  width: 25px;
-  height: 20px;
-  border-radius: 6px;
-}
-
-.minke-files-mode
-  .minke-tabs-toolbar__button[aria-pressed="true"] {
+.minke-files-mode-select:hover,
+.minke-files-mode-select:focus-within {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
+}
+
+.minke-files-mode-select:focus-within {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+.minke-files-mode-select > span {
+  display: grid;
+  place-items: center;
+}
+
+.minke-files-mode-select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: none;
+  appearance: none;
+  cursor: pointer;
+  opacity: 0;
 }
 
 .minke-files-location {

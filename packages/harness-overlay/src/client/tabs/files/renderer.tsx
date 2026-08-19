@@ -44,6 +44,31 @@ function leadingActions(
   if (!isFilesTab(tab)) return null;
   return (
     <>
+      <label
+        className="minke-files-mode-select"
+        title={t("files.mode.group")}
+      >
+        <span aria-hidden="true">
+          {tab.payload.viewMode === "tree" ? (
+            <TreeModeIcon />
+          ) : (
+            <ListModeIcon />
+          )}
+        </span>
+        <select
+          aria-label={t("files.mode.group")}
+          value={tab.payload.viewMode}
+          onChange={(event) => {
+            const viewMode = event.currentTarget.value;
+            if (viewMode === "list" || viewMode === "tree") {
+              controller.setViewMode(tab.id, viewMode);
+            }
+          }}
+        >
+          <option value="list">{t("files.mode.list")}</option>
+          <option value="tree">{t("files.mode.tree")}</option>
+        </select>
+      </label>
       <ToolbarButton
         label={t("files.nav.back")}
         disabled={!tab.payload.canGoBack}
@@ -95,28 +120,6 @@ export function createFilesTabRenderer(
       leadingActions(tab, controller, t),
     renderTrailingActions: (tab) => (
       <>
-        {isFilesTab(tab) && (
-          <div
-            className="minke-files-mode"
-            role="group"
-            aria-label={t("files.mode.group")}
-          >
-            <ToolbarButton
-              label={t("files.mode.list")}
-              pressed={tab.payload.viewMode === "list"}
-              onClick={() => controller.setViewMode(tab.id, "list")}
-            >
-              <ListModeIcon />
-            </ToolbarButton>
-            <ToolbarButton
-              label={t("files.mode.tree")}
-              pressed={tab.payload.viewMode === "tree"}
-              onClick={() => controller.setViewMode(tab.id, "tree")}
-            >
-              <TreeModeIcon />
-            </ToolbarButton>
-          </div>
-        )}
         <ToolbarButton
           label={t("files.nav.openSystem")}
           disabled={

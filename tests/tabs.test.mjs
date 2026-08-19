@@ -1165,7 +1165,24 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     rendererSource,
     /controller\.create\(\s*context\.cwd,\s*t\("files\.tab\.new"\)/u,
   );
+  const modeSelectIndex = rendererSource.indexOf(
+    'className="minke-files-mode-select"',
+  );
+  const backActionIndex = rendererSource.indexOf(
+    'label={t("files.nav.back")}',
+  );
+  assert.ok(modeSelectIndex >= 0);
+  assert.ok(modeSelectIndex < backActionIndex);
+  assert.match(
+    rendererSource,
+    /<select[\s\S]*?value=\{tab\.payload\.viewMode\}[\s\S]*?controller\.setViewMode\(/u,
+  );
+  assert.match(rendererSource, /files\.mode\.list/u);
   assert.match(rendererSource, /files\.mode\.tree/u);
+  assert.doesNotMatch(
+    rendererSource,
+    /className="minke-files-mode"/u,
+  );
   assert.doesNotMatch(rendererSource, /files\.nav\.refresh/u);
   assert.doesNotMatch(rendererSource, /RefreshIcon/u);
   const viewSource = readFileSync(
@@ -1218,7 +1235,7 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   );
   assert.match(
     FILES_TAB_STYLES,
-    /\.minke-files-mode\s*\{[\s\S]*height:\s*var\(--minke-tabs-control-height\)/u,
+    /\.minke-files-mode-select\s*\{[\s\S]*height:\s*var\(--minke-tabs-control-height\)/u,
   );
   assert.match(FILES_TAB_STYLES, /\.minke-files-preview__editor/u);
   assert.match(editorSource, /new EditorView/u);
@@ -2111,6 +2128,15 @@ test("Tabs bottom placement has independent height and resize affordances", () =
   );
   assert.doesNotMatch(
     TABS_STYLES,
+    /\.minke-tabs-panel\s*\{[^}]*--minke-tabs-panel-height:/u,
+    "the right panel must inherit the live bottom height from the frame",
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s*\{[^}]*--minke-tabs-panel-height:\s*320px;/u,
+  );
+  assert.doesNotMatch(
+    TABS_STYLES,
     /\[data-minke-tabs-right-open\][\s\S]*?\.minke-tabs-panel\[data-placement="bottom"\][\s\S]*?right:\s*var\(--minke-tabs-panel-width\);/u,
   );
   assert.match(
@@ -2465,6 +2491,7 @@ test("Tabs resize stays interactive with and without a host details handle", () 
   let overlayPanelWidth = "";
   let overlayHandleTabIndex = -1;
   let bottomPanelHeight = "";
+  let bottomFrameHeight = "";
   let bottomPanelLeft = "";
   let bottomFrameReserved = false;
   let bottomHandleTabIndex = -1;
@@ -2591,6 +2618,9 @@ test("Tabs resize stays interactive with and without a host details handle", () 
     bottomPanelHeight = bottomPanel.style.getPropertyValue(
       "--minke-tabs-panel-height",
     );
+    bottomFrameHeight = bottomFrame.style.getPropertyValue(
+      "--minke-tabs-panel-height",
+    );
     bottomPanelLeft = bottomPanel.style.getPropertyValue(
       "--minke-tabs-panel-left",
     );
@@ -2617,6 +2647,7 @@ test("Tabs resize stays interactive with and without a host details handle", () 
   assert.equal(overlayHandleTabIndex, 0);
   assert.equal(overlayPanelWidth, "420px");
   assert.equal(bottomPanelHeight, "380px");
+  assert.equal(bottomFrameHeight, "380px");
   assert.equal(bottomPanelLeft, "240px");
   assert.equal(bottomFrameReserved, true);
   assert.equal(bottomHandleTabIndex, 0);
