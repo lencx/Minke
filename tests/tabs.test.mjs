@@ -179,6 +179,7 @@ test("Web tab URLs accept only credential-free HTTP(S)", () => {
 test("Files runtime falls back to the system root", async () => {
   const root = parse(process.cwd()).root;
   const opened = [];
+  const repositoryRequests = [];
   const entry = (name, kind) => ({
     name,
     isDirectory: () => kind === "directory",
@@ -206,6 +207,13 @@ test("Files runtime falls back to the system root", async () => {
       }
       throw new Error("broken link");
     },
+    readRepository: async (path) => {
+      repositoryRequests.push(path);
+      return {
+        root,
+        branch: "feature/compact-files",
+      };
+    },
     openPath: async (path) => {
       opened.push(path);
       return path.endsWith("blocked") ? "blocked by system" : "";
@@ -230,6 +238,17 @@ test("Files runtime falls back to the system root", async () => {
     "file",
   );
   assert.equal(listing.truncated, false);
+  assert.equal(listing.repository, undefined);
+  assert.deepEqual(repositoryRequests, []);
+
+  const repositoryListing = await runtime.list({
+    includeRepository: true,
+  });
+  assert.deepEqual(repositoryListing.repository, {
+    root,
+    branch: "feature/compact-files",
+  });
+  assert.deepEqual(repositoryRequests, [root]);
 
   await runtime.open({ path: join(root, "zeta.txt") });
   assert.deepEqual(opened, [join(root, "zeta.txt")]);
@@ -240,6 +259,10 @@ test("Files runtime falls back to the system root", async () => {
   await assert.rejects(
     runtime.list({ path: "relative/path" }),
     /must be absolute/u,
+  );
+  await assert.rejects(
+    runtime.list({ includeRepository: "yes" }),
+    /include repository must be boolean/u,
   );
 });
 
@@ -993,6 +1016,10 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     path: "/workspace/README.md",
     kind: "file",
   };
+  const repository = {
+    root: "/workspace",
+    branch: "feature/compact-files",
+  };
   const files = new FilesTabsController(tabs, {
     available: true,
     async list(request) {
@@ -1020,6 +1047,10 @@ test("Files tabs start at the project cwd and retain navigation history", async 
               ]
             : [],
         truncated: false,
+        ...(request.includeRepository === true &&
+        path.startsWith("/workspace")
+          ? { repository }
+          : {}),
       };
     },
     async open(request) {
@@ -1053,10 +1084,34 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   const projectTab = files.create("/workspace", "Files");
   assert.ok(projectTab);
   await settleAsyncWork();
-  assert.deepEqual(requests, [{ path: "/workspace" }]);
+  assert.deepEqual(requests, [{
+    path: "/workspace",
+    includeRepository: true,
+  }]);
   assert.equal(tabs.tab(projectTab).payload.path, "/workspace");
+  assert.deepEqual(
+    tabs.tab(projectTab).payload.repository,
+    repository,
+  );
   assert.equal(tabs.tab(projectTab).title, "workspace");
   assert.equal(tabs.tab(projectTab).payload.viewMode, "list");
+  const addressSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/files/FileAddressBar.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    addressSource,
+    /minke-files-location__branch/u,
+  );
+  assert.match(addressSource, /tab\.payload\.repository/u);
+  assert.match(addressSource, /GitBranchIcon/u);
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-location__branch\s*\{/u,
+  );
 
   files.setViewMode(projectTab, "tree");
   assert.equal(tabs.tab(projectTab).payload.viewMode, "tree");
@@ -1194,8 +1249,11 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   const rootTab = files.create(undefined, "Files");
   assert.ok(rootTab);
   await settleAsyncWork();
-  assert.deepEqual(requests.at(-1), {});
+  assert.deepEqual(requests.at(-1), {
+    includeRepository: true,
+  });
   assert.equal(tabs.tab(rootTab).payload.path, "/");
+  assert.equal(tabs.tab(rootTab).payload.repository, undefined);
 
   const rendererSource = readFileSync(
     new URL(
@@ -1627,7 +1685,10 @@ test("conversation files open in the Files source reader with on-demand diff", a
   );
   assert.ok(tabId);
   await settleAsyncWork();
-  assert.deepEqual(listRequests, [{ path: "/workspace/src" }]);
+  assert.deepEqual(listRequests, [{
+    path: "/workspace/src",
+    includeRepository: true,
+  }]);
   assert.deepEqual(previewRequests, [
     { path: "/workspace/src/main.ts" },
   ]);

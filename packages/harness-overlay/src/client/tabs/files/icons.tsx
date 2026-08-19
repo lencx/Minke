@@ -14,6 +14,7 @@ import {
   FolderOpen,
   FolderSymlink,
   FolderTree,
+  GitBranch,
   Image,
   Link,
   List,
@@ -100,6 +101,10 @@ export function ForwardIcon(props: IconProps): ReactNode {
 
 export function UpIcon(props: IconProps): ReactNode {
   return <LucideIcon icon={ArrowUp} size={props.size} />;
+}
+
+export function GitBranchIcon(props: IconProps): ReactNode {
+  return <LucideIcon icon={GitBranch} size={props.size} />;
 }
 
 export function OpenSystemIcon(props: IconProps): ReactNode {

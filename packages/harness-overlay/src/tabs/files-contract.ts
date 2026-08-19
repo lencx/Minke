@@ -20,6 +20,7 @@ export const FILES_TEXT_PREVIEW_MAX_BYTES = 8 * 1_024 * 1_024;
 export const FILES_IMAGE_PREVIEW_MAX_BYTES = 32 * 1_024 * 1_024;
 const FILES_MAX_PATH_LENGTH = 32_768;
 const FILES_MAX_NAME_LENGTH = 1_024;
+const FILES_MAX_GIT_BRANCH_LENGTH = 1_024;
 const FILES_MAX_WATCH_ID_LENGTH = 128;
 
 export type FileManagerEntryKind =
@@ -30,6 +31,7 @@ export type FileManagerEntryKind =
 
 export interface FileManagerListRequest {
   readonly path?: string;
+  readonly includeRepository?: boolean;
 }
 
 export interface FileManagerOpenRequest {
@@ -93,11 +95,17 @@ export interface FileManagerEntry {
   readonly targetKind?: Exclude<FileManagerEntryKind, "symlink">;
 }
 
+export interface FileManagerRepository {
+  readonly root: string;
+  readonly branch: string;
+}
+
 export interface FileManagerListResult {
   readonly path: string;
   readonly parent?: string;
   readonly entries: readonly FileManagerEntry[];
   readonly truncated: boolean;
+  readonly repository?: FileManagerRepository;
 }
 
 interface FileManagerPreviewBase {
@@ -224,9 +232,26 @@ export function parseFileManagerListRequest(
   value: unknown,
 ): FileManagerListRequest {
   const candidate = record(value, "file list request");
-  return candidate.path === undefined
-    ? {}
-    : { path: pathText(candidate.path, "file list path") };
+  if (
+    candidate.includeRepository !== undefined &&
+    typeof candidate.includeRepository !== "boolean"
+  ) {
+    throw new TypeError(
+      "file list include repository must be boolean",
+    );
+  }
+  return {
+    ...(candidate.path === undefined
+      ? {}
+      : {
+          path: pathText(candidate.path, "file list path"),
+        }),
+    ...(candidate.includeRepository === undefined
+      ? {}
+      : {
+          includeRepository: candidate.includeRepository,
+        }),
+  };
 }
 
 export function parseFileManagerOpenRequest(
@@ -407,6 +432,25 @@ export function parseFileManagerListResult(
       ...(targetKind === undefined ? {} : { targetKind }),
     };
   });
+  const repository =
+    candidate.repository === undefined
+      ? undefined
+      : record(candidate.repository, "file repository");
+  let parsedRepository: FileManagerRepository | undefined;
+  if (repository !== undefined) {
+    if (
+      typeof repository.branch !== "string" ||
+      repository.branch.length === 0 ||
+      repository.branch.length > FILES_MAX_GIT_BRANCH_LENGTH ||
+      repository.branch.includes("\0")
+    ) {
+      throw new TypeError("file repository branch is invalid");
+    }
+    parsedRepository = {
+      root: pathText(repository.root, "file repository root"),
+      branch: repository.branch,
+    };
+  }
   return {
     path: pathText(candidate.path, "file list result path"),
     ...(candidate.parent === undefined
@@ -419,6 +463,9 @@ export function parseFileManagerListResult(
         }),
     entries,
     truncated: candidate.truncated,
+    ...(parsedRepository === undefined
+      ? {}
+      : { repository: parsedRepository }),
   };
 }
 

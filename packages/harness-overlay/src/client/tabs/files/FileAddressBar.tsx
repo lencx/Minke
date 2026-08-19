@@ -9,6 +9,7 @@ import type {
 } from "./controller.ts";
 import {
   FilesIcon,
+  GitBranchIcon,
 } from "./icons.tsx";
 import type {
   FilesTabsTranslate,
@@ -63,6 +64,20 @@ export function FileAddressBar(props: {
           }
         }}
       />
+      {props.tab.payload.repository !== undefined && (
+        <span
+          className="minke-files-location__branch"
+          aria-label={props.t("files.git.branch", {
+            branch: props.tab.payload.repository.branch,
+          })}
+          title={props.t("files.git.branch", {
+            branch: props.tab.payload.repository.branch,
+          })}
+        >
+          <GitBranchIcon size={12} />
+          <span>{props.tab.payload.repository.branch}</span>
+        </span>
+      )}
     </form>
   );
 }

@@ -164,6 +164,29 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.minke-files-location__branch {
+  display: flex;
+  min-width: 0;
+  max-width: 96px;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.minke-files-location__branch > svg {
+  flex: none;
+}
+
+.minke-files-location__branch > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .minke-files-list {
   min-height: 0;
   flex: 1;

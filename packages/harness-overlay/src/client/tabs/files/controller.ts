@@ -766,7 +766,10 @@ export class FilesTabsController {
 
     try {
       const result = await this.#desktop.list(
-        path === undefined ? {} : { path },
+        {
+          ...(path === undefined ? {} : { path }),
+          includeRepository: true,
+        },
       );
       if (
         this.#disposed ||
@@ -802,6 +805,9 @@ export class FilesTabsController {
           canGoBack: history.index > 0,
           canGoForward:
             history.index < history.paths.length - 1,
+          ...(result.repository === undefined
+            ? {}
+            : { repository: result.repository }),
         },
       });
     } catch (error: unknown) {

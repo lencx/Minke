@@ -46,6 +46,7 @@ import {
   type FileManagerOpenRequest,
   type FileManagerPreviewRequest,
   type FileManagerPreviewResult,
+  type FileManagerRepository,
   type FileManagerWriteRequest,
   type FileManagerWriteResult,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
@@ -95,6 +96,9 @@ export interface FileManagerRuntimeOptions {
         | "too-large";
     }
   >;
+  readonly readRepository?: (
+    path: string,
+  ) => Promise<FileManagerRepository | undefined>;
   readonly openPath: (path: string) => Promise<string>;
 }
 
@@ -293,6 +297,40 @@ function processErrorCode(error: unknown): unknown {
     : undefined;
 }
 
+async function readGitRepository(
+  path: string,
+): Promise<FileManagerRepository | undefined> {
+  try {
+    const [root, branch] = (
+      await gitOutput(
+        [
+          "-C",
+          path,
+          "rev-parse",
+          "--show-toplevel",
+          "--abbrev-ref",
+          "HEAD",
+        ],
+        128 * 1_024,
+      )
+    ).toString("utf8").trim().split(/\r?\n/u);
+    if (
+      root === undefined ||
+      branch === undefined ||
+      !isAbsolute(root) ||
+      branch === ""
+    ) {
+      return undefined;
+    }
+    return {
+      root: resolve(root),
+      branch,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 async function readGitOriginal(
   path: string,
 ): Promise<
@@ -390,6 +428,9 @@ export class FileManagerRuntime {
   readonly #readOriginal: NonNullable<
     FileManagerRuntimeOptions["readOriginal"]
   >;
+  readonly #readRepository: NonNullable<
+    FileManagerRuntimeOptions["readRepository"]
+  >;
   readonly #openPath: FileManagerRuntimeOptions["openPath"];
 
   constructor(options: FileManagerRuntimeOptions) {
@@ -401,6 +442,8 @@ export class FileManagerRuntime {
     this.#writeText = options.writeText ?? writeHostText;
     this.#readOriginal =
       options.readOriginal ?? readGitOriginal;
+    this.#readRepository =
+      options.readRepository ?? readGitRepository;
     this.#openPath = options.openPath;
   }
 
@@ -411,7 +454,12 @@ export class FileManagerRuntime {
     const path = normalizedAbsolutePath(
       parsed.path ?? this.#rootPath,
     );
-    const source = await this.#readDirectory(path);
+    const [source, repository] = await Promise.all([
+      this.#readDirectory(path),
+      parsed.includeRepository === true
+        ? this.#readRepository(path)
+        : Promise.resolve(undefined),
+    ]);
     const entries = await Promise.all(
       source.map(async (entry): Promise<FileManagerEntry> => {
         const entryPath = join(path, entry.name);
@@ -449,6 +497,7 @@ export class FileManagerRuntime {
       ...(parent === path ? {} : { parent }),
       entries: entries.slice(0, FILES_MAX_ENTRIES),
       truncated: entries.length > FILES_MAX_ENTRIES,
+      ...(repository === undefined ? {} : { repository }),
     });
   }
 

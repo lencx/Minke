@@ -5,6 +5,7 @@ import type {
   FileManagerDiffResult,
   FileManagerEntry,
   FileManagerPreviewResult,
+  FileManagerRepository,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 
 export type FilesViewMode = "list" | "tree";
@@ -48,6 +49,7 @@ export interface FilesTabPayload {
   readonly truncated: boolean;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
+  readonly repository?: FileManagerRepository;
   readonly preview?: FilesPreviewState;
   readonly previewWidth?: number;
   readonly error?: string;
