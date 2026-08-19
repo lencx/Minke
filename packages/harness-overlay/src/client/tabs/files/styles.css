@@ -389,6 +389,42 @@
   font-weight: 400;
 }
 
+.minke-files-preview__mode {
+  display: inline-flex;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  background: var(--dsw-alias-button-floating-fill);
+}
+
+.minke-files-preview__header
+  .minke-files-preview__mode
+  button {
+  display: inline-flex;
+  width: auto;
+  min-width: 34px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 5px;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.minke-files-preview__header
+  .minke-files-preview__mode
+  button[aria-pressed="true"] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
 .minke-files-preview__header button {
   display: grid;
   width: 26px;
@@ -572,6 +608,64 @@
 
 .minke-files-preview__editor .cm-cursor {
   border-left-color: var(--dsw-alias-label-primary);
+}
+
+.minke-files-preview__editor[data-mode="diff"]
+  .cm-editor.cm-merge-b
+  .cm-changedLine,
+.minke-files-preview__editor[data-mode="diff"]
+  .cm-inlineChangedLine {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 11%,
+    transparent
+  );
+}
+
+.minke-files-preview__editor[data-mode="diff"]
+  .cm-changedText {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 22%,
+    transparent
+  );
+}
+
+.minke-files-preview__editor[data-mode="diff"]
+  .cm-deletedChunk {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 10%,
+    transparent
+  );
+}
+
+.minke-files-preview__editor[data-mode="diff"]
+  .cm-deletedText {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 20%,
+    transparent
+  );
+}
+
+.minke-files-preview__editor[data-mode="diff"]
+  .cm-changedLineGutter,
+.minke-files-preview__editor[data-mode="diff"]
+  .cm-inlineChangedLineGutter {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.minke-files-preview__editor[data-mode="diff"]
+  .cm-deletedLineGutter {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.minke-files-preview__editor[data-mode="diff"]
+  .cm-collapsedLines {
+  border-color: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-button-floating-fill);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .minke-files-preview__editor

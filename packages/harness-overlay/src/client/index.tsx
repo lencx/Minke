@@ -81,6 +81,7 @@ import {
   filesTabsEn,
   filesTabsZh,
   FilesTabsController,
+  installConversationFileRouter,
   installFilesTabStyles,
   type FilesTabsLocaleKey,
   type FilesTabsTranslate,
@@ -280,6 +281,7 @@ interface HarnessClientContext {
     }) => void,
   ): void;
   workspaces: {
+    openPath(path: string): Promise<void>;
     startSession(workspaceId?: unknown): void;
   };
   sessions: {
@@ -660,6 +662,7 @@ export function apply(ctx: HarnessClientContext): void {
         `minke-overlay: ${placement} Web tab renderer`,
       );
       return Object.freeze({
+        filesTabs,
         renderers,
         webTabs,
       });
@@ -673,6 +676,18 @@ export function apply(ctx: HarnessClientContext): void {
       bottomTabs,
       "bottom",
     );
+    const rightFilesTabs = rightWorkspace.filesTabs;
+    if (rightFilesTabs !== undefined) {
+      ctx.effect(
+        () =>
+          installConversationFileRouter(
+            ctx.workspaces,
+            rightFilesTabs,
+            () => filesT("files.tab.new"),
+          ),
+        "minke-overlay: conversation Files reader",
+      );
+    }
     ctx.effect(
       () => installWebLinkTabs(rightWorkspace.webTabs),
       "minke-overlay: Web link tabs",

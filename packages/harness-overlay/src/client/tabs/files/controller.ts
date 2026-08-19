@@ -13,6 +13,7 @@ import {
   isDirectoryEntry,
   isFilesTab,
   type FilesTabPayload,
+  type FilesPreviewMode,
   type FilesTreeDirectoryState,
   type FilesViewMode,
 } from "./types.ts";
@@ -65,6 +66,14 @@ function directlyContains(directory: string, path: string): boolean {
   return path === directory || parentPath(path) === directory;
 }
 
+function isAbsoluteFilePath(path: string): boolean {
+  return (
+    path.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/u.test(path) ||
+    path.startsWith("\\\\")
+  );
+}
+
 /** Files-specific navigation layered over the content-agnostic Tabs core. */
 export class FilesTabsController {
   readonly #tabs: TabsRuntime;
@@ -112,6 +121,65 @@ export class FilesTabsController {
     });
     if (tabId === undefined) return undefined;
     void this.#load(tabId, path, { type: "initial" });
+    return tabId;
+  }
+
+  openFile(path: string, title: string): string | undefined {
+    if (
+      this.#disposed ||
+      !this.#desktop.available ||
+      !isAbsoluteFilePath(path)
+    ) {
+      return undefined;
+    }
+    const snapshot = this.#tabs.getSnapshot();
+    const activeCandidate = snapshot.tabs.find(
+      (tab) => tab.id === snapshot.activeId,
+    );
+    const active =
+      activeCandidate !== undefined && isFilesTab(activeCandidate)
+        ? activeCandidate
+        : undefined;
+    const reusable = snapshot.tabs.find((tab) => {
+      if (!isFilesTab(tab)) return false;
+      const preview = tab.payload.preview;
+      return (
+        preview === undefined ||
+        preview.entry.path === path ||
+        (!preview.dirty && !preview.saving)
+      );
+    });
+    const candidate = active !== undefined &&
+        (
+          active.payload.preview === undefined ||
+          active.payload.preview.entry.path === path ||
+          (
+            !active.payload.preview.dirty &&
+            !active.payload.preview.saving
+          )
+        )
+      ? active
+      : reusable;
+    const tabId =
+      candidate?.id ??
+      this.create(parentPath(path), title);
+    if (tabId === undefined) return undefined;
+    this.#tabs.activate(tabId);
+    const tab = this.#tabs.tab(tabId);
+    if (tab === undefined || !isFilesTab(tab)) return undefined;
+    if (tab.payload.preview?.entry.path === path) {
+      this.setPreviewMode(tabId, "source");
+      return tabId;
+    }
+    const directory = parentPath(path);
+    if (tab.payload.path !== directory) {
+      this.navigate(tabId, directory);
+    }
+    this.preview(tabId, {
+      name: pathTitle(path),
+      path,
+      kind: "file",
+    });
     return tabId;
   }
 
@@ -258,82 +326,55 @@ export class FilesTabsController {
   }
 
   preview(tabId: string, entry: FileManagerEntry): void {
+    this.#startPreview(tabId, entry, "source");
+  }
+
+  setPreviewMode(
+    tabId: string,
+    mode: FilesPreviewMode,
+  ): void {
     const tab = this.#tabs.tab(tabId);
+    if (tab === undefined || !isFilesTab(tab)) return;
+    const preview = tab.payload.preview;
     if (
-      this.#disposed ||
-      tab === undefined ||
-      !isFilesTab(tab) ||
-      isDirectoryEntry(entry)
+      preview === undefined ||
+      (
+        mode === "diff" &&
+        (
+          preview.result?.kind !== "text" ||
+          preview.result.truncated
+        )
+      )
     ) {
       return;
     }
-    const revision =
-      (this.#previewRevision.get(tabId) ?? 0) + 1;
-    this.#previewRevision.set(tabId, revision);
-    this.#saveRevision.set(
-      tabId,
-      (this.#saveRevision.get(tabId) ?? 0) + 1,
-    );
+    const needsComparison =
+      mode === "diff" &&
+      preview.comparison?.loading !== true &&
+      preview.comparison?.result === undefined;
+    if (preview.mode === mode && !needsComparison) return;
+    const comparison = needsComparison
+      ? { loading: true }
+      : preview.comparison;
     this.#tabs.update<FilesTabPayload>(tabId, {
       payload: {
         ...tab.payload,
         preview: {
-          entry,
-          loading: true,
-          dirty: false,
-          saving: false,
+          ...preview,
+          mode,
+          ...(comparison === undefined
+            ? {}
+            : { comparison }),
         },
       },
     });
-    void this.#desktop.preview({ path: entry.path })
-      .then((result) => {
-        const current = this.#tabs.tab(tabId);
-        if (
-          this.#disposed ||
-          this.#previewRevision.get(tabId) !== revision ||
-          current === undefined ||
-          !isFilesTab(current) ||
-          current.payload.preview?.entry.path !== entry.path
-        ) {
-          return;
-        }
-        this.#tabs.update<FilesTabPayload>(tabId, {
-          payload: {
-            ...current.payload,
-            preview: {
-              entry,
-              loading: false,
-              dirty: false,
-              saving: false,
-              result,
-            },
-          },
-        });
-      })
-      .catch((error: unknown) => {
-        const current = this.#tabs.tab(tabId);
-        if (
-          this.#disposed ||
-          this.#previewRevision.get(tabId) !== revision ||
-          current === undefined ||
-          !isFilesTab(current) ||
-          current.payload.preview?.entry.path !== entry.path
-        ) {
-          return;
-        }
-        this.#tabs.update<FilesTabPayload>(tabId, {
-          payload: {
-            ...current.payload,
-            preview: {
-              entry,
-              loading: false,
-              dirty: false,
-              saving: false,
-              error: errorMessage(error),
-            },
-          },
-        });
-      });
+    if (needsComparison) {
+      this.#startComparison(
+        tabId,
+        preview.entry,
+        this.#previewRevision.get(tabId) ?? 0,
+      );
+    }
   }
 
   updatePreviewDraft(
@@ -542,6 +583,168 @@ export class FilesTabsController {
       subscription.dispose();
     }
     this.#watchSubscriptions.clear();
+  }
+
+  #startPreview(
+    tabId: string,
+    entry: FileManagerEntry,
+    mode: FilesPreviewMode,
+  ): void {
+    const tab = this.#tabs.tab(tabId);
+    if (
+      this.#disposed ||
+      tab === undefined ||
+      !isFilesTab(tab) ||
+      isDirectoryEntry(entry)
+    ) {
+      return;
+    }
+    const revision =
+      (this.#previewRevision.get(tabId) ?? 0) + 1;
+    this.#previewRevision.set(tabId, revision);
+    this.#saveRevision.set(
+      tabId,
+      (this.#saveRevision.get(tabId) ?? 0) + 1,
+    );
+    this.#tabs.update<FilesTabPayload>(tabId, {
+      payload: {
+        ...tab.payload,
+        preview: {
+          entry,
+          mode,
+          loading: true,
+          dirty: false,
+          saving: false,
+          ...(mode === "diff"
+            ? { comparison: { loading: true } }
+            : {}),
+        },
+      },
+    });
+    void this.#desktop.preview({ path: entry.path })
+      .then((result) => {
+        const current = this.#tabs.tab(tabId);
+        const currentPreview =
+          current !== undefined && isFilesTab(current)
+            ? current.payload.preview
+            : undefined;
+        if (
+          this.#disposed ||
+          this.#previewRevision.get(tabId) !== revision ||
+          current === undefined ||
+          !isFilesTab(current) ||
+          currentPreview?.entry.path !== entry.path
+        ) {
+          return;
+        }
+        this.#tabs.update<FilesTabPayload>(tabId, {
+          payload: {
+            ...current.payload,
+            preview: {
+              ...currentPreview,
+              loading: false,
+              dirty: false,
+              saving: false,
+              result,
+            },
+          },
+        });
+      })
+      .catch((error: unknown) => {
+        const current = this.#tabs.tab(tabId);
+        const currentPreview =
+          current !== undefined && isFilesTab(current)
+            ? current.payload.preview
+            : undefined;
+        if (
+          this.#disposed ||
+          this.#previewRevision.get(tabId) !== revision ||
+          current === undefined ||
+          !isFilesTab(current) ||
+          currentPreview?.entry.path !== entry.path
+        ) {
+          return;
+        }
+        this.#tabs.update<FilesTabPayload>(tabId, {
+          payload: {
+            ...current.payload,
+            preview: {
+              ...currentPreview,
+              loading: false,
+              dirty: false,
+              saving: false,
+              error: errorMessage(error),
+            },
+          },
+        });
+      });
+    if (mode === "diff") {
+      this.#startComparison(tabId, entry, revision);
+    }
+  }
+
+  #startComparison(
+    tabId: string,
+    entry: FileManagerEntry,
+    previewRevision: number,
+  ): void {
+    void this.#desktop.diff({ path: entry.path })
+      .then((result) => {
+        const current = this.#tabs.tab(tabId);
+        const preview =
+          current !== undefined && isFilesTab(current)
+            ? current.payload.preview
+            : undefined;
+        if (
+          this.#disposed ||
+          this.#previewRevision.get(tabId) !== previewRevision ||
+          current === undefined ||
+          !isFilesTab(current) ||
+          preview?.entry.path !== entry.path
+        ) {
+          return;
+        }
+        this.#tabs.update<FilesTabPayload>(tabId, {
+          payload: {
+            ...current.payload,
+            preview: {
+              ...preview,
+              comparison: {
+                loading: false,
+                result,
+              },
+            },
+          },
+        });
+      })
+      .catch((error: unknown) => {
+        const current = this.#tabs.tab(tabId);
+        const preview =
+          current !== undefined && isFilesTab(current)
+            ? current.payload.preview
+            : undefined;
+        if (
+          this.#disposed ||
+          this.#previewRevision.get(tabId) !== previewRevision ||
+          current === undefined ||
+          !isFilesTab(current) ||
+          preview?.entry.path !== entry.path
+        ) {
+          return;
+        }
+        this.#tabs.update<FilesTabPayload>(tabId, {
+          payload: {
+            ...current.payload,
+            preview: {
+              ...preview,
+              comparison: {
+                loading: false,
+                error: errorMessage(error),
+              },
+            },
+          },
+        });
+      });
   }
 
   async #load(
@@ -837,7 +1040,7 @@ export class FilesTabsController {
       return;
     }
     if (!preview.dirty) {
-      this.preview(tabId, preview.entry);
+      this.#startPreview(tabId, preview.entry, preview.mode);
       return;
     }
     const current = this.#tabs.tab(tabId);

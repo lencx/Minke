@@ -2,11 +2,13 @@ import type {
   ManagedTab,
 } from "@minke/harness-overlay/client/tabs/types.ts";
 import type {
+  FileManagerDiffResult,
   FileManagerEntry,
   FileManagerPreviewResult,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 
 export type FilesViewMode = "list" | "tree";
+export type FilesPreviewMode = "source" | "diff";
 
 export interface FilesTreeDirectoryState {
   readonly entries: readonly FileManagerEntry[];
@@ -18,6 +20,7 @@ export interface FilesTreeDirectoryState {
 
 export interface FilesPreviewState {
   readonly entry: FileManagerEntry;
+  readonly mode: FilesPreviewMode;
   readonly loading: boolean;
   readonly dirty: boolean;
   readonly saving: boolean;
@@ -27,6 +30,11 @@ export interface FilesPreviewState {
   readonly saveError?: string;
   readonly saveStatus?: "saved";
   readonly diskChanged?: boolean;
+  readonly comparison?: {
+    readonly loading: boolean;
+    readonly result?: FileManagerDiffResult;
+    readonly error?: string;
+  };
 }
 
 export interface FilesTabPayload {

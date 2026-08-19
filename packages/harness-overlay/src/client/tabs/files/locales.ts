@@ -30,6 +30,20 @@ export const filesTabsZh = {
   "files.preview.retry": "重试预览",
   "files.preview.resize": "调整文件预览宽度",
   "files.preview.editor": "编辑“{name}”",
+  "files.preview.mode.group": "源码查看模式",
+  "files.preview.mode.source": "源码",
+  "files.preview.mode.diff": "差异",
+  "files.preview.diff.editor": "查看“{name}”相对 Git HEAD 的差异",
+  "files.preview.diff.loading": "正在计算与 Git HEAD 的差异",
+  "files.preview.diff.retry": "重试差异",
+  "files.preview.diff.error": "无法加载差异：{error}",
+  "files.preview.diff.binary": "二进制文件不支持源码差异。",
+  "files.preview.diff.gitUnavailable":
+    "系统中未找到 Git，无法加载源码差异。",
+  "files.preview.diff.notRepository":
+    "此文件不在 Git 仓库中，无法加载源码差异。",
+  "files.preview.diff.tooLarge":
+    "Git 基线超过 8 MB，无法加载源码差异。",
   "files.preview.save": "保存（⌘/Ctrl+S）",
   "files.preview.saving": "正在保存",
   "files.preview.saved": "已保存",
@@ -85,6 +99,23 @@ export const filesTabsEn: Record<
   "files.preview.retry": "Try preview again",
   "files.preview.resize": "Resize file preview",
   "files.preview.editor": "Edit “{name}”",
+  "files.preview.mode.group": "Source reader mode",
+  "files.preview.mode.source": "Source",
+  "files.preview.mode.diff": "Diff",
+  "files.preview.diff.editor":
+    "Review changes to “{name}” from Git HEAD",
+  "files.preview.diff.loading":
+    "Computing changes from Git HEAD",
+  "files.preview.diff.retry": "Try the diff again",
+  "files.preview.diff.error": "Could not load diff: {error}",
+  "files.preview.diff.binary":
+    "Source diff is not available for binary files.",
+  "files.preview.diff.gitUnavailable":
+    "Git is unavailable, so the source diff cannot be loaded.",
+  "files.preview.diff.notRepository":
+    "This file is not in a Git repository.",
+  "files.preview.diff.tooLarge":
+    "The Git baseline is larger than 8 MB.",
   "files.preview.save": "Save (⌘/Ctrl+S)",
   "files.preview.saving": "Saving",
   "files.preview.saved": "Saved",

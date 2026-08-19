@@ -3,6 +3,7 @@ import type {
   ReactNode,
 } from "react";
 import type {
+  FileManagerDiffResult,
   FileManagerTextPreview,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
@@ -21,6 +22,7 @@ import {
   UnsupportedPreviewIcon,
 } from "./icons.tsx";
 import type {
+  FilesTabsLocaleKey,
   FilesTabsTranslate,
 } from "./locales.ts";
 import type {
@@ -62,6 +64,82 @@ function TextPreview(props: {
     active,
   } = props;
   const content = preview.draft ?? result.content;
+  const comparison = preview.comparison;
+  let body: ReactNode;
+  if (preview.mode === "source") {
+    body = (
+      <CodeMirrorEditor
+        key={`${result.path}:source`}
+        path={result.path}
+        value={content}
+        label={t("files.preview.editor", {
+          name: result.name,
+        })}
+        readOnly={result.truncated}
+        active={active}
+        onChange={(next) =>
+          controller.updatePreviewDraft(
+            tabId,
+            result.path,
+            next,
+          )}
+        onSave={() => controller.savePreview(tabId)}
+      />
+    );
+  } else if (comparison?.loading !== false) {
+    body = (
+      <div className="minke-files-preview__state" role="status">
+        <span>{t("files.preview.diff.loading")}</span>
+      </div>
+    );
+  } else if (comparison.error !== undefined) {
+    body = (
+      <div className="minke-files-preview__state" role="alert">
+        <span>
+          {t("files.preview.diff.error", {
+            error: comparison.error,
+          })}
+        </span>
+        <button
+          type="button"
+          onClick={() =>
+            controller.setPreviewMode(tabId, "diff")}
+        >
+          {t("files.preview.diff.retry")}
+        </button>
+      </div>
+    );
+  } else if (comparison.result?.kind === "unavailable") {
+    body = (
+      <div className="minke-files-preview__state">
+        <span>
+          {t(diffUnavailableKey(comparison.result.reason))}
+        </span>
+      </div>
+    );
+  } else if (comparison.result?.kind === "text") {
+    body = (
+      <CodeMirrorEditor
+        key={`${result.path}:diff`}
+        path={result.path}
+        value={content}
+        diffOriginal={comparison.result.original}
+        label={t("files.preview.diff.editor", {
+          name: result.name,
+        })}
+        readOnly
+        active={active}
+        onChange={() => {}}
+        onSave={() => {}}
+      />
+    );
+  } else {
+    body = (
+      <div className="minke-files-preview__state" role="status">
+        <span>{t("files.preview.diff.loading")}</span>
+      </div>
+    );
+  }
   return (
     <div className="minke-files-preview__document">
       {preview.diskChanged && (
@@ -90,25 +168,27 @@ function TextPreview(props: {
           {t("files.preview.truncated")}
         </div>
       )}
-      <CodeMirrorEditor
-        key={result.path}
-        path={result.path}
-        value={content}
-        label={t("files.preview.editor", {
-          name: result.name,
-        })}
-        readOnly={result.truncated}
-        active={active}
-        onChange={(next) =>
-          controller.updatePreviewDraft(
-            tabId,
-            result.path,
-            next,
-          )}
-        onSave={() => controller.savePreview(tabId)}
-      />
+      {body}
     </div>
   );
+}
+
+function diffUnavailableKey(
+  reason: Extract<
+    FileManagerDiffResult,
+    { readonly kind: "unavailable" }
+  >["reason"],
+): FilesTabsLocaleKey {
+  switch (reason) {
+    case "binary":
+      return "files.preview.diff.binary";
+    case "git-unavailable":
+      return "files.preview.diff.gitUnavailable";
+    case "not-repository":
+      return "files.preview.diff.notRepository";
+    case "too-large":
+      return "files.preview.diff.tooLarge";
+  }
 }
 
 function previewBody(
@@ -191,6 +271,7 @@ export function FilePreviewPane(props: {
   const editableText =
     preview.result?.kind === "text" &&
     !preview.result.truncated;
+  const canDiff = editableText;
   return (
     <aside
       id={props.id}
@@ -211,6 +292,31 @@ export function FilePreviewPane(props: {
             </span>
           )}
         </strong>
+        {preview.result?.kind === "text" && (
+          <div
+            className="minke-files-preview__mode"
+            role="group"
+            aria-label={t("files.preview.mode.group")}
+          >
+            <button
+              type="button"
+              aria-pressed={preview.mode === "source"}
+              onClick={() =>
+                controller.setPreviewMode(tabId, "source")}
+            >
+              {t("files.preview.mode.source")}
+            </button>
+            <button
+              type="button"
+              aria-pressed={preview.mode === "diff"}
+              disabled={!canDiff}
+              onClick={() =>
+                controller.setPreviewMode(tabId, "diff")}
+            >
+              {t("files.preview.mode.diff")}
+            </button>
+          </div>
+        )}
         {preview.dirty && (
           <span
             className="minke-files-preview__dirty"
@@ -242,7 +348,7 @@ export function FilePreviewPane(props: {
             </span>
           </span>
         )}
-        {editableText && (
+        {editableText && preview.mode === "source" && (
           <button
             type="button"
             aria-label={t(

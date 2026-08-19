@@ -69,6 +69,9 @@ import {
   FilesTabsController,
 } from "@minke/harness-overlay/client/tabs/files/controller.ts";
 import {
+  installConversationFileRouter,
+} from "@minke/harness-overlay/client/tabs/files/conversation-router.ts";
+import {
   loadFileIcon,
   loadFolderIcon,
   resolveFileIconName,
@@ -397,6 +400,34 @@ test("Files runtime bounds text and image previews", async () => {
       expectedVersion: fileVersion(Buffer.from(saved)),
     }),
     /changed on disk/u,
+  );
+});
+
+test("Files runtime returns a bounded source diff baseline", async () => {
+  const root = parse(process.cwd()).root;
+  const path = join(root, "workspace", "main.ts");
+  const requests = [];
+  const runtime = new FileManagerRuntime({
+    rootPath: root,
+    readOriginal: async (candidate) => {
+      requests.push(candidate);
+      return {
+        kind: "text",
+        original: "export const before = true;\n",
+      };
+    },
+    openPath: async () => "",
+  });
+
+  assert.deepEqual(await runtime.diff({ path }), {
+    kind: "text",
+    path,
+    original: "export const before = true;\n",
+  });
+  assert.deepEqual(requests, [path]);
+  await assert.rejects(
+    runtime.diff({ path: "relative.ts" }),
+    /must be absolute/u,
   );
 });
 
@@ -870,6 +901,14 @@ test("Files editor exposes visible save progress and errors", () => {
     previewSource,
     /className="minke-files-preview__size"/u,
   );
+  assert.match(
+    previewSource,
+    /className="minke-files-preview__mode"/u,
+  );
+  assert.match(
+    previewSource,
+    /controller\.setPreviewMode\(tabId,\s*"diff"\)/u,
+  );
   assert.doesNotMatch(
     previewSource,
     /minke-files-preview__meta/u,
@@ -1184,6 +1223,9 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   assert.match(FILES_TAB_STYLES, /\.minke-files-preview__editor/u);
   assert.match(editorSource, /new EditorView/u);
   assert.match(editorSource, /basicSetup/u);
+  assert.match(editorSource, /unifiedMergeView/u);
+  assert.match(editorSource, /mergeControls:\s*false/u);
+  assert.match(editorSource, /collapseUnchanged:/u);
   assert.doesNotMatch(
     editorSource,
     /\b(?:lineNumbers|foldGutter)\(\)|\bfoldKeymap\b/u,
@@ -1201,6 +1243,12 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     FILES_TAB_STYLES,
     /\.cm-foldGutter[\s\S]*\.cm-gutterElement/u,
   );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-preview__mode/u,
+  );
+  assert.match(FILES_TAB_STYLES, /\.cm-deletedChunk/u);
+  assert.match(FILES_TAB_STYLES, /\.cm-changedText/u);
   assert.doesNotMatch(treeSource, /role="tree(?:item)?"/u);
   assert.match(treeSource, /aria-expanded=/u);
   assert.match(rendererSource, /beforeClose:/u);
@@ -1210,6 +1258,7 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     /event\.key === "Delete"[\s\S]*closeTab\(tab\.id\)/u,
   );
   for (const handler of [
+    "handleFilesDiff",
     "handleFilesList",
     "handleFilesOpen",
     "handleFilesPreview",
@@ -1456,6 +1505,129 @@ test("Files refreshes the directory and clean preview after disk changes", async
   assert.equal(watchListener, undefined);
   files.dispose();
   tabs.dispose();
+});
+
+test("conversation files open in the Files source reader with on-demand diff", async () => {
+  let shown = 0;
+  const tabs = new TabsRuntime({
+    showPanel() {
+      shown += 1;
+    },
+    hidePanel() {},
+  });
+  const listRequests = [];
+  const previewRequests = [];
+  const diffRequests = [];
+  const content = "export const current = true;\n";
+  const files = new FilesTabsController(tabs, {
+    available: true,
+    async list(request) {
+      listRequests.push(request);
+      return {
+        path: request.path ?? "/",
+        entries: [
+          {
+            name: "main.ts",
+            path: "/workspace/src/main.ts",
+            kind: "file",
+          },
+        ],
+        truncated: false,
+      };
+    },
+    async open() {},
+    async preview(request) {
+      previewRequests.push(request);
+      return {
+        kind: "text",
+        path: request.path,
+        name: "main.ts",
+        size: Buffer.byteLength(content),
+        content,
+        truncated: false,
+        version: fileVersion(Buffer.from(content)),
+      };
+    },
+    async diff(request) {
+      diffRequests.push(request);
+      return {
+        kind: "text",
+        path: request.path,
+        original: "export const current = false;\n",
+      };
+    },
+    async write() {
+      throw new Error("not used");
+    },
+    watch() {
+      return () => {};
+    },
+  });
+
+  const tabId = files.openFile(
+    "/workspace/src/main.ts",
+    "Files",
+  );
+  assert.ok(tabId);
+  await settleAsyncWork();
+  assert.deepEqual(listRequests, [{ path: "/workspace/src" }]);
+  assert.deepEqual(previewRequests, [
+    { path: "/workspace/src/main.ts" },
+  ]);
+  assert.equal(tabs.getSnapshot().activeId, tabId);
+  assert.equal(tabs.tab(tabId).payload.preview.mode, "source");
+  assert.equal(shown > 0, true);
+
+  files.setPreviewMode(tabId, "diff");
+  await settleAsyncWork();
+  assert.deepEqual(diffRequests, [
+    { path: "/workspace/src/main.ts" },
+  ]);
+  assert.equal(tabs.tab(tabId).payload.preview.mode, "diff");
+  assert.equal(
+    tabs.tab(tabId).payload.preview.comparison.result.original,
+    "export const current = false;\n",
+  );
+
+  files.dispose();
+  tabs.dispose();
+});
+
+test("conversation file routing falls back and restores safely", async () => {
+  const systemOpened = [];
+  const routed = [];
+  const workspaces = {
+    async openPath(path) {
+      systemOpened.push(path);
+    },
+  };
+  const originalOpenPath = workspaces.openPath;
+  const dispose = installConversationFileRouter(
+    workspaces,
+    {
+      openFile(path, title) {
+        routed.push([path, title]);
+        return path.startsWith("/") ? "files-1" : undefined;
+      },
+    },
+    () => "Files",
+  );
+
+  await workspaces.openPath("/workspace/src/main.ts");
+  await workspaces.openPath("relative.ts");
+  assert.deepEqual(routed, [
+    ["/workspace/src/main.ts", "Files"],
+    ["relative.ts", "Files"],
+  ]);
+  assert.deepEqual(systemOpened, ["relative.ts"]);
+
+  dispose();
+  assert.equal(workspaces.openPath, originalOpenPath);
+  await workspaces.openPath("/workspace/README.md");
+  assert.deepEqual(systemOpened, [
+    "relative.ts",
+    "/workspace/README.md",
+  ]);
 });
 
 test("the Plugins launcher opens the curated DSH topic", () => {

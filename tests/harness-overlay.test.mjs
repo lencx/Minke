@@ -467,6 +467,10 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     clientSource,
+    /installConversationFileRouter\(\s*ctx\.workspaces,\s*rightFilesTabs,/u,
+  );
+  assert.match(
+    clientSource,
     /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,\s*terminalT,\s*\)/u,
   );
   assert.match(

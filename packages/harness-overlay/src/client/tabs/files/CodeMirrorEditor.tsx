@@ -20,6 +20,9 @@ import {
   basicSetup,
 } from "codemirror";
 import {
+  unifiedMergeView,
+} from "@codemirror/merge";
+import {
   highlightFileCode,
   type HighlightedFileCode,
 } from "./syntax-highlight.ts";
@@ -69,6 +72,7 @@ export function CodeMirrorEditor(props: {
   readonly value: string;
   readonly label: string;
   readonly readOnly: boolean;
+  readonly diffOriginal?: string;
   readonly active: boolean;
   readonly onChange: (content: string) => void;
   readonly onSave: () => void;
@@ -132,6 +136,19 @@ export function CodeMirrorEditor(props: {
           basicSetup,
           indentationFolding,
           shikiDecorations,
+          ...(props.diffOriginal === undefined
+            ? []
+            : unifiedMergeView({
+                original: props.diffOriginal,
+                highlightChanges: true,
+                gutter: true,
+                allowInlineDiffs: true,
+                mergeControls: false,
+                collapseUnchanged: {
+                  margin: 3,
+                  minSize: 8,
+                },
+              })),
           EditorState.readOnly.of(props.readOnly),
           EditorView.editable.of(!props.readOnly),
           EditorView.contentAttributes.of({
@@ -171,7 +188,12 @@ export function CodeMirrorEditor(props: {
       view.destroy();
       viewRef.current = null;
     };
-  }, [props.label, props.path, props.readOnly]);
+  }, [
+    props.diffOriginal,
+    props.label,
+    props.path,
+    props.readOnly,
+  ]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -209,6 +231,9 @@ export function CodeMirrorEditor(props: {
       data-highlighter="shiki"
       data-line-numbers="true"
       data-code-folding="true"
+      data-mode={
+        props.diffOriginal === undefined ? "source" : "diff"
+      }
     />
   );
 }

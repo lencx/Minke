@@ -201,6 +201,10 @@ test("Electron wires native desktop capabilities through preload", () => {
   );
   assert.match(
     desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*TABS_FILES_DIFF_CHANNEL/u,
+  );
+  assert.match(
+    desktopPreloadSource,
     /ipcRenderer\.invoke\(\s*TABS_FILES_PREVIEW_CHANNEL/u,
   );
   assert.match(
