@@ -14,7 +14,6 @@ import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { embeddedNodeEnvironment } from "../../config/embedded-node-runtime.mts";
 import {
-  harnessWebArguments,
   readHarnessRuntimeLayout,
 } from "../../desktop/main/harness-launch.ts";
 import { packagedApplicationLayout } from "../forge/application-layout.mjs";
@@ -182,13 +181,13 @@ async function waitForChangedRevision(baseUrl, pluginId, initialRevision) {
 }
 
 async function startServer(
-  electronExecutable,
-  runtimeLayout,
+  command,
+  args,
   env,
 ) {
   const child = spawn(
-    electronExecutable,
-    harnessWebArguments(runtimeLayout),
+    command,
+    args,
     {
       cwd: projectRoot,
       detached: process.platform !== "win32",
@@ -390,7 +389,7 @@ async function main() {
       );
     }
 
-    await runSuccessful(
+    const pluginInstall = await runSuccessful(
       executable("dsh"),
       [
         "plugin",
@@ -401,10 +400,34 @@ async function main() {
       ],
       { cwd: projectRoot, env },
     );
+    const expectedPluginLocation =
+      `dsh: profile web plugins are installed at ${
+        join(harnessHome, "profiles", "web")
+      }`;
+    if (
+      !formatOutput(
+        pluginInstall.stdout,
+        pluginInstall.stderr,
+      ).includes(expectedPluginLocation)
+    ) {
+      throw new Error(
+        `plugin install did not report its profile directory: ${
+          formatOutput(pluginInstall.stdout, pluginInstall.stderr)
+        }`,
+      );
+    }
 
     server = await startServer(
-      electronExecutable,
-      runtimeLayout,
+      executable("dsh"),
+      [
+        "web",
+        "--patch",
+        runtimeLayout.productPatch,
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "0",
+      ],
       env,
     );
     const manifest = await fetchManifest(server.baseUrl);

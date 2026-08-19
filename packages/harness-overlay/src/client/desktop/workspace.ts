@@ -2,6 +2,9 @@ import {
   parseSessionLogExportId,
 } from "@minke/harness-overlay/session-export-contract.ts";
 import {
+  parsePluginCatalogSnapshot,
+} from "@lencx/minke-plugin-catalog/contract";
+import {
   parseTabsLayoutState,
   parseTabsLayoutStateUpdate,
 } from "@minke/harness-overlay/tabs/contract.ts";
@@ -31,10 +34,51 @@ import {
 import type {
   DesktopBridgeWindow,
   DesktopFilesPort,
+  PluginCatalogPort,
   DesktopSessionLogsPort,
   DesktopTabsPort,
   DesktopTerminalPort,
 } from "./contracts.ts";
+
+/** Adapt the cache-backed plugin catalog exposed by the isolated preload. */
+export function desktopPluginCatalogPort(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): PluginCatalogPort {
+  const bridge = source.minkeDesktop?.pluginCatalog;
+  if (bridge === undefined) {
+    return {
+      available: false,
+      async read() {
+        throw new Error(
+          "Minke desktop plugin catalog bridge is unavailable",
+        );
+      },
+      async refresh() {
+        throw new Error(
+          "Minke desktop plugin catalog bridge is unavailable",
+        );
+      },
+      async cancel() {
+        throw new Error(
+          "Minke desktop plugin catalog bridge is unavailable",
+        );
+      },
+    };
+  }
+  return {
+    available: true,
+    async read() {
+      return parsePluginCatalogSnapshot(await bridge.read());
+    },
+    async refresh() {
+      return parsePluginCatalogSnapshot(await bridge.refresh());
+    },
+    async cancel() {
+      return parsePluginCatalogSnapshot(await bridge.cancel());
+    },
+  };
+}
 
 /** Adapt the native save/reveal workflow exposed by the isolated preload. */
 export function desktopSessionLogsPort(

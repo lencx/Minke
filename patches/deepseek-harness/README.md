@@ -29,6 +29,11 @@ that every declared patch is present before publishing or fast refresh.
 - raises the stored-width guard for Minke's wider overlay continuation. Minke
   still owns the final viewport clamp and leaves a 20px conversation remainder.
 
+`profile-plugin-location.patch` is pinned to the same Harness commit. After
+every successful `dsh plugin` command, it prints the resolved profile directory
+where pnpm manages plugins. The path therefore follows `DSH_HOME`, including a
+Data Home selected by the user.
+
 After changing the upstream pin or a patch, run:
 
 ```sh

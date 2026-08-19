@@ -18,7 +18,6 @@ import {
   ExternalIcon,
   ForwardIcon,
   ReloadIcon,
-  PluginsIcon,
   StopIcon,
   WebIcon,
 } from "./icons.tsx";
@@ -34,9 +33,6 @@ import {
 import type {
   WebTabsTranslate,
 } from "./locales.ts";
-import {
-  openDshPlugins,
-} from "./plugins.ts";
 
 function siteLabel(tab: ManagedTab): string | undefined {
   if (!isWebTab(tab)) return undefined;
@@ -171,15 +167,6 @@ export function createWebTabRenderer(
         order: 20,
         icon: <WebIcon size={20} />,
         create: createBlank,
-      },
-      {
-        id: "plugins",
-        label: t("web.create.plugins"),
-        order: 30,
-        icon: <PluginsIcon size={20} />,
-        create: () => {
-          openDshPlugins(controller, t("web.create.plugins"));
-        },
       },
     ],
     renderIcon: (tab) => <WebTabIcon tab={tab} />,

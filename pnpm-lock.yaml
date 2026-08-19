@@ -15,6 +15,9 @@ importers:
 
   .:
     dependencies:
+      '@lencx/minke-plugin-catalog':
+        specifier: workspace:*
+        version: link:packages/plugin-catalog
       electron-squirrel-startup:
         specifier: 1.0.1
         version: 1.0.1(supports-color@8.1.1)
@@ -100,6 +103,10 @@ importers:
         version: link:packages/sys
 
   packages/harness-overlay:
+    dependencies:
+      '@lencx/minke-plugin-catalog':
+        specifier: workspace:*
+        version: link:../plugin-catalog
     devDependencies:
       '@codemirror/language':
         specifier: 6.12.4
@@ -131,6 +138,8 @@ importers:
       shiki:
         specifier: 4.4.3
         version: 4.4.3
+
+  packages/plugin-catalog: {}
 
   packages/sys: {}
 

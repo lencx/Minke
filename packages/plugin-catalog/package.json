@@ -1,0 +1,15 @@
+{
+  "name": "@lencx/minke-plugin-catalog",
+  "description": "Minke local plugin discovery and catalog cache",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./contract": "./src/contract.ts"
+  },
+  "license": "Apache-2.0"
+}

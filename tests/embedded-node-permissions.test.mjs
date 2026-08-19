@@ -174,6 +174,8 @@ test("every staged adapter delegates to Minke and reasserts Node mode", () => {
       assert.match(source, /MINKE_PNPM_ENTRY/u, name);
     }
   }
+  assert.match(sources.dsh, /--expose-internals/u);
+  assert.match(sources["dsh.cmd"], /--expose-internals/u);
 });
 
 test("the POSIX dsh adapter launches the staged CLI through embedded Node", async () => {
@@ -188,6 +190,7 @@ test("the POSIX dsh adapter launches the staged CLI through embedded Node", asyn
       [
         "process.stdout.write(JSON.stringify({",
         "  mode: process.env.ELECTRON_RUN_AS_NODE,",
+        "  execArgv: process.execArgv,",
         "  args: process.argv.slice(2),",
         "}));",
         "",
@@ -210,6 +213,7 @@ test("the POSIX dsh adapter launches the staged CLI through embedded Node", asyn
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), {
       mode: "1",
+      execArgv: ["--expose-internals"],
       args: ["plugin", "--profile", "web", "why", "fixture"],
     });
   });

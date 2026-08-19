@@ -42,6 +42,9 @@ import type {
   TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import type {
+  PluginCatalogSnapshot,
+} from "@lencx/minke-plugin-catalog/contract";
+import type {
   HarnessColorScheme,
   HarnessLocale,
   HarnessThemePreference,
@@ -152,6 +155,13 @@ export interface DesktopSessionLogsPort {
   export(sessionId: string): Promise<void>;
 }
 
+export interface PluginCatalogPort {
+  readonly available: boolean;
+  read(): Promise<PluginCatalogSnapshot>;
+  refresh(): Promise<PluginCatalogSnapshot>;
+  cancel(): Promise<PluginCatalogSnapshot>;
+}
+
 export interface DesktopShortcutBridge {
   read(): Promise<unknown>;
   write(bindings: ShortcutBindings): Promise<void>;
@@ -210,6 +220,12 @@ export interface DesktopModelRuntimeBridge {
   write(settings: ModelRuntimeSettings): Promise<void>;
 }
 
+export interface DesktopPluginCatalogBridge {
+  read(): Promise<unknown>;
+  refresh(): Promise<unknown>;
+  cancel(): Promise<unknown>;
+}
+
 export interface DesktopDataHomeBridge {
   read(): Promise<unknown>;
   chooseDirectory(): Promise<string | undefined>;
@@ -242,6 +258,7 @@ export interface DesktopBridgeWindow {
     files?: DesktopFilesBridge;
     locale?: DesktopWindowLocaleBridge;
     modelRuntime?: DesktopModelRuntimeBridge;
+    pluginCatalog?: DesktopPluginCatalogBridge;
     sessionLogs?: DesktopSessionLogsBridge;
     tabs?: DesktopTabsBridge;
     terminal?: DesktopTerminalBridge;

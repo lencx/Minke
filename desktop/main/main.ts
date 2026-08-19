@@ -18,6 +18,10 @@ import {
 import started from "electron-squirrel-startup";
 import { join, parse } from "node:path";
 import {
+  PluginCatalogService,
+  type PluginCatalogModule,
+} from "@lencx/minke-plugin-catalog";
+import {
   DesktopLocaleRuntime,
   translateDesktop,
   type DesktopMessageKey,
@@ -52,6 +56,10 @@ import {
   bindModelRuntimeSettingsIpc,
   type ModelRuntimeSettingsBinding,
 } from "./model-runtime-settings";
+import {
+  bindPluginCatalogIpc,
+  type PluginCatalogBinding,
+} from "./plugin-catalog";
 import {
   macOSWindowOptions,
 } from "./macos-window";
@@ -105,6 +113,8 @@ let terminalSettingsBinding: TerminalSettingsBinding | undefined;
 let modelRuntimeSettingsBinding:
   | ModelRuntimeSettingsBinding
   | undefined;
+let pluginCatalog: PluginCatalogModule | undefined;
+let pluginCatalogBinding: PluginCatalogBinding | undefined;
 let dataHomeSettingsBinding: DataHomeSettingsBinding | undefined;
 let sessionLogExportBinding: SessionLogExportBinding | undefined;
 let tabsBinding: TabsBinding | undefined;
@@ -533,6 +543,10 @@ async function bootstrap(): Promise<void> {
   await installMacOSSurfaceBootstrap();
   installPermissionPolicy();
   const minkeConfig = new MinkeConfigStore(app.getPath("userData"));
+  pluginCatalog = new PluginCatalogService({
+    userDataPath: app.getPath("userData"),
+  });
+  await pluginCatalog.start();
   const shortcutStore = minkeConfig.shortcuts;
   const terminalSettingsStore = minkeConfig.terminal;
   const modelRuntimeSettingsStore = minkeConfig.modelRuntime;
@@ -649,6 +663,19 @@ async function bootstrap(): Promise<void> {
       );
     },
   );
+  pluginCatalogBinding = bindPluginCatalogIpc(
+    ipcMain,
+    pluginCatalog,
+    (candidate) => {
+      const event = candidate as IpcMainInvokeEvent;
+      return (
+        mainWindow !== undefined &&
+        event.sender === mainWindow.webContents &&
+        event.senderFrame !== null &&
+        isHarnessUrl(event.senderFrame.url)
+      );
+    },
+  );
   dataHomeSettingsBinding = bindDataHomeSettingsIpc(
     ipcMain,
     dataHomeManager,
@@ -706,6 +733,10 @@ app.on("before-quit", (event) => {
   terminalSettingsBinding = undefined;
   modelRuntimeSettingsBinding?.dispose();
   modelRuntimeSettingsBinding = undefined;
+  pluginCatalogBinding?.dispose();
+  pluginCatalogBinding = undefined;
+  pluginCatalog?.dispose();
+  pluginCatalog = undefined;
   dataHomeSettingsBinding?.dispose();
   dataHomeSettingsBinding = undefined;
   if (shutdownStarted) return;

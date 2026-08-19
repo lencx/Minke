@@ -12,6 +12,7 @@ const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sourceRoots = [
   "desktop",
   "packages/harness-overlay/src",
+  "packages/plugin-catalog/src",
   "src",
 ].map((path) => resolve(projectRoot, path)).filter(existsSync);
 const sourceExtensions = new Set([
@@ -85,6 +86,29 @@ test("desktop imports only the overlay's explicit cross-process contracts", () =
     }
     return !desktopOverlayContracts.has(specifier.replace(/\.ts$/u, ""));
   });
+  assert.deepEqual(
+    violations.map(({ path, specifier }) => [
+      relative(projectRoot, path),
+      specifier,
+    ]),
+    [],
+  );
+});
+
+test("the plugin catalog package stays independent of desktop transports", () => {
+  const catalogRoot = resolve(
+    projectRoot,
+    "packages/plugin-catalog/src",
+  );
+  const violations = productionImports.filter(
+    ({ path, specifier }) =>
+      path.startsWith(`${catalogRoot}${sep}`) &&
+      (
+        specifier === "electron" ||
+        specifier.startsWith("@minke/desktop/") ||
+        specifier.startsWith("@minke/harness-overlay/")
+      ),
+  );
   assert.deepEqual(
     violations.map(({ path, specifier }) => [
       relative(projectRoot, path),

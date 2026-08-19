@@ -1,6 +1,5 @@
 export const webTabsZh = {
   "web.create.label": "浏览器",
-  "web.create.plugins": "插件",
   "web.tab.new": "新标签页",
   "web.blank.title": "开始浏览",
   "web.blank.body": "输入网址或使用 Google 搜索",
@@ -27,7 +26,6 @@ export type WebTabsTranslate = (
 
 export const webTabsEn: Record<WebTabsLocaleKey, string> = {
   "web.create.label": "Browser",
-  "web.create.plugins": "Plugins",
   "web.tab.new": "New tab",
   "web.blank.title": "Start browsing",
   "web.blank.body": "Enter a URL or search Google",

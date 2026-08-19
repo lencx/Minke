@@ -314,6 +314,13 @@ test("empty Tabs offers Files, Terminal, Browser, and Plugins without chrome", (
         icon: null,
         create: () => created.push("browser"),
       },
+    ],
+    renderIcon: () => null,
+    renderView: () => null,
+  });
+  registry.register({
+    kind: "plugin-catalog",
+    createOptions: () => [
       {
         id: "plugins",
         label: "Plugins",

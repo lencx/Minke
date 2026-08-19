@@ -14,7 +14,8 @@
   "runtimeFileBudget": 15000,
   "patches": [
     "patches/deepseek-harness/win32-directory-picker.patch",
-    "patches/deepseek-harness/tabs-details-layout.patch"
+    "patches/deepseek-harness/tabs-details-layout.patch",
+    "patches/deepseek-harness/profile-plugin-location.patch"
   ],
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",

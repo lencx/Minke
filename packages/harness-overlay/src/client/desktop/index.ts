@@ -3,6 +3,7 @@ export type {
   DesktopAboutInfo,
   DesktopBridgeWindow,
   DesktopFilesPort,
+  PluginCatalogPort,
   DesktopSessionLogsPort,
   DesktopShortcutPort,
   DesktopTabsPort,
@@ -28,6 +29,7 @@ export {
 } from "./window.ts";
 export {
   desktopFilesPort,
+  desktopPluginCatalogPort,
   desktopSessionLogsPort,
   desktopTabsPort,
   desktopTerminalPort,

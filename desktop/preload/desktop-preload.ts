@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 import appManifest from "../../package.json";
 import {
+  PLUGIN_CATALOG_CANCEL_CHANNEL,
+  PLUGIN_CATALOG_READ_CHANNEL,
+  PLUGIN_CATALOG_REFRESH_CHANNEL,
+  parsePluginCatalogSnapshot,
+} from "@minke/desktop/plugin-catalog-contract.ts";
+import {
   MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
   MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
   parseModelRuntimeSettings,
@@ -400,6 +406,24 @@ const modelRuntime = Object.freeze({
   },
 });
 
+const pluginCatalog = Object.freeze({
+  async read(): Promise<unknown> {
+    return parsePluginCatalogSnapshot(
+      await ipcRenderer.invoke(PLUGIN_CATALOG_READ_CHANNEL),
+    );
+  },
+  async refresh(): Promise<unknown> {
+    return parsePluginCatalogSnapshot(
+      await ipcRenderer.invoke(PLUGIN_CATALOG_REFRESH_CHANNEL),
+    );
+  },
+  async cancel(): Promise<unknown> {
+    return parsePluginCatalogSnapshot(
+      await ipcRenderer.invoke(PLUGIN_CATALOG_CANCEL_CHANNEL),
+    );
+  },
+});
+
 const dataHome = Object.freeze({
   async read(): Promise<unknown> {
     return parseDataHomeSettingsSnapshot(
@@ -469,6 +493,7 @@ contextBridge.exposeInMainWorld(
     files,
     locale,
     modelRuntime,
+    pluginCatalog,
     sessionLogs,
     tabs,
     terminal,

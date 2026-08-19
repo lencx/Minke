@@ -1,0 +1,15 @@
+diff --git a/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js b/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js
+--- a/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js
++++ b/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js
+@@ -125,7 +125,10 @@
+ 		throw result.error;
+ 	}
+ 	const exitCode = result.status ?? 1;
+-	if (exitCode === 0) reconcilePlugins(before, dir);
++	if (exitCode === 0) {
++		reconcilePlugins(before, dir);
++		process.stderr.write(`${NAME}: profile ${profile} plugins are installed at ${dir}\n`);
++	}
+ 	else {
+ 		process.stderr.write(`${NAME}: pnpm failed in profile directory ${dir}\n`);
+ 		if (args.some((argument) => /^git\+|^github:|\.git(?:#|$)/.test(argument))) process.stderr.write(`${NAME}: git-hosted plugins build on install via their prepare script, which pnpm blocks until allowed — add the exact key pnpm printed above under allowBuilds in ${join(dir, "pnpm-workspace.yaml")}, then re-run\n`);

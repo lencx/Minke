@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Globe,
-  Puzzle,
   RotateCw,
   Square,
   SquareArrowOutUpRight,
@@ -35,13 +34,5 @@ export function ExternalIcon(): ReactNode {
 export function WebIcon(props: { size?: number }): ReactNode {
   return (
     <LucideIcon icon={Globe} size={props.size ?? 17} />
-  );
-}
-
-export function PluginsIcon(
-  props: { size?: number },
-): ReactNode {
-  return (
-    <LucideIcon icon={Puzzle} size={props.size ?? 17} />
   );
 }

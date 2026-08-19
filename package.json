@@ -19,10 +19,10 @@
   "main": ".vite/build/main.js",
   "scripts": {
     "icons:generate": "node scripts/forge/generate-icons.mjs",
-    "typecheck": "tsc --noEmit && pnpm --filter @lencx/minke-harness-overlay typecheck",
+    "typecheck": "tsc --noEmit && pnpm --filter @lencx/minke-plugin-catalog typecheck && pnpm --filter @lencx/minke-harness-overlay typecheck",
     "build:harness-overlay": "node scripts/harness/build-overlay.mjs",
     "build:preload": "vite build --config vite.preload.config.mts",
-    "test:desktop": "node scripts/harness/build-overlay.mjs && node --import ./scripts/register-path-aliases.mts --test tests/app-data-paths.test.mjs tests/bootstrap-theme.test.mjs tests/client-actions.test.mjs tests/data-home-settings.test.mjs tests/development-restart.test.mjs tests/minke-config.test.mjs tests/cross-platform-packaging.test.mjs tests/desktop-i18n.test.mjs tests/electron-locales.test.mjs tests/embedded-node-permissions.test.mjs tests/github-actions-package.test.mjs tests/harness-contract.test.mjs tests/harness-launch.test.mjs tests/harness-overlay.test.mjs tests/harness-runtime-patches.test.mjs tests/harness-runtime-prune.test.mjs tests/harness-runtime-state.test.mjs tests/harness-source-boundary.test.mjs tests/local-model-settings.test.mjs tests/main-window-devtools.test.mjs tests/model-runtime.test.mjs tests/macos-tray.test.mjs tests/macos-window-css.test.mjs tests/module-boundaries.test.mjs tests/navigation-policy.test.mjs tests/package-artifact.test.mjs tests/path-aliases.test.mjs tests/session-export.test.mjs tests/session-navigation.test.mjs tests/style-runtime.test.mjs tests/tabs.test.mjs tests/terminal-tabs.test.mjs tests/terminal-settings.test.mjs tests/shortcut-binding.test.mjs tests/shortcut-i18n.test.mjs tests/shortcut-menu.test.mjs tests/shortcut-recording.test.mjs tests/shortcut-runtime.test.mjs tests/shortcut-settings.test.mjs tests/sys-native-module.test.mjs tests/window-theme.test.mjs",
+    "test:desktop": "node scripts/harness/build-overlay.mjs && node --import ./scripts/register-path-aliases.mts --test tests/app-data-paths.test.mjs tests/bootstrap-theme.test.mjs tests/client-actions.test.mjs tests/data-home-settings.test.mjs tests/development-restart.test.mjs tests/minke-config.test.mjs tests/cross-platform-packaging.test.mjs tests/desktop-i18n.test.mjs tests/electron-locales.test.mjs tests/embedded-node-permissions.test.mjs tests/github-actions-package.test.mjs tests/harness-contract.test.mjs tests/harness-launch.test.mjs tests/harness-overlay.test.mjs tests/harness-runtime-patches.test.mjs tests/harness-runtime-prune.test.mjs tests/harness-runtime-state.test.mjs tests/harness-source-boundary.test.mjs tests/local-model-settings.test.mjs tests/main-window-devtools.test.mjs tests/model-runtime.test.mjs tests/macos-tray.test.mjs tests/macos-window-css.test.mjs tests/module-boundaries.test.mjs tests/navigation-policy.test.mjs tests/package-artifact.test.mjs tests/path-aliases.test.mjs tests/plugin-catalog.test.mjs tests/session-export.test.mjs tests/session-navigation.test.mjs tests/style-runtime.test.mjs tests/tabs.test.mjs tests/terminal-tabs.test.mjs tests/terminal-settings.test.mjs tests/shortcut-binding.test.mjs tests/shortcut-i18n.test.mjs tests/shortcut-menu.test.mjs tests/shortcut-recording.test.mjs tests/shortcut-runtime.test.mjs tests/shortcut-settings.test.mjs tests/sys-native-module.test.mjs tests/window-theme.test.mjs",
     "test:desktop:runtime": "pnpm run build:preload && electron tests/macos-window-runtime.cjs",
     "test:sys": "node --test tests/sys-native-module.test.mjs",
     "harness:verify": "node scripts/harness/verify.mjs",
@@ -39,6 +39,7 @@
     "make:macos": "pnpm run harness:stage && node scripts/forge/run.mjs make --platform=darwin"
   },
   "dependencies": {
+    "@lencx/minke-plugin-catalog": "workspace:*",
     "electron-squirrel-startup": "1.0.1",
     "electron-window-state": "5.0.3",
     "react": "19.2.8",

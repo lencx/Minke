@@ -19,7 +19,9 @@ function cmdReference(name) {
 /**
  * Generate the complete cross-platform adapter set staged with Harness.
  * Every adapter delegates to Minke's Electron binary and reasserts Node mode;
- * no ambient or standalone Node installation participates.
+ * no ambient or standalone Node installation participates. The dsh adapter
+ * exposes Node internals so Harness can resolve bare plugins from the active
+ * profile instead of from its bundled loader package.
  */
 export function runtimeAdapterSources() {
   return {
@@ -27,7 +29,7 @@ export function runtimeAdapterSources() {
 set -eu
 : "${shellRequirement(executableName)}"
 runtime_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-exec env ${modeName}=1 "${shellReference(executableName)}" "$runtime_root/index.mjs" "$@"
+exec env ${modeName}=1 "${shellReference(executableName)}" --expose-internals "$runtime_root/index.mjs" "$@"
 `,
     node: `#!/bin/sh
 set -eu
@@ -53,6 +55,6 @@ exec env ${modeName}=1 "${shellReference(executableName)}" "${shellReference(pnp
     "pnpx.cmd":
       `@echo off\r\nset "${modeName}=1"\r\n"${cmdReference(executableName)}" "${cmdReference(pnpmEntryName)}" dlx %*\r\n`,
     "dsh.cmd":
-      `@echo off\r\nset "${modeName}=1"\r\n"${cmdReference(executableName)}" "%~dp0..\\index.mjs" %*\r\n`,
+      `@echo off\r\nset "${modeName}=1"\r\n"${cmdReference(executableName)}" --expose-internals "%~dp0..\\index.mjs" %*\r\n`,
   };
 }

@@ -37,6 +37,9 @@
     "cordis.patch.yml"
   ],
   "license": "MIT",
+  "dependencies": {
+    "@lencx/minke-plugin-catalog": "workspace:*"
+  },
   "devDependencies": {
     "@codemirror/language": "6.12.4",
     "@codemirror/merge": "6.12.2",

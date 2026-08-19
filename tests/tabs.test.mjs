@@ -105,10 +105,6 @@ import {
   WebTabsController,
 } from "@minke/harness-overlay/client/tabs/web/controller.ts";
 import {
-  DSH_PLUGINS_URL,
-  openDshPlugins,
-} from "@minke/harness-overlay/client/tabs/web/plugins.ts";
-import {
   FileManagerRuntime,
 } from "@minke/desktop/main/tabs/files.ts";
 import {
@@ -2224,31 +2220,6 @@ test("conversation file routing falls back and restores safely", async () => {
   assert.deepEqual(systemOpened, [
     "relative.ts",
     "/workspace/README.md",
-  ]);
-});
-
-test("the Plugins launcher opens the curated DSH topic", () => {
-  const calls = [];
-  const result = openDshPlugins(
-    {
-      open(url, title) {
-        calls.push({ url, title });
-        return "tab-plugins";
-      },
-    },
-    "Plugins",
-  );
-
-  assert.equal(
-    DSH_PLUGINS_URL,
-    "https://github.com/topics/dsh-plugin",
-  );
-  assert.equal(result, "tab-plugins");
-  assert.deepEqual(calls, [
-    {
-      url: DSH_PLUGINS_URL,
-      title: "Plugins",
-    },
   ]);
 });
 

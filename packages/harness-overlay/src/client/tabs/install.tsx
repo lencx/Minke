@@ -4,6 +4,7 @@ import type {
 } from "../core/context.ts";
 import {
   desktopFilesPort,
+  desktopPluginCatalogPort,
   desktopSessionLogsPort,
   desktopTabsPort,
   desktopTerminalPort,
@@ -19,6 +20,15 @@ import {
   type FilesTabsLocaleKey,
   type FilesTabsTranslate,
 } from "./files/index.ts";
+import {
+  createPluginCatalogTabRenderer,
+  installPluginCatalogStyles,
+  pluginCatalogEn,
+  pluginCatalogZh,
+  PluginCatalogTabsController,
+  type PluginCatalogLocaleKey,
+  type PluginCatalogTranslate,
+} from "./plugins/index.ts";
 import {
   installSessionHeaderActionStyles,
   installTabsStyles,
@@ -59,6 +69,7 @@ import {
 const TABS_NAMESPACE = "minke.tabs";
 const FILES_TABS_NAMESPACE = "minke.tabs.files";
 const WEB_TABS_NAMESPACE = "minke.tabs.web";
+const PLUGIN_CATALOG_NAMESPACE = "minke.tabs.plugins";
 const TERMINAL_TABS_NAMESPACE = "minke.tabs.terminal";
 
 export type TabsRuntimes = Readonly<{
@@ -68,13 +79,14 @@ export type TabsRuntimes = Readonly<{
 
 /**
  * Install the independent right and bottom tab workspaces plus their native
- * Files, Terminal, Web, and session-log adapters.
+ * Files, Terminal, Web, plugin catalog, and session-log adapters.
  */
 export function installTabs(
   ctx: HarnessClientContext,
 ): TabsRuntimes | undefined {
   const tabsPort = desktopTabsPort();
   const filesPort = desktopFilesPort();
+  const pluginCatalogPort = desktopPluginCatalogPort();
   const terminalPort = desktopTerminalPort();
   const terminalSettingsStore = desktopTerminalSettingsStore();
   const sessionLogsPort = desktopSessionLogsPort();
@@ -199,6 +211,20 @@ export function installTabs(
       }),
     "minke-overlay: Web tab dictionaries",
   );
+  if (pluginCatalogPort.available) {
+    ctx.effect(
+      () =>
+        ctx.locale.register(PLUGIN_CATALOG_NAMESPACE, {
+          zh: pluginCatalogZh,
+          en: pluginCatalogEn,
+        }),
+      "minke-overlay: plugin catalog dictionaries",
+    );
+    ctx.effect(
+      () => installPluginCatalogStyles(),
+      "minke-overlay: plugin catalog styles",
+    );
+  }
   ctx.effect(
     () => installTabsStyles(),
     "minke-overlay: tabs styles",
@@ -237,6 +263,10 @@ export function installTabs(
   const webT = ctx.locale.bind<WebTabsLocaleKey>(
     WEB_TABS_NAMESPACE,
   ) as WebTabsTranslate;
+  const pluginCatalogT =
+    ctx.locale.bind<PluginCatalogLocaleKey>(
+      PLUGIN_CATALOG_NAMESPACE,
+    ) as PluginCatalogTranslate;
 
   const createTabsWorkspace = (
     tabs: TabsRuntime,
@@ -244,6 +274,13 @@ export function installTabs(
   ) => {
     const renderers = new TabRendererRegistry();
     const webTabs = new WebTabsController(tabs, tabsPort);
+    const pluginCatalogTabs = pluginCatalogPort.available
+      ? new PluginCatalogTabsController(
+          tabs,
+          pluginCatalogPort,
+          webTabs,
+        )
+      : undefined;
     const filesTabs = filesPort.available
       ? new FilesTabsController(tabs, filesPort, {
           placement,
@@ -255,6 +292,7 @@ export function installTabs(
     ctx.effect(
       () => () => {
         terminalTabs?.dispose();
+        pluginCatalogTabs?.dispose();
         filesTabs?.dispose();
         webTabs.dispose();
         renderers.clear();
@@ -284,6 +322,18 @@ export function installTabs(
         `minke-overlay: ${placement} Terminal tab renderer`,
       );
     }
+    if (pluginCatalogTabs !== undefined) {
+      ctx.effect(
+        () =>
+          renderers.register(
+            createPluginCatalogTabRenderer(
+              pluginCatalogTabs,
+              pluginCatalogT,
+            ),
+          ),
+        `minke-overlay: ${placement} plugin catalog renderer`,
+      );
+    }
     ctx.effect(
       () =>
         renderers.register(
@@ -293,6 +343,7 @@ export function installTabs(
     );
     return Object.freeze({
       filesTabs,
+      pluginCatalogTabs,
       renderers,
       webTabs,
     });
