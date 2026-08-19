@@ -1,0 +1,98 @@
+name: Submit an issue (English)
+description: Report a problem, suggest an improvement, or ask a question.
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        You do not need to choose the correct GitHub labels. Share what you know, and the maintainer will classify the issue after reviewing it.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What best describes this issue?
+      options:
+        - Bug or unexpected behavior
+        - Feature or improvement request
+        - Usage question
+        - Documentation
+        - Other or not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly explain what you need or observed.
+      placeholder: Write a clear and concise summary.
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Include context, what you expected, what happened, or an example.
+    validations:
+      required: true
+
+  - type: input
+    id: minke_version
+    attributes:
+      label: Minke version
+      description: If relevant, find this in the About screen or release filename.
+      placeholder: e.g. 0.1.0
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Not applicable or not sure
+        - Windows
+        - macOS
+        - Linux
+        - Multiple platforms
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Possibly related area
+      description: Choose the closest option; it is fine to select "not sure."
+      options:
+        - Not sure
+        - Desktop UI, windows, tray, or shortcuts
+        - Installation or packaging
+        - DeepSeek Harness integration
+        - CI or releases
+        - Model runtime or provider
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps or examples
+      description: For a problem, list the steps and expected result. For a request or question, add examples if helpful.
+
+  - type: textarea
+    id: supporting_information
+    attributes:
+      label: Supporting information
+      description: Add logs, screenshots, recordings, or links. Remove secrets and private information first.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for related reports.
+          required: true
+        - label: I removed secrets and private information.
+          required: true
