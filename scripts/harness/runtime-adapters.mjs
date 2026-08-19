@@ -23,6 +23,12 @@ function cmdReference(name) {
  */
 export function runtimeAdapterSources() {
   return {
+    dsh: `#!/bin/sh
+set -eu
+: "${shellRequirement(executableName)}"
+runtime_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+exec env ${modeName}=1 "${shellReference(executableName)}" "$runtime_root/index.mjs" "$@"
+`,
     node: `#!/bin/sh
 set -eu
 : "${shellRequirement(executableName)}"
@@ -46,5 +52,7 @@ exec env ${modeName}=1 "${shellReference(executableName)}" "${shellReference(pnp
       `@echo off\r\nset "${modeName}=1"\r\n"${cmdReference(executableName)}" "${cmdReference(pnpmEntryName)}" %*\r\n`,
     "pnpx.cmd":
       `@echo off\r\nset "${modeName}=1"\r\n"${cmdReference(executableName)}" "${cmdReference(pnpmEntryName)}" dlx %*\r\n`,
+    "dsh.cmd":
+      `@echo off\r\nset "${modeName}=1"\r\n"${cmdReference(executableName)}" "%~dp0..\\index.mjs" %*\r\n`,
   };
 }

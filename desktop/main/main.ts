@@ -369,6 +369,7 @@ async function createWindow(): Promise<BrowserWindow> {
     ),
     {
       runtimeRoot: runtimeRoot(),
+      electronExecutable: process.execPath,
       defaultCwd: app.getPath("home"),
       fileSystemRoot: parse(app.getPath("home")).root,
       environment: dshEnvironment(),

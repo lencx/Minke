@@ -13,6 +13,9 @@ import {
   parsePackageArtifactPolicy,
   verifyPackagedApplication,
 } from "../scripts/forge/package-artifact.ts";
+import {
+  runtimeAdapterSources,
+} from "../scripts/harness/runtime-adapters.mjs";
 
 const productPackageName = "@lencx/minke-harness-overlay";
 
@@ -118,6 +121,10 @@ async function withPackagedApp(platform, callback) {
           : '#!/bin/sh\nexec env ELECTRON_RUN_AS_NODE=1 "$MINKE_NODE_EXECUTABLE" "$@"\n',
       ),
       write(join(hostRoot, "bin", `pnpm${adapterSuffix}`)),
+      write(
+        join(hostRoot, "bin", `dsh${adapterSuffix}`),
+        runtimeAdapterSources()[`dsh${adapterSuffix}`],
+      ),
       write(
         join(hostRoot, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
       ),
@@ -225,6 +232,20 @@ for (const platform of ["darwin", "win32", "linux"]) {
     });
   });
 }
+
+test("the final package gate rejects a missing dsh adapter", async () => {
+  await withPackagedApp("darwin", async ({ hostRoot, outputRoot }) => {
+    await rm(join(hostRoot, "bin", "dsh"));
+
+    await assert.rejects(
+      verifyPackagedApplication(
+        outputRoot,
+        verificationOptions("darwin"),
+      ),
+      /missing required file.*bin\/dsh/u,
+    );
+  });
+});
 
 test("the final package gate rejects forbidden package baggage", async () => {
   await withPackagedApp("darwin", async ({ hostRoot, outputRoot }) => {

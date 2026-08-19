@@ -341,6 +341,15 @@ async function main() {
       cwd: projectRoot,
       env,
     });
+    const dshVersion = await runSuccessful(executable("dsh"), ["--version"], {
+      cwd: projectRoot,
+      env,
+    });
+    if (dshVersion.stdout.trim() !== verified.contract.packageVersion) {
+      throw new Error(
+        `bundled dsh is ${JSON.stringify(dshVersion.stdout.trim())}, expected ${verified.contract.packageVersion}`,
+      );
+    }
     const pnpmVersion = await runSuccessful(executable("pnpm"), ["--version"], {
       cwd: projectRoot,
       env,
@@ -382,10 +391,8 @@ async function main() {
     }
 
     await runSuccessful(
-      electronExecutable,
+      executable("dsh"),
       [
-        "--expose-internals",
-        entryPath,
         "plugin",
         "--profile",
         "web",
@@ -458,6 +465,7 @@ async function main() {
       [
         "Harness runtime smoke passed:",
         `  Electron Node: ${nodeVersion.stdout.trim()}`,
+        `  bundled dsh:   ${dshVersion.stdout.trim()}`,
         `  bundled pnpm:  ${pnpmVersion.stdout.trim()}`,
         "  bundled node-pty: functional",
         "  bundled Mistral SDK: esm",
@@ -465,7 +473,7 @@ async function main() {
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,
         `  external plugin install/load/HMR: ${server.baseUrl}`,
-        "  ambient Node/pnpm dependency: none",
+        "  ambient dsh/Node/pnpm dependency: none",
         `  runtime source: ${packaged ? "packaged app" : "staged development host"}`,
       ].join("\n"),
     );

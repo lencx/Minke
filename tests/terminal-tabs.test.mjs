@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { delimiter } from "node:path";
 import test from "node:test";
 import {
   TerminalSessionRuntime,
@@ -107,9 +108,12 @@ test("desktop terminal runtime owns PTY data, resize, and teardown", async () =>
       },
     },
     shell: "/bin/zsh",
+    runtimeRoot: "/runtime",
+    electronExecutable: "/Applications/Minke.app/Contents/MacOS/Minke",
     defaultCwd: "/Users/test",
     environment: {
       DSH_HOME: "/data/harness",
+      PATH: "/usr/bin",
       TERM_PROGRAM: "Minke",
     },
     resolveCwd: async (candidate) => candidate,
@@ -130,6 +134,19 @@ test("desktop terminal runtime owns PTY data, resize, and teardown", async () =>
   assert.equal(spawn.options.cwd, "/workspace");
   assert.equal(spawn.options.name, "xterm-256color");
   assert.equal(spawn.options.env.DSH_HOME, "/data/harness");
+  assert.equal(
+    spawn.options.env.MINKE_NODE_EXECUTABLE,
+    "/Applications/Minke.app/Contents/MacOS/Minke",
+  );
+  assert.equal(
+    spawn.options.env.MINKE_PNPM_ENTRY,
+    "/runtime/node_modules/pnpm/bin/pnpm.cjs",
+  );
+  assert.equal(spawn.options.env.ELECTRON_RUN_AS_NODE, "1");
+  assert.equal(
+    spawn.options.env.PATH,
+    ["/runtime/bin", "/usr/bin"].join(delimiter),
+  );
 
   runtime.write({
     sessionId: "terminal-1",

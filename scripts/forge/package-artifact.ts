@@ -244,6 +244,7 @@ export async function verifyPackagedApplication(
     join(hostRoot, "index.mjs"),
     join(hostRoot, "dsh-runtime.json"),
     join(hostRoot, "bin", runtimeAdapterName(options.platform, "node")),
+    join(hostRoot, "bin", runtimeAdapterName(options.platform, "dsh")),
     join(hostRoot, "bin", runtimeAdapterName(options.platform, "pnpm")),
     join(hostRoot, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
     join(hostRoot, "node_modules", "pnpm", "dist", "pnpm.mjs"),
@@ -398,6 +399,10 @@ export async function verifyPackagedApplication(
     join(hostRoot, "bin", runtimeAdapterName(options.platform, "node")),
     "utf8",
   );
+  const dshAdapter = await readFile(
+    join(hostRoot, "bin", runtimeAdapterName(options.platform, "dsh")),
+    "utf8",
+  );
   if (
     Buffer.byteLength(nodeAdapter) > 1024 ||
     !nodeAdapter.includes(embeddedNodeEnvironment.mode) ||
@@ -406,6 +411,17 @@ export async function verifyPackagedApplication(
   ) {
     throw new Error(
       "packaged node adapter must reuse Electron instead of shipping Node",
+    );
+  }
+  if (
+    Buffer.byteLength(dshAdapter) > 1024 ||
+    !dshAdapter.includes(embeddedNodeEnvironment.mode) ||
+    !dshAdapter.includes(embeddedNodeEnvironment.executable) ||
+    !dshAdapter.includes("index.mjs") ||
+    dshAdapter.includes("DSH_ELECTRON_EXECUTABLE")
+  ) {
+    throw new Error(
+      "packaged dsh adapter must launch the staged CLI through Electron",
     );
   }
 

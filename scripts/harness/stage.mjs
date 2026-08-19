@@ -590,6 +590,7 @@ async function validateRuntime(
       join(runtimeRoot, "node_modules", ...packageName.split("/"), "package.json"),
       join(runtimeRoot, "node_modules", ...packageName.split("/"), "lib", "index.js"),
     ]),
+    join(runtimeRoot, "bin", process.platform === "win32" ? "dsh.cmd" : "dsh"),
     join(runtimeRoot, "bin", process.platform === "win32" ? "pnpm.cmd" : "pnpm"),
   ];
   for (const path of required) {

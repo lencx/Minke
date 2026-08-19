@@ -1,6 +1,9 @@
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  embeddedNodeChildEnvironment,
+} from "../../../config/embedded-node-runtime.mts";
 import type {
   TerminalCreateRequest,
   TerminalCreateResult,
@@ -51,6 +54,8 @@ export interface TerminalSessionRuntimeOptions {
   readonly pty: TerminalPtyModule;
   readonly shell: string;
   readonly shellArgs?: readonly string[];
+  readonly runtimeRoot: string;
+  readonly electronExecutable: string;
   readonly defaultCwd: string;
   readonly environment: NodeJS.ProcessEnv;
   readonly resolveCwd: (candidate: string) => Promise<string>;
@@ -60,9 +65,25 @@ export interface TerminalSessionRuntimeOptions {
 
 function terminalEnvironment(
   source: NodeJS.ProcessEnv,
+  runtimeRoot: string,
+  electronExecutable: string,
 ): Record<string, string> {
+  const embedded = embeddedNodeChildEnvironment(
+    {
+      electronExecutable,
+      pnpmEntry: join(
+        runtimeRoot,
+        "node_modules",
+        "pnpm",
+        "bin",
+        "pnpm.cjs",
+      ),
+      runtimeBin: join(runtimeRoot, "bin"),
+    },
+    source,
+  );
   const environment = Object.fromEntries(
-    Object.entries(source).filter(
+    Object.entries(embedded).filter(
       (entry): entry is [string, string] =>
         typeof entry[1] === "string",
     ),
@@ -105,7 +126,11 @@ export class TerminalSessionRuntime {
         cols: request.cols,
         rows: request.rows,
         cwd,
-        env: terminalEnvironment(this.#options.environment),
+        env: terminalEnvironment(
+          this.#options.environment,
+          this.#options.runtimeRoot,
+          this.#options.electronExecutable,
+        ),
       },
     );
     const data = process.onData((value) => {

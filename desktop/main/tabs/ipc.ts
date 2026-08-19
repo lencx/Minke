@@ -62,6 +62,7 @@ import {
 
 interface TabsBindingOptions {
   readonly runtimeRoot: string;
+  readonly electronExecutable: string;
   readonly defaultCwd: string;
   readonly fileSystemRoot: string;
   readonly environment: NodeJS.ProcessEnv;
@@ -113,6 +114,8 @@ export function bindTabs(
     pty: loadTerminalPty(options.runtimeRoot),
     shell: terminalShell.shell,
     shellArgs: terminalShell.args,
+    runtimeRoot: options.runtimeRoot,
+    electronExecutable: options.electronExecutable,
     defaultCwd: options.defaultCwd,
     environment: options.environment,
     resolveCwd: resolveTerminalCwd,

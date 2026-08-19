@@ -157,6 +157,8 @@ test("Minke's embedded Node adapter survives the Harness child scrub", () => {
 test("every staged adapter delegates to Minke and reasserts Node mode", () => {
   const sources = runtimeAdapterSources();
   assert.deepEqual(Object.keys(sources).sort(), [
+    "dsh",
+    "dsh.cmd",
     "node",
     "node.cmd",
     "pnpm",
@@ -172,6 +174,45 @@ test("every staged adapter delegates to Minke and reasserts Node mode", () => {
       assert.match(source, /MINKE_PNPM_ENTRY/u, name);
     }
   }
+});
+
+test("the POSIX dsh adapter launches the staged CLI through embedded Node", async () => {
+  await withTemporaryDirectory(async (root) => {
+    const binRoot = join(root, "bin");
+    await mkdir(binRoot, { recursive: true });
+    const adapter = join(binRoot, "dsh");
+    await writeFile(adapter, runtimeAdapterSources().dsh);
+    await chmod(adapter, 0o755);
+    await writeFile(
+      join(root, "index.mjs"),
+      [
+        "process.stdout.write(JSON.stringify({",
+        "  mode: process.env.ELECTRON_RUN_AS_NODE,",
+        "  args: process.argv.slice(2),",
+        "}));",
+        "",
+      ].join("\n"),
+    );
+
+    const result = spawnSync(
+      adapter,
+      ["plugin", "--profile", "web", "why", "fixture"],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: "0",
+          MINKE_NODE_EXECUTABLE: process.execPath,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      mode: "1",
+      args: ["plugin", "--profile", "web", "why", "fixture"],
+    });
+  });
 });
 
 test("the POSIX node adapter launches the configured executable in Node mode", async () => {
