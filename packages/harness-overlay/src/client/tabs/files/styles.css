@@ -85,8 +85,7 @@
 }
 
 .minke-files-mode-select:focus-within {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
+  outline: none;
 }
 
 .minke-files-mode-select > span {
@@ -104,6 +103,10 @@
   appearance: none;
   cursor: pointer;
   opacity: 0;
+}
+
+.minke-files-mode-select select:focus-visible {
+  outline: none;
 }
 
 .minke-files-location {
@@ -165,7 +168,7 @@
   min-height: 0;
   flex: 1;
   margin: 0;
-  padding: 5px 6px 8px;
+  padding: 3px 4px 6px;
   overflow-x: hidden;
   overflow-y: auto;
   list-style: none;
@@ -183,12 +186,12 @@
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 34px;
+  min-height: 28px;
   align-items: center;
-  gap: 8px;
-  padding: 5px 7px;
+  gap: 6px;
+  padding: 3px 6px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   box-sizing: border-box;
   background: transparent;
   color: var(--dsw-alias-label-primary);
@@ -215,8 +218,8 @@
 
 .minke-files-row__icon {
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   flex: none;
   place-items: center;
   color: var(--dsw-alias-label-tertiary);
@@ -238,7 +241,7 @@
   overflow: hidden;
   font-size: 12px;
   font-weight: 450;
-  line-height: 18px;
+  line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -263,7 +266,7 @@
   min-height: 0;
   flex: 1;
   margin: 0;
-  padding: 5px 6px 8px;
+  padding: 3px 4px 6px;
   overflow: auto;
   list-style: none;
   scrollbar-color:
@@ -286,14 +289,14 @@
   display: flex;
   width: 100%;
   min-width: max-content;
-  min-height: 30px;
+  min-height: 26px;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding:
-    4px 7px 4px
-    calc(5px + var(--minke-files-depth, 0) * 16px);
+    2px 5px 2px
+    calc(3px + var(--minke-files-depth, 0) * 14px);
   border: none;
-  border-radius: 7px;
+  border-radius: 6px;
   box-sizing: border-box;
   background: transparent;
   color: var(--dsw-alias-label-primary);
@@ -316,8 +319,8 @@
 
 .minke-files-tree-row__disclosure {
   display: grid;
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   flex: none;
   place-items: center;
   color: var(--dsw-alias-label-tertiary);
@@ -325,8 +328,8 @@
 
 .minke-files-tree-row__icon {
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   flex: none;
   place-items: center;
   color: var(--dsw-alias-label-tertiary);
@@ -342,16 +345,16 @@
   overflow: hidden;
   font-size: 12px;
   font-weight: 450;
-  line-height: 18px;
+  line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .minke-files-tree__message {
-  min-height: 28px;
+  min-height: 26px;
   padding:
-    5px 8px 5px
-    calc(42px + var(--minke-files-depth, 0) * 16px);
+    4px 6px 4px
+    calc(39px + var(--minke-files-depth, 0) * 14px);
   color: var(--dsw-alias-label-tertiary);
   font-size: 10px;
   line-height: 18px;
@@ -461,8 +464,9 @@
 }
 
 .minke-files-preview__header button:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
+  outline: none;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
 }
 
 .minke-files-preview__header button:disabled {

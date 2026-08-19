@@ -950,6 +950,29 @@ test("Files preview keeps editing state compact and preserves save errors", () =
   assert.match(localeSource, /"files\.preview\.saveError"/u);
 });
 
+test("Files toolbar focus and explorer density stay compact", () => {
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-mode-select:focus-within\s*\{[\s\S]*?outline:\s*none/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\s+\.minke-tabs-toolbar__button:focus-visible\s*\{[\s\S]*?outline:\s*none/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-row\s*\{[\s\S]*?min-height:\s*28px/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-tree-row\s*\{[\s\S]*?min-height:\s*26px/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /var\(--minke-files-depth,\s*0\)\s*\*\s*14px/u,
+  );
+});
+
 test("Files tabs start at the project cwd and retain navigation history", async () => {
   const tabs = new TabsRuntime({
     showPanel() {},

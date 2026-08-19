@@ -279,6 +279,13 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.minke-tabs-panel
+  .minke-tabs-toolbar__button:focus-visible {
+  outline: none;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
 .minke-tabs-toolbar__button:disabled {
   cursor: default;
   opacity: 0.34;
