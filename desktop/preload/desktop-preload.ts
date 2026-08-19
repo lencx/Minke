@@ -2,9 +2,14 @@ import { contextBridge, ipcRenderer } from "electron";
 import appManifest from "../../package.json";
 import {
   PLUGIN_CATALOG_CANCEL_CHANNEL,
+  PLUGIN_CATALOG_INSTALL_CHANNEL,
   PLUGIN_CATALOG_READ_CHANNEL,
   PLUGIN_CATALOG_REFRESH_CHANNEL,
+  PLUGIN_CATALOG_TOKEN_CLEAR_CHANNEL,
+  PLUGIN_CATALOG_TOKEN_SET_CHANNEL,
+  parsePluginCatalogInstallRequest,
   parsePluginCatalogSnapshot,
+  parsePluginCatalogTokenSetRequest,
 } from "@minke/desktop/plugin-catalog-contract.ts";
 import {
   MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
@@ -116,6 +121,13 @@ import {
   type WindowThemePreference,
   type WindowThemeMessage,
 } from "@minke/desktop/window-theme-contract.ts";
+import {
+  parseRemoteSettings,
+  parseRemoteSettingsSnapshot,
+  REMOTE_SETTINGS_READ_CHANNEL,
+  REMOTE_SETTINGS_WRITE_CHANNEL,
+  type RemoteSettings,
+} from "@lencx/minke-remote-access/contract";
 
 let observer: MutationObserver | undefined;
 let lastMessage: WindowThemeMessage | undefined;
@@ -406,6 +418,20 @@ const modelRuntime = Object.freeze({
   },
 });
 
+const remote = Object.freeze({
+  async read(): Promise<unknown> {
+    return parseRemoteSettingsSnapshot(
+      await ipcRenderer.invoke(REMOTE_SETTINGS_READ_CHANNEL),
+    );
+  },
+  async write(settings: RemoteSettings): Promise<void> {
+    await ipcRenderer.invoke(
+      REMOTE_SETTINGS_WRITE_CHANNEL,
+      parseRemoteSettings(settings),
+    );
+  },
+});
+
 const pluginCatalog = Object.freeze({
   async read(): Promise<unknown> {
     return parsePluginCatalogSnapshot(
@@ -420,6 +446,35 @@ const pluginCatalog = Object.freeze({
   async cancel(): Promise<unknown> {
     return parsePluginCatalogSnapshot(
       await ipcRenderer.invoke(PLUGIN_CATALOG_CANCEL_CHANNEL),
+    );
+  },
+  async install(pluginId: string): Promise<unknown> {
+    const request = parsePluginCatalogInstallRequest({
+      pluginId,
+    });
+    return parsePluginCatalogSnapshot(
+      await ipcRenderer.invoke(
+        PLUGIN_CATALOG_INSTALL_CHANNEL,
+        request,
+      ),
+    );
+  },
+  async setToken(token: string): Promise<unknown> {
+    const request = parsePluginCatalogTokenSetRequest({
+      token,
+    });
+    return parsePluginCatalogSnapshot(
+      await ipcRenderer.invoke(
+        PLUGIN_CATALOG_TOKEN_SET_CHANNEL,
+        request,
+      ),
+    );
+  },
+  async clearToken(): Promise<unknown> {
+    return parsePluginCatalogSnapshot(
+      await ipcRenderer.invoke(
+        PLUGIN_CATALOG_TOKEN_CLEAR_CHANNEL,
+      ),
     );
   },
 });
@@ -494,6 +549,7 @@ contextBridge.exposeInMainWorld(
     locale,
     modelRuntime,
     pluginCatalog,
+    remote,
     sessionLogs,
     tabs,
     terminal,

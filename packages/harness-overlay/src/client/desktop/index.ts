@@ -11,12 +11,14 @@ export type {
   DesktopWindowLocalePort,
   DesktopWindowThemePort,
   ModelRuntimeSettingsStore,
+  RemoteSettingsStore,
   ShortcutStore,
   TerminalSettingsStore,
 } from "./contracts.ts";
 export {
   desktopDataHomeSettingsPort,
   desktopModelRuntimeSettingsStore,
+  desktopRemoteSettingsStore,
   desktopTerminalSettingsStore,
   shouldExposeDesktopDataHomeSettings,
 } from "./settings.ts";

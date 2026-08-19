@@ -23,6 +23,11 @@ import {
 import {
   parseDataHomePath,
 } from "@minke/harness-overlay/data-home-contract.ts";
+import {
+  DEFAULT_REMOTE_SETTINGS,
+  parseRemoteSettings,
+  type RemoteSettings,
+} from "@lencx/minke-remote-access/contract";
 
 /** Current schema version of the unified Minke desktop configuration. */
 export const MINKE_CONFIG_VERSION = 1;
@@ -42,6 +47,7 @@ export interface MinkeConfigDocument {
   shortcuts: ShortcutBindings;
   terminal: TerminalSettings;
   modelRuntime: ModelRuntimeSettings;
+  remote: RemoteSettings;
   dshHome?: string;
 }
 
@@ -56,6 +62,7 @@ const CONFIG_KEYS = new Set([
   "shortcuts",
   "terminal",
   "modelRuntime",
+  "remote",
   "dshHome",
 ]);
 
@@ -70,6 +77,11 @@ function defaultDocument(): MinkeConfigDocument {
       },
       ollama: {
         ...DEFAULT_MODEL_RUNTIME_SETTINGS.ollama,
+      },
+    },
+    remote: {
+      tailscale: {
+        ...DEFAULT_REMOTE_SETTINGS.tailscale,
       },
     },
   };
@@ -112,6 +124,14 @@ export function parseMinkeConfigDocument(
             },
           }
         : parseModelRuntimeSettings(record.modelRuntime),
+    remote:
+      record.remote === undefined
+        ? {
+            tailscale: {
+              ...DEFAULT_REMOTE_SETTINGS.tailscale,
+            },
+          }
+        : parseRemoteSettings(record.remote),
     ...(record.dshHome === undefined
       ? {}
       : { dshHome: parseDataHomePath(record.dshHome) }),
@@ -127,6 +147,7 @@ export class MinkeConfigStore {
   readonly shortcuts: MinkeConfigSection<ShortcutBindings>;
   readonly terminal: MinkeConfigSection<TerminalSettings>;
   readonly modelRuntime: MinkeConfigSection<ModelRuntimeSettings>;
+  readonly remote: MinkeConfigSection<RemoteSettings>;
   readonly dshHome: MinkeConfigSection<string | undefined>;
 
   #document: MinkeConfigDocument | undefined;
@@ -147,6 +168,10 @@ export class MinkeConfigStore {
     this.modelRuntime = Object.freeze({
       read: () => this.#readModelRuntime(),
       write: (value: unknown) => this.#writeModelRuntime(value),
+    });
+    this.remote = Object.freeze({
+      read: () => this.#readRemote(),
+      write: (value: unknown) => this.#writeRemote(value),
     });
     this.dshHome = Object.freeze({
       read: () => this.#readDshHome(),
@@ -207,6 +232,15 @@ export class MinkeConfigStore {
     });
   }
 
+  #readRemote(): Promise<RemoteSettings> {
+    return this.#runExclusive(async () => {
+      const settings = (await this.#load()).remote;
+      return {
+        tailscale: { ...settings.tailscale },
+      };
+    });
+  }
+
   #writeShortcuts(value: unknown): Promise<void> {
     return this.#runExclusive(async () => {
       const shortcuts = parseShortcutBindings(value);
@@ -254,6 +288,18 @@ export class MinkeConfigStore {
       if (dshHome === undefined) {
         Reflect.deleteProperty(next, "dshHome");
       }
+      await this.#persist(next);
+      this.#document = next;
+    });
+  }
+
+  #writeRemote(value: unknown): Promise<void> {
+    return this.#runExclusive(async () => {
+      const remote = parseRemoteSettings(value);
+      const next: MinkeConfigDocument = {
+        ...(await this.#load()),
+        remote,
+      };
       await this.#persist(next);
       this.#document = next;
     });

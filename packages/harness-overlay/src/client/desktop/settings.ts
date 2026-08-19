@@ -19,8 +19,15 @@ import type {
   DataHomeSettingsPort,
   DesktopBridgeWindow,
   ModelRuntimeSettingsStore,
+  RemoteSettingsStore,
   TerminalSettingsStore,
 } from "./contracts.ts";
+import {
+  DEFAULT_REMOTE_SETTINGS,
+  NO_REMOTE_AVAILABILITY,
+  parseRemoteSettings,
+  parseRemoteSettingsSnapshot,
+} from "@lencx/minke-remote-access/contract";
 
 /**
  * Keep desktop-owned Settings entries discoverable across preload upgrades.
@@ -133,6 +140,47 @@ export function desktopModelRuntimeSettingsStore(
     },
     async write(settings) {
       await bridge.write(parseModelRuntimeSettings(settings));
+    },
+  };
+}
+
+/** Adapt the isolated preload bridge for remote-access lifecycle settings. */
+export function desktopRemoteSettingsStore(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): RemoteSettingsStore {
+  const bridge = source.minkeDesktop?.remote;
+  if (bridge === undefined) {
+    return {
+      available: false,
+      async read() {
+        return {
+          available: { ...NO_REMOTE_AVAILABILITY },
+          settings: {
+            tailscale: {
+              ...DEFAULT_REMOTE_SETTINGS.tailscale,
+            },
+          },
+          runtime: {
+            method: "tailscale",
+            state: "unavailable",
+          },
+        };
+      },
+      async write() {
+        throw new Error(
+          "Minke desktop remote settings bridge is unavailable",
+        );
+      },
+    };
+  }
+  return {
+    available: true,
+    async read() {
+      return parseRemoteSettingsSnapshot(await bridge.read());
+    },
+    async write(settings) {
+      await bridge.write(parseRemoteSettings(settings));
     },
   };
 }

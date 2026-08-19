@@ -18,6 +18,9 @@ importers:
       '@lencx/minke-plugin-catalog':
         specifier: workspace:*
         version: link:packages/plugin-catalog
+      '@lencx/minke-remote-access':
+        specifier: workspace:*
+        version: link:packages/remote-access
       electron-squirrel-startup:
         specifier: 1.0.1
         version: 1.0.1(supports-color@8.1.1)
@@ -107,6 +110,9 @@ importers:
       '@lencx/minke-plugin-catalog':
         specifier: workspace:*
         version: link:../plugin-catalog
+      '@lencx/minke-remote-access':
+        specifier: workspace:*
+        version: link:../remote-access
     devDependencies:
       '@codemirror/language':
         specifier: 6.12.4
@@ -140,6 +146,8 @@ importers:
         version: 4.4.3
 
   packages/plugin-catalog: {}
+
+  packages/remote-access: {}
 
   packages/sys: {}
 

@@ -13,6 +13,7 @@ const sourceRoots = [
   "desktop",
   "packages/harness-overlay/src",
   "packages/plugin-catalog/src",
+  "packages/remote-access/src",
   "src",
 ].map((path) => resolve(projectRoot, path)).filter(existsSync);
 const sourceExtensions = new Set([
@@ -117,6 +118,30 @@ test("the plugin catalog package stays independent of desktop transports", () =>
     [],
   );
 });
+
+test("the remote-access package stays independent of desktop transports", () => {
+  const remoteRoot = resolve(
+    projectRoot,
+    "packages/remote-access/src",
+  );
+  const violations = productionImports.filter(
+    ({ path, specifier }) =>
+      path.startsWith(`${remoteRoot}${sep}`) &&
+      (
+        specifier === "electron" ||
+        specifier.startsWith("@minke/desktop/") ||
+        specifier.startsWith("@minke/harness-overlay/")
+      ),
+  );
+  assert.deepEqual(
+    violations.map(({ path, specifier }) => [
+      relative(projectRoot, path),
+      specifier,
+    ]),
+    [],
+  );
+});
+
 
 test("production sources do not restore retired model environment seams", () => {
   const violations = productionFiles.filter((path) =>

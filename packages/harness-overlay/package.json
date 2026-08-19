@@ -38,7 +38,8 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@lencx/minke-plugin-catalog": "workspace:*"
+    "@lencx/minke-plugin-catalog": "workspace:*",
+    "@lencx/minke-remote-access": "workspace:*"
   },
   "devDependencies": {
     "@codemirror/language": "6.12.4",

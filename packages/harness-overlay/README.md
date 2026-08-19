@@ -73,6 +73,11 @@ and post-boot desktop surface adaptation. It uses:
   preload and removes its observer, markers, and stylesheet on disposal;
 - the isolated Minke preload bridge for durable desktop-owned preferences.
 
+The Remote access section is backed by the separate
+`@lencx/minke-remote-access` package. It persists a default-off Tailscale opt-in,
+shows the active private HTTPS URL, and keeps command execution and process
+lifecycle in the desktop host rather than the browser bundle.
+
 The separate document-start extension remains CSS-only. It exists solely
 because first-paint transparency and Electron drag regions must be present
 before Harness initializes; it does not traverse or modify the Harness DOM.

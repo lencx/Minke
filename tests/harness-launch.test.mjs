@@ -60,6 +60,7 @@ test("desktop and smoke launch Harness through one staged layout contract", asyn
         "web",
         "--patch",
         layout.productPatch,
+        "--no-open",
         "--host",
         "127.0.0.1",
         "--port",
@@ -85,6 +86,35 @@ test("the staged layout contract rejects unsafe product metadata", async () => {
       );
     },
   );
+});
+
+
+test("the desktop adds only canonical explicit trusted hosts", () => {
+  const layout = {
+    entryPath: "/runtime/index.mjs",
+    productPatch: "/runtime/cordis.patch.yml",
+  };
+  assert.deepEqual(
+    harnessWebArguments(layout, [
+      "minke.example-tailnet.ts.net",
+      "minke.example-tailnet.ts.net",
+    ]).slice(-2),
+    [
+      "--trusted-host",
+      "minke.example-tailnet.ts.net",
+    ],
+  );
+  for (const authority of [
+    "minke.example-tailnet.ts.net/path",
+    "user@minke.example-tailnet.ts.net",
+    " minke.example-tailnet.ts.net",
+    "minke.example-tailnet.ts.net:",
+  ]) {
+    assert.throws(
+      () => harnessWebArguments(layout, [authority]),
+      /invalid Harness trusted-host authority/u,
+    );
+  }
 });
 
 test("the desktop runtime passes both explicit local-model opt-ins", () => {

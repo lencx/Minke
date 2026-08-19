@@ -224,6 +224,9 @@ test("desktop settings share one versioned Minke config", async () => {
       lmStudio: { enabled: false },
       ollama: { enabled: false },
     });
+    assert.deepEqual(await store.remote.read(), {
+      tailscale: { enabled: false },
+    });
 
     await Promise.all([
       store.shortcuts.write({
@@ -238,6 +241,9 @@ test("desktop settings share one versioned Minke config", async () => {
       store.modelRuntime.write({
         lmStudio: { enabled: true },
         ollama: { enabled: false },
+      }),
+      store.remote.write({
+        tailscale: { enabled: true },
       }),
     ]);
 
@@ -255,6 +261,9 @@ test("desktop settings share one versioned Minke config", async () => {
       modelRuntime: {
         lmStudio: { enabled: true },
         ollama: { enabled: false },
+      },
+      remote: {
+        tailscale: { enabled: true },
       },
     });
     assert.deepEqual(
@@ -287,11 +296,17 @@ test("invalid section updates leave the shared document unchanged", async () => 
       }),
       /model runtime settings/u,
     );
+    await assert.rejects(
+      store.remote.write({
+        tailscale: { enabled: "yes" },
+      }),
+      /remote settings/u,
+    );
     assert.equal(await readFile(store.path, "utf8"), before);
   });
 });
 
-test("legacy version 1 configs default the new model runtime off", async () => {
+test("legacy version 1 configs default new runtime settings off", async () => {
   await withStore(async ({ root, store }) => {
     await mkdir(join(root, "desktop"), { recursive: true });
     await writeFile(
@@ -306,6 +321,9 @@ test("legacy version 1 configs default the new model runtime off", async () => {
     assert.deepEqual(await store.modelRuntime.read(), {
       lmStudio: { enabled: false },
       ollama: { enabled: false },
+    });
+    assert.deepEqual(await store.remote.read(), {
+      tailscale: { enabled: false },
     });
   });
 });
@@ -322,6 +340,9 @@ test("the store rejects unsupported unified config documents", async () => {
         modelRuntime: {
           lmStudio: { enabled: false },
           ollama: { enabled: false },
+        },
+        remote: {
+          tailscale: { enabled: false },
         },
         unknown: true,
       }),

@@ -30,6 +30,19 @@ Minke 在本地运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 - **本地优先，数据留在设备** — DeepSeek Harness 在本地运行，Minke 应用状态和浏览器会话数据也保留在用户设备上。桌面配置统一存放在 `~/.minke` 下，让应用拥有清晰、可预期的数据边界。
 - **为日常使用打造的原生桌面体验** — 原生菜单、可配置快捷键、Session 日志导出、主题同步和中英文界面，让 Minke 适合长期日常使用。macOS 获得原生窗口细节优化，Windows 和 Linux 保留符合各自平台的默认样式，自动化发布流程覆盖三大桌面平台。
 
+## 通过 Tailscale 在手机上访问
+
+Minke 可以通过 [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve)
+私密地提供响应式 Web 界面；它不会让 DSH 监听局域网地址，也不会启用公开的
+Tailscale Funnel。
+
+1. 在运行 Minke 的电脑和手机上安装 Tailscale，登录同一个 tailnet，并确认电脑已连接。
+2. 打开 Minke 的 **设置 → 远程访问**，启用 **通过 Tailscale 访问**，然后完全退出并重新启动 Minke。
+3. 回到 **远程访问**，在手机上打开界面显示的 `https://…ts.net` 地址。
+
+Minke 只创建由应用前台管理的 Serve 会话，并会在退出时停止。远程页面能够启动
+智能体任务，并使用 Minke 已授权的本机工具，因此请只向你信任的 tailnet 成员开放访问。
+
 ## 安装
 
 请仅从 Minke 官方 [GitHub Releases](https://github.com/lencx/Minke/releases) 页面下载安装包。

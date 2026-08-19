@@ -45,6 +45,10 @@ import type {
   PluginCatalogSnapshot,
 } from "@lencx/minke-plugin-catalog/contract";
 import type {
+  RemoteSettings,
+  RemoteSettingsSnapshot,
+} from "@lencx/minke-remote-access/contract";
+import type {
   HarnessColorScheme,
   HarnessLocale,
   HarnessThemePreference,
@@ -72,6 +76,12 @@ export interface ModelRuntimeSettingsStore {
   readonly available: boolean;
   read(): Promise<ModelRuntimeSettingsSnapshot>;
   write(settings: ModelRuntimeSettings): Promise<void>;
+}
+
+export interface RemoteSettingsStore {
+  readonly available: boolean;
+  read(): Promise<RemoteSettingsSnapshot>;
+  write(settings: RemoteSettings): Promise<void>;
 }
 
 export interface DataHomeSettingsPort {
@@ -223,6 +233,11 @@ export interface DesktopModelRuntimeBridge {
   write(settings: ModelRuntimeSettings): Promise<void>;
 }
 
+export interface DesktopRemoteBridge {
+  read(): Promise<unknown>;
+  write(settings: RemoteSettings): Promise<void>;
+}
+
 export interface DesktopPluginCatalogBridge {
   read(): Promise<unknown>;
   refresh(): Promise<unknown>;
@@ -265,6 +280,7 @@ export interface DesktopBridgeWindow {
     locale?: DesktopWindowLocaleBridge;
     modelRuntime?: DesktopModelRuntimeBridge;
     pluginCatalog?: DesktopPluginCatalogBridge;
+    remote?: DesktopRemoteBridge;
     sessionLogs?: DesktopSessionLogsBridge;
     tabs?: DesktopTabsBridge;
     terminal?: DesktopTerminalBridge;

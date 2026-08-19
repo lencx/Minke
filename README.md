@@ -34,6 +34,23 @@ Minke brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 ![Minke 02](./assets/02.png)
 
+## Mobile access with Tailscale
+
+Minke can expose its responsive Web UI privately through
+[Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve).
+It does not bind DSH to the LAN or enable the public Tailscale Funnel.
+
+1. Install Tailscale on the Minke computer and the phone, sign both into the
+   same tailnet, and confirm the computer is connected.
+2. In Minke, open **Settings → Remote access**, enable
+   **Access through Tailscale**, then fully quit and restart Minke.
+3. Return to **Remote access** and open the displayed `https://…ts.net`
+   address on the phone.
+
+Minke owns a foreground Serve session and stops it when the app exits. The
+remote page can start agent tasks and use local tools already authorized in
+Minke, so grant tailnet access only to people you trust.
+
 ## Installation
 
 Download Minke only from the official [GitHub Releases](https://github.com/lencx/Minke/releases) page. The links below always point to the latest stable release.

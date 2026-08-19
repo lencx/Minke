@@ -6,6 +6,7 @@ import { installDataHome } from "./data-home/install.tsx";
 import { installDesktopClient } from "./desktop/install.ts";
 import { installLocalModel } from "./local-model/install.ts";
 import { installOnboarding } from "./onboarding/install.tsx";
+import { installRemote } from "./remote/install.tsx";
 import { installShortcuts } from "./shortcuts/install.tsx";
 import { installTabs } from "./tabs/install.tsx";
 
@@ -25,6 +26,7 @@ export function apply(ctx: HarnessClientContext): void {
   installAbout(ctx);
   installDataHome(ctx);
   installLocalModel(ctx);
+  installRemote(ctx);
   const tabsRuntimes = installTabs(ctx);
   installShortcuts(ctx, tabsRuntimes);
   installOnboarding(ctx);

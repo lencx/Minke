@@ -6,6 +6,7 @@ import {
   Menu,
   // nativeImage,
   nativeTheme,
+  safeStorage,
   session,
   shell,
   // Tray,
@@ -21,6 +22,11 @@ import {
   PluginCatalogService,
   type PluginCatalogModule,
 } from "@lencx/minke-plugin-catalog";
+import {
+  DEFAULT_REMOTE_SETTINGS,
+  discoverRemoteCommands,
+  RemoteAccessService,
+} from "@lencx/minke-remote-access";
 import {
   DesktopLocaleRuntime,
   translateDesktop,
@@ -57,9 +63,19 @@ import {
   type ModelRuntimeSettingsBinding,
 } from "./model-runtime-settings";
 import {
+  bindRemoteSettingsIpc,
+  type RemoteSettingsBinding,
+} from "./remote-settings";
+import {
   bindPluginCatalogIpc,
   type PluginCatalogBinding,
 } from "./plugin-catalog";
+import {
+  EncryptedGitHubTokenStore,
+} from "./plugin-catalog-credential";
+import {
+  PluginCatalogInstallationRuntime,
+} from "./plugin-catalog-installation";
 import {
   macOSWindowOptions,
 } from "./macos-window";
@@ -113,6 +129,8 @@ let terminalSettingsBinding: TerminalSettingsBinding | undefined;
 let modelRuntimeSettingsBinding:
   | ModelRuntimeSettingsBinding
   | undefined;
+let remoteSettingsBinding: RemoteSettingsBinding | undefined;
+let remoteAccess: RemoteAccessService | undefined;
 let pluginCatalog: PluginCatalogModule | undefined;
 let pluginCatalogBinding: PluginCatalogBinding | undefined;
 let dataHomeSettingsBinding: DataHomeSettingsBinding | undefined;
@@ -471,9 +489,24 @@ function installPermissionPolicy(): void {
 
 async function startHarness(): Promise<void> {
   const activeRuntime = runtime;
+  const activeRemote = remoteAccess;
   const window = mainWindow;
   if (activeRuntime === undefined || window === undefined) return;
+  if (activeRemote !== undefined) {
+    try {
+      await activeRemote.stop();
+    } catch (error) {
+      console.error("Remote access failed to stop:", error);
+    }
+  }
   harnessUrl = await activeRuntime.start();
+  if (activeRemote?.read().state === "ready") {
+    try {
+      await activeRemote.start(harnessUrl);
+    } catch (error) {
+      console.error("Remote access failed to start:", error);
+    }
+  }
   await window.loadURL(harnessUrl);
 }
 
@@ -484,6 +517,11 @@ async function handleUnexpectedExit(exit: HarnessRuntimeExit): Promise<void> {
   console.error("Harness runtime exited unexpectedly:", exit);
 
   try {
+    try {
+      await remoteAccess?.stop();
+    } catch (error) {
+      console.error("Remote access failed to stop:", error);
+    }
     if (mainWindow !== undefined) await loadBootstrap(mainWindow);
     const detail = [
       desktopText("runtime.exitCode", {
@@ -543,13 +581,10 @@ async function bootstrap(): Promise<void> {
   await installMacOSSurfaceBootstrap();
   installPermissionPolicy();
   const minkeConfig = new MinkeConfigStore(app.getPath("userData"));
-  pluginCatalog = new PluginCatalogService({
-    userDataPath: app.getPath("userData"),
-  });
-  await pluginCatalog.start();
   const shortcutStore = minkeConfig.shortcuts;
   const terminalSettingsStore = minkeConfig.terminal;
   const modelRuntimeSettingsStore = minkeConfig.modelRuntime;
+  const remoteSettingsStore = minkeConfig.remote;
   const dataHomeManager = new DataHomeManager({
     userDataPath: app.getPath("userData"),
     homeDirectory: app.getPath("home"),
@@ -585,6 +620,35 @@ async function bootstrap(): Promise<void> {
     activeDshHome,
     process.env,
   );
+  const pluginCredential = new EncryptedGitHubTokenStore({
+    userDataPath: app.getPath("userData"),
+    environment: process.env,
+    secureStorage: {
+      isEncryptionAvailable: () => (
+        safeStorage.isEncryptionAvailable() &&
+        (
+          process.platform !== "linux" ||
+          safeStorage.getSelectedStorageBackend() !==
+            "basic_text"
+        )
+      ),
+      encryptString: (plainText) =>
+        safeStorage.encryptString(plainText),
+      decryptString: (encrypted) =>
+        safeStorage.decryptString(encrypted),
+    },
+  });
+  pluginCatalog = new PluginCatalogService({
+    userDataPath: app.getPath("userData"),
+    credentialProvider: pluginCredential,
+    installation: new PluginCatalogInstallationRuntime({
+      runtimeRoot: runtimeRoot(),
+      dshHome: activeDshHome,
+      electronExecutable: process.execPath,
+      environment: activeDshEnvironment,
+    }),
+  });
+  await pluginCatalog.start();
   const localModelCommands = await discoverLocalModelCommands({
     homeDirectory: app.getPath("home"),
     pathValue: process.env.PATH,
@@ -592,6 +656,17 @@ async function bootstrap(): Promise<void> {
     ...(process.env.LOCALAPPDATA === undefined
       ? {}
       : { localAppData: process.env.LOCALAPPDATA }),
+  });
+  const remoteCommands = await discoverRemoteCommands({
+    homeDirectory: app.getPath("home"),
+    pathValue: process.env.PATH,
+    platform: process.platform,
+    ...(process.env.LOCALAPPDATA === undefined
+      ? {}
+      : { localAppData: process.env.LOCALAPPDATA }),
+    ...(process.env.ProgramFiles === undefined
+      ? {}
+      : { programFiles: process.env.ProgramFiles }),
   });
   const modelRuntimeAvailability = {
     lmStudio: localModelCommands.lmStudio !== undefined,
@@ -602,6 +677,11 @@ async function bootstrap(): Promise<void> {
     lmStudio: { enabled: false },
     ollama: { enabled: false },
   };
+  let remoteSettings = {
+    tailscale: {
+      ...DEFAULT_REMOTE_SETTINGS.tailscale,
+    },
+  };
   try {
     shortcutBindings = await shortcutStore.read();
   } catch (error) {
@@ -611,6 +691,25 @@ async function bootstrap(): Promise<void> {
     modelRuntimeSettings = await modelRuntimeSettingsStore.read();
   } catch (error) {
     console.error("Unable to read model runtime settings:", error);
+  }
+  try {
+    remoteSettings = await remoteSettingsStore.read();
+  } catch (error) {
+    console.error("Unable to read remote access settings:", error);
+  }
+  remoteAccess = new RemoteAccessService({
+    settings: remoteSettings,
+    ...(remoteCommands.tailscale === undefined
+      ? {}
+      : { command: remoteCommands.tailscale }),
+  });
+  let remoteTrustedHosts: readonly string[] = [];
+  try {
+    remoteTrustedHosts = (
+      await remoteAccess.prepare()
+    ).trustedHosts;
+  } catch (error) {
+    console.error("Remote access preparation failed:", error);
   }
   await createWindow();
   // installMacOSTray();
@@ -653,6 +752,27 @@ async function bootstrap(): Promise<void> {
     ipcMain,
     modelRuntimeSettingsStore,
     modelRuntimeAvailability,
+    (candidate) => {
+      const event = candidate as IpcMainInvokeEvent;
+      return (
+        mainWindow !== undefined &&
+        event.sender === mainWindow.webContents &&
+        event.senderFrame !== null &&
+        isHarnessUrl(event.senderFrame.url)
+      );
+    },
+  );
+  remoteSettingsBinding = bindRemoteSettingsIpc(
+    ipcMain,
+    remoteSettingsStore,
+    {
+      tailscale: remoteCommands.tailscale !== undefined,
+    },
+    () =>
+      remoteAccess?.read() ?? {
+        method: "tailscale",
+        state: "unavailable",
+      },
     (candidate) => {
       const event = candidate as IpcMainInvokeEvent;
       return (
@@ -712,6 +832,7 @@ async function bootstrap(): Promise<void> {
           : { command: localModelCommands.ollama }),
       },
     },
+    trustedHosts: remoteTrustedHosts,
     onUnexpectedExit: (exit) => void handleUnexpectedExit(exit),
   });
   await startHarness();
@@ -733,6 +854,8 @@ app.on("before-quit", (event) => {
   terminalSettingsBinding = undefined;
   modelRuntimeSettingsBinding?.dispose();
   modelRuntimeSettingsBinding = undefined;
+  remoteSettingsBinding?.dispose();
+  remoteSettingsBinding = undefined;
   pluginCatalogBinding?.dispose();
   pluginCatalogBinding = undefined;
   pluginCatalog?.dispose();
@@ -740,7 +863,7 @@ app.on("before-quit", (event) => {
   dataHomeSettingsBinding?.dispose();
   dataHomeSettingsBinding = undefined;
   if (shutdownStarted) return;
-  if (runtime === undefined) {
+  if (runtime === undefined && remoteAccess === undefined) {
     if (requestedExitCode !== undefined) {
       event.preventDefault();
       app.exit(requestedExitCode);
@@ -749,7 +872,15 @@ app.on("before-quit", (event) => {
   }
   event.preventDefault();
   shutdownStarted = true;
-  void runtime.stop().finally(() => {
+  const activeRuntime = runtime;
+  const activeRemote = remoteAccess;
+  void (async () => {
+    try {
+      await activeRemote?.stop();
+    } finally {
+      await activeRuntime?.stop();
+    }
+  })().finally(() => {
     if (requestedExitCode === undefined) {
       app.quit();
     } else {

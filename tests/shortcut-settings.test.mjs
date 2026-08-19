@@ -66,6 +66,9 @@ test("the desktop store writes the shared Minke config", async () => {
       lmStudio: { enabled: false },
       ollama: { enabled: false },
     },
+    remote: {
+      tailscale: { enabled: false },
+    },
   });
 });
 
