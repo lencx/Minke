@@ -1,4 +1,4 @@
-/** Keyboard-event normalization and platform-native shortcut presentation. */
+/** Normalize keyboard events and present platform-native shortcuts. */
 
 export type ShortcutPlatform = "apple" | "other";
 

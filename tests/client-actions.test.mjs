@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   openHarnessSettings,
   SETTINGS_TRIGGER_SELECTOR,
-} from "@minke/harness-overlay/client/actions.ts";
+} from "@minke/harness-overlay/client/shortcuts/actions.ts";
 
 test("the Settings shortcut ignores the adjacent About dialog trigger", () => {
   const clicks = [];

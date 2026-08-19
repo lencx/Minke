@@ -14,12 +14,12 @@ import {
 } from "@minke/harness-overlay/client/about/locales.ts";
 import {
   desktopAboutInfo,
-} from "@minke/harness-overlay/client/bridge.ts";
+} from "@minke/harness-overlay/client/desktop/index.ts";
 import {
   installShortcutNavigationIcon,
   reconcileShortcutNavigationIcon,
   SHORTCUT_STYLES,
-} from "@minke/harness-overlay/client/styles.ts";
+} from "@minke/harness-overlay/client/shortcuts/styles.ts";
 
 const manifest = JSON.parse(
   readFileSync(
@@ -55,9 +55,44 @@ const clientSource = readFileSync(
   ),
   "utf8",
 );
+const aboutInstallSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/about/install.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const dataHomeInstallSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/data-home/install.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const onboardingInstallSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/onboarding/install.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const shortcutInstallSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/shortcuts/install.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const tabsInstallSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/tabs/install.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const shortcutStylesSource = readFileSync(
   new URL(
-    "../packages/harness-overlay/src/client/styles.ts",
+    "../packages/harness-overlay/src/client/shortcuts/styles.ts",
     import.meta.url,
   ),
   "utf8",
@@ -101,6 +136,24 @@ const tabsCoreSource = [
     "utf8",
   ),
 ).join("\n");
+
+test("the client entry stays a composition root", () => {
+  for (const installer of [
+    "installDesktopClient",
+    "installAbout",
+    "installDataHome",
+    "installLocalModel",
+    "installTabs",
+    "installShortcuts",
+    "installOnboarding",
+  ]) {
+    assert.match(clientSource, new RegExp(`${installer}\\(ctx`, "u"));
+  }
+  assert.doesNotMatch(
+    clientSource,
+    /ctx\.slots\.(?:inject|register)|new (?:ShortcutRuntime|TabsRuntime)|runtime\.register/u,
+  );
+});
 
 test("the product overlay uses the shared @lencx package scope", () => {
   assert.equal(manifest.name, "@lencx/minke-harness-overlay");
@@ -291,11 +344,11 @@ test("the built client half is a Harness module-loader bundle", () => {
 
 test("About uses the public sidebar action and packaged desktop metadata", () => {
   assert.match(
-    clientSource,
+    aboutInstallSource,
     /ctx\.slots\.inject\("sidebar\.footer\.action"[\s\S]*name:\s*"sidebar\.footer\.action"[\s\S]*id:\s*"minke-about"[\s\S]*order:\s*100/u,
   );
-  assert.match(clientSource, /desktopAboutInfo\(\)/u);
-  assert.match(clientSource, /installAboutStyles\(\)/u);
+  assert.match(aboutInstallSource, /desktopAboutInfo\(\)/u);
+  assert.match(aboutInstallSource, /installAboutStyles\(\)/u);
   assert.match(
     overlayBuildSource,
     /loader:\s*\{[\s\S]*"\.png":\s*"dataurl"/u,
@@ -458,66 +511,66 @@ test("About stays hidden when desktop metadata is unavailable", () => {
 
 test("Tabs stays generic while content types register as adapters", () => {
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new WebTabsController[\s\S]*new FilesTabsController[\s\S]*new TerminalTabsController/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /createFilesTabRenderer\(filesTabs,\s*filesT\)/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /installConversationFileRouter\(\s*ctx\.workspaces,\s*rightFilesTabs,/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,\s*terminalT,\s*\)/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /createWebTabRenderer\(webTabs,\s*webT\)/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /name:\s*"shell\.overlay"[\s\S]*id:\s*"minke-tabs-right"[\s\S]*id:\s*"minke-tabs-bottom"/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /id:\s*"minke-tabs-new-session-toggle"[\s\S]*NewSessionTabsHeaderAction as ComponentType<never>/u,
   );
-  assert.doesNotMatch(clientSource, /ResourceTabs|resource-tabs/u);
+  assert.doesNotMatch(tabsInstallSource, /ResourceTabs|resource-tabs/u);
   assert.doesNotMatch(
     tabsCoreSource,
     /from\s+["']\.\/(?:terminal|web)\//u,
   );
-  assert.match(clientSource, /installTerminalTabStyles\(\)/u);
-  assert.match(clientSource, /installFilesTabStyles\(\)/u);
-  assert.match(clientSource, /installWebTabStyles\(\)/u);
-  assert.match(clientSource, /FILES_TABS_NAMESPACE/u);
-  assert.match(clientSource, /TERMINAL_TABS_NAMESPACE/u);
-  assert.match(clientSource, /WEB_TABS_NAMESPACE/u);
+  assert.match(tabsInstallSource, /installTerminalTabStyles\(\)/u);
+  assert.match(tabsInstallSource, /installFilesTabStyles\(\)/u);
+  assert.match(tabsInstallSource, /installWebTabStyles\(\)/u);
+  assert.match(tabsInstallSource, /FILES_TABS_NAMESPACE/u);
+  assert.match(tabsInstallSource, /TERMINAL_TABS_NAMESPACE/u);
+  assert.match(tabsInstallSource, /WEB_TABS_NAMESPACE/u);
 });
 
 test("Terminal settings register as a separate settings section", () => {
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /name:\s*"settings\.section"[\s\S]*id:\s*"minke-terminal"[\s\S]*order:\s*6[\s\S]*TerminalSettingsSection as ComponentType<never>/u,
   );
-  assert.match(clientSource, /new TerminalSettingsRuntime/u);
-  assert.match(clientSource, /installTerminalSettingsStyles\(\)/u);
+  assert.match(tabsInstallSource, /new TerminalSettingsRuntime/u);
+  assert.match(tabsInstallSource, /installTerminalSettingsStyles\(\)/u);
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,/u,
   );
 });
 
 test("Data Home settings remain registered across preload capability upgrades", () => {
   assert.match(
-    clientSource,
-    /const dataHomePort = desktopDataHomeSettingsPort\(\);\s*if \(shouldExposeDesktopDataHomeSettings\(\)\) \{[\s\S]*id:\s*"minke-data-home"[\s\S]*DataHomeSettingsSection as ComponentType<never>/u,
+    dataHomeInstallSource,
+    /const dataHomePort = desktopDataHomeSettingsPort\(\);\s*if \(!shouldExposeDesktopDataHomeSettings\(\)\) return;[\s\S]*id:\s*"minke-data-home"[\s\S]*DataHomeSettingsSection as ComponentType<never>/u,
   );
   assert.doesNotMatch(
-    clientSource,
+    dataHomeInstallSource,
     /if \(dataHomePort\.available\) \{[\s\S]*id:\s*"minke-data-home"/u,
   );
 });
@@ -531,15 +584,15 @@ test("Data Home primary action keeps readable colors on hover", () => {
 
 test("desktop Session export shadows the upstream Web action and modal", () => {
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /name:\s*"conversation\.session\.header\.utilities"[\s\S]*id:\s*"session-log-download"[\s\S]*priority:\s*-100/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /SessionLogHeaderAction as ComponentType<never>/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /sessionLogsPort\.export\(sessionId\)/u,
   );
   assert.doesNotMatch(bundle, /data-minke-session-log-download/u);
@@ -547,7 +600,7 @@ test("desktop Session export shadows the upstream Web action and modal", () => {
 
 test("Mod+S toggles the upstream sidebar through the public layout service", () => {
   assert.match(
-    clientSource,
+    shortcutInstallSource,
     /id:\s*"sidebar\.toggle"[\s\S]*defaultBinding:\s*DEFAULT_SHORTCUT_BINDINGS\["sidebar\.toggle"\][\s\S]*ctx\.layout\.toggleSidebar\(\)/u,
   );
   assert.match(bundle, /sidebar\.toggle/u);
@@ -557,7 +610,7 @@ test("Mod+S toggles the upstream sidebar through the public layout service", () 
 
 test("Mod+P toggles the resident right sidebar through Tabs runtime", () => {
   assert.match(
-    clientSource,
+    shortcutInstallSource,
     /id:\s*"tabs\.toggle"[\s\S]*defaultBinding:\s*DEFAULT_SHORTCUT_BINDINGS\["tabs\.toggle"\][\s\S]*tabsRuntimes\.right\.toggle\(\)/u,
   );
   assert.match(bundle, /tabs\.toggle/u);
@@ -566,26 +619,26 @@ test("Mod+P toggles the resident right sidebar through Tabs runtime", () => {
 
 test("right and bottom panels own separate Tabs workspaces", () => {
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /const rightTabs = new TabsRuntime\([\s\S]*const bottomTabs = new TabsRuntime\(/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /const bottomTabs = new TabsRuntime\([\s\S]*idPrefix:\s*"bottom-"/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /createTabsWorkspace\(\s*rightTabs,\s*"right",?\s*\)[\s\S]*createTabsWorkspace\(\s*bottomTabs,\s*"bottom",?\s*\)/u,
   );
   assert.match(
-    clientSource,
+    tabsInstallSource,
     /id:\s*"minke-tabs-right"[\s\S]*placement:\s*"right"[\s\S]*id:\s*"minke-tabs-bottom"[\s\S]*placement:\s*"bottom"/u,
   );
 });
 
 test("Mod+B toggles the independent bottom Tabs panel", () => {
   assert.match(
-    clientSource,
+    shortcutInstallSource,
     /id:\s*"tabs\.bottom\.toggle"[\s\S]*defaultBinding:\s*DEFAULT_SHORTCUT_BINDINGS\["tabs\.bottom\.toggle"\][\s\S]*tabsRuntimes\.bottom\.toggle\(\)/u,
   );
   assert.match(bundle, /tabs\.bottom\.toggle/u);
@@ -594,11 +647,11 @@ test("Mod+B toggles the independent bottom Tabs panel", () => {
 
 test("Minke bypasses the upstream internal-testing notice through slot shadowing", () => {
   assert.match(
-    clientSource,
+    onboardingInstallSource,
     /ctx\.slots\.inject\("settings\.onboarding"/u,
   );
   assert.match(
-    clientSource,
+    onboardingInstallSource,
     /name:\s*"settings\.onboarding"[\s\S]*id:\s*"welcome-notice"[\s\S]*priority:\s*-100/u,
   );
   assert.match(bundle, /settings\.onboarding/u);

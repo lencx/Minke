@@ -1,3 +1,4 @@
+/** Invisible adapter for the upstream internal-testing notice. */
 import { useEffect } from "react";
 
 export interface WelcomeNoticeBypassProps {

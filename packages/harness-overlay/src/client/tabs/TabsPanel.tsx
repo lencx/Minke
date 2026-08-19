@@ -23,6 +23,9 @@ import type {
   TabsTranslate,
 } from "./locales.ts";
 import type {
+  TabsLayoutStateRuntime,
+} from "./layout-state.ts";
+import type {
   TabRendererRegistry,
 } from "./registry.ts";
 import type {
@@ -54,6 +57,8 @@ export interface TabsPanelProps {
   placement: TabsPanelPlacement;
   runtime: TabsRuntime;
   renderers: TabRendererRegistry;
+  layoutState: TabsLayoutStateRuntime;
+  setRightTrackWidth?: (width: number) => void;
   useSessions: <T>(
     selector: (state: SessionListSelection) => T,
   ) => T;
@@ -90,6 +95,8 @@ export function TabsPanel({
   placement,
   runtime,
   renderers,
+  layoutState,
+  setRightTrackWidth,
   useSessions,
   t,
 }: TabsPanelProps): ReactNode {
@@ -152,15 +159,35 @@ export function TabsPanel({
   useEffect(() => {
     const panel = panelRef.current;
     if (panel === null || !panelRendered) return;
-    const resize = new TabsPanelResizeController(panel);
+    let active = true;
+    const resize = new TabsPanelResizeController(panel, {
+      applyRightTrackWidth:
+        placement === "right"
+          ? setRightTrackWidth
+          : undefined,
+      onSizeCommit: (size) => {
+        layoutState.setSize(placement, size);
+      },
+    });
     resizeRef.current = resize;
+    void layoutState.size(placement).then((size) => {
+      if (active && size !== undefined) {
+        resize.restoreSize(size);
+      }
+    });
     return () => {
+      active = false;
       if (resizeRef.current === resize) {
         resizeRef.current = null;
       }
       resize.dispose();
     };
-  }, [panelRendered]);
+  }, [
+    layoutState,
+    panelRendered,
+    placement,
+    setRightTrackWidth,
+  ]);
 
   useEffect(() => {
     resizeRef.current?.sync();
@@ -521,6 +548,13 @@ export function TabsPanel({
               );
             })}
           </div>
+          {placement === "right" && (
+            <div
+              className="minke-tabs-tabbar__window-drag"
+              data-minke-tabs-window-drag=""
+              aria-hidden="true"
+            />
+          )}
           <div className="minke-tabs-tabbar__actions">
             <ToolbarButton
               label={t("tab.new")}

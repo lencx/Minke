@@ -1,6 +1,6 @@
 import {
   installDesktopSurfaceStyles,
-} from "./desktop-surface.styles.ts";
+} from "./surface.styles.ts";
 
 const DESKTOP_MARKERS = [
   "data-dsh-desktop-frame",
@@ -26,6 +26,7 @@ const DESKTOP_RESIZE_HANDLE_SELECTOR =
 const DESKTOP_DRAG_TARGET_SELECTOR = [
   '[data-slot="conversation.session.header"]',
   "[data-dsh-desktop-titlebar-anchor]",
+  "[data-minke-tabs-window-drag]",
 ].join(",");
 const INTERACTION_LAYER_SELECTOR = [
   "dialog[open]",

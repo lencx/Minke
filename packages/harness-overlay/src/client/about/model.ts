@@ -1,4 +1,4 @@
-import type { DesktopAboutInfo } from "../bridge.ts";
+import type { DesktopAboutInfo } from "../desktop/index.ts";
 import type { AboutTranslate } from "./locales.ts";
 
 export const MINKE_PROJECT_URL =

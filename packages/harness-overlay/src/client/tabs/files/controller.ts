@@ -1,6 +1,6 @@
 import type {
   DesktopFilesPort,
-} from "@minke/harness-overlay/client/bridge.ts";
+} from "@minke/harness-overlay/client/desktop/index.ts";
 import type {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
@@ -8,6 +8,9 @@ import type {
   FileManagerChangeEvent,
   FileManagerListResult,
   FileManagerEntry,
+  FileManagerPanelPlacement,
+  FileManagerPreviewResult,
+  FileManagerViewStateUpdate,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
   isDirectoryEntry,
@@ -90,16 +93,29 @@ export class FilesTabsController {
     }
   >();
   readonly #unsubscribeTabs: () => void;
+  readonly #placement: FileManagerPanelPlacement;
   #nextId = 0;
+  #defaultPreviewWidth: number | undefined;
+  #defaultViewMode: FilesViewMode = "list";
+  #previewWidthStateRevision = 0;
+  #viewModeStateRevision = 0;
   #disposed = false;
 
-  constructor(tabs: TabsRuntime, desktop: DesktopFilesPort) {
+  constructor(
+    tabs: TabsRuntime,
+    desktop: DesktopFilesPort,
+    options: {
+      readonly placement?: FileManagerPanelPlacement;
+    } = {},
+  ) {
     this.#tabs = tabs;
     this.#desktop = desktop;
+    this.#placement = options.placement ?? "right";
     this.#unsubscribeTabs = tabs.subscribe(() => {
       this.#releaseClosedTabs();
       this.#syncWatches();
     });
+    this.#hydrateViewState();
   }
 
   create(path: string | undefined, title: string): string | undefined {
@@ -111,8 +127,11 @@ export class FilesTabsController {
       payload: {
         ...(path === undefined ? {} : { path }),
         entries: [],
-        viewMode: "list",
+        viewMode: this.#defaultViewMode,
         tree: {},
+        ...(this.#defaultPreviewWidth === undefined
+          ? {}
+          : { previewWidth: this.#defaultPreviewWidth }),
         loading: true,
         truncated: false,
         canGoBack: false,
@@ -240,19 +259,29 @@ export class FilesTabsController {
 
   setViewMode(tabId: string, viewMode: FilesViewMode): void {
     const tab = this.#tabs.tab(tabId);
-    if (
-      tab === undefined ||
-      !isFilesTab(tab) ||
-      tab.payload.viewMode === viewMode
-    ) {
-      return;
+    if (tab === undefined || !isFilesTab(tab)) return;
+    let changed = false;
+    if (this.#defaultViewMode !== viewMode) {
+      this.#defaultViewMode = viewMode;
+      this.#viewModeStateRevision += 1;
+      changed = true;
     }
-    this.#tabs.update<FilesTabPayload>(tabId, {
-      payload: {
-        ...tab.payload,
-        viewMode,
-      },
-    });
+    for (const candidate of this.#tabs.getSnapshot().tabs) {
+      if (
+        !isFilesTab(candidate) ||
+        candidate.payload.viewMode === viewMode
+      ) {
+        continue;
+      }
+      changed = true;
+      this.#tabs.update<FilesTabPayload>(candidate.id, {
+        payload: {
+          ...candidate.payload,
+          viewMode,
+        },
+      });
+    }
+    if (changed) this.#writeViewState({ viewMode });
   }
 
   setPreviewWidth(tabId: string, previewWidth: number): void {
@@ -265,12 +294,38 @@ export class FilesTabsController {
       return;
     }
     const next = Math.max(0, Math.round(previewWidth));
-    if (tab.payload.previewWidth === next) return;
-    this.#tabs.update<FilesTabPayload>(tabId, {
-      payload: {
-        ...tab.payload,
-        previewWidth: next,
-      },
+    if (this.#defaultPreviewWidth !== next) {
+      this.#defaultPreviewWidth = next;
+      this.#previewWidthStateRevision += 1;
+    }
+    for (const candidate of this.#tabs.getSnapshot().tabs) {
+      if (
+        !isFilesTab(candidate) ||
+        candidate.payload.previewWidth === next
+      ) {
+        continue;
+      }
+      this.#tabs.update<FilesTabPayload>(candidate.id, {
+        payload: {
+          ...candidate.payload,
+          previewWidth: next,
+        },
+      });
+    }
+  }
+
+  persistPreviewWidth(tabId: string): void {
+    const tab = this.#tabs.tab(tabId);
+    if (
+      this.#disposed ||
+      tab === undefined ||
+      !isFilesTab(tab) ||
+      tab.payload.previewWidth === undefined
+    ) {
+      return;
+    }
+    this.#writeViewState({
+      previewWidth: tab.payload.previewWidth,
     });
   }
 
@@ -579,6 +634,81 @@ export class FilesTabsController {
     this.#watchSubscriptions.clear();
   }
 
+  #hydrateViewState(): void {
+    const readViewState = this.#desktop.readViewState;
+    if (readViewState === undefined) return;
+    const previewWidthRevision =
+      this.#previewWidthStateRevision;
+    const viewModeRevision = this.#viewModeStateRevision;
+    void readViewState.call(this.#desktop)
+      .then((state) => {
+        if (this.#disposed) return;
+        const placementState = state[this.#placement];
+        const previewWidth =
+          this.#previewWidthStateRevision ===
+            previewWidthRevision
+            ? placementState?.previewWidth
+            : undefined;
+        const viewMode =
+          this.#viewModeStateRevision === viewModeRevision
+            ? placementState?.viewMode
+            : undefined;
+        if (
+          previewWidth === undefined &&
+          viewMode === undefined
+        ) {
+          return;
+        }
+        if (previewWidth !== undefined) {
+          this.#defaultPreviewWidth = previewWidth;
+        }
+        if (viewMode !== undefined) {
+          this.#defaultViewMode = viewMode;
+        }
+        for (const tab of this.#tabs.getSnapshot().tabs) {
+          if (!isFilesTab(tab)) continue;
+          const nextPreviewWidth =
+            previewWidth !== undefined &&
+              tab.payload.previewWidth === undefined
+              ? previewWidth
+              : tab.payload.previewWidth;
+          const nextViewMode =
+            viewMode ?? tab.payload.viewMode;
+          if (
+            nextPreviewWidth === tab.payload.previewWidth &&
+            nextViewMode === tab.payload.viewMode
+          ) {
+            continue;
+          }
+          this.#tabs.update<FilesTabPayload>(tab.id, {
+            payload: {
+              ...tab.payload,
+              ...(nextPreviewWidth === undefined
+                ? {}
+                : { previewWidth: nextPreviewWidth }),
+              viewMode: nextViewMode,
+            },
+          });
+        }
+      })
+      .catch(() => {
+        // Missing or unreadable UI state falls back to responsive defaults.
+      });
+  }
+
+  #writeViewState(
+    update: Omit<FileManagerViewStateUpdate, "placement">,
+  ): void {
+    const writeViewState = this.#desktop.writeViewState;
+    if (this.#disposed || writeViewState === undefined) return;
+    void writeViewState.call(this.#desktop, {
+      placement: this.#placement,
+      ...update,
+    }).catch(() => {
+      // Files remains usable when best-effort UI-state persistence fails.
+    });
+  }
+
   #startPreview(
     tabId: string,
     entry: FileManagerEntry,
@@ -741,6 +871,94 @@ export class FilesTabsController {
       });
   }
 
+  #refreshCleanPreview(
+    tabId: string,
+    entry: FileManagerEntry,
+  ): void {
+    const tab = this.#tabs.tab(tabId);
+    const preview =
+      tab !== undefined && isFilesTab(tab)
+        ? tab.payload.preview
+        : undefined;
+    if (
+      this.#disposed ||
+      preview === undefined ||
+      preview.entry.path !== entry.path ||
+      preview.dirty ||
+      preview.saving
+    ) {
+      return;
+    }
+    const revision =
+      (this.#previewRevision.get(tabId) ?? 0) + 1;
+    this.#previewRevision.set(tabId, revision);
+    void this.#desktop.preview({ path: entry.path })
+      .then((result) => {
+        const current = this.#tabs.tab(tabId);
+        const currentPreview =
+          current !== undefined && isFilesTab(current)
+            ? current.payload.preview
+            : undefined;
+        if (
+          this.#disposed ||
+          this.#previewRevision.get(tabId) !== revision ||
+          current === undefined ||
+          !isFilesTab(current) ||
+          currentPreview === undefined ||
+          currentPreview.entry.path !== entry.path ||
+          currentPreview.dirty ||
+          currentPreview.saving
+        ) {
+          return;
+        }
+        if (
+          this.#sameTextVersion(currentPreview.result, result)
+        ) {
+          return;
+        }
+        const needsComparison =
+          currentPreview.mode === "diff" &&
+          result.kind === "text" &&
+          !result.truncated;
+        this.#tabs.update<FilesTabPayload>(tabId, {
+          payload: {
+            ...current.payload,
+            preview: {
+              ...currentPreview,
+              loading: false,
+              dirty: false,
+              saving: false,
+              result,
+              draft: undefined,
+              error: undefined,
+              saveError: undefined,
+              diskChanged: undefined,
+              comparison: needsComparison
+                ? { loading: true }
+                : undefined,
+            },
+          },
+        });
+        if (needsComparison) {
+          this.#startComparison(tabId, entry, revision);
+        }
+      })
+      .catch(() => {
+        // A transient watcher refresh must not unmount a usable editor.
+      });
+  }
+
+  #sameTextVersion(
+    current: FileManagerPreviewResult | undefined,
+    next: FileManagerPreviewResult,
+  ): boolean {
+    return (
+      current?.kind === "text" &&
+      next.kind === "text" &&
+      current.version === next.version
+    );
+  }
+
   async #load(
     tabId: string,
     path: string | undefined,
@@ -759,7 +977,7 @@ export class FilesTabsController {
     this.#tabs.update<FilesTabPayload>(tabId, {
       payload: {
         ...tab.payload,
-        loading: true,
+        loading: transition.type === "initial",
         error: undefined,
       },
     });
@@ -1040,7 +1258,7 @@ export class FilesTabsController {
       return;
     }
     if (!preview.dirty) {
-      this.#startPreview(tabId, preview.entry, preview.mode);
+      this.#refreshCleanPreview(tabId, preview.entry);
       return;
     }
     const current = this.#tabs.tab(tabId);

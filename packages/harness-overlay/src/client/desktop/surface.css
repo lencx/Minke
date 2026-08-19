@@ -1,3 +1,4 @@
+/* Native macOS window surface adjustments. */
 #root :has(> [data-dsh-desktop-titlebar-anchor]),
 [data-dsh-desktop-base-surface] {
   background-color: transparent !important;
@@ -26,10 +27,17 @@
   app-region: no-drag;
 }
 
+[data-minke-tabs-window-drag] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 :root[data-dsh-desktop-drag-enabled]
   [data-dsh-desktop-titlebar-anchor],
 :root[data-dsh-desktop-drag-enabled]
-  [data-slot="conversation.session.header"] {
+  [data-slot="conversation.session.header"],
+:root[data-dsh-desktop-drag-enabled]
+  [data-minke-tabs-window-drag] {
   -webkit-app-region: drag;
   app-region: drag;
 }

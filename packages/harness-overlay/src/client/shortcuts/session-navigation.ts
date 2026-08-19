@@ -1,4 +1,4 @@
-/** Browser-style back/forward history for Harness Session selection. */
+/** Browser-style back/forward history for Harness session selection. */
 
 export type OpenSession = (sessionId: string) => void;
 

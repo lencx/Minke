@@ -46,7 +46,8 @@ async function run() {
         'harness-overlay',
         'src',
         'client',
-        'desktop-surface.ts',
+        'desktop',
+        'surface.ts',
       ),
     ],
     format: 'iife',
@@ -146,6 +147,14 @@ async function run() {
         margin-left: -4px;
         cursor: col-resize;
       }
+      .tabsWindowDrag {
+        position: absolute;
+        top: 0;
+        right: 0;
+        z-index: 3;
+        width: 60px;
+        height: 28px;
+      }
       .sidebar {
         width: 100%;
         padding: 6px 12px;
@@ -244,6 +253,11 @@ async function run() {
         </div>
         <div data-shell-overlay></div>
         <div class="detailsHandle" data-side="details"></div>
+        <div
+          class="tabsWindowDrag"
+          data-minke-tabs-window-drag
+          aria-hidden="true"
+        ></div>
       </div>
     </div>
     <script>
@@ -332,6 +346,9 @@ async function run() {
         sidebarTitlebar: appRegion(
           '[data-dsh-desktop-titlebar-anchor]',
         ),
+        tabsWindowDrag: appRegion(
+          '[data-minke-tabs-window-drag]',
+        ),
       });
       const beforeDialog = snapshot();
       const overlay = document.createElement('div');
@@ -398,6 +415,9 @@ async function run() {
           sidebarTitlebar: appRegion(
             '[data-dsh-desktop-titlebar-anchor]',
           ),
+          tabsWindowDrag: appRegion(
+            '[data-minke-tabs-window-drag]',
+          ),
         };
       };
       const modalActionClicks = globalThis.modalActionClicks;
@@ -420,6 +440,9 @@ async function run() {
         ),
         sidebarTitlebar: appRegion(
           '[data-dsh-desktop-titlebar-anchor]',
+        ),
+        tabsWindowDrag: appRegion(
+          '[data-minke-tabs-window-drag]',
         ),
       });
       const nextFrame = () =>
@@ -732,8 +755,8 @@ async function run() {
   ) {
     failures.push('blank New Session did not match the transparent sidebar');
   }
-  if (result.composerMarker) {
-    failures.push('desktop surface marked a Harness-owned composer action');
+  if (!result.composerMarker) {
+    failures.push('desktop surface did not mark the composer actions');
   }
   if (result.addBackground !== 'rgb(255, 255, 255)') {
     failures.push('desktop surface changed the Harness composer add background');
@@ -763,13 +786,15 @@ async function run() {
   }
   if (
     result.dragSafety.beforeDialog.conversationHeader !== 'drag' ||
-    result.dragSafety.beforeDialog.sidebarTitlebar !== 'drag'
+    result.dragSafety.beforeDialog.sidebarTitlebar !== 'drag' ||
+    result.dragSafety.beforeDialog.tabsWindowDrag !== 'drag'
   ) {
     failures.push('desktop drag regions were not enabled before the dialog');
   }
   if (
     result.dragSafety.duringDialog.conversationHeader !== 'no-drag' ||
-    result.dragSafety.duringDialog.sidebarTitlebar !== 'no-drag'
+    result.dragSafety.duringDialog.sidebarTitlebar !== 'no-drag' ||
+    result.dragSafety.duringDialog.tabsWindowDrag !== 'no-drag'
   ) {
     failures.push('dialog did not synchronously suspend desktop drag regions');
   }
@@ -778,7 +803,8 @@ async function run() {
   }
   if (
     result.dragSafety.afterDialog.conversationHeader !== 'drag' ||
-    result.dragSafety.afterDialog.sidebarTitlebar !== 'drag'
+    result.dragSafety.afterDialog.sidebarTitlebar !== 'drag' ||
+    result.dragSafety.afterDialog.tabsWindowDrag !== 'drag'
   ) {
     failures.push('desktop drag regions did not recover after the dialog closed');
   }
@@ -791,7 +817,8 @@ async function run() {
   })) {
     if (
       state.conversationHeader !== 'no-drag' ||
-      state.sidebarTitlebar !== 'no-drag'
+      state.sidebarTitlebar !== 'no-drag' ||
+      state.tabsWindowDrag !== 'no-drag'
     ) {
       failures.push(`${label} did not suspend desktop drag regions`);
     }
@@ -807,7 +834,8 @@ async function run() {
   })) {
     if (
       state.conversationHeader !== 'drag' ||
-      state.sidebarTitlebar !== 'drag'
+      state.sidebarTitlebar !== 'drag' ||
+      state.tabsWindowDrag !== 'drag'
     ) {
       failures.push(`${label} did not leave desktop drag regions usable`);
     }

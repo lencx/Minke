@@ -4,10 +4,10 @@ import {
   installSettingsNavigationIcon,
   reconcileSettingsNavigationIcon,
   type SettingsNavigationRoot,
-} from "./settings-navigation.ts";
+} from "../shared/settings-navigation.ts";
 import {
   defineOverlayStyle,
-} from "./style-runtime.ts";
+} from "../shared/style-runtime.ts";
 import SHORTCUT_STYLES from "./styles.css";
 
 const SHORTCUT_NAV_ICON_DATA_URL = buildLucideDataUri(Keyboard, {

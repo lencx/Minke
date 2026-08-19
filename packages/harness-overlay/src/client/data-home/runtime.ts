@@ -6,7 +6,7 @@ import {
 } from "@minke/harness-overlay/data-home-contract.ts";
 import type {
   DataHomeSettingsPort,
-} from "@minke/harness-overlay/client/bridge.ts";
+} from "@minke/harness-overlay/client/desktop/index.ts";
 
 export type DataHomeSettingsErrorKind =
   | "unavailable"

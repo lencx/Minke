@@ -1,6 +1,6 @@
 import {
   defineOverlayStyle,
-} from "@minke/harness-overlay/client/style-runtime.ts";
+} from "@minke/harness-overlay/client/shared/style-runtime.ts";
 import SESSION_HEADER_ACTION_STYLES from "./HeaderActions.css";
 
 export { SESSION_HEADER_ACTION_STYLES };

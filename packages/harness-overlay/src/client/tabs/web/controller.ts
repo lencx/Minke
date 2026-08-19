@@ -3,7 +3,7 @@ import {
 } from "@minke/harness-overlay/tabs/contract.ts";
 import type {
   DesktopTabsPort,
-} from "@minke/harness-overlay/client/bridge.ts";
+} from "@minke/harness-overlay/client/desktop/index.ts";
 import type {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";

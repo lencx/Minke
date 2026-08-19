@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ShortcutRuntime } from "@minke/harness-overlay/client/runtime.ts";
+import { ShortcutRuntime } from "@minke/harness-overlay/client/shortcuts/runtime.ts";
 
 class KeyboardTarget {
   listener;

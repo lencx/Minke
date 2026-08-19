@@ -14,7 +14,7 @@ import {
 } from "react";
 import type {
   DesktopAboutInfo,
-} from "../bridge.ts";
+} from "../desktop/index.ts";
 import {
   LucideIcon,
 } from "../tabs/components/LucideIcon.ts";

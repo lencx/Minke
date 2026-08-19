@@ -4,10 +4,10 @@ import {
   installSettingsNavigationIcon,
   reconcileSettingsNavigationIcon,
   type SettingsNavigationRoot,
-} from "@minke/harness-overlay/client/settings-navigation.ts";
+} from "@minke/harness-overlay/client/shared/settings-navigation.ts";
 import {
   defineOverlayStyle,
-} from "@minke/harness-overlay/client/style-runtime.ts";
+} from "@minke/harness-overlay/client/shared/style-runtime.ts";
 import TERMINAL_SETTINGS_STYLES from "./styles.css";
 
 const TERMINAL_SETTINGS_NAV_MARKER =

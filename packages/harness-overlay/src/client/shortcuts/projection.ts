@@ -1,3 +1,4 @@
+/** Project shortcut runtime state into the settings view model. */
 import type {
   ShortcutActionView,
   ShortcutErrorKind,

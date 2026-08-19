@@ -35,7 +35,7 @@ import {
 import {
   desktopDataHomeSettingsPort,
   shouldExposeDesktopDataHomeSettings,
-} from "@minke/harness-overlay/client/bridge.ts";
+} from "@minke/harness-overlay/client/desktop/index.ts";
 import {
   dataHomeEn,
   dataHomeZh,

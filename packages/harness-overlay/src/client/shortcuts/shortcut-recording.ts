@@ -1,5 +1,5 @@
 /**
- * Install the Escape guard used while a shortcut binding is being recorded.
+ * Install the Escape guard while a shortcut binding is being recorded.
  *
  * The implementation intentionally lives outside React so its event-ordering
  * contract can be verified independently of the Harness Settings shell.

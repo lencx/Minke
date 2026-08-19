@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   bindCssVars,
   defineOverlayStyle,
-} from "@minke/harness-overlay/client/style-runtime.ts";
+} from "@minke/harness-overlay/client/shared/style-runtime.ts";
 
 function styleDeclaration(initial = {}) {
   const values = new Map(

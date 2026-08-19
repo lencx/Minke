@@ -1,6 +1,6 @@
 import type {
   DesktopTerminalPort,
-} from "@minke/harness-overlay/client/bridge.ts";
+} from "@minke/harness-overlay/client/desktop/index.ts";
 import type {
   TerminalEvent,
 } from "@minke/harness-overlay/tabs/terminal-contract.ts";

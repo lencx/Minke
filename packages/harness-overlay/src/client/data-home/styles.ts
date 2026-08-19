@@ -4,10 +4,10 @@ import {
   installSettingsNavigationIcon,
   reconcileSettingsNavigationIcon,
   type SettingsNavigationRoot,
-} from "@minke/harness-overlay/client/settings-navigation.ts";
+} from "@minke/harness-overlay/client/shared/settings-navigation.ts";
 import {
   defineOverlayStyle,
-} from "@minke/harness-overlay/client/style-runtime.ts";
+} from "@minke/harness-overlay/client/shared/style-runtime.ts";
 import DATA_HOME_STYLES from "./styles.css";
 
 const DATA_HOME_NAV_MARKER = "data-minke-data-home-nav";

@@ -1,6 +1,6 @@
 import {
   defineOverlayStyle,
-} from "../style-runtime.ts";
+} from "../shared/style-runtime.ts";
 import ABOUT_STYLES from "./styles.css";
 
 export { ABOUT_STYLES };

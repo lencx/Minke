@@ -1,6 +1,6 @@
 import {
   defineOverlayStyle,
-} from "@minke/harness-overlay/client/style-runtime.ts";
+} from "@minke/harness-overlay/client/shared/style-runtime.ts";
 import WEB_TAB_STYLES from "./styles.css";
 
 /** Install the Web tab stylesheet. */

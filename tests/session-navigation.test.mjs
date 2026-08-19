@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   SessionNavigationHistory,
-} from "@minke/harness-overlay/client/session-navigation.ts";
+} from "@minke/harness-overlay/client/shortcuts/session-navigation.ts";
 
 function historyHarness() {
   const opened = [];

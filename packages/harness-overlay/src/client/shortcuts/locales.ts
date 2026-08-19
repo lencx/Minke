@@ -1,3 +1,4 @@
+/** Shortcut settings dictionaries. */
 export const zh = {
   nav: "快捷键",
   title: "快捷键",

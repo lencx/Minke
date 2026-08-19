@@ -4,7 +4,7 @@ import {
   formatShortcutBinding,
   formatShortcutBindingParts,
   shortcutBindingFromEvent,
-} from "@minke/harness-overlay/client/binding.ts";
+} from "@minke/harness-overlay/client/shortcuts/binding.ts";
 
 function keyEvent(overrides = {}) {
   return {

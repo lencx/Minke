@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { en, zh } from "@minke/harness-overlay/client/locales.ts";
+import { en, zh } from "@minke/harness-overlay/client/shortcuts/locales.ts";
 import {
   createShortcutSectionSource,
-} from "@minke/harness-overlay/client/projection.ts";
-import { ShortcutRuntime } from "@minke/harness-overlay/client/runtime.ts";
+} from "@minke/harness-overlay/client/shortcuts/projection.ts";
+import { ShortcutRuntime } from "@minke/harness-overlay/client/shortcuts/runtime.ts";
 
 class TestLocale {
   #active = "zh";

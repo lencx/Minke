@@ -1,22 +1,37 @@
 export const TABS_PANEL_MIN_WIDTH = 300;
 export const TABS_PANEL_DEFAULT_WIDTH = 360;
-/** Harness currently owns the reflowing details track up to this width. */
-export const TABS_DETAILS_TRACK_MAX_WIDTH = 520;
-/** Tabs may continue over the conversation after the details track tops out. */
-export const TABS_PANEL_MAX_WIDTH = 760;
-export const TABS_PANEL_MIN_REMAINDER = 320;
+export const TABS_PANEL_MAX_WIDTH = 4_096;
+export const TABS_PANEL_OVERLAY_REMAINDER = 20;
+export const TABS_PANEL_REFLOW_RATIO = 2 / 3;
 export const TABS_PANEL_MIN_HEIGHT = 180;
 export const TABS_PANEL_DEFAULT_HEIGHT = 320;
 export const TABS_PANEL_MAX_HEIGHT = 640;
 export const TABS_PANEL_MIN_VERTICAL_REMAINDER = 200;
 
+export function tabsPanelReflowMaxWidth(
+  viewport: number,
+  sidebar = 0,
+): number {
+  const available = Math.max(
+    TABS_PANEL_MIN_WIDTH,
+    Math.round(viewport) - Math.max(0, Math.round(sidebar)),
+  );
+  return Math.max(
+    TABS_PANEL_MIN_WIDTH,
+    Math.floor(available * TABS_PANEL_REFLOW_RATIO),
+  );
+}
+
 export function clampTabsPanelWidth(
   requested: number,
   viewport: number,
+  sidebar = 0,
 ): number {
   const viewportMaximum = Math.max(
     TABS_PANEL_MIN_WIDTH,
-    Math.round(viewport) - TABS_PANEL_MIN_REMAINDER,
+    Math.round(viewport) -
+      Math.max(0, Math.round(sidebar)) -
+      TABS_PANEL_OVERLAY_REMAINDER,
   );
   const maximum = Math.min(
     TABS_PANEL_MAX_WIDTH,
@@ -61,6 +76,11 @@ interface InlineStyleSnapshot {
   readonly priority: string;
 }
 
+export interface TabsPanelResizeOptions {
+  readonly applyRightTrackWidth?: (width: number) => void;
+  readonly onSizeCommit?: (size: number) => void;
+}
+
 type TabsPanelView = Window & {
   readonly ResizeObserver: typeof ResizeObserver;
   readonly MutationObserver: typeof MutationObserver;
@@ -95,9 +115,8 @@ function sidebarColumnFor(
 }
 
 /**
- * Extends the host details drag seamlessly beyond its 520px reflow limit.
- * The host retains ownership of 300–520px; the Tabs surface overlays the
- * conversation only for the newly widened 521–760px range.
+ * Keeps the right panel in the host grid through two thirds of the content
+ * area, then lets the overlay continue to a 20px conversation remainder.
  */
 export class TabsPanelResizeController {
   readonly #panel: HTMLDivElement;
@@ -106,6 +125,10 @@ export class TabsPanelResizeController {
   readonly #frame: HTMLElement | undefined;
   readonly #sidebarColumn: HTMLElement | undefined;
   readonly #view: TabsPanelView | null;
+  readonly #applyRightTrackWidth:
+    | ((width: number) => void)
+    | undefined;
+  readonly #onSizeCommit: ((size: number) => void) | undefined;
   readonly #observer: ResizeObserver | undefined;
   readonly #mutationObserver: MutationObserver | undefined;
   #nativeHandle: HTMLElement | undefined;
@@ -114,11 +137,21 @@ export class TabsPanelResizeController {
   #nativeOrigin: DragOrigin | undefined;
   #extendedOrigin: DragOrigin | undefined;
   #extendedWidth: number | undefined;
+  #preferredRightWidth: number | undefined;
+  #rightTrackAppliedWidth: number | undefined;
   #bottomOrigin: PanelDragOrigin | undefined;
   #bottomHeight = TABS_PANEL_DEFAULT_HEIGHT;
+  #interacted = false;
+  #disposed = false;
 
-  constructor(panel: HTMLDivElement) {
+  constructor(
+    panel: HTMLDivElement,
+    options: TabsPanelResizeOptions = {},
+  ) {
     this.#panel = panel;
+    this.#applyRightTrackWidth =
+      options.applyRightTrackWidth;
+    this.#onSizeCommit = options.onSizeCommit;
     this.#overlay =
       panel.closest<HTMLElement>("[data-shell-overlay]") ??
       undefined;
@@ -162,6 +195,7 @@ export class TabsPanelResizeController {
   }
 
   beginDrag(position: number): void {
+    this.#interacted = true;
     if (this.#isBottom()) {
       this.#bottomOrigin = {
         position,
@@ -191,14 +225,17 @@ export class TabsPanelResizeController {
       this.#bottomOrigin = undefined;
       this.#panel.removeAttribute("data-resizing");
       this.#reconcile();
+      this.#onSizeCommit?.(this.#bottomHeight);
       return;
     }
     this.endExtendedDrag();
   }
 
   adjustSize(delta: number): void {
+    this.#interacted = true;
     if (this.#isBottom()) {
       this.#setBottomHeight(this.#bottomHeight + delta);
+      this.#onSizeCommit?.(this.#bottomHeight);
       return;
     }
     this.adjustExtendedWidth(delta);
@@ -206,10 +243,13 @@ export class TabsPanelResizeController {
 
   beginExtendedDrag(clientX: number): void {
     if (!this.#ownsResizeHandle()) return;
+    this.#interacted = true;
     this.#extendedOrigin = {
       x: clientX,
       width:
-        this.#extendedWidth ?? this.#measuredTrackWidth(),
+        this.#preferredRightWidth ??
+        this.#extendedWidth ??
+        this.#measuredTrackWidth(),
     };
     this.#panel.toggleAttribute("data-resizing", true);
   }
@@ -225,12 +265,34 @@ export class TabsPanelResizeController {
   endExtendedDrag(): void {
     this.#extendedOrigin = undefined;
     this.#panel.removeAttribute("data-resizing");
+    this.#commitRightWidth(true);
   }
 
   adjustExtendedWidth(delta: number): void {
     const width =
-      this.#extendedWidth ?? this.#measuredTrackWidth();
+      this.#preferredRightWidth ??
+      this.#extendedWidth ??
+      this.#measuredTrackWidth();
     this.#setExtendedWidth(width + delta);
+    this.#commitRightWidth(true);
+  }
+
+  restoreSize(size: number): void {
+    if (this.#interacted || !Number.isFinite(size)) return;
+    if (this.#isBottom()) {
+      this.#bottomHeight = Math.min(
+        TABS_PANEL_MAX_HEIGHT,
+        Math.max(TABS_PANEL_MIN_HEIGHT, Math.round(size)),
+      );
+      this.#reconcile();
+      return;
+    }
+    this.#preferredRightWidth = Math.min(
+      TABS_PANEL_MAX_WIDTH,
+      Math.max(TABS_PANEL_MIN_WIDTH, Math.round(size)),
+    );
+    this.#rightTrackAppliedWidth = undefined;
+    this.#reconcile();
   }
 
   sync(): void {
@@ -238,6 +300,7 @@ export class TabsPanelResizeController {
   }
 
   dispose(): void {
+    this.#disposed = true;
     this.#observer?.disconnect();
     this.#mutationObserver?.disconnect();
     this.#detachNative?.();
@@ -366,10 +429,14 @@ export class TabsPanelResizeController {
 
   readonly #onNativeDown = (event: PointerEvent): void => {
     if (this.#isBottom()) return;
+    this.#interacted = true;
     const measured = this.#measuredTrackWidth();
     this.#nativeOrigin = {
       x: event.clientX,
-      width: this.#extendedWidth ?? measured,
+      width:
+        this.#preferredRightWidth ??
+        this.#extendedWidth ??
+        measured,
     };
   };
 
@@ -378,9 +445,10 @@ export class TabsPanelResizeController {
     if (origin === undefined) return;
     const requested =
       origin.width - (event.clientX - origin.x);
+    const trackMaximum = this.#detailsTrackMaximum();
     if (
-      requested > TABS_DETAILS_TRACK_MAX_WIDTH ||
-      origin.width > TABS_DETAILS_TRACK_MAX_WIDTH
+      requested > trackMaximum ||
+      origin.width > trackMaximum
     ) {
       this.#setExtendedWidth(requested);
     }
@@ -389,6 +457,9 @@ export class TabsPanelResizeController {
   readonly #onNativeUp = (event: PointerEvent): void => {
     this.#onNativeMove(event);
     this.#nativeOrigin = undefined;
+    queueMicrotask(() => {
+      if (!this.#disposed) this.#commitRightWidth();
+    });
   };
 
   readonly #onNativeCancel = (): void => {
@@ -406,12 +477,34 @@ export class TabsPanelResizeController {
     const next = clampTabsPanelWidth(
       requested,
       this.#viewportWidth(),
+      this.#sidebarWidth(),
     );
+    this.#preferredRightWidth = next;
+    this.#rightTrackAppliedWidth = undefined;
     this.#extendedWidth =
       this.#nativeHandle === undefined ||
-      next > TABS_DETAILS_TRACK_MAX_WIDTH
+      next > this.#detailsTrackMaximum()
         ? next
         : undefined;
+    this.#reconcile();
+  }
+
+  #commitRightWidth(preferRequested = false): void {
+    const candidate = preferRequested
+      ? this.#preferredRightWidth ??
+        this.#extendedWidth ??
+        this.#measuredTrackWidth()
+      : this.#extendedWidth ?? this.#measuredTrackWidth();
+    const next = clampTabsPanelWidth(
+      candidate,
+      this.#viewportWidth(),
+      this.#sidebarWidth(),
+    );
+    this.#preferredRightWidth = next;
+    if (this.#extendedWidth === undefined) {
+      this.#rightTrackAppliedWidth = next;
+    }
+    this.#onSizeCommit?.(next);
     this.#reconcile();
   }
 
@@ -446,6 +539,22 @@ export class TabsPanelResizeController {
       : this.#view?.innerWidth ?? TABS_PANEL_DEFAULT_WIDTH;
   }
 
+  #sidebarWidth(): number {
+    return Math.max(
+      0,
+      Math.round(
+        this.#sidebarColumn?.getBoundingClientRect().width ?? 0,
+      ),
+    );
+  }
+
+  #detailsTrackMaximum(): number {
+    return tabsPanelReflowMaxWidth(
+      this.#viewportWidth(),
+      this.#sidebarWidth(),
+    );
+  }
+
   #viewportHeight(): number {
     const measured =
       this.#frame?.getBoundingClientRect().height ?? 0;
@@ -463,18 +572,43 @@ export class TabsPanelResizeController {
       this.#reconcileBottom();
       return;
     }
-    const measured = this.#measuredTrackWidth();
-    if (this.#extendedWidth !== undefined) {
-      const clamped = clampTabsPanelWidth(
-        this.#extendedWidth,
-        this.#viewportWidth(),
-      );
-      this.#extendedWidth =
-        this.#nativeHandle === undefined ||
-        clamped > TABS_DETAILS_TRACK_MAX_WIDTH
-          ? clamped
-          : undefined;
+    const viewport = this.#viewportWidth();
+    const sidebar = this.#sidebarWidth();
+    const trackMaximum = tabsPanelReflowMaxWidth(
+      viewport,
+      sidebar,
+    );
+    const preferred =
+      this.#preferredRightWidth === undefined
+        ? undefined
+        : clampTabsPanelWidth(
+            this.#preferredRightWidth,
+            viewport,
+            sidebar,
+          );
+    this.#extendedWidth =
+      preferred !== undefined &&
+      (this.#nativeHandle === undefined ||
+        preferred > trackMaximum)
+        ? preferred
+        : undefined;
+
+    const open = this.#panel.hasAttribute("data-open");
+    if (!open) {
+      this.#rightTrackAppliedWidth = undefined;
+    } else if (
+      preferred !== undefined &&
+      this.#applyRightTrackWidth !== undefined &&
+      this.#nativeOrigin === undefined
+    ) {
+      const trackWidth = Math.min(preferred, trackMaximum);
+      if (this.#rightTrackAppliedWidth !== trackWidth) {
+        this.#rightTrackAppliedWidth = trackWidth;
+        this.#applyRightTrackWidth(trackWidth);
+      }
     }
+
+    const measured = this.#measuredTrackWidth();
     const width = this.#extendedWidth ?? measured;
     this.#panel.style.setProperty(
       "--minke-tabs-panel-width",
@@ -486,7 +620,7 @@ export class TabsPanelResizeController {
     );
     const extended =
       this.#extendedWidth !== undefined &&
-      this.#extendedWidth > TABS_DETAILS_TRACK_MAX_WIDTH;
+      this.#extendedWidth > trackMaximum;
     const overlayOwned = this.#nativeHandle === undefined;
     const ownsResizeHandle = this.#ownsResizeHandle();
     this.#panel.toggleAttribute("data-extended", extended);
@@ -499,7 +633,7 @@ export class TabsPanelResizeController {
     );
     this.#frame?.toggleAttribute(
       "data-minke-tabs-right-open",
-      this.#panel.hasAttribute("data-open"),
+      open,
     );
 
     const handle = this.#panel.querySelector<HTMLElement>(
@@ -516,7 +650,7 @@ export class TabsPanelResizeController {
       String(
         overlayOwned
           ? TABS_PANEL_MIN_WIDTH
-          : TABS_DETAILS_TRACK_MAX_WIDTH,
+          : trackMaximum,
       ),
     );
     handle.setAttribute(
@@ -524,7 +658,8 @@ export class TabsPanelResizeController {
       String(
         clampTabsPanelWidth(
           TABS_PANEL_MAX_WIDTH,
-          this.#viewportWidth(),
+          viewport,
+          sidebar,
         ),
       ),
     );

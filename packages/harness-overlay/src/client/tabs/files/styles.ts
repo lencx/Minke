@@ -1,6 +1,6 @@
 import {
   defineOverlayStyle,
-} from "@minke/harness-overlay/client/style-runtime.ts";
+} from "@minke/harness-overlay/client/shared/style-runtime.ts";
 import FILES_TAB_STYLES from "./styles.css";
 
 export { FILES_TAB_STYLES };

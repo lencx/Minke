@@ -1,6 +1,6 @@
 import {
   defineOverlayStyle,
-} from "@minke/harness-overlay/client/style-runtime.ts";
+} from "@minke/harness-overlay/client/shared/style-runtime.ts";
 import LOCAL_MODEL_SETTINGS_STYLES from "./styles.css";
 
 export { LOCAL_MODEL_SETTINGS_STYLES };

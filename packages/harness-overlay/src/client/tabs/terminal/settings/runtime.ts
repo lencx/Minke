@@ -5,7 +5,7 @@ import {
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import type {
   TerminalSettingsStore,
-} from "@minke/harness-overlay/client/bridge.ts";
+} from "@minke/harness-overlay/client/desktop/index.ts";
 
 export type TerminalSettingsErrorKind =
   | "unavailable"

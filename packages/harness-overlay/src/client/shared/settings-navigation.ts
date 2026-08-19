@@ -1,6 +1,6 @@
 import {
   bindCssVars,
-} from "@minke/harness-overlay/client/style-runtime.ts";
+} from "./style-runtime.ts";
 
 const SETTINGS_NAV_BUTTON_SELECTOR = '[role="dialog"] nav button';
 const SETTINGS_NAV_LABEL_SELECTOR = ":scope > span:last-child";

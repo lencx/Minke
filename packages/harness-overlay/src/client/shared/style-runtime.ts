@@ -1,5 +1,5 @@
 /**
- * Overlay styling convention:
+ * Shared overlay styling convention:
  * - keep static rules in an adjacent `.css` file imported as text;
  * - install that text through `defineOverlayStyle` inside a capability effect;
  * - put runtime values on the narrow owning element with `bindCssVars`;

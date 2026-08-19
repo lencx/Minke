@@ -21,6 +21,12 @@ export {
 export {
   TabsRuntime,
 } from "./runtime.ts";
+export {
+  TabsLayoutStateRuntime,
+} from "./layout-state.ts";
+export type {
+  TabsLayoutStatePort,
+} from "./layout-state.ts";
 export type {
   ManagedTab,
   TabCreateContext,

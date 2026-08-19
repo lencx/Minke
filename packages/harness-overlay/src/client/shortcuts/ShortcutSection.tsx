@@ -1,3 +1,4 @@
+/** Shortcut settings UI owned by the shortcuts feature. */
 import { useEffect, useState } from "react";
 import type {
   KeyboardEvent as ReactKeyboardEvent,

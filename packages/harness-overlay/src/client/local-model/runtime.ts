@@ -9,7 +9,7 @@ import {
 } from "@minke/harness-overlay/model-runtime-settings-contract.ts";
 import type {
   ModelRuntimeSettingsStore,
-} from "@minke/harness-overlay/client/bridge.ts";
+} from "@minke/harness-overlay/client/desktop/index.ts";
 
 export type LocalModelSettingsErrorKind =
   | "unavailable"

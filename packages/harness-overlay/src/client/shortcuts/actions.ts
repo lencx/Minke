@@ -1,4 +1,4 @@
-/** Product action adapters kept outside the upstream Harness source tree. */
+/** Shortcut action adapters kept outside the upstream Harness source tree. */
 
 interface Clickable {
   click(): void;

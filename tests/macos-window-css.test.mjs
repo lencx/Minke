@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   hasMacOSDesktopSurface,
-} from "@minke/harness-overlay/client/bridge.ts";
+} from "@minke/harness-overlay/client/desktop/index.ts";
 
 const macOSWindowSource = readFileSync(
   new URL("../desktop/main/macos-window.ts", import.meta.url),
@@ -34,21 +34,28 @@ const earlyCss = readFileSync(
 );
 const desktopSurfaceSource = readFileSync(
   new URL(
-    "../packages/harness-overlay/src/client/desktop-surface.ts",
+    "../packages/harness-overlay/src/client/desktop/surface.ts",
     import.meta.url,
   ),
   "utf8",
 );
 const desktopSurfaceCss = readFileSync(
   new URL(
-    "../packages/harness-overlay/src/client/desktop-surface.css",
+    "../packages/harness-overlay/src/client/desktop/surface.css",
     import.meta.url,
   ),
   "utf8",
 );
 const overlayBridgeSource = readFileSync(
   new URL(
-    "../packages/harness-overlay/src/client/bridge.ts",
+    "../packages/harness-overlay/src/client/desktop/window.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const desktopInstallSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/desktop/install.ts",
     import.meta.url,
   ),
   "utf8",
@@ -60,6 +67,26 @@ const overlayClientSource = readFileSync(
   ),
   "utf8",
 );
+const overlayCompositionSource = [
+  overlayClientSource,
+  desktopInstallSource,
+  ...[
+    "about/install.tsx",
+    "data-home/install.tsx",
+    "local-model/install.ts",
+    "onboarding/install.tsx",
+    "shortcuts/install.tsx",
+    "tabs/install.tsx",
+  ].map((path) =>
+    readFileSync(
+      new URL(
+        `../packages/harness-overlay/src/client/${path}`,
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ),
+].join("\n");
 const harnessColumnsSource = readFileSync(
   new URL(
     "../vendor/deepseek-harness/packages/client/ui-layout/src/client/columns.ts",
@@ -213,6 +240,14 @@ test("Electron wires native desktop capabilities through preload", () => {
   );
   assert.match(
     desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*TABS_FILES_VIEW_STATE_READ_CHANNEL/u,
+  );
+  assert.match(
+    desktopPreloadSource,
+    /ipcRenderer\.invoke\(\s*TABS_FILES_VIEW_STATE_WRITE_CHANNEL/u,
+  );
+  assert.match(
+    desktopPreloadSource,
     /ipcRenderer\.invoke\(TERMINAL_SETTINGS_READ_CHANNEL\)/u,
   );
   assert.match(
@@ -227,6 +262,10 @@ test("Electron wires native desktop capabilities through preload", () => {
   assert.match(
     desktopMainSource,
     /fileSystemRoot:\s*parse\(app\.getPath\("home"\)\)\.root/u,
+  );
+  assert.match(
+    desktopMainSource,
+    /minkeConfigPath:\s*minkeConfigFilePath\(/u,
   );
   assert.match(overlayBridgeSource, /hasMacOSDesktopSurface/);
 });
@@ -271,18 +310,18 @@ test("the product overlay owns post-boot desktop adaptation", () => {
   assert.match(desktopSurfaceSource, /cancelAnimationFrame/);
   assert.match(desktopSurfaceSource, /disposeStyles\(\)/);
   assert.match(
-    overlayClientSource,
+    desktopInstallSource,
     /hasMacOSDesktopSurface\(\)[\s\S]*ctx\.effect\([\s\S]*installDesktopSurface\(\)/,
   );
   assert.match(
-    overlayClientSource,
+    desktopInstallSource,
     /minke-overlay: macOS desktop surface/,
   );
 });
 
 test("the overlay composes around upstream slots instead of replacing shells", () => {
   assert.doesNotMatch(
-    overlayClientSource,
+    overlayCompositionSource,
     /ctx\.slots\.(?:inject|register)\(\s*["'](?:sidebar|conversation|details)["']/,
   );
 });
@@ -340,7 +379,7 @@ test("only macOS New Session makes the content background transparent", () => {
   );
   assert.equal(hasMacOSDesktopSurface({}), false);
   assert.match(
-    overlayClientSource,
+    desktopInstallSource,
     /if \(hasMacOSDesktopSurface\(\)\) \{[\s\S]*installDesktopSurface\(\)/,
     "Windows and Linux must not install the macOS transparency stylesheet",
   );
@@ -529,8 +568,11 @@ test("the conversation header slot is the full-height drag target without claimi
   const selectableHeaderText = earlyCss.match(
     /\[data-slot="conversation\.session\.header"\] nav,\s*\n\[data-slot="conversation\.session\.header"\] nav \*,\s*\n\[data-slot="conversation\.session\.header"\] span\s*\{([\s\S]*?)\}/,
   )?.[1];
+  const tabsWindowDragTarget = desktopSurfaceCss.match(
+    /\[data-minke-tabs-window-drag\]\s*\{([\s\S]*?)\}/,
+  )?.[1];
   const gatedDragRule = desktopSurfaceCss.match(
-    /:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-dsh-desktop-titlebar-anchor\],\s*\n:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-slot="conversation\.session\.header"\]\s*\{([\s\S]*?)\}/,
+    /:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-dsh-desktop-titlebar-anchor\],\s*\n:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-slot="conversation\.session\.header"\],\s*\n:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-minke-tabs-window-drag\]\s*\{([\s\S]*?)\}/,
   )?.[1];
   assert.ok(conversationRoot, "the conversation root must anchor blank chrome");
   assert.ok(
@@ -550,6 +592,18 @@ test("the conversation header slot is the full-height drag target without claimi
   assert.match(sessionHeaderSlot, /flex:\s*none/);
   assert.match(sessionHeaderSlot, /min-height:\s*75px/);
   assert.match(sessionHeaderSlot, /-webkit-app-region:\s*no-drag/);
+  assert.ok(
+    tabsWindowDragTarget,
+    "the right Tabs spacer must fail safe before drag is enabled",
+  );
+  assert.match(
+    tabsWindowDragTarget,
+    /-webkit-app-region:\s*no-drag/,
+  );
+  assert.match(
+    desktopSurfaceSource,
+    /DESKTOP_DRAG_TARGET_SELECTOR[\s\S]*"\[data-minke-tabs-window-drag\]"/,
+  );
   assert.ok(
     gatedDragRule,
     "desktop drag must require the runtime safety gate",

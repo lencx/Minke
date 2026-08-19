@@ -7,7 +7,7 @@ import {
   shortcutBindingFromEvent,
   type ShortcutPlatform,
 } from "./binding.ts";
-import type { ShortcutStore } from "./bridge.ts";
+import type { ShortcutStore } from "../desktop/index.ts";
 
 export type ShortcutErrorKind = "unavailable" | "read" | "write";
 

@@ -108,7 +108,11 @@ test("overlay styles cross one lifecycle seam instead of living in TS templates"
     projectRoot,
     "packages/harness-overlay/src/client",
   );
-  const styleRuntime = resolve(overlayClientRoot, "style-runtime.ts");
+  const styleRuntime = resolve(
+    overlayClientRoot,
+    "shared",
+    "style-runtime.ts",
+  );
   const violations = productionFiles
     .filter(
       (path) =>

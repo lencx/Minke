@@ -1,7 +1,7 @@
 import {
   defineOverlayStyle,
-} from "./style-runtime.ts";
-import DESKTOP_SURFACE_STYLES from "./desktop-surface.css";
+} from "../shared/style-runtime.ts";
+import DESKTOP_SURFACE_STYLES from "./surface.css";
 
 export { DESKTOP_SURFACE_STYLES };
 
