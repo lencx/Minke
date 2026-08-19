@@ -312,9 +312,54 @@ test("every process.execPath production seam remains classified", async () => {
     }
   }
   assert.deepEqual(upstreamOwners.sort(), [
+    "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
+    "vendor/deepseek-harness/packages/fs/tool-fs-search/src/search-core.ts",
     "vendor/deepseek-harness/packages/host/directory-picker-native/src/win32-dialog-host.ts",
     "vendor/deepseek-harness/packages/sandbox/sandbox-local/src/index.ts",
+    "vendor/deepseek-harness/packages/subagent/subagent-codex/src/run.ts",
   ]);
+
+  const webAppSource = await readFile(
+    resolve(
+      projectRoot,
+      "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
+    ),
+    "utf8",
+  );
+  assert.match(webAppSource, /spawn\(process\.execPath,/u);
+  assert.match(webAppSource, /env:\s*scrubbedParentEnv\(\)/u);
+
+  const searchSource = await readFile(
+    resolve(
+      projectRoot,
+      "vendor/deepseek-harness/packages/fs/tool-fs-search/src/search-core.ts",
+    ),
+    "utf8",
+  );
+  assert.match(
+    searchSource,
+    /const executableSidecar = `\$\{process\.execPath\}-rg`/u,
+  );
+  assert.match(
+    searchSource,
+    /argv:\s*\[await resolveRgPath\(\), '--no-config'/u,
+  );
+
+  const codexSource = await readFile(
+    resolve(
+      projectRoot,
+      "vendor/deepseek-harness/packages/subagent/subagent-codex/src/run.ts",
+    ),
+    "utf8",
+  );
+  assert.match(
+    codexSource,
+    /return \[process\.execPath, CODEX_PACKAGE_BIN, 'app-server', '--stdio'\]/u,
+  );
+  assert.match(
+    codexSource,
+    /spec\.spawn\(\{\s*argv: codexAppServerArgv\(\)/u,
+  );
 
   const patch = await readFile(
     resolve(

@@ -312,7 +312,6 @@ export async function verifyHarnessContract(projectRoot) {
     llmTypesSource,
     attachmentSource,
     deepSeekAdapterSource,
-    subagentToolSource,
     settingsSlotsSource,
     settingsRootSource,
     sidebarSource,
@@ -396,17 +395,6 @@ export async function verifyHarnessContract(projectRoot) {
       join(
         harnessRoot,
         "packages",
-        "subagent",
-        "tool-subagent",
-        "src",
-        "index.ts",
-      ),
-      "utf8",
-    ),
-    readFile(
-      join(
-        harnessRoot,
-        "packages",
         "client",
         "ui-settings",
         "src",
@@ -457,8 +445,9 @@ export async function verifyHarnessContract(projectRoot) {
         harnessRoot,
         "packages",
         "client",
-        "web-react",
+        "ui-renderer",
         "src",
+        "client",
         "scoped-slots.tsx",
       ),
       "utf8",
@@ -560,16 +549,6 @@ export async function verifyHarnessContract(projectRoot) {
     deepSeekAdapterSource,
     "reasoningEffort?: 'off' | 'low' | 'high' | 'max'",
     "Harness DeepSeek low reasoning-effort API changed.",
-  );
-  requireSourceSeam(
-    subagentToolSource,
-    "enableRunInBackground?: boolean",
-    "Harness subagent Job API changed; review Minke Codex composition.",
-  );
-  requireSourceSeam(
-    subagentToolSource,
-    "backgroundMode?: 'one-shot' | 'continuable'",
-    "Harness subagent Job API changed; review Minke Codex composition.",
   );
   requireSourceSeam(
     settingsRootSource,

@@ -27,8 +27,8 @@ function assertHarnessStagingOrder(stageSource) {
   const completeInstall = stageSource.indexOf(
     '"install",\n        "--recursive",\n        "--frozen-lockfile"',
   );
-  const build = stageSource.indexOf(
-    'await runPnpm(["run", "build"], harnessRoot);',
+  const build = stageSource.search(
+    /await runPnpm\(\s*\["run", "build"\],\s*harnessRoot,\s*minkeHarnessClientBuildEnvironment\(process\.env\),?\s*\);/u,
   );
   const runtimeOnlyInstall = stageSource.indexOf(
     '"--filter",\n        `${generatedPackageName}...`',

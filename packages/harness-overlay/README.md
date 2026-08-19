@@ -5,11 +5,9 @@ It is installed into the generated desktop runtime and composed through the
 public `--patch` bundle seam. Nothing in this package is copied into or
 applied over `vendor/deepseek-harness`.
 
-The host composition also exposes two optional capabilities:
+The host composition mounts the separate
+`@lencx/minke-model-runtime/dsh` adapter:
 
-- `subagent_codex` delegates a self-contained task to the native
-  `codex app-server --stdio` process found on `PATH`. Codex keeps ownership of
-  its login, model, sandbox, and workspace behavior.
 - `model-runtime` is a DSH plugin that owns local model discovery and optional
   service lifecycle for exactly two product runtimes: LM Studio and Ollama.
   LM Studio uses `lms server status --json` / `lms server start` and enriches
@@ -24,6 +22,16 @@ The host composition also exposes two optional capabilities:
   A generic `openAICompatible` adapter remains available for manually
   configured loopback servers; it does not gain command discovery or process
   management.
+
+Product subagents follow the upstream rc.8 Profile Bundle contract and are not
+embedded in Minke's base runtime. Install one into the `web` Profile:
+
+- Codex: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-codex`
+- Claude Code: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-claude-code`
+
+Then restart Minke and enable the matching disabled tool row in a copied Agent
+Preset. The Bundle owns its pinned platform CLI, provider configuration, and
+private runtime closure.
 
 The model runtime executes CLIs through `ctx.subprocess`, resolves credential
 references through `ctx.credentials`, and mounts the upstream

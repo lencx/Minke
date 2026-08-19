@@ -152,17 +152,6 @@ function fixture(options = {}) {
   );
   write(
     harnessRoot,
-    "packages/subagent/tool-subagent/src/index.ts",
-    options.subagentJobs === false
-      ? "enableRunInBackground?: false\n"
-      : [
-          "enableRunInBackground?: boolean",
-          "backgroundMode?: 'one-shot' | 'continuable'",
-          "",
-        ].join("\n"),
-  );
-  write(
-    harnessRoot,
     "packages/client/ui-settings-general/src/client/SettingsRoot.tsx",
     '<button aria-haspopup="dialog" aria-expanded={open} />\n',
   );
@@ -186,7 +175,7 @@ function fixture(options = {}) {
   );
   write(
     harnessRoot,
-    "packages/client/web-react/src/scoped-slots.tsx",
+    "packages/client/ui-renderer/src/client/scoped-slots.tsx",
     [
       "kit['t'] = localeSeat(face, entry.locale)",
       "useLocaleRevision(host.locale)",
@@ -451,15 +440,6 @@ test("the Harness contract requires DeepSeek low reasoning effort", async () => 
   await assert.rejects(
     verifyHarnessContract(projectRoot),
     /DeepSeek low reasoning-effort API changed/u,
-  );
-});
-
-test("the Harness contract requires one-shot subagent Job configuration", async () => {
-  const { projectRoot } = fixture({ subagentJobs: false });
-
-  await assert.rejects(
-    verifyHarnessContract(projectRoot),
-    /subagent Job API changed/u,
   );
 });
 

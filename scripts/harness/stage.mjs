@@ -22,6 +22,9 @@ import {
   runtimeSizeBudgetForPlatform,
   verifyHarnessContract,
 } from "./contract.mjs";
+import {
+  minkeHarnessClientBuildEnvironment,
+} from "./client-build-environment.mjs";
 import { resolvePnpmInvocation } from "./pnpm-invocation.mjs";
 import {
   assertRuntimeFileBudget,
@@ -53,6 +56,7 @@ const runtimeFingerprintPaths = [
   "config/harness-runtime.json",
   "config/embedded-node-runtime.mts",
   "scripts/harness/build-product-packages.mjs",
+  "scripts/harness/client-build-environment.mjs",
   "scripts/harness/command-invocation.mjs",
   "scripts/harness/contract.mjs",
   "scripts/harness/pnpm-invocation.mjs",
@@ -183,12 +187,12 @@ function formatCommand(command, args) {
     .join(" ");
 }
 
-async function run(command, args, cwd) {
+async function run(command, args, cwd, environment = process.env) {
   console.log(`\n$ ${formatCommand(command, args)}`);
   await new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: { ...process.env, CI: "true" },
+      env: { ...environment, CI: "true" },
       stdio: "inherit",
     });
     child.once("error", reject);
@@ -208,9 +212,9 @@ async function run(command, args, cwd) {
   });
 }
 
-async function runPnpm(args, cwd) {
+async function runPnpm(args, cwd, environment = process.env) {
   const invocation = resolvePnpmInvocation(args);
-  await run(invocation.command, invocation.args, cwd);
+  await run(invocation.command, invocation.args, cwd, environment);
 }
 
 function capture(command, args, cwd) {
@@ -929,7 +933,11 @@ async function main() {
     console.log("Skipping Harness source build (--skip-build)");
   } else {
     await ensureReact18TypeIsolation(harnessRoot);
-    await runPnpm(["run", "build"], harnessRoot);
+    await runPnpm(
+      ["run", "build"],
+      harnessRoot,
+      minkeHarnessClientBuildEnvironment(process.env),
+    );
   }
 
   const packages = await readWorkspacePackages(harnessRoot);

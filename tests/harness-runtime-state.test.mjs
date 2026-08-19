@@ -17,6 +17,9 @@ import {
   publishValidatedDirectory,
   writeFileAtomic,
 } from "../scripts/harness/runtime-state.mjs";
+import {
+  minkeHarnessClientBuildEnvironment,
+} from "../scripts/harness/client-build-environment.mjs";
 
 async function withTemporaryDirectory(callback) {
   const root = await mkdtemp(join(tmpdir(), "minke-runtime-state-"));
@@ -26,6 +29,20 @@ async function withTemporaryDirectory(callback) {
     await rm(root, { recursive: true, force: true });
   }
 }
+
+test("the Harness client build uses Minke product branding", () => {
+  const environment = minkeHarnessClientBuildEnvironment({
+    DSH_BUILD_CLIENT_PROFILE: "official",
+    DSH_CLIENT_BUILD_PROFILE: "official",
+    DSH_CLIENT_TITLE: "DeepSeek Harness",
+    PRESERVED: "yes",
+  });
+
+  assert.equal(environment.DSH_CLIENT_TITLE, "Minke");
+  assert.equal(environment.DSH_BUILD_CLIENT_PROFILE, undefined);
+  assert.equal(environment.DSH_CLIENT_BUILD_PROFILE, undefined);
+  assert.equal(environment.PRESERVED, "yes");
+});
 
 test("runtime fingerprints are deterministic and content-sensitive", async () => {
   await withTemporaryDirectory(async (root) => {

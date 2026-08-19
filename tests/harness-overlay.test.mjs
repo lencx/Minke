@@ -220,9 +220,6 @@ test("product capability packages follow the shared naming convention", () => {
     modelRuntimeManifest.exports["./dsh"].default,
     "./lib/dsh.js",
   );
-  assert.deepEqual(contract.productBundle.runtimePackages, [
-    "@deepseek-ai/dsh-subagent-codex",
-  ]);
   assert.equal(
     manifest.dependencies["@lencx/minke-model-runtime"],
     "workspace:*",
@@ -240,6 +237,7 @@ test("product capability packages follow the shared naming convention", () => {
       },
     ],
   );
+  assert.deepEqual(contract.productBundle.runtimePackages, []);
   assert.match(
     manifest.devDependencies?.["@lucide/icons"] ?? "",
     /^\d+\.\d+\.\d+$/u,
@@ -260,14 +258,14 @@ test("product capability packages follow the shared naming convention", () => {
   );
 });
 
-test("the product overlay composes Codex CLI and the generic model runtime", () => {
-  assert.match(
+test("the product overlay leaves product subagents on demand and composes the model runtime", () => {
+  assert.doesNotMatch(
     patch,
-    /id: subagent-codex[\s\S]*name: '@deepseek-ai\/dsh-subagent-codex'/u,
+    /@deepseek-ai\/dsh-subagent-(?:codex|claude-code)/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     patch,
-    /id: tool-subagent-codex[\s\S]*provider: codex[\s\S]*toolName: subagent_codex[\s\S]*enableRunInBackground: true[\s\S]*backgroundMode: one-shot/u,
+    /toolName: subagent_(?:codex|claude_code)/u,
   );
   assert.match(
     patch,
