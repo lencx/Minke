@@ -64,6 +64,14 @@ function TextPreview(props: {
   const content = preview.draft ?? result.content;
   return (
     <div className="minke-files-preview__document">
+      {preview.diskChanged && (
+        <div
+          className="minke-files-preview__notice"
+          role="alert"
+        >
+          {t("files.preview.diskChanged")}
+        </div>
+      )}
       {preview.saveError !== undefined && (
         <div
           className="minke-files-preview__save-error"

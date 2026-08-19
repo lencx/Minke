@@ -44,17 +44,24 @@ import {
   TABS_OPEN_EXTERNAL_CHANNEL,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
+  parseFileManagerChangeEvent,
   parseFileManagerListRequest,
   parseFileManagerListResult,
   parseFileManagerOpenRequest,
   parseFileManagerPreviewRequest,
   parseFileManagerPreviewResult,
+  parseFileManagerUnwatchRequest,
+  parseFileManagerWatchRequest,
   parseFileManagerWriteRequest,
   parseFileManagerWriteResult,
+  TABS_FILES_CHANGE_CHANNEL,
   TABS_FILES_LIST_CHANNEL,
   TABS_FILES_OPEN_CHANNEL,
   TABS_FILES_PREVIEW_CHANNEL,
+  TABS_FILES_UNWATCH_CHANNEL,
+  TABS_FILES_WATCH_CHANNEL,
   TABS_FILES_WRITE_CHANNEL,
+  type FileManagerChangeEvent,
   type FileManagerListRequest,
   type FileManagerOpenRequest,
   type FileManagerPreviewRequest,
@@ -94,7 +101,9 @@ let observer: MutationObserver | undefined;
 let lastMessage: WindowThemeMessage | undefined;
 let hasAuthoritativeTheme = false;
 const shortcutUnsubscribers = new Set<() => void>();
+const fileWatchUnsubscribers = new Set<() => void>();
 const terminalUnsubscribers = new Set<() => void>();
+let nextFileWatchId = 0;
 
 function currentColorScheme(): WindowColorScheme | undefined {
   const colorScheme = document.documentElement.style.colorScheme;
@@ -237,6 +246,36 @@ const files = Object.freeze({
         parseFileManagerWriteRequest(request),
       ),
     );
+  },
+  watch(
+    paths: readonly string[],
+    listener: (event: FileManagerChangeEvent) => void,
+  ): () => void {
+    const id = `files:${++nextFileWatchId}`;
+    const request = parseFileManagerWatchRequest({ id, paths });
+    const wrapped = (_event: unknown, value: unknown): void => {
+      try {
+        const change = parseFileManagerChangeEvent(value);
+        if (change.id === id) listener(change);
+      } catch {
+        // Only main-process events matching the shared contract are delivered.
+      }
+    };
+    ipcRenderer.on(TABS_FILES_CHANGE_CHANNEL, wrapped);
+    ipcRenderer.send(TABS_FILES_WATCH_CHANNEL, request);
+    let active = true;
+    const unsubscribe = (): void => {
+      if (!active) return;
+      active = false;
+      fileWatchUnsubscribers.delete(unsubscribe);
+      ipcRenderer.off(TABS_FILES_CHANGE_CHANNEL, wrapped);
+      ipcRenderer.send(
+        TABS_FILES_UNWATCH_CHANNEL,
+        parseFileManagerUnwatchRequest({ id }),
+      );
+    };
+    fileWatchUnsubscribers.add(unsubscribe);
+    return unsubscribe;
   },
 });
 
@@ -396,6 +435,9 @@ window.addEventListener(
   "unload",
   () => {
     for (const unsubscribe of [...shortcutUnsubscribers]) {
+      unsubscribe();
+    }
+    for (const unsubscribe of [...fileWatchUnsubscribers]) {
       unsubscribe();
     }
     for (const unsubscribe of [...terminalUnsubscribers]) {

@@ -5,12 +5,20 @@ export const TABS_FILES_PREVIEW_CHANNEL =
   "minke:tabs:files:preview";
 export const TABS_FILES_WRITE_CHANNEL =
   "minke:tabs:files:write";
+export const TABS_FILES_WATCH_CHANNEL =
+  "minke:tabs:files:watch";
+export const TABS_FILES_UNWATCH_CHANNEL =
+  "minke:tabs:files:unwatch";
+export const TABS_FILES_CHANGE_CHANNEL =
+  "minke:tabs:files:change";
 
 export const FILES_MAX_ENTRIES = 2_000;
+export const FILES_MAX_WATCH_PATHS = 128;
 export const FILES_TEXT_PREVIEW_MAX_BYTES = 8 * 1_024 * 1_024;
 export const FILES_IMAGE_PREVIEW_MAX_BYTES = 32 * 1_024 * 1_024;
 const FILES_MAX_PATH_LENGTH = 32_768;
 const FILES_MAX_NAME_LENGTH = 1_024;
+const FILES_MAX_WATCH_ID_LENGTH = 128;
 
 export type FileManagerEntryKind =
   | "directory"
@@ -40,6 +48,20 @@ export interface FileManagerWriteResult {
   readonly path: string;
   readonly size: number;
   readonly version: string;
+}
+
+export interface FileManagerWatchRequest {
+  readonly id: string;
+  readonly paths: readonly string[];
+}
+
+export interface FileManagerUnwatchRequest {
+  readonly id: string;
+}
+
+export interface FileManagerChangeEvent {
+  readonly id: string;
+  readonly paths: readonly string[];
 }
 
 export interface FileManagerEntry {
@@ -146,6 +168,36 @@ function fileVersion(value: unknown, label: string): string {
   return value;
 }
 
+function watchId(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > FILES_MAX_WATCH_ID_LENGTH ||
+    !/^[A-Za-z0-9:_-]+$/u.test(value)
+  ) {
+    throw new TypeError("file watch id must be valid");
+  }
+  return value;
+}
+
+function watchPaths(
+  value: unknown,
+  label: string,
+): readonly string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > FILES_MAX_WATCH_PATHS
+  ) {
+    throw new TypeError(
+      `${label} must contain between 1 and ${FILES_MAX_WATCH_PATHS} paths`,
+    );
+  }
+  return [...new Set(
+    value.map((path) => pathText(path, `${label} entry`)),
+  )];
+}
+
 export function parseFileManagerListRequest(
   value: unknown,
 ): FileManagerListRequest {
@@ -203,6 +255,39 @@ export function parseFileManagerWriteRequest(
     expectedVersion: fileVersion(
       candidate.expectedVersion,
       "file write expected version",
+    ),
+  };
+}
+
+export function parseFileManagerWatchRequest(
+  value: unknown,
+): FileManagerWatchRequest {
+  const candidate = record(value, "file watch request");
+  return {
+    id: watchId(candidate.id),
+    paths: watchPaths(
+      candidate.paths,
+      "file watch request paths",
+    ),
+  };
+}
+
+export function parseFileManagerUnwatchRequest(
+  value: unknown,
+): FileManagerUnwatchRequest {
+  const candidate = record(value, "file unwatch request");
+  return { id: watchId(candidate.id) };
+}
+
+export function parseFileManagerChangeEvent(
+  value: unknown,
+): FileManagerChangeEvent {
+  const candidate = record(value, "file change event");
+  return {
+    id: watchId(candidate.id),
+    paths: watchPaths(
+      candidate.paths,
+      "file change event paths",
     ),
   };
 }

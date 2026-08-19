@@ -26,6 +26,7 @@ export interface FilesPreviewState {
   readonly error?: string;
   readonly saveError?: string;
   readonly saveStatus?: "saved";
+  readonly diskChanged?: boolean;
 }
 
 export interface FilesTabPayload {

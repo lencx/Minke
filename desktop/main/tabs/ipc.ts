@@ -14,10 +14,15 @@ import {
   parseFileManagerListRequest,
   parseFileManagerOpenRequest,
   parseFileManagerPreviewRequest,
+  parseFileManagerUnwatchRequest,
+  parseFileManagerWatchRequest,
   parseFileManagerWriteRequest,
+  TABS_FILES_CHANGE_CHANNEL,
   TABS_FILES_LIST_CHANNEL,
   TABS_FILES_OPEN_CHANNEL,
   TABS_FILES_PREVIEW_CHANNEL,
+  TABS_FILES_UNWATCH_CHANNEL,
+  TABS_FILES_WATCH_CHANNEL,
   TABS_FILES_WRITE_CHANNEL,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
@@ -34,6 +39,9 @@ import {
 import {
   FileManagerRuntime,
 } from "./files.ts";
+import {
+  FileWatchRuntime,
+} from "./file-watch.ts";
 import {
   openNormalizedTabExternally,
   protectTabWebviewGuest,
@@ -115,6 +123,13 @@ export function bindTabs(
   const files = new FileManagerRuntime({
     rootPath: options.fileSystemRoot,
     openPath: (path) => external.openPath(path),
+  });
+  const fileWatch = new FileWatchRuntime({
+    send: (event) => {
+      if (!embedder.isDestroyed()) {
+        embedder.send(TABS_FILES_CHANGE_CHANNEL, event);
+      }
+    },
   });
   const handleWillAttach = (
     event: Electron.Event,
@@ -224,6 +239,28 @@ export function bindTabs(
       parseFileManagerWriteRequest(request),
     );
   };
+  const handleFilesWatch = (
+    event: IpcMainEvent,
+    request: unknown,
+  ): void => {
+    if (!authorize(event)) return;
+    try {
+      fileWatch.watch(parseFileManagerWatchRequest(request));
+    } catch {
+      // Invalid or unavailable watch targets do not affect other Files tabs.
+    }
+  };
+  const handleFilesUnwatch = (
+    event: IpcMainEvent,
+    request: unknown,
+  ): void => {
+    if (!authorize(event)) return;
+    try {
+      fileWatch.unwatch(parseFileManagerUnwatchRequest(request));
+    } catch {
+      // Invalid watcher ids cannot own a main-process filesystem watcher.
+    }
+  };
 
   embedder.on("will-attach-webview", handleWillAttach);
   embedder.on("did-attach-webview", handleDidAttach);
@@ -236,6 +273,8 @@ export function bindTabs(
   ipc.handle(TABS_FILES_OPEN_CHANNEL, handleFilesOpen);
   ipc.handle(TABS_FILES_PREVIEW_CHANNEL, handleFilesPreview);
   ipc.handle(TABS_FILES_WRITE_CHANNEL, handleFilesWrite);
+  ipc.on(TABS_FILES_WATCH_CHANNEL, handleFilesWatch);
+  ipc.on(TABS_FILES_UNWATCH_CHANNEL, handleFilesUnwatch);
 
   let disposed = false;
   return {
@@ -265,6 +304,15 @@ export function bindTabs(
       ipc.removeHandler(TABS_FILES_OPEN_CHANNEL);
       ipc.removeHandler(TABS_FILES_PREVIEW_CHANNEL);
       ipc.removeHandler(TABS_FILES_WRITE_CHANNEL);
+      ipc.removeListener(
+        TABS_FILES_WATCH_CHANNEL,
+        handleFilesWatch,
+      );
+      ipc.removeListener(
+        TABS_FILES_UNWATCH_CHANNEL,
+        handleFilesUnwatch,
+      );
+      fileWatch.dispose();
       void terminal.dispose();
     },
   };

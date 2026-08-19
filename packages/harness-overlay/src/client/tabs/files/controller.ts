@@ -5,6 +5,7 @@ import type {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
 import type {
+  FileManagerChangeEvent,
   FileManagerListResult,
   FileManagerEntry,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
@@ -41,6 +42,29 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function parentPath(path: string): string {
+  const withoutTrailingSeparators = path.replace(/[\\/]+$/u, "");
+  const lastSeparator = Math.max(
+    withoutTrailingSeparators.lastIndexOf("/"),
+    withoutTrailingSeparators.lastIndexOf("\\"),
+  );
+  if (lastSeparator < 0) return withoutTrailingSeparators;
+  if (lastSeparator === 0) {
+    return withoutTrailingSeparators.slice(0, 1);
+  }
+  if (
+    lastSeparator === 2 &&
+    /^[A-Za-z]:[\\/]/u.test(withoutTrailingSeparators)
+  ) {
+    return withoutTrailingSeparators.slice(0, 3);
+  }
+  return withoutTrailingSeparators.slice(0, lastSeparator);
+}
+
+function directlyContains(directory: string, path: string): boolean {
+  return path === directory || parentPath(path) === directory;
+}
+
 /** Files-specific navigation layered over the content-agnostic Tabs core. */
 export class FilesTabsController {
   readonly #tabs: TabsRuntime;
@@ -49,6 +73,13 @@ export class FilesTabsController {
   readonly #revision = new Map<string, number>();
   readonly #previewRevision = new Map<string, number>();
   readonly #saveRevision = new Map<string, number>();
+  readonly #watchSubscriptions = new Map<
+    string,
+    {
+      readonly key: string;
+      readonly dispose: () => void;
+    }
+  >();
   readonly #unsubscribeTabs: () => void;
   #nextId = 0;
   #disposed = false;
@@ -56,9 +87,10 @@ export class FilesTabsController {
   constructor(tabs: TabsRuntime, desktop: DesktopFilesPort) {
     this.#tabs = tabs;
     this.#desktop = desktop;
-    this.#unsubscribeTabs = tabs.subscribe(
-      () => this.#releaseClosedTabs(),
-    );
+    this.#unsubscribeTabs = tabs.subscribe(() => {
+      this.#releaseClosedTabs();
+      this.#syncWatches();
+    });
   }
 
   create(path: string | undefined, title: string): string | undefined {
@@ -423,6 +455,7 @@ export class FilesTabsController {
               saveStatus: changedAfterSave
                 ? undefined
                 : "saved",
+              diskChanged: undefined,
             },
           },
         });
@@ -505,6 +538,10 @@ export class FilesTabsController {
     this.#revision.clear();
     this.#previewRevision.clear();
     this.#saveRevision.clear();
+    for (const subscription of this.#watchSubscriptions.values()) {
+      subscription.dispose();
+    }
+    this.#watchSubscriptions.clear();
   }
 
   async #load(
@@ -646,11 +683,16 @@ export class FilesTabsController {
     tabId: string,
     rootPath: string,
     path: string,
+    preserveEntries = false,
   ): void {
     const tab = this.#tabs.tab(tabId);
     if (tab === undefined || !isFilesTab(tab)) return;
+    const previous = tab.payload.tree[path];
     this.#updateTreeDirectory(tabId, path, {
-      entries: [],
+      entries:
+        preserveEntries && previous !== undefined
+          ? previous.entries
+          : [],
       expanded: true,
       loading: true,
       truncated: false,
@@ -710,6 +752,111 @@ export class FilesTabsController {
       this.#revision.delete(tabId);
       this.#previewRevision.delete(tabId);
       this.#saveRevision.delete(tabId);
+      this.#watchSubscriptions.get(tabId)?.dispose();
+      this.#watchSubscriptions.delete(tabId);
     }
+  }
+
+  #watchDirectories(tabId: string): readonly string[] {
+    const tab = this.#tabs.tab(tabId);
+    if (tab === undefined || !isFilesTab(tab)) return [];
+    const paths = new Set<string>();
+    if (tab.payload.path !== undefined) {
+      paths.add(tab.payload.path);
+    }
+    for (const [path, directory] of Object.entries(
+      tab.payload.tree,
+    )) {
+      if (directory?.expanded === true) paths.add(path);
+    }
+    if (tab.payload.preview !== undefined) {
+      paths.add(parentPath(tab.payload.preview.entry.path));
+    }
+    return [...paths].sort();
+  }
+
+  #syncWatches(): void {
+    if (this.#disposed) return;
+    for (const tab of this.#tabs.getSnapshot().tabs) {
+      if (!isFilesTab(tab)) continue;
+      const paths = this.#watchDirectories(tab.id);
+      const key = paths.join("\0");
+      const previous = this.#watchSubscriptions.get(tab.id);
+      if (previous?.key === key) continue;
+      previous?.dispose();
+      this.#watchSubscriptions.delete(tab.id);
+      if (paths.length === 0) continue;
+      const dispose = this.#desktop.watch(
+        paths,
+        (event) => this.#handleDiskChange(tab.id, event),
+      );
+      this.#watchSubscriptions.set(tab.id, { key, dispose });
+    }
+  }
+
+  #handleDiskChange(
+    tabId: string,
+    event: FileManagerChangeEvent,
+  ): void {
+    const tab = this.#tabs.tab(tabId);
+    if (
+      this.#disposed ||
+      tab === undefined ||
+      !isFilesTab(tab)
+    ) {
+      return;
+    }
+    const affectedDirectories = this.#watchDirectories(tabId)
+      .filter((directory) =>
+        event.paths.some((path) =>
+          directlyContains(directory, path)
+        )
+      );
+    for (const directory of affectedDirectories) {
+      if (directory === tab.payload.path) {
+        void this.#load(tabId, directory, { type: "reload" });
+      } else if (tab.payload.tree[directory]?.expanded === true) {
+        this.#startTreeDirectoryLoad(
+          tabId,
+          tab.payload.path ?? directory,
+          directory,
+          true,
+        );
+      }
+    }
+
+    const preview = tab.payload.preview;
+    if (
+      preview === undefined ||
+      preview.saving ||
+      !event.paths.some((path) =>
+        path === preview.entry.path ||
+        path === parentPath(preview.entry.path)
+      )
+    ) {
+      return;
+    }
+    if (!preview.dirty) {
+      this.preview(tabId, preview.entry);
+      return;
+    }
+    const current = this.#tabs.tab(tabId);
+    if (
+      current === undefined ||
+      !isFilesTab(current) ||
+      current.payload.preview?.entry.path !==
+        preview.entry.path
+    ) {
+      return;
+    }
+    this.#tabs.update<FilesTabPayload>(tabId, {
+      payload: {
+        ...current.payload,
+        preview: {
+          ...current.payload.preview,
+          diskChanged: true,
+        },
+      },
+    });
   }
 }

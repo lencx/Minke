@@ -33,6 +33,7 @@ import {
   parseSessionLogExportId,
 } from "@minke/harness-overlay/session-export-contract.ts";
 import {
+  parseFileManagerChangeEvent,
   parseFileManagerListRequest,
   parseFileManagerListResult,
   parseFileManagerOpenRequest,
@@ -42,6 +43,7 @@ import {
   parseFileManagerWriteResult,
   type FileManagerListRequest,
   type FileManagerListResult,
+  type FileManagerChangeEvent,
   type FileManagerOpenRequest,
   type FileManagerPreviewRequest,
   type FileManagerPreviewResult,
@@ -151,6 +153,10 @@ interface DesktopFilesBridge {
   open(request: FileManagerOpenRequest): Promise<void>;
   preview(request: FileManagerPreviewRequest): Promise<unknown>;
   write(request: FileManagerWriteRequest): Promise<unknown>;
+  watch?(
+    paths: readonly string[],
+    listener: (event: FileManagerChangeEvent) => void,
+  ): () => void;
 }
 
 interface DesktopTerminalBridge {
@@ -458,6 +464,10 @@ export interface DesktopFilesPort {
   write(
     request: FileManagerWriteRequest,
   ): Promise<FileManagerWriteResult>;
+  watch(
+    paths: readonly string[],
+    listener: (event: FileManagerChangeEvent) => void,
+  ): () => void;
 }
 
 export interface DesktopTerminalPort {
@@ -549,6 +559,9 @@ export function desktopFilesPort(
           "Minke desktop Files bridge is unavailable",
         );
       },
+      watch() {
+        return () => {};
+      },
     };
   }
   return {
@@ -576,6 +589,12 @@ export function desktopFilesPort(
           parseFileManagerWriteRequest(request),
         ),
       );
+    },
+    watch(paths, listener) {
+      if (bridge.watch === undefined) return () => {};
+      return bridge.watch(paths, (event) => {
+        listener(parseFileManagerChangeEvent(event));
+      });
     },
   };
 }

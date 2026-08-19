@@ -34,6 +34,8 @@ export const filesTabsZh = {
   "files.preview.saving": "正在保存",
   "files.preview.saved": "已保存",
   "files.preview.dirty": "有未保存的更改",
+  "files.preview.diskChanged":
+    "文件已在磁盘上更改。为保护未保存内容，预览未自动重载。",
   "files.preview.saveError": "保存失败：{error}",
   "files.preview.discardConfirm":
     "“{name}”有未保存的更改，确定要放弃吗？",
@@ -87,6 +89,8 @@ export const filesTabsEn: Record<
   "files.preview.saving": "Saving",
   "files.preview.saved": "Saved",
   "files.preview.dirty": "Unsaved changes",
+  "files.preview.diskChanged":
+    "This file changed on disk. The preview was not reloaded to protect your unsaved changes.",
   "files.preview.saveError": "Save failed: {error}",
   "files.preview.discardConfirm":
     "“{name}” has unsaved changes. Discard them?",

@@ -102,6 +102,9 @@ import {
   FileManagerRuntime,
 } from "@minke/desktop/main/tabs/files.ts";
 import {
+  FileWatchRuntime,
+} from "@minke/desktop/main/tabs/file-watch.ts";
+import {
   protectTabWebviewGuest,
   secureTabWebview,
 } from "@minke/desktop/main/tabs/security.ts";
@@ -433,6 +436,68 @@ test("Files writes atomically through symlinks and preserves permissions", async
     initialMode,
   );
   assert.equal(result.version, fileVersion(Buffer.from(edited)));
+});
+
+test("Files watcher batches changes and releases host watchers", () => {
+  const hostWatchers = new Map();
+  const events = [];
+  let scheduled;
+  const runtime = new FileWatchRuntime({
+    send(event) {
+      events.push(event);
+    },
+    watchPath(path, onChange, onError) {
+      const watcher = {
+        closed: false,
+        close() {
+          this.closed = true;
+        },
+        onChange,
+        onError,
+      };
+      hostWatchers.set(path, watcher);
+      return watcher;
+    },
+    schedule(callback) {
+      scheduled = callback;
+      return 1;
+    },
+    cancelSchedule() {
+      scheduled = undefined;
+    },
+  });
+
+  runtime.watch({
+    id: "files:test",
+    paths: ["/workspace", "/workspace"],
+  });
+  assert.deepEqual([...hostWatchers.keys()], ["/workspace"]);
+  hostWatchers.get("/workspace").onChange(
+    "/workspace/main.ts",
+  );
+  hostWatchers.get("/workspace").onChange(
+    "/workspace/main.ts",
+  );
+  assert.deepEqual(events, []);
+  scheduled();
+  assert.deepEqual(events, [
+    {
+      id: "files:test",
+      paths: ["/workspace/main.ts"],
+    },
+  ]);
+
+  runtime.unwatch({ id: "files:test" });
+  assert.equal(hostWatchers.get("/workspace").closed, true);
+  assert.throws(
+    () =>
+      runtime.watch({
+        id: "files:relative",
+        paths: ["relative"],
+      }),
+    /must be absolute/u,
+  );
+  runtime.dispose();
 });
 
 test("Files icons prefer semantic names and fall back by extension", () => {
@@ -892,6 +957,9 @@ test("Files tabs start at the project cwd and retain navigation history", async 
         version: fileVersion(Buffer.from(request.content)),
       };
     },
+    watch() {
+      return () => {};
+    },
   });
 
   const projectTab = files.create("/workspace", "Files");
@@ -1211,6 +1279,9 @@ test("Files keeps newer edits and failed-save drafts intact", async () => {
       }
       return Promise.reject(new Error("permission denied"));
     },
+    watch() {
+      return () => {};
+    },
   });
 
   const tabId = files.create("/workspace", "Files");
@@ -1276,6 +1347,113 @@ test("Files keeps newer edits and failed-save drafts intact", async () => {
     },
   ]);
 
+  files.dispose();
+  tabs.dispose();
+});
+
+test("Files refreshes the directory and clean preview after disk changes", async () => {
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const entry = {
+    name: "main.ts",
+    path: "/workspace/main.ts",
+    kind: "file",
+  };
+  const addedEntry = {
+    name: "added.ts",
+    path: "/workspace/added.ts",
+    kind: "file",
+  };
+  let directoryEntries = [entry];
+  let content = "export const value = 1;\n";
+  let watchListener;
+  const listRequests = [];
+  const previewRequests = [];
+  const files = new FilesTabsController(tabs, {
+    available: true,
+    async list(request) {
+      listRequests.push(request);
+      return {
+        path: request.path ?? "/",
+        entries: directoryEntries,
+        truncated: false,
+      };
+    },
+    async open() {},
+    async preview(request) {
+      previewRequests.push(request);
+      return {
+        kind: "text",
+        path: request.path,
+        name: entry.name,
+        size: Buffer.byteLength(content),
+        content,
+        truncated: false,
+        version: fileVersion(Buffer.from(content)),
+      };
+    },
+    async write() {
+      throw new Error("not used");
+    },
+    watch(paths, listener) {
+      assert.deepEqual(paths, ["/workspace"]);
+      watchListener = listener;
+      return () => {
+        watchListener = undefined;
+      };
+    },
+  });
+
+  const tabId = files.create("/workspace", "Files");
+  assert.ok(tabId);
+  await settleAsyncWork();
+  files.preview(tabId, entry);
+  await settleAsyncWork();
+  assert.equal(typeof watchListener, "function");
+
+  directoryEntries = [entry, addedEntry];
+  content = "export const value = 2;\n";
+  watchListener({ paths: [entry.path] });
+  await settleAsyncWork();
+
+  assert.deepEqual(
+    tabs.tab(tabId).payload.entries.map(({ name }) => name),
+    ["main.ts", "added.ts"],
+  );
+  assert.equal(
+    tabs.tab(tabId).payload.preview.result.content,
+    content,
+  );
+  assert.equal(listRequests.length, 2);
+  assert.equal(previewRequests.length, 2);
+
+  files.updatePreviewDraft(
+    tabId,
+    entry.path,
+    "export const local = true;\n",
+  );
+  content = "export const value = 3;\n";
+  watchListener({ paths: [entry.path] });
+  await settleAsyncWork();
+  assert.equal(
+    tabs.tab(tabId).payload.preview.result.content,
+    "export const value = 2;\n",
+  );
+  assert.equal(
+    tabs.tab(tabId).payload.preview.draft,
+    "export const local = true;\n",
+  );
+  assert.equal(
+    tabs.tab(tabId).payload.preview.diskChanged,
+    true,
+  );
+  assert.equal(listRequests.length, 3);
+  assert.equal(previewRequests.length, 2);
+
+  tabs.close(tabId);
+  assert.equal(watchListener, undefined);
   files.dispose();
   tabs.dispose();
 });
