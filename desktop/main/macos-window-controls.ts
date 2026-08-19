@@ -2,32 +2,28 @@ import { app, type BrowserWindow } from "electron";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import type {
+  WindowButtonDetachResult,
   WindowButtonGeometryResult,
 } from "sys";
 
 const nativeRequire = createRequire(__filename);
 
-export const MACOS_WINDOW_BUTTON_SIZE = 10;
-export const MACOS_WINDOW_BUTTON_CENTER_PITCH = 14;
-
 export type MacOSWindowButtonNativeAdapter = Readonly<{
+  attach(
+    nativeWindowHandle: Buffer,
+  ): WindowButtonGeometryResult;
+  detach(
+    nativeWindowHandle: Buffer,
+  ): WindowButtonDetachResult;
   enable(key: string): boolean;
   measure(
     nativeWindowHandle: Buffer,
-  ): WindowButtonGeometryResult;
-  setPitch(
-    nativeWindowHandle: Buffer,
-    centerPitch: number,
-  ): WindowButtonGeometryResult;
-  setSize(
-    nativeWindowHandle: Buffer,
-    buttonSize: number,
   ): WindowButtonGeometryResult;
 }>;
 
 type MacOSWindowButtonSpacingHost = Pick<
   BrowserWindow,
-  "getNativeWindowHandle" | "isDestroyed" | "off" | "on"
+  "getNativeWindowHandle" | "isDestroyed"
 >;
 
 type MacOSWindowButtonSpacingFacts = Readonly<{
@@ -62,9 +58,9 @@ function loadNativeAdapter(): MacOSWindowButtonNativeAdapter | null {
     ) as Partial<MacOSWindowButtonNativeAdapter>;
     if (
       typeof candidate.enable === "function" &&
+      typeof candidate.attach === "function" &&
+      typeof candidate.detach === "function" &&
       typeof candidate.measure === "function" &&
-      typeof candidate.setPitch === "function" &&
-      typeof candidate.setSize === "function" &&
       candidate.enable("sys.lencx.me")
     ) {
       cachedNativeAdapter = candidate as MacOSWindowButtonNativeAdapter;
@@ -95,16 +91,7 @@ export function reconcileMacOSWindowButtonSpacing(
   const adapter = resolveAdapter(facts);
   if (adapter === null) return skipped("native_adapter_unavailable");
   try {
-    const nativeWindowHandle = host.getNativeWindowHandle();
-    const sizeResult = adapter.setSize(
-      nativeWindowHandle,
-      MACOS_WINDOW_BUTTON_SIZE,
-    );
-    if (sizeResult.status === "skipped") return sizeResult;
-    return adapter.setPitch(
-      nativeWindowHandle,
-      MACOS_WINDOW_BUTTON_CENTER_PITCH,
-    );
+    return adapter.attach(host.getNativeWindowHandle());
   } catch {
     return skipped("native_bridge_failed");
   }
@@ -115,48 +102,35 @@ export function bindMacOSWindowButtonSpacing(
   facts: MacOSWindowButtonSpacingFacts,
 ): MacOSWindowButtonSpacingBinding {
   let disposed = false;
-  let scheduled = false;
+  let nativeWindowHandle: Buffer | undefined;
 
-  const reconcile = (): WindowButtonGeometryResult =>
-    disposed
-      ? skipped("binding_disposed")
-      : reconcileMacOSWindowButtonSpacing(host, facts);
-
-  const schedule = (): void => {
-    if (disposed || scheduled) return;
-    scheduled = true;
-    setImmediate(() => {
-      scheduled = false;
-      if (!disposed) reconcile();
-    });
+  const reconcile = (): WindowButtonGeometryResult => {
+    if (disposed) return skipped("binding_disposed");
+    const result = reconcileMacOSWindowButtonSpacing(host, facts);
+    if (result.status !== "skipped" && nativeWindowHandle === undefined) {
+      nativeWindowHandle = host.getNativeWindowHandle();
+    }
+    return result;
   };
 
-  const reconcileOnResize = (): void => {
-    if (!disposed) reconcile();
-  };
-
-  host.on("ready-to-show", schedule);
-  host.on("show", schedule);
-  host.on("restore", schedule);
-  host.on("maximize", schedule);
-  host.on("unmaximize", schedule);
-  host.on("leave-full-screen", schedule);
-  // Electron restores AppKit's default spacing before it emits resize.
-  // Repair synchronously so the following native redraw sees the 14pt pitch.
-  host.on("resize", reconcileOnResize);
   reconcile();
 
   return Object.freeze({
     dispose: () => {
       if (disposed) return;
       disposed = true;
-      host.off("ready-to-show", schedule);
-      host.off("show", schedule);
-      host.off("restore", schedule);
-      host.off("maximize", schedule);
-      host.off("unmaximize", schedule);
-      host.off("leave-full-screen", schedule);
-      host.off("resize", reconcileOnResize);
+      if (
+        facts.platform === "darwin" &&
+        nativeWindowHandle !== undefined &&
+        !host.isDestroyed()
+      ) {
+        try {
+          resolveAdapter(facts)?.detach(nativeWindowHandle);
+        } catch {
+          // The native controller also detaches on NSWindowWillClose.
+        }
+      }
+      nativeWindowHandle = undefined;
     },
     readGeometry: () => {
       if (facts.platform !== "darwin") return skipped("unsupported_platform");
@@ -164,9 +138,7 @@ export function bindMacOSWindowButtonSpacing(
       const adapter = resolveAdapter(facts);
       if (adapter === null) return skipped("native_adapter_unavailable");
       try {
-        return adapter.measure(
-          host.getNativeWindowHandle(),
-        );
+        return adapter.measure(host.getNativeWindowHandle());
       } catch {
         return skipped("native_bridge_failed");
       }

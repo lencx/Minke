@@ -26,10 +26,12 @@ if (process.platform !== "darwin") {
 
     assert.equal(packageManifest.name, "sys");
     assert.equal(basename(binaryPath), "lencx_mb.node");
+    assert.equal(typeof sys.attach, "function");
+    assert.equal(typeof sys.detach, "function");
     assert.equal(typeof sys.enable, "function");
     assert.equal(typeof sys.measure, "function");
-    assert.equal(typeof sys.setPitch, "function");
-    assert.equal(typeof sys.setSize, "function");
+    assert.equal(sys.setPitch, undefined);
+    assert.equal(sys.setSize, undefined);
     assert.equal(sys.readWindowButtonGeometry, undefined);
     assert.equal(sys.setWindowButtonCenterPitch, undefined);
     assert.equal(sys.setWindowButtonSize, undefined);
@@ -48,8 +50,16 @@ if (process.platform !== "darwin") {
       { reason: "window_unavailable", status: "skipped" },
     );
     assert.deepEqual(
-      sys.setSize(Buffer.alloc(8), 10),
+      sys.attach(Buffer.alloc(8)),
       { reason: "window_unavailable", status: "skipped" },
+    );
+    assert.deepEqual(
+      sys.detach(Buffer.alloc(8)),
+      { reason: "window_unavailable", status: "skipped" },
+    );
+    assert.throws(
+      () => sys.attach(Buffer.alloc(8), 10),
+      /attach expects one argument/u,
     );
     assert.equal(
       readFileSync(binaryPath).includes(Buffer.from("sys.lencx.me")),

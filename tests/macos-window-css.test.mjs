@@ -346,27 +346,16 @@ test("the smaller traffic lights are centered in the default rail", () => {
   const trafficLightPosition = macOSWindowSource.match(
     /trafficLightPosition:\s*\{\s*x:\s*(\d+),\s*y:\s*(\d+)\s*\}/,
   );
-  const buttonSize = macOSWindowControlsSource.match(
-    /MACOS_WINDOW_BUTTON_SIZE\s*=\s*(\d+)/,
-  );
-  const buttonCenterPitch = macOSWindowControlsSource.match(
-    /MACOS_WINDOW_BUTTON_CENTER_PITCH\s*=\s*(\d+)/,
-  );
   const sidebarWidth = harnessColumnsSource.match(
     /SIDEBAR_COLLAPSED\s*=\s*(\d+)/,
   );
   assert.ok(trafficLightPosition, "traffic-light position must remain explicit");
-  assert.ok(buttonSize, "traffic-light size must remain explicit");
-  assert.ok(buttonCenterPitch, "traffic-light pitch must remain explicit");
   assert.ok(sidebarWidth, "collapsed sidebar width must remain explicit");
   assert.equal(Number(trafficLightPosition[2]), 10);
-  assert.equal(Number(buttonSize[1]), 10);
-  assert.equal(Number(buttonCenterPitch[1]), 14);
+  const fixedNativeClusterWidth = 10 + 14 * 2;
   assert.equal(
     Number(trafficLightPosition[1]),
-    (Number(sidebarWidth[1]) -
-      (Number(buttonSize[1]) + Number(buttonCenterPitch[1]) * 2)) /
-      2,
+    (Number(sidebarWidth[1]) - fixedNativeClusterWidth) / 2,
     "the traffic-light frames must be centered in the collapsed sidebar",
   );
 });
@@ -384,8 +373,11 @@ test("the native titlebar hides only the expanded web brand", () => {
   assert.ok(sidebarWidth, "collapsed sidebar width must remain explicit");
   assert.match(
     macOSWindowControlsSource,
-    /adapter\.setSize\(/,
+    /adapter\.attach\(/,
   );
+  assert.doesNotMatch(macOSWindowControlsSource, /adapter\.setSize\(/);
+  assert.doesNotMatch(macOSWindowControlsSource, /adapter\.setPitch\(/);
+  assert.doesNotMatch(macOSWindowControlsSource, /setImmediate\(/);
   assert.match(
     macOSWindowControlsSource,
     /join\(app\.getAppPath\(\), "node_modules", "sys", "index\.js"\)/,
