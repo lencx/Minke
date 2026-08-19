@@ -133,17 +133,7 @@ function TreeEntries(props: {
         </button>
         {expanded && directory !== undefined && (
           <ul className="minke-files-tree__group">
-            {directory.loading ? (
-              <li
-                className="minke-files-tree__message"
-                style={{
-                  "--minke-files-depth": depth + 1,
-                } as CSSProperties}
-                role="status"
-              >
-                {t("files.tree.loading")}
-              </li>
-            ) : directory.error !== undefined ? (
+            {directory.error !== undefined ? (
               <li
                 className="minke-files-tree__message"
                 style={{

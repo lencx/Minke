@@ -6,9 +6,10 @@ import type {
   FileManagerEntry,
   FileManagerPreviewResult,
   FileManagerRepository,
+  FileManagerViewMode,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 
-export type FilesViewMode = "list" | "tree";
+export type FilesViewMode = FileManagerViewMode;
 export type FilesPreviewMode = "source" | "diff";
 
 export interface FilesTreeDirectoryState {

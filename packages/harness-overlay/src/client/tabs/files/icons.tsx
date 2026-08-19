@@ -6,9 +6,9 @@ import {
   Binary,
   ChevronDown,
   ChevronRight,
-  ExternalLink,
   FileCode,
   FileDiff,
+  FileSymlink,
   FileText,
   FileQuestion,
   FolderOpen,
@@ -108,7 +108,7 @@ export function GitBranchIcon(props: IconProps): ReactNode {
 }
 
 export function OpenSystemIcon(props: IconProps): ReactNode {
-  return <LucideIcon icon={ExternalLink} size={props.size} />;
+  return <LucideIcon icon={FileSymlink} size={props.size} />;
 }
 
 export function OpenFolderIcon(props: IconProps): ReactNode {

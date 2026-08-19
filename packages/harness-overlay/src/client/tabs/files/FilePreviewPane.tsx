@@ -300,68 +300,71 @@ export function FilePreviewPane(props: {
             </span>
           )}
         </strong>
-        {preview.result?.kind === "text" && (
-          <div
-            className="minke-files-preview__mode"
-            role="group"
-            aria-label={t("files.preview.mode.group")}
+        <div className="minke-files-preview__actions">
+          {preview.result?.kind === "text" && (
+            <div
+              className="minke-files-preview__mode"
+              role="group"
+              aria-label={t("files.preview.mode.group")}
+            >
+              <button
+                type="button"
+                aria-pressed={preview.mode === "source"}
+                aria-label={t("files.preview.mode.source")}
+                title={t("files.preview.mode.source")}
+                onClick={() =>
+                  controller.setPreviewMode(tabId, "source")}
+              >
+                <SourcePreviewIcon size={15} />
+              </button>
+              <button
+                type="button"
+                aria-pressed={preview.mode === "diff"}
+                aria-label={t("files.preview.mode.diff")}
+                title={t("files.preview.mode.diff")}
+                disabled={!canDiff}
+                onClick={() =>
+                  controller.setPreviewMode(tabId, "diff")}
+              >
+                <DiffPreviewIcon size={15} />
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            aria-label={t("files.preview.openSystem")}
+            title={t("files.preview.openSystem")}
+            onClick={() =>
+              controller.open(tabId, preview.entry.path)}
           >
-            <button
-              type="button"
-              aria-pressed={preview.mode === "source"}
-              aria-label={t("files.preview.mode.source")}
-              title={t("files.preview.mode.source")}
-              onClick={() =>
-                controller.setPreviewMode(tabId, "source")}
-            >
-              <SourcePreviewIcon size={14} />
-            </button>
-            <button
-              type="button"
-              aria-pressed={preview.mode === "diff"}
-              aria-label={t("files.preview.mode.diff")}
-              title={t("files.preview.mode.diff")}
-              disabled={!canDiff}
-              onClick={() =>
-                controller.setPreviewMode(tabId, "diff")}
-            >
-              <DiffPreviewIcon size={14} />
-            </button>
-          </div>
-        )}
-        <button
-          type="button"
-          aria-label={t("files.preview.openSystem")}
-          title={t("files.preview.openSystem")}
-          onClick={() => controller.open(tabId, preview.entry.path)}
-        >
-          <OpenSystemIcon size={14} />
-        </button>
-        <button
-          type="button"
-          aria-label={t("files.preview.close")}
-          title={t("files.preview.close")}
-          disabled={preview.saving}
-          onClick={(event) => {
-            if (preview.dirty) {
-              const view =
-                event.currentTarget.ownerDocument.defaultView;
-              if (
-                view !== null &&
-                !view.confirm(
-                  t("files.preview.discardConfirm", {
-                    name: preview.entry.name,
-                  }),
-                )
-              ) {
-                return;
+            <OpenSystemIcon size={15} />
+          </button>
+          <button
+            type="button"
+            aria-label={t("files.preview.close")}
+            title={t("files.preview.close")}
+            disabled={preview.saving}
+            onClick={(event) => {
+              if (preview.dirty) {
+                const view =
+                  event.currentTarget.ownerDocument.defaultView;
+                if (
+                  view !== null &&
+                  !view.confirm(
+                    t("files.preview.discardConfirm", {
+                      name: preview.entry.name,
+                    }),
+                  )
+                ) {
+                  return;
+                }
               }
-            }
-            controller.closePreview(tabId);
-          }}
-        >
-          <ClosePreviewIcon size={14} />
-        </button>
+              controller.closePreview(tabId);
+            }}
+          >
+            <ClosePreviewIcon size={15} />
+          </button>
+        </div>
       </header>
       {preview.error !== undefined ? (
         <div className="minke-files-preview__state" role="alert">

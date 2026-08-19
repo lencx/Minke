@@ -88,8 +88,8 @@ export function FileManagerView(props: {
       setPreviewWidth((current) => {
         const next = clampFilesPreviewWidth(
           containerWidth,
-          current ??
-            tab.payload.previewWidth ??
+          tab.payload.previewWidth ??
+            current ??
             defaultFilesPreviewWidth(containerWidth),
         );
         return current === next ? current : next;
@@ -101,9 +101,13 @@ export function FileManagerView(props: {
     return () => observer.disconnect();
   }, [active, hasPreview, tab.payload.previewWidth]);
 
-  const commitPreviewWidth = (width: number): void => {
+  const commitPreviewWidth = (
+    width: number,
+    persist = false,
+  ): void => {
     setPreviewWidth(width);
     controller.setPreviewWidth(tab.id, width);
+    if (persist) controller.persistPreviewWidth(tab.id);
   };
 
   const resizePreviewAt = (clientX: number): void => {
@@ -120,11 +124,13 @@ export function FileManagerView(props: {
   };
   const releasePreviewResize = (
     event: ReactPointerEvent<HTMLDivElement>,
+    persist: boolean,
   ): void => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     setResizingPreview(false);
+    if (persist) controller.persistPreviewWidth(tab.id);
   };
   const previewEntry = (entry: FileManagerEntry): void => {
     if (preview?.entry.path === entry.path) return;
@@ -329,6 +335,7 @@ export function FileManagerView(props: {
                 if (width !== undefined) {
                   commitPreviewWidth(
                     defaultFilesPreviewWidth(width),
+                    true,
                   );
                 }
               }}
@@ -349,8 +356,13 @@ export function FileManagerView(props: {
                   resizePreviewAt(event.clientX);
                 }
               }}
-              onPointerUp={releasePreviewResize}
-              onPointerCancel={releasePreviewResize}
+              onPointerUp={(event) => {
+                resizePreviewAt(event.clientX);
+                releasePreviewResize(event, true);
+              }}
+              onPointerCancel={(event) => {
+                releasePreviewResize(event, true);
+              }}
               onKeyDown={(event) => {
                 if (
                   event.key !== "ArrowLeft" &&
@@ -374,6 +386,7 @@ export function FileManagerView(props: {
                         ? step
                         : -step),
                   ),
+                  true,
                 );
               }}
             />

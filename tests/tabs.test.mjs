@@ -19,11 +19,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { EditorState } from "@codemirror/state";
 import {
   normalizeWebTabUrl,
+  parseTabsLayoutState,
+  parseTabsLayoutStateUpdate,
   TABS_WEB_PARTITION,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
   FILES_IMAGE_PREVIEW_MAX_BYTES,
   FILES_TEXT_PREVIEW_MAX_BYTES,
+  parseFileManagerViewState,
+  parseFileManagerViewStateUpdate,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
   NewSessionTabsHeaderAction,
@@ -47,12 +51,15 @@ import {
 import {
   clampTabsPanelHeight,
   clampTabsPanelWidth,
+  tabsPanelReflowMaxWidth,
   TabsPanelResizeController,
   TABS_PANEL_DEFAULT_HEIGHT,
   TABS_PANEL_MAX_HEIGHT,
-  TABS_PANEL_MAX_WIDTH,
   TABS_PANEL_MIN_HEIGHT,
 } from "@minke/harness-overlay/client/tabs/resize.ts";
+import {
+  TabsLayoutStateRuntime,
+} from "@minke/harness-overlay/client/tabs/layout-state.ts";
 import {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
@@ -129,6 +136,170 @@ function filesTestTranslate(key, params = {}) {
   }
   return key;
 }
+
+test("Files view state contract keeps panel settings isolated", () => {
+  assert.deepEqual(
+    parseFileManagerViewState({
+      right: { previewWidth: 420 },
+    }),
+    {
+      right: { previewWidth: 420 },
+    },
+  );
+  assert.deepEqual(
+    parseFileManagerViewState({
+      right: {
+        previewWidth: 420,
+        viewMode: "tree",
+      },
+      bottom: {
+        previewWidth: 680,
+        viewMode: "list",
+      },
+    }),
+    {
+      right: {
+        previewWidth: 420,
+        viewMode: "tree",
+      },
+      bottom: {
+        previewWidth: 680,
+        viewMode: "list",
+      },
+    },
+  );
+  assert.deepEqual(
+    parseFileManagerViewStateUpdate({
+      placement: "right",
+      viewMode: "tree",
+    }),
+    {
+      placement: "right",
+      viewMode: "tree",
+    },
+  );
+  assert.throws(
+    () =>
+      parseFileManagerViewStateUpdate({
+        placement: "left",
+        viewMode: "tree",
+      }),
+    /placement/u,
+  );
+  assert.throws(
+    () =>
+      parseFileManagerViewState({
+        right: { previewWidth: Number.POSITIVE_INFINITY },
+      }),
+    /preview width/u,
+  );
+  assert.throws(
+    () =>
+      parseFileManagerViewStateUpdate({
+        placement: "right",
+        viewMode: "grid",
+      }),
+    /view mode/u,
+  );
+  assert.throws(
+    () =>
+      parseFileManagerViewStateUpdate({
+        placement: "right",
+      }),
+    /view setting/u,
+  );
+});
+
+test("Tabs layout state hydrates both panels without overwriting interaction", async () => {
+  assert.deepEqual(
+    parseTabsLayoutState({
+      rightWidth: 720,
+      bottomHeight: 372,
+    }),
+    {
+      rightWidth: 720,
+      bottomHeight: 372,
+    },
+  );
+  assert.deepEqual(
+    parseTabsLayoutStateUpdate({
+      placement: "right",
+      size: 640,
+    }),
+    {
+      placement: "right",
+      size: 640,
+    },
+  );
+  assert.throws(
+    () =>
+      parseTabsLayoutState({
+        rightWidth: Number.POSITIVE_INFINITY,
+      }),
+    /finite positive size/u,
+  );
+  assert.throws(
+    () =>
+      parseTabsLayoutStateUpdate({
+        placement: "left",
+        size: 320,
+      }),
+    /placement/u,
+  );
+
+  let hydrate;
+  const writes = [];
+  const layout = new TabsLayoutStateRuntime({
+    readLayoutState: () =>
+      new Promise((resolve) => {
+        hydrate = resolve;
+      }),
+    async writeLayoutState(update) {
+      writes.push(update);
+    },
+  });
+  const rightSize = layout.size("right");
+  layout.setSize("right", 940);
+  hydrate({
+    rightWidth: 520,
+    bottomHeight: 372,
+  });
+  assert.equal(await rightSize, 940);
+  assert.equal(await layout.size("bottom"), 372);
+  layout.setSize("bottom", 432);
+  await settleAsyncWork();
+  assert.deepEqual(writes, [
+    { placement: "right", size: 940 },
+    { placement: "bottom", size: 432 },
+  ]);
+  layout.dispose();
+});
+
+test("Harness details track reflows before the Tabs overlay takes over", () => {
+  const patch = readFileSync(
+    new URL(
+      "../patches/deepseek-harness/tabs-details-layout.patch",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    patch,
+    /^\+\s*const detailsMaximum = Math\.max\(300, Math\.floor\(available \* 2 \/ 3\)\);/mu,
+  );
+  assert.match(
+    patch,
+    /^\+\s*setDetails\(width\) \{/mu,
+  );
+  assert.match(
+    patch,
+    /^\+\s*this\.#require\(\)\.setDetails\(width\);/mu,
+  );
+  assert.doesNotMatch(
+    patch,
+    /^\+\s*const d0 = .*520/mu,
+  );
+});
 
 test("Web tab URLs accept only credential-free HTTP(S)", () => {
   assert.equal(
@@ -907,6 +1078,13 @@ test("Files preview keeps editing state compact and preserves save errors", () =
     ),
     "utf8",
   );
+  const iconsSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/files/icons.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
   const headerStart = previewSource.indexOf(
     '<header className="minke-files-preview__header">',
   );
@@ -971,6 +1149,11 @@ test("Files preview keeps editing state compact and preserves save errors", () =
   assert.doesNotMatch(localeSource, /"files\.preview\.saved"/u);
   assert.doesNotMatch(localeSource, /"files\.preview\.save":/u);
   assert.match(localeSource, /"files\.preview\.saveError"/u);
+  assert.match(
+    iconsSource,
+    /OpenSystemIcon[\s\S]*?icon=\{FileSymlink\}/u,
+  );
+  assert.doesNotMatch(iconsSource, /\bExternalLink\b/u);
 });
 
 test("Files toolbar focus and explorer density stay compact", () => {
@@ -984,15 +1167,35 @@ test("Files toolbar focus and explorer density stay compact", () => {
   );
   assert.match(
     FILES_TAB_STYLES,
-    /\.minke-files-row\s*\{[\s\S]*?min-height:\s*28px/u,
+    /\.minke-files-row\s*\{[\s\S]*?min-height:\s*26px/u,
   );
   assert.match(
     FILES_TAB_STYLES,
-    /\.minke-files-tree-row\s*\{[\s\S]*?min-height:\s*26px/u,
+    /\.minke-files-tree-row\s*\{[\s\S]*?min-height:\s*24px/u,
   );
   assert.match(
     FILES_TAB_STYLES,
-    /var\(--minke-files-depth,\s*0\)\s*\*\s*14px/u,
+    /var\(--minke-files-depth,\s*0\)\s*\*\s*11px/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-tree\s*\{[\s\S]*?overflow-x:\s*hidden;[\s\S]*?scrollbar-gutter:\s*stable;/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-tree-row__name\s*\{[\s\S]*?flex:\s*1;[\s\S]*?text-overflow:\s*ellipsis;/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-(?:row|tree-row):focus-visible[\s\S]*?outline:\s*none;/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-tree:hover::?-webkit-scrollbar-thumb[\s\S]*?background-color:/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-tree::?-webkit-scrollbar\s*\{[\s\S]*?width:\s*4px;/u,
   );
 });
 
@@ -1295,6 +1498,13 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     ),
     "utf8",
   );
+  const previewPaneSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/files/FilePreviewPane.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
   const editorSource = readFileSync(
     new URL(
       "../packages/harness-overlay/src/client/tabs/files/CodeMirrorEditor.tsx",
@@ -1329,6 +1539,10 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   assert.match(viewSource, /setPointerCapture/u);
   assert.match(viewSource, /ResizeObserver/u);
   assert.match(viewSource, /ArrowLeft/u);
+  assert.match(
+    previewPaneSource,
+    /className="minke-files-preview__actions"/u,
+  );
   assert.match(FILES_TAB_STYLES, /\.minke-files-row\s*\{/u);
   assert.match(FILES_TAB_STYLES, /\.minke-files-tree\s*\{/u);
   assert.match(FILES_TAB_STYLES, /\.minke-files-preview\s*\{/u);
@@ -1367,10 +1581,19 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     FILES_TAB_STYLES,
     /\.minke-files-preview__mode/u,
   );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-preview__actions\s*\{[^}]*gap:\s*2px/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-preview__mode\s*\{[^}]*gap:\s*2px/u,
+  );
   assert.match(FILES_TAB_STYLES, /\.cm-deletedChunk/u);
   assert.match(FILES_TAB_STYLES, /\.cm-changedText/u);
   assert.doesNotMatch(treeSource, /role="tree(?:item)?"/u);
   assert.match(treeSource, /aria-expanded=/u);
+  assert.doesNotMatch(treeSource, /files\.tree\.loading/u);
   assert.match(rendererSource, /beforeClose:/u);
   assert.match(tabsPanelSource, /\.beforeClose\?\.\(tab\)/u);
   assert.match(
@@ -1382,6 +1605,8 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     "handleFilesList",
     "handleFilesOpen",
     "handleFilesPreview",
+    "handleFilesViewStateRead",
+    "handleFilesViewStateWrite",
     "handleFilesWrite",
   ]) {
     const start = tabsIpcSource.indexOf(`const ${handler}`);
@@ -1396,6 +1621,168 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     FILES_TAB_STYLES,
     /scrollbar-color:[\s\S]*var\(--dsw-alias-border-l3\)/u,
   );
+
+  files.dispose();
+  tabs.dispose();
+});
+
+test("Files view mode and width persist across new tabs", async () => {
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const stateWrites = [];
+  const files = new FilesTabsController(
+    tabs,
+    {
+      available: true,
+      async readViewState() {
+        return {
+          right: {
+            previewWidth: 412,
+            viewMode: "tree",
+          },
+          bottom: {
+            previewWidth: 688,
+            viewMode: "list",
+          },
+        };
+      },
+      async writeViewState(update) {
+        stateWrites.push(update);
+      },
+      async list(request) {
+        return {
+          path: request.path ?? "/",
+          entries: [],
+          truncated: false,
+        };
+      },
+      async open() {},
+      async preview() {
+        throw new Error("not used");
+      },
+      async write() {
+        throw new Error("not used");
+      },
+      watch() {
+        return () => {};
+      },
+    },
+    { placement: "right" },
+  );
+
+  await settleAsyncWork();
+  const firstTab = files.create("/workspace", "Files");
+  assert.ok(firstTab);
+  await settleAsyncWork();
+  assert.equal(
+    tabs.tab(firstTab).payload.previewWidth,
+    412,
+  );
+  assert.equal(tabs.tab(firstTab).payload.viewMode, "tree");
+  const siblingTab = files.create(
+    "/workspace/sibling",
+    "Files",
+  );
+  assert.ok(siblingTab);
+  await settleAsyncWork();
+  assert.equal(
+    tabs.tab(siblingTab).payload.previewWidth,
+    412,
+  );
+  assert.equal(tabs.tab(siblingTab).payload.viewMode, "tree");
+
+  files.setViewMode(firstTab, "list");
+  assert.equal(tabs.tab(firstTab).payload.viewMode, "list");
+  assert.equal(tabs.tab(siblingTab).payload.viewMode, "list");
+  files.setPreviewWidth(firstTab, 468);
+  assert.equal(
+    tabs.tab(siblingTab).payload.previewWidth,
+    468,
+  );
+  files.persistPreviewWidth(firstTab);
+  await settleAsyncWork();
+  assert.deepEqual(stateWrites, [
+    {
+      placement: "right",
+      viewMode: "list",
+    },
+    {
+      placement: "right",
+      previewWidth: 468,
+    },
+  ]);
+
+  const secondTab = files.create("/workspace/next", "Files");
+  assert.ok(secondTab);
+  await settleAsyncWork();
+  assert.equal(
+    tabs.tab(secondTab).payload.previewWidth,
+    468,
+  );
+  assert.equal(tabs.tab(secondTab).payload.viewMode, "list");
+
+  files.dispose();
+  tabs.dispose();
+});
+
+test("Files keeps the settled directory visible while navigating", async () => {
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const firstEntry = {
+    name: "src",
+    path: "/workspace/src",
+    kind: "directory",
+  };
+  let resolveNavigation;
+  const files = new FilesTabsController(tabs, {
+    available: true,
+    async list(request) {
+      if (request.path === "/workspace") {
+        return {
+          path: "/workspace",
+          entries: [firstEntry],
+          truncated: false,
+        };
+      }
+      return await new Promise((resolve) => {
+        resolveNavigation = resolve;
+      });
+    },
+    async open() {},
+    async preview() {
+      throw new Error("not used");
+    },
+    async write() {
+      throw new Error("not used");
+    },
+    watch() {
+      return () => {};
+    },
+  });
+
+  const tabId = files.create("/workspace", "Files");
+  assert.ok(tabId);
+  await settleAsyncWork();
+  assert.equal(tabs.tab(tabId).payload.loading, false);
+  assert.deepEqual(tabs.tab(tabId).payload.entries, [firstEntry]);
+
+  files.navigate(tabId, "/workspace/src");
+  assert.equal(tabs.tab(tabId).payload.loading, false);
+  assert.deepEqual(tabs.tab(tabId).payload.entries, [firstEntry]);
+
+  resolveNavigation({
+    path: "/workspace/src",
+    parent: "/workspace",
+    entries: [],
+    truncated: false,
+  });
+  await settleAsyncWork();
+  assert.equal(tabs.tab(tabId).payload.path, "/workspace/src");
+  assert.deepEqual(tabs.tab(tabId).payload.entries, []);
 
   files.dispose();
   tabs.dispose();
@@ -1510,6 +1897,98 @@ test("Files keeps newer edits and failed-save drafts intact", async () => {
       expectedVersion: firstVersion,
     },
   ]);
+
+  files.dispose();
+  tabs.dispose();
+});
+
+test("Files keeps editor state after its own save event", async () => {
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const entry = {
+    name: "main.ts",
+    path: "/workspace/main.ts",
+    kind: "file",
+  };
+  const initial = "export const value = 1;\n";
+  const edited = "export const value = 2;\n";
+  const initialVersion = fileVersion(Buffer.from(initial));
+  const editedVersion = fileVersion(Buffer.from(edited));
+  const previewRequests = [];
+  let content = initial;
+  let version = initialVersion;
+  let watchListener;
+  const files = new FilesTabsController(tabs, {
+    available: true,
+    async list(request) {
+      return {
+        path: request.path ?? "/",
+        entries: [entry],
+        truncated: false,
+      };
+    },
+    async open() {},
+    async preview(request) {
+      previewRequests.push(request);
+      return {
+        kind: "text",
+        path: request.path,
+        name: entry.name,
+        size: Buffer.byteLength(content),
+        content,
+        truncated: false,
+        version,
+      };
+    },
+    async write(request) {
+      content = request.content;
+      version = editedVersion;
+      return {
+        path: request.path,
+        size: Buffer.byteLength(request.content),
+        version: editedVersion,
+      };
+    },
+    watch(_paths, listener) {
+      watchListener = listener;
+      return () => {
+        watchListener = undefined;
+      };
+    },
+  });
+
+  const tabId = files.create("/workspace", "Files");
+  assert.ok(tabId);
+  await settleAsyncWork();
+  files.preview(tabId, entry);
+  await settleAsyncWork();
+  files.updatePreviewDraft(tabId, entry.path, edited);
+  files.savePreview(tabId);
+  await settleAsyncWork();
+  assert.equal(tabs.tab(tabId).payload.preview.dirty, false);
+  assert.equal(
+    tabs.tab(tabId).payload.preview.result.version,
+    editedVersion,
+  );
+  const savedPreview = tabs.tab(tabId).payload.preview;
+
+  watchListener({
+    id: "files:test",
+    paths: [entry.path],
+  });
+  assert.equal(
+    tabs.tab(tabId).payload.preview.loading,
+    false,
+  );
+  await settleAsyncWork();
+  assert.equal(previewRequests.length, 2);
+  assert.equal(tabs.tab(tabId).payload.preview, savedPreview);
+  assert.equal(
+    tabs.tab(tabId).payload.preview.result.content,
+    edited,
+  );
 
   files.dispose();
   tabs.dispose();
@@ -2430,7 +2909,7 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   );
   assert.match(
     TABS_STYLES,
-    /max-width:\s*min\(760px,\s*calc\(100% - 320px\)\);/u,
+    /max-width:\s*calc\(100% - 20px\);/u,
   );
   assert.match(
     TABS_STYLES,
@@ -2445,11 +2924,9 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
     /\.minke-tabs-tabbar__actions\s*\{[^}]*border-left:/u,
   );
   assert.match(TABS_STYLES, /scrollbar-width:\s*none;/u);
-  assert.equal(
-    clampTabsPanelWidth(1000, 1200),
-    TABS_PANEL_MAX_WIDTH,
-  );
-  assert.equal(clampTabsPanelWidth(700, 900), 580);
+  assert.equal(tabsPanelReflowMaxWidth(1200, 240), 640);
+  assert.equal(clampTabsPanelWidth(1000, 1200, 240), 940);
+  assert.equal(clampTabsPanelWidth(700, 900, 240), 640);
   const terminalStylesSource = readFileSync(
     new URL(
       "../packages/harness-overlay/src/client/tabs/terminal/styles.css",
@@ -2511,7 +2988,68 @@ test("Tabs new button always opens the type chooser", () => {
   assert.doesNotMatch(typesSource, /\bcreateTab\??\s*\(/u);
 });
 
-test("Tabs resize stays interactive with and without a host details handle", () => {
+test("bottom Tabs chooser uses a height-efficient grid", () => {
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-empty\s*\{[\s\S]*?align-items:\s*safe center;/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-tabs-empty__options\s*\{[\s\S]*?max-width:\s*420px;[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-tabs-empty__option\s*\{[\s\S]*?min-height:\s*68px;[\s\S]*?flex-direction:\s*column;[\s\S]*?justify-content:\s*center;/u,
+  );
+});
+
+test("right Tabs window dragging stays outside click and reorder targets", () => {
+  const panelSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/TabsPanel.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const stripIndex = panelSource.indexOf(
+    'className="minke-tabs-strip"',
+  );
+  const dragRegionIndex = panelSource.indexOf(
+    'data-minke-tabs-window-drag=""',
+  );
+  const actionsIndex = panelSource.indexOf(
+    'className="minke-tabs-tabbar__actions"',
+  );
+
+  assert.match(
+    panelSource,
+    /\{placement === "right" && \([\s\S]*?data-minke-tabs-window-drag=""/u,
+  );
+  assert.ok(
+    stripIndex >= 0 &&
+      stripIndex < dragRegionIndex &&
+      dragRegionIndex < actionsIndex,
+    "the inert window-drag spacer must be a sibling after the sortable strip",
+  );
+  assert.match(
+    panelSource,
+    /onClick=\{\(\) => \{[\s\S]*?runtime\.activate\(tab\.id\);/u,
+  );
+  assert.match(
+    panelSource,
+    /onDragStart=\{\(event\) => \{[\s\S]*?onDrop=\{\(event\) => \{[\s\S]*?runtime\.place\(/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-strip\s*\{[\s\S]*?width:\s*max-content;[\s\S]*?flex:\s*0 1 auto;/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-tabbar__window-drag\s*\{[\s\S]*?min-width:\s*12px;[\s\S]*?flex:\s*1 0 12px;/u,
+  );
+});
+
+test("Tabs resize stays interactive with and without a host details handle", async () => {
   class FakeStyle {
     values = new Map();
     priorities = new Map();
@@ -2587,6 +3125,7 @@ test("Tabs resize stays interactive with and without a host details handle", () 
   const previousHTMLElement = globalThis.HTMLElement;
   globalThis.HTMLElement = FakeElement;
   let panelWidth = "";
+  let extendedPanelWidth = "";
   let nativeZIndex = "";
   let restoredZIndex = "";
   let overlayPanelWidth = "";
@@ -2596,15 +3135,19 @@ test("Tabs resize stays interactive with and without a host details handle", () 
   let bottomPanelLeft = "";
   let bottomFrameReserved = false;
   let bottomHandleTabIndex = -1;
+  const appliedTrackWidths = [];
+  const committedRightWidths = [];
+  const committedBottomHeights = [];
   try {
     const handle = new FakeElement();
     const nativeHandle = new FakeElement();
     nativeHandle.dataset.side = "details";
-    const detailsColumn = new FakeElement(520);
+    const detailsColumn = new FakeElement(360);
     const detailsSlot = new FakeElement();
     detailsSlot.parentElement = detailsColumn;
+    const sidebar = new FakeElement(240);
     const frame = new FakeElement(1200);
-    frame.children.push(nativeHandle);
+    frame.children.push(sidebar, nativeHandle);
     const overlay = new FakeElement();
     overlay.parentElement = frame;
     const panel = new FakeElement();
@@ -2629,10 +3172,28 @@ test("Tabs resize stays interactive with and without a host details handle", () 
           : undefined,
     };
 
-    const resize = new TabsPanelResizeController(panel);
+    const resize = new TabsPanelResizeController(panel, {
+      applyRightTrackWidth(width) {
+        appliedTrackWidths.push(width);
+        detailsColumn.width = width;
+      },
+      onSizeCommit(width) {
+        committedRightWidths.push(width);
+      },
+    });
+    resize.restoreSize(600);
     nativeZIndex = nativeHandle.style.getPropertyValue("z-index");
-    nativeHandle.listeners.get("pointerdown")({ clientX: 680 });
-    nativeHandle.listeners.get("pointermove")({ clientX: 640 });
+    nativeHandle.listeners.get("pointerdown")({ clientX: 600 });
+    detailsColumn.width = 640;
+    nativeHandle.listeners.get("pointermove")({ clientX: 480 });
+    nativeHandle.listeners.get("pointerup")({ clientX: 480 });
+    await Promise.resolve();
+    extendedPanelWidth = panel.style.getPropertyValue(
+      "--minke-tabs-panel-width",
+    );
+    resize.beginExtendedDrag(480);
+    resize.moveExtendedDrag(600);
+    resize.endExtendedDrag();
     panelWidth = panel.style.getPropertyValue(
       "--minke-tabs-panel-width",
     );
@@ -2644,7 +3205,9 @@ test("Tabs resize stays interactive with and without a host details handle", () 
     const emptyDetailsColumn = new FakeElement(0);
     const emptyDetailsSlot = new FakeElement();
     emptyDetailsSlot.parentElement = emptyDetailsColumn;
+    const overlaySidebar = new FakeElement(240);
     const overlayFrame = new FakeElement(1200);
+    overlayFrame.children.push(overlaySidebar);
     const overlayLayer = new FakeElement();
     overlayLayer.parentElement = overlayFrame;
     const overlayPanel = new FakeElement();
@@ -2672,10 +3235,15 @@ test("Tabs resize stays interactive with and without a host details handle", () 
     };
 
     const overlayResize =
-      new TabsPanelResizeController(overlayPanel);
+      new TabsPanelResizeController(overlayPanel, {
+        onSizeCommit(width) {
+          committedRightWidths.push(width);
+        },
+      });
     overlayHandleTabIndex = overlayHandle.tabIndex;
     overlayResize.beginExtendedDrag(680);
-    overlayResize.moveExtendedDrag(620);
+    overlayResize.moveExtendedDrag(0);
+    overlayResize.endExtendedDrag();
     overlayPanelWidth =
       overlayPanel.style.getPropertyValue(
         "--minke-tabs-panel-width",
@@ -2712,7 +3280,12 @@ test("Tabs resize stays interactive with and without a host details handle", () 
     };
 
     const bottomResize =
-      new TabsPanelResizeController(bottomPanel);
+      new TabsPanelResizeController(bottomPanel, {
+        onSizeCommit(height) {
+          committedBottomHeights.push(height);
+        },
+      });
+    bottomResize.restoreSize(372);
     bottomResize.beginDrag(480);
     bottomResize.moveDrag(420);
     bottomResize.endDrag();
@@ -2743,15 +3316,19 @@ test("Tabs resize stays interactive with and without a host details handle", () 
   }
 
   assert.equal(nativeZIndex, "21");
-  assert.equal(panelWidth, "560px");
+  assert.deepEqual(appliedTrackWidths, [600, 640, 600]);
+  assert.equal(extendedPanelWidth, "720px");
+  assert.equal(panelWidth, "600px");
   assert.equal(restoredZIndex, "");
   assert.equal(overlayHandleTabIndex, 0);
-  assert.equal(overlayPanelWidth, "420px");
-  assert.equal(bottomPanelHeight, "380px");
-  assert.equal(bottomFrameHeight, "380px");
+  assert.equal(overlayPanelWidth, "940px");
+  assert.deepEqual(committedRightWidths, [720, 600, 940]);
+  assert.equal(bottomPanelHeight, "432px");
+  assert.equal(bottomFrameHeight, "432px");
   assert.equal(bottomPanelLeft, "240px");
   assert.equal(bottomFrameReserved, true);
   assert.equal(bottomHandleTabIndex, 0);
+  assert.deepEqual(committedBottomHeights, [432]);
 });
 
 test("Web tab controls delegate to their attached webview", () => {
