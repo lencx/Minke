@@ -111,7 +111,7 @@ test("Minke's embedded Node adapter survives the Harness child scrub", () => {
       runtimeBin: "C:\\Minke\\runtime\\bin",
     },
     {
-      dataRoot: "C:\\Users\\tester\\.dsh",
+      dshHome: "C:\\Users\\tester\\.dsh",
       electronExecutable: "C:\\Program Files\\Minke\\Minke.exe",
       modelRuntimes: {
         lmStudio: { enabled: false },

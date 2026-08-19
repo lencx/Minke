@@ -24,7 +24,7 @@ export interface HarnessRuntimeExit {
 
 export interface HarnessRuntimeOptions {
   runtimeRoot: string;
-  dataRoot: string;
+  dshHome: string;
   electronExecutable: string;
   modelRuntimes: LocalModelRuntimeLaunchOptions;
   onUnexpectedExit(exit: HarnessRuntimeExit): void;
@@ -42,7 +42,7 @@ export type LocalModelRuntimeLaunchOptions = Record<
 
 type HarnessRuntimeEnvironmentOptions = Pick<
   HarnessRuntimeOptions,
-  | "dataRoot"
+  | "dshHome"
   | "electronExecutable"
   | "modelRuntimes"
 >;
@@ -73,7 +73,7 @@ export function harnessRuntimeEnvironment(
   const environment: NodeJS.ProcessEnv = {
     ...inherited,
     [embeddedNodeEnvironment.executable]: options.electronExecutable,
-    DSH_HOME: options.dataRoot,
+    DSH_HOME: options.dshHome,
     [embeddedNodeEnvironment.pnpmEntry]: layout.pnpmEntry,
     [embeddedNodeEnvironment.mode]: "1",
     PATH: [layout.runtimeBin, inherited.PATH]
@@ -124,7 +124,7 @@ export class HarnessRuntime {
       access(layout.runtimeBin),
       access(layout.productPatch),
     ]);
-    await mkdir(this.#options.dataRoot, { recursive: true });
+    await mkdir(this.#options.dshHome, { recursive: true });
 
     this.#output = "";
     this.#stopping = false;
@@ -134,7 +134,7 @@ export class HarnessRuntime {
       this.#options.electronExecutable,
       harnessWebArguments(layout),
       {
-        cwd: this.#options.dataRoot,
+        cwd: this.#options.dshHome,
         detached: process.platform !== "win32",
         env: harnessRuntimeEnvironment(layout, this.#options),
         stdio: ["ignore", "pipe", "pipe"],

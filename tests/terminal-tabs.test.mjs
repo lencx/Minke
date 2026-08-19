@@ -108,7 +108,10 @@ test("desktop terminal runtime owns PTY data, resize, and teardown", async () =>
     },
     shell: "/bin/zsh",
     defaultCwd: "/Users/test",
-    environment: { TERM_PROGRAM: "Minke" },
+    environment: {
+      DSH_HOME: "/data/harness",
+      TERM_PROGRAM: "Minke",
+    },
     resolveCwd: async (candidate) => candidate,
     createId: () => "terminal-1",
     send: (event) => events.push(event),
@@ -126,6 +129,7 @@ test("desktop terminal runtime owns PTY data, resize, and teardown", async () =>
   assert.deepEqual(spawn.args, ["-l"]);
   assert.equal(spawn.options.cwd, "/workspace");
   assert.equal(spawn.options.name, "xterm-256color");
+  assert.equal(spawn.options.env.DSH_HOME, "/data/harness");
 
   runtime.write({
     sessionId: "terminal-1",

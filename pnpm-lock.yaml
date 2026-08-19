@@ -31,6 +31,9 @@ importers:
       '@electron-forge/cli':
         specifier: 7.11.2
         version: 7.11.2(encoding@0.1.13)(esbuild@0.28.2)(lightningcss@1.33.0)(postcss@8.5.26)(supports-color@8.1.1)
+      '@electron-forge/core':
+        specifier: 7.11.2
+        version: 7.11.2(patch_hash=cc2094bba1f9e778ba20f1d9016a61913ab385959e11f123a34c136c3a362fd5)(encoding@0.1.13)(esbuild@0.28.2)(lightningcss@1.33.0)(postcss@8.5.26)(supports-color@8.1.1)
       '@electron-forge/maker-deb':
         specifier: 7.11.2
         version: 7.11.2(supports-color@8.1.1)

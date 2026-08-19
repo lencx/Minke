@@ -11,6 +11,7 @@ import {
   // Tray,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  type OpenDialogOptions,
   type SaveDialogOptions,
   type WebContents,
 } from "electron";
@@ -70,6 +71,15 @@ import {
   type TerminalSettingsBinding,
 } from "./terminal-settings";
 import {
+  buildDshChildEnvironment,
+  DataHomeManager,
+} from "./data-home";
+import { requestDesktopRestart } from "./app-restart";
+import {
+  bindDataHomeSettingsIpc,
+  type DataHomeSettingsBinding,
+} from "./data-home-settings";
+import {
   bindSessionLogExport,
   type SessionLogExportBinding,
 } from "./session-export";
@@ -95,9 +105,12 @@ let terminalSettingsBinding: TerminalSettingsBinding | undefined;
 let modelRuntimeSettingsBinding:
   | ModelRuntimeSettingsBinding
   | undefined;
+let dataHomeSettingsBinding: DataHomeSettingsBinding | undefined;
 let sessionLogExportBinding: SessionLogExportBinding | undefined;
 let tabsBinding: TabsBinding | undefined;
 let desktopLocale: DesktopLocaleRuntime | undefined;
+let activeDshEnvironment: NodeJS.ProcessEnv | undefined;
+let requestedExitCode: number | undefined;
 // let appTray: Tray | undefined;
 
 function activeDesktopLocale(): DesktopLocale {
@@ -132,6 +145,24 @@ function sessionExportSaveDialogOptions(
       "showOverwriteConfirmation",
     ],
   };
+}
+
+function dataHomeOpenDialogOptions(
+  defaultPath: string,
+): OpenDialogOptions {
+  return {
+    title: desktopText("dataHome.chooseDirectoryTitle"),
+    defaultPath,
+    buttonLabel: desktopText("dataHome.chooseDirectoryButton"),
+    properties: ["openDirectory", "createDirectory"],
+  };
+}
+
+function dshEnvironment(): NodeJS.ProcessEnv {
+  if (activeDshEnvironment === undefined) {
+    throw new Error("DSH environment was not initialized");
+  }
+  return activeDshEnvironment;
 }
 
 function runtimeRoot(): string {
@@ -340,6 +371,7 @@ async function createWindow(): Promise<BrowserWindow> {
       runtimeRoot: runtimeRoot(),
       defaultCwd: app.getPath("home"),
       fileSystemRoot: parse(app.getPath("home")).root,
+      environment: dshEnvironment(),
     },
   );
   sessionLogExportBinding = bindSessionLogExport(
@@ -500,6 +532,41 @@ async function bootstrap(): Promise<void> {
   const shortcutStore = minkeConfig.shortcuts;
   const terminalSettingsStore = minkeConfig.terminal;
   const modelRuntimeSettingsStore = minkeConfig.modelRuntime;
+  const dataHomeManager = new DataHomeManager({
+    userDataPath: app.getPath("userData"),
+    homeDirectory: app.getPath("home"),
+    environment: process.env,
+    configuration: minkeConfig.dshHome,
+    async chooseDirectory(defaultPath) {
+      const options = dataHomeOpenDialogOptions(defaultPath);
+      const result = mainWindow === undefined
+        ? await dialog.showOpenDialog(options)
+        : await dialog.showOpenDialog(mainWindow, options);
+      return result.canceled
+        ? undefined
+        : result.filePaths[0];
+    },
+    restart() {
+      setTimeout(() => {
+        requestDesktopRestart(app, (exitCode) => {
+          requestedExitCode = exitCode;
+        });
+      }, 100);
+    },
+  });
+  const migrationState =
+    await dataHomeManager.completePendingMigration();
+  if (migrationState?.status === "failed") {
+    console.error(
+      "DSH data-directory migration failed:",
+      migrationState.error,
+    );
+  }
+  const activeDshHome = await dataHomeManager.activePath();
+  activeDshEnvironment = buildDshChildEnvironment(
+    activeDshHome,
+    process.env,
+  );
   const localModelCommands = await discoverLocalModelCommands({
     homeDirectory: app.getPath("home"),
     pathValue: process.env.PATH,
@@ -578,10 +645,23 @@ async function bootstrap(): Promise<void> {
       );
     },
   );
+  dataHomeSettingsBinding = bindDataHomeSettingsIpc(
+    ipcMain,
+    dataHomeManager,
+    (candidate) => {
+      const event = candidate as IpcMainInvokeEvent;
+      return (
+        mainWindow !== undefined &&
+        event.sender === mainWindow.webContents &&
+        event.senderFrame !== null &&
+        isHarnessUrl(event.senderFrame.url)
+      );
+    },
+  );
 
   runtime = new HarnessRuntime({
     runtimeRoot: runtimeRoot(),
-    dataRoot: join(app.getPath("userData"), "harness"),
+    dshHome: activeDshHome,
     electronExecutable: process.execPath,
     modelRuntimes: {
       lmStudio: {
@@ -622,10 +702,25 @@ app.on("before-quit", (event) => {
   terminalSettingsBinding = undefined;
   modelRuntimeSettingsBinding?.dispose();
   modelRuntimeSettingsBinding = undefined;
-  if (shutdownStarted || runtime === undefined) return;
+  dataHomeSettingsBinding?.dispose();
+  dataHomeSettingsBinding = undefined;
+  if (shutdownStarted) return;
+  if (runtime === undefined) {
+    if (requestedExitCode !== undefined) {
+      event.preventDefault();
+      app.exit(requestedExitCode);
+    }
+    return;
+  }
   event.preventDefault();
   shutdownStarted = true;
-  void runtime.stop().finally(() => app.quit());
+  void runtime.stop().finally(() => {
+    if (requestedExitCode === undefined) {
+      app.quit();
+    } else {
+      app.exit(requestedExitCode);
+    }
+  });
 });
 
 app.on("window-all-closed", () => {

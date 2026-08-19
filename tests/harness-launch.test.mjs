@@ -93,7 +93,7 @@ test("the desktop runtime passes both explicit local-model opt-ins", () => {
     runtimeBin: "/runtime/bin",
   };
   const options = {
-    dataRoot: "/data/harness",
+    dshHome: "/data/harness",
     electronExecutable: "/app/electron",
     modelRuntimes: {
       lmStudio: {

@@ -54,6 +54,7 @@ interface TabsBindingOptions {
   readonly runtimeRoot: string;
   readonly defaultCwd: string;
   readonly fileSystemRoot: string;
+  readonly environment: NodeJS.ProcessEnv;
 }
 
 async function resolveTerminalCwd(candidate: string): Promise<string> {
@@ -103,7 +104,7 @@ export function bindTabs(
     shell: terminalShell.shell,
     shellArgs: terminalShell.args,
     defaultCwd: options.defaultCwd,
-    environment: process.env,
+    environment: options.environment,
     resolveCwd: resolveTerminalCwd,
     send: (event) => {
       if (!embedder.isDestroyed()) {
