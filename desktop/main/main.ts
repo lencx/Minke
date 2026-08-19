@@ -372,6 +372,9 @@ async function createWindow(): Promise<BrowserWindow> {
       electronExecutable: process.execPath,
       defaultCwd: app.getPath("home"),
       fileSystemRoot: parse(app.getPath("home")).root,
+      minkeConfigPath: minkeConfigFilePath(
+        app.getPath("userData"),
+      ),
       environment: dshEnvironment(),
     },
   );

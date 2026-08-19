@@ -19,6 +19,16 @@ import {
   MinkeConfigStore,
 } from "@minke/desktop/main/minke-config.ts";
 import {
+  FILES_VIEW_STATE_VERSION,
+  FilesViewStateStore,
+  filesViewStateFilePath,
+} from "@minke/desktop/main/tabs/files-view-state.ts";
+import {
+  TABS_LAYOUT_STATE_VERSION,
+  TabsLayoutStateStore,
+  tabsLayoutStateFilePath,
+} from "@minke/desktop/main/tabs/layout-state.ts";
+import {
   DEFAULT_TERMINAL_SETTINGS,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 
@@ -77,6 +87,126 @@ test("main window state is restored and tracked beside minke.config.json", () =>
   });
   assert.deepEqual(windowBounds, restoredBounds);
   assert.equal(managedWindow, window);
+});
+
+test("Files view state persists beside minke.config.json", async () => {
+  await withStore(async ({ store }) => {
+    const viewState = new FilesViewStateStore(store.path);
+    assert.equal(
+      viewState.path,
+      filesViewStateFilePath(store.path),
+    );
+    assert.equal(
+      dirname(viewState.path),
+      dirname(store.path),
+    );
+    assert.deepEqual(await viewState.read(), {});
+
+    await Promise.all([
+      viewState.write({
+        placement: "right",
+        previewWidth: 468,
+      }),
+      viewState.write({
+        placement: "right",
+        viewMode: "tree",
+      }),
+      viewState.write({
+        placement: "bottom",
+        previewWidth: 672,
+      }),
+      viewState.write({
+        placement: "bottom",
+        viewMode: "list",
+      }),
+    ]);
+
+    assert.deepEqual(
+      await new FilesViewStateStore(store.path).read(),
+      {
+        right: {
+          previewWidth: 468,
+          viewMode: "tree",
+        },
+        bottom: {
+          previewWidth: 672,
+          viewMode: "list",
+        },
+      },
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(viewState.path, "utf8")),
+      {
+        version: FILES_VIEW_STATE_VERSION,
+        right: {
+          previewWidth: 468,
+          viewMode: "tree",
+        },
+        bottom: {
+          previewWidth: 672,
+          viewMode: "list",
+        },
+      },
+    );
+    if (process.platform !== "win32") {
+      assert.equal((await stat(viewState.path)).mode & 0o077, 0);
+    }
+  });
+});
+
+test("invalid Files view state falls back without blocking Files", async () => {
+  await withStore(async ({ store }) => {
+    const viewState = new FilesViewStateStore(store.path);
+    await mkdir(dirname(viewState.path), { recursive: true });
+    await writeFile(viewState.path, "{not-json");
+
+    assert.deepEqual(await viewState.read(), {});
+  });
+});
+
+test("Tabs panel dimensions persist beside minke.config.json", async () => {
+  await withStore(async ({ store }) => {
+    const layoutState = new TabsLayoutStateStore(store.path);
+    assert.equal(
+      layoutState.path,
+      tabsLayoutStateFilePath(store.path),
+    );
+    assert.equal(
+      dirname(layoutState.path),
+      dirname(store.path),
+    );
+    assert.deepEqual(await layoutState.read(), {});
+
+    await Promise.all([
+      layoutState.write({
+        placement: "right",
+        size: 468,
+      }),
+      layoutState.write({
+        placement: "bottom",
+        size: 372,
+      }),
+    ]);
+
+    assert.deepEqual(
+      await new TabsLayoutStateStore(store.path).read(),
+      {
+        rightWidth: 468,
+        bottomHeight: 372,
+      },
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(layoutState.path, "utf8")),
+      {
+        version: TABS_LAYOUT_STATE_VERSION,
+        rightWidth: 468,
+        bottomHeight: 372,
+      },
+    );
+    if (process.platform !== "win32") {
+      assert.equal((await stat(layoutState.path)).mode & 0o077, 0);
+    }
+  });
 });
 
 test("desktop settings share one versioned Minke config", async () => {

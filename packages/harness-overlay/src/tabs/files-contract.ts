@@ -13,6 +13,10 @@ export const TABS_FILES_UNWATCH_CHANNEL =
   "minke:tabs:files:unwatch";
 export const TABS_FILES_CHANGE_CHANNEL =
   "minke:tabs:files:change";
+export const TABS_FILES_VIEW_STATE_READ_CHANNEL =
+  "minke:tabs:files:view-state:read";
+export const TABS_FILES_VIEW_STATE_WRITE_CHANNEL =
+  "minke:tabs:files:view-state:write";
 
 export const FILES_MAX_ENTRIES = 2_000;
 export const FILES_MAX_WATCH_PATHS = 128;
@@ -22,6 +26,7 @@ const FILES_MAX_PATH_LENGTH = 32_768;
 const FILES_MAX_NAME_LENGTH = 1_024;
 const FILES_MAX_GIT_BRANCH_LENGTH = 1_024;
 const FILES_MAX_WATCH_ID_LENGTH = 128;
+const FILES_MAX_PREVIEW_WIDTH = 32_768;
 
 export type FileManagerEntryKind =
   | "directory"
@@ -70,6 +75,25 @@ export interface FileManagerUnwatchRequest {
 export interface FileManagerChangeEvent {
   readonly id: string;
   readonly paths: readonly string[];
+}
+
+export type FileManagerPanelPlacement = "right" | "bottom";
+export type FileManagerViewMode = "list" | "tree";
+
+export interface FileManagerPanelViewState {
+  readonly previewWidth?: number;
+  readonly viewMode?: FileManagerViewMode;
+}
+
+export interface FileManagerViewState {
+  readonly right?: FileManagerPanelViewState;
+  readonly bottom?: FileManagerPanelViewState;
+}
+
+export interface FileManagerViewStateUpdate {
+  readonly placement: FileManagerPanelPlacement;
+  readonly previewWidth?: number;
+  readonly viewMode?: FileManagerViewMode;
 }
 
 export type FileManagerDiffResult =
@@ -226,6 +250,147 @@ function watchPaths(
   return [...new Set(
     value.map((path) => pathText(path, `${label} entry`)),
   )];
+}
+
+function previewWidth(value: unknown, label: string): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > FILES_MAX_PREVIEW_WIDTH
+  ) {
+    throw new TypeError(`${label} must be a valid preview width`);
+  }
+  return value;
+}
+
+function panelPlacement(
+  value: unknown,
+): FileManagerPanelPlacement {
+  if (value !== "right" && value !== "bottom") {
+    throw new TypeError("file view state placement is invalid");
+  }
+  return value;
+}
+
+function viewMode(
+  value: unknown,
+  label: string,
+): FileManagerViewMode {
+  if (value !== "list" && value !== "tree") {
+    throw new TypeError(`${label} must be list or tree`);
+  }
+  return value;
+}
+
+function parsePanelViewState(
+  value: unknown,
+  label: string,
+): FileManagerPanelViewState {
+  const candidate = record(value, label);
+  if (
+    Object.keys(candidate).some(
+      (key) => key !== "previewWidth" && key !== "viewMode",
+    )
+  ) {
+    throw new TypeError(`${label} contains unsupported fields`);
+  }
+  return {
+    ...(candidate.previewWidth === undefined
+      ? {}
+      : {
+          previewWidth: previewWidth(
+            candidate.previewWidth,
+            `${label} preview width`,
+          ),
+        }),
+    ...(candidate.viewMode === undefined
+      ? {}
+      : {
+          viewMode: viewMode(
+            candidate.viewMode,
+            `${label} view mode`,
+          ),
+        }),
+  };
+}
+
+export function parseFileManagerViewState(
+  value: unknown,
+): FileManagerViewState {
+  const candidate = record(value, "file view state");
+  if (
+    Object.keys(candidate).some(
+      (key) => key !== "right" && key !== "bottom",
+    )
+  ) {
+    throw new TypeError(
+      "file view state contains unsupported fields",
+    );
+  }
+  return {
+    ...(candidate.right === undefined
+      ? {}
+      : {
+          right: parsePanelViewState(
+            candidate.right,
+            "right file view state",
+          ),
+        }),
+    ...(candidate.bottom === undefined
+      ? {}
+      : {
+          bottom: parsePanelViewState(
+            candidate.bottom,
+            "bottom file view state",
+          ),
+        }),
+  };
+}
+
+export function parseFileManagerViewStateUpdate(
+  value: unknown,
+): FileManagerViewStateUpdate {
+  const candidate = record(value, "file view state update");
+  if (
+    Object.keys(candidate).some(
+      (key) =>
+        key !== "placement" &&
+        key !== "previewWidth" &&
+        key !== "viewMode",
+    )
+  ) {
+    throw new TypeError(
+      "file view state update contains unsupported fields",
+    );
+  }
+  if (
+    candidate.previewWidth === undefined &&
+    candidate.viewMode === undefined
+  ) {
+    throw new TypeError(
+      "file view state update must contain a view setting",
+    );
+  }
+  return {
+    placement: panelPlacement(candidate.placement),
+    ...(candidate.previewWidth === undefined
+      ? {}
+      : {
+          previewWidth: previewWidth(
+            candidate.previewWidth,
+            "file view state update preview width",
+          ),
+        }),
+    ...(candidate.viewMode === undefined
+      ? {}
+      : {
+          viewMode: viewMode(
+            candidate.viewMode,
+            "file view state update view mode",
+          ),
+        }),
+  };
 }
 
 export function parseFileManagerListRequest(

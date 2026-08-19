@@ -8,6 +8,9 @@ import type {
 import { isAbsolute } from "node:path";
 import { stat } from "node:fs/promises";
 import {
+  parseTabsLayoutStateUpdate,
+  TABS_LAYOUT_STATE_READ_CHANNEL,
+  TABS_LAYOUT_STATE_WRITE_CHANNEL,
   TABS_OPEN_EXTERNAL_CHANNEL,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
@@ -16,6 +19,7 @@ import {
   parseFileManagerOpenRequest,
   parseFileManagerPreviewRequest,
   parseFileManagerUnwatchRequest,
+  parseFileManagerViewStateUpdate,
   parseFileManagerWatchRequest,
   parseFileManagerWriteRequest,
   TABS_FILES_DIFF_CHANNEL,
@@ -24,6 +28,8 @@ import {
   TABS_FILES_OPEN_CHANNEL,
   TABS_FILES_PREVIEW_CHANNEL,
   TABS_FILES_UNWATCH_CHANNEL,
+  TABS_FILES_VIEW_STATE_READ_CHANNEL,
+  TABS_FILES_VIEW_STATE_WRITE_CHANNEL,
   TABS_FILES_WATCH_CHANNEL,
   TABS_FILES_WRITE_CHANNEL,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
@@ -45,6 +51,12 @@ import {
   FileWatchRuntime,
 } from "./file-watch.ts";
 import {
+  FilesViewStateStore,
+} from "./files-view-state.ts";
+import {
+  TabsLayoutStateStore,
+} from "./layout-state.ts";
+import {
   openNormalizedTabExternally,
   protectTabWebviewGuest,
   secureTabWebview,
@@ -65,6 +77,7 @@ interface TabsBindingOptions {
   readonly electronExecutable: string;
   readonly defaultCwd: string;
   readonly fileSystemRoot: string;
+  readonly minkeConfigPath: string;
   readonly environment: NodeJS.ProcessEnv;
 }
 
@@ -129,6 +142,12 @@ export function bindTabs(
     rootPath: options.fileSystemRoot,
     openPath: (path) => external.openPath(path),
   });
+  const filesViewState = new FilesViewStateStore(
+    options.minkeConfigPath,
+  );
+  const tabsLayoutState = new TabsLayoutStateStore(
+    options.minkeConfigPath,
+  );
   const fileWatch = new FileWatchRuntime({
     send: (event) => {
       if (!embedder.isDestroyed()) {
@@ -157,6 +176,25 @@ export function bindTabs(
   ): void => {
     if (!authorize(event)) return;
     openNormalizedTabExternally(external, candidate);
+  };
+  const handleTabsLayoutStateRead = async (
+    event: IpcMainInvokeEvent,
+  ): Promise<unknown> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized Tabs request");
+    }
+    return await tabsLayoutState.read();
+  };
+  const handleTabsLayoutStateWrite = async (
+    event: IpcMainInvokeEvent,
+    update: unknown,
+  ): Promise<void> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized Tabs request");
+    }
+    await tabsLayoutState.write(
+      parseTabsLayoutStateUpdate(update),
+    );
   };
   const handleTerminalCreate = async (
     event: IpcMainInvokeEvent,
@@ -255,6 +293,25 @@ export function bindTabs(
       parseFileManagerWriteRequest(request),
     );
   };
+  const handleFilesViewStateRead = async (
+    event: IpcMainInvokeEvent,
+  ): Promise<unknown> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized Files request");
+    }
+    return await filesViewState.read();
+  };
+  const handleFilesViewStateWrite = async (
+    event: IpcMainInvokeEvent,
+    update: unknown,
+  ): Promise<void> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized Files request");
+    }
+    await filesViewState.write(
+      parseFileManagerViewStateUpdate(update),
+    );
+  };
   const handleFilesWatch = (
     event: IpcMainEvent,
     request: unknown,
@@ -281,6 +338,14 @@ export function bindTabs(
   embedder.on("will-attach-webview", handleWillAttach);
   embedder.on("did-attach-webview", handleDidAttach);
   ipc.on(TABS_OPEN_EXTERNAL_CHANNEL, handleOpenExternal);
+  ipc.handle(
+    TABS_LAYOUT_STATE_READ_CHANNEL,
+    handleTabsLayoutStateRead,
+  );
+  ipc.handle(
+    TABS_LAYOUT_STATE_WRITE_CHANNEL,
+    handleTabsLayoutStateWrite,
+  );
   ipc.handle(TABS_TERMINAL_CREATE_CHANNEL, handleTerminalCreate);
   ipc.on(TABS_TERMINAL_WRITE_CHANNEL, handleTerminalWrite);
   ipc.on(TABS_TERMINAL_RESIZE_CHANNEL, handleTerminalResize);
@@ -290,6 +355,14 @@ export function bindTabs(
   ipc.handle(TABS_FILES_OPEN_CHANNEL, handleFilesOpen);
   ipc.handle(TABS_FILES_PREVIEW_CHANNEL, handleFilesPreview);
   ipc.handle(TABS_FILES_WRITE_CHANNEL, handleFilesWrite);
+  ipc.handle(
+    TABS_FILES_VIEW_STATE_READ_CHANNEL,
+    handleFilesViewStateRead,
+  );
+  ipc.handle(
+    TABS_FILES_VIEW_STATE_WRITE_CHANNEL,
+    handleFilesViewStateWrite,
+  );
   ipc.on(TABS_FILES_WATCH_CHANNEL, handleFilesWatch);
   ipc.on(TABS_FILES_UNWATCH_CHANNEL, handleFilesUnwatch);
 
@@ -304,6 +377,8 @@ export function bindTabs(
         TABS_OPEN_EXTERNAL_CHANNEL,
         handleOpenExternal,
       );
+      ipc.removeHandler(TABS_LAYOUT_STATE_READ_CHANNEL);
+      ipc.removeHandler(TABS_LAYOUT_STATE_WRITE_CHANNEL);
       ipc.removeHandler(TABS_TERMINAL_CREATE_CHANNEL);
       ipc.removeListener(
         TABS_TERMINAL_WRITE_CHANNEL,
@@ -322,6 +397,8 @@ export function bindTabs(
       ipc.removeHandler(TABS_FILES_OPEN_CHANNEL);
       ipc.removeHandler(TABS_FILES_PREVIEW_CHANNEL);
       ipc.removeHandler(TABS_FILES_WRITE_CHANNEL);
+      ipc.removeHandler(TABS_FILES_VIEW_STATE_READ_CHANNEL);
+      ipc.removeHandler(TABS_FILES_VIEW_STATE_WRITE_CHANNEL);
       ipc.removeListener(
         TABS_FILES_WATCH_CHANNEL,
         handleFilesWatch,

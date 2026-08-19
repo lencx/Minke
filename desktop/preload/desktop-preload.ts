@@ -41,7 +41,12 @@ import {
 } from "@minke/harness-overlay/session-export-contract.ts";
 import {
   normalizeWebTabUrl,
+  parseTabsLayoutState,
+  parseTabsLayoutStateUpdate,
+  TABS_LAYOUT_STATE_READ_CHANNEL,
+  TABS_LAYOUT_STATE_WRITE_CHANNEL,
   TABS_OPEN_EXTERNAL_CHANNEL,
+  type TabsLayoutStateUpdate,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
   parseFileManagerChangeEvent,
@@ -53,6 +58,8 @@ import {
   parseFileManagerPreviewRequest,
   parseFileManagerPreviewResult,
   parseFileManagerUnwatchRequest,
+  parseFileManagerViewState,
+  parseFileManagerViewStateUpdate,
   parseFileManagerWatchRequest,
   parseFileManagerWriteRequest,
   parseFileManagerWriteResult,
@@ -62,6 +69,8 @@ import {
   TABS_FILES_OPEN_CHANNEL,
   TABS_FILES_PREVIEW_CHANNEL,
   TABS_FILES_UNWATCH_CHANNEL,
+  TABS_FILES_VIEW_STATE_READ_CHANNEL,
+  TABS_FILES_VIEW_STATE_WRITE_CHANNEL,
   TABS_FILES_WATCH_CHANNEL,
   TABS_FILES_WRITE_CHANNEL,
   type FileManagerChangeEvent,
@@ -69,6 +78,7 @@ import {
   type FileManagerListRequest,
   type FileManagerOpenRequest,
   type FileManagerPreviewRequest,
+  type FileManagerViewStateUpdate,
   type FileManagerWriteRequest,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
@@ -209,6 +219,19 @@ const sessionLogs = Object.freeze({
 });
 
 const tabs = Object.freeze({
+  async readLayoutState(): Promise<unknown> {
+    return parseTabsLayoutState(
+      await ipcRenderer.invoke(TABS_LAYOUT_STATE_READ_CHANNEL),
+    );
+  },
+  async writeLayoutState(
+    update: TabsLayoutStateUpdate,
+  ): Promise<void> {
+    await ipcRenderer.invoke(
+      TABS_LAYOUT_STATE_WRITE_CHANNEL,
+      parseTabsLayoutStateUpdate(update),
+    );
+  },
   openExternal(candidate: string): void {
     const url = normalizeWebTabUrl(candidate);
     if (url === undefined) {
@@ -257,6 +280,21 @@ const files = Object.freeze({
         TABS_FILES_WRITE_CHANNEL,
         parseFileManagerWriteRequest(request),
       ),
+    );
+  },
+  async readViewState(): Promise<unknown> {
+    return parseFileManagerViewState(
+      await ipcRenderer.invoke(
+        TABS_FILES_VIEW_STATE_READ_CHANNEL,
+      ),
+    );
+  },
+  async writeViewState(
+    update: FileManagerViewStateUpdate,
+  ): Promise<void> {
+    await ipcRenderer.invoke(
+      TABS_FILES_VIEW_STATE_WRITE_CHANNEL,
+      parseFileManagerViewStateUpdate(update),
     );
   },
   watch(
