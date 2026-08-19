@@ -1,6 +1,5 @@
 .minke-tabs-panel {
   --minke-tabs-panel-width: 360px;
-  --minke-tabs-panel-height: 320px;
   --minke-tabs-panel-left: 0px;
   --minke-tabs-chrome-height: 74px;
   --minke-tabs-primary-top: 8px;
@@ -39,6 +38,7 @@
 }
 
 .minke-tabs-panel[data-placement="bottom"] {
+  --minke-tabs-panel-height: 320px;
   right: 0;
   bottom: 0;
   left: var(--minke-tabs-panel-left);
