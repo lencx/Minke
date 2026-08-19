@@ -1,6 +1,9 @@
 import {
   installDesktopSurfaceStyles,
 } from "./surface.styles.ts";
+import {
+  installDesktopTopDragRegion,
+} from "./top-drag-region.ts";
 
 const DESKTOP_MARKERS = [
   "data-dsh-desktop-frame",
@@ -21,10 +24,18 @@ const DESKTOP_MARKER_SELECTOR = DESKTOP_MARKERS
 
 const DESKTOP_DRAG_ENABLED_ATTRIBUTE =
   "data-dsh-desktop-drag-enabled";
+// Re-check through one short mount/transition without leaving a polling loop.
+const DESKTOP_DRAG_SETTLE_DURATION_MS = 250;
+// The Tabs resize hit strip intentionally overhangs the panel edge. It keeps
+// its own no-drag region, so treat that overlap like the host resize handles
+// instead of revoking the adjacent window-drag target.
 const DESKTOP_RESIZE_HANDLE_SELECTOR =
-  "[data-dsh-desktop-resize-handle]";
+  [
+    "[data-dsh-desktop-resize-handle]",
+    "[data-minke-tabs-resize-handle]",
+  ].join(",");
 const DESKTOP_DRAG_TARGET_SELECTOR = [
-  '[data-slot="conversation.session.header"]',
+  "[data-dsh-desktop-top-drag-region]",
   "[data-dsh-desktop-titlebar-anchor]",
   "[data-minke-tabs-window-drag]",
 ].join(",");
@@ -41,6 +52,7 @@ type DesktopSurfaceView = Window & {
   readonly HTMLElement: typeof HTMLElement;
   readonly HTMLButtonElement: typeof HTMLButtonElement;
   readonly MutationObserver: typeof MutationObserver;
+  readonly ResizeObserver: typeof ResizeObserver;
 };
 
 function markShell(root: Document, view: DesktopSurfaceView): void {
@@ -141,14 +153,8 @@ function markComposerActions(
   }
 }
 
-function isRendered(element: Element, view: Window): boolean {
-  if (
-    element.hasAttribute("hidden") ||
-    element.getAttribute("aria-hidden") === "true"
-  ) {
-    return false;
-  }
-
+function hasRenderedBox(element: Element, view: Window): boolean {
+  if (element.hasAttribute("hidden")) return false;
   const style = view.getComputedStyle(element);
   return (
     style.display !== "none" &&
@@ -156,6 +162,13 @@ function isRendered(element: Element, view: Window): boolean {
     style.visibility !== "collapse" &&
     style.getPropertyValue("content-visibility") !== "hidden" &&
     element.getClientRects().length > 0
+  );
+}
+
+function isRendered(element: Element, view: Window): boolean {
+  return (
+    element.getAttribute("aria-hidden") !== "true" &&
+    hasRenderedBox(element, view)
   );
 }
 
@@ -222,66 +235,76 @@ function hasDeclaredInteractionLayer(
 
 function hasOccludedDragTarget(
   root: Document,
-  view: Window,
+  target: Element,
+  targets: readonly Element[],
 ): boolean {
-  const targets = [
-    ...root.querySelectorAll(DESKTOP_DRAG_TARGET_SELECTOR),
-  ].filter((target) => isRendered(target, view));
+  const rect = target.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return false;
 
-  for (const target of targets) {
-    const rect = target.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) continue;
+  const xInset = Math.min(4, rect.width / 2);
+  const yInset = Math.min(4, rect.height / 2);
+  const xs = [
+    rect.left + xInset,
+    rect.left + rect.width / 2,
+    rect.right - xInset,
+  ];
+  const ys = [
+    rect.top + yInset,
+    rect.top + rect.height / 2,
+    rect.bottom - yInset,
+  ];
 
-    const xInset = Math.min(4, rect.width / 2);
-    const yInset = Math.min(4, rect.height / 2);
-    const xs = [
-      rect.left + xInset,
-      rect.left + rect.width / 2,
-      rect.right - xInset,
-    ];
-    const ys = [
-      rect.top + yInset,
-      rect.top + rect.height / 2,
-      rect.bottom - yInset,
-    ];
-
-    for (const x of xs) {
-      for (const y of ys) {
-        const top = root.elementFromPoint(x, y);
-        if (
-          top !== null &&
-          top.closest(DESKTOP_RESIZE_HANDLE_SELECTOR) === null &&
-          !targets.some(
-            (candidate) =>
-              candidate.contains(top) || top.contains(candidate),
-          )
-        ) {
-          return true;
-        }
+  for (const x of xs) {
+    for (const y of ys) {
+      const top = root.elementFromPoint(x, y);
+      if (
+        top !== null &&
+        top.closest(DESKTOP_RESIZE_HANDLE_SELECTOR) === null &&
+        !targets.some(
+          (candidate) =>
+            candidate.contains(top) || top.contains(candidate),
+        )
+      ) {
+        return true;
       }
     }
   }
   return false;
 }
 
-function dragIsSafe(root: Document, view: Window): boolean {
-  return (
-    !hasDeclaredInteractionLayer(root, view) &&
-    !hasOccludedDragTarget(root, view)
-  );
-}
-
 function suspendDesktopDrag(root: Document): void {
+  // Clear the former document-wide gate as well so a live upgrade cannot
+  // leave stale drag state behind.
   root.documentElement.removeAttribute(
     DESKTOP_DRAG_ENABLED_ATTRIBUTE,
   );
+  for (const target of root.querySelectorAll(
+    `[${DESKTOP_DRAG_ENABLED_ATTRIBUTE}]`,
+  )) {
+    target.removeAttribute(DESKTOP_DRAG_ENABLED_ATTRIBUTE);
+  }
 }
 
 function reconcileDesktopDrag(root: Document, view: Window): void {
-  root.documentElement.toggleAttribute(
-    DESKTOP_DRAG_ENABLED_ATTRIBUTE,
-    dragIsSafe(root, view),
+  const targets = [
+    ...root.querySelectorAll(DESKTOP_DRAG_TARGET_SELECTOR),
+  ];
+  const renderedTargets = targets.filter((target) =>
+    hasRenderedBox(target, view)
   );
+  const interactionLayerOpen = hasDeclaredInteractionLayer(
+    root,
+    view,
+  );
+
+  for (const target of targets) {
+    target.toggleAttribute(
+      DESKTOP_DRAG_ENABLED_ATTRIBUTE,
+      !interactionLayerOpen &&
+        renderedTargets.includes(target) &&
+        !hasOccludedDragTarget(root, target, renderedTargets),
+    );
+  }
 }
 
 function clearDesktopMarkers(root: Document): void {
@@ -297,9 +320,9 @@ function clearDesktopMarkers(root: Document): void {
  * Project Minke's macOS surface onto the upstream Harness DOM.
  *
  * The document-start extension owns first-paint layout and a fail-safe
- * no-drag default. This adapter enables native drag only while the current
- * DOM has no interactive layer over it, and releases all state through the
- * Harness plugin lifecycle.
+ * no-drag default. This adapter enables each native drag target only while
+ * that target is unobstructed and no interactive layer is open, then releases
+ * all state through the Harness plugin lifecycle.
  */
 export function installDesktopSurface(
   root: Document = document,
@@ -307,22 +330,55 @@ export function installDesktopSurface(
   const view = root.defaultView as DesktopSurfaceView | null;
   if (view === null) return () => {};
 
+  suspendDesktopDrag(root);
   const disposeStyles = installDesktopSurfaceStyles(root);
+  const disposeTopDragRegion =
+    installDesktopTopDragRegion(root);
+  const observedDragTargets = new Set<Element>();
+  let dragSettleUntil = 0;
   let frame: number | undefined;
   let disposed = false;
 
+  const requestDesktopDragSettle = (): void => {
+    dragSettleUntil = Math.max(
+      dragSettleUntil,
+      view.performance.now() + DESKTOP_DRAG_SETTLE_DURATION_MS,
+    );
+  };
+  const syncDragTargetResizeObservation = (): void => {
+    const dragTargets = new Set(
+      root.querySelectorAll(DESKTOP_DRAG_TARGET_SELECTOR),
+    );
+    for (const target of observedDragTargets) {
+      if (dragTargets.has(target)) continue;
+      resizeObserver.unobserve(target);
+      observedDragTargets.delete(target);
+    }
+    for (const target of dragTargets) {
+      if (observedDragTargets.has(target)) continue;
+      observedDragTargets.add(target);
+      resizeObserver.observe(target);
+      requestDesktopDragSettle();
+    }
+  };
   const reconcile = (): void => {
     frame = undefined;
     if (disposed) return;
     markShell(root, view);
     markHeroGlow(root);
     markComposerActions(root, view);
+    syncDragTargetResizeObservation();
     reconcileDesktopDrag(root, view);
+    if (view.performance.now() < dragSettleUntil) scheduleReconcile();
   };
   const scheduleReconcile = (): void => {
     if (disposed || frame !== undefined) return;
     frame = view.requestAnimationFrame(reconcile);
   };
+  const resizeObserver = new view.ResizeObserver(() => {
+    requestDesktopDragSettle();
+    scheduleReconcile();
+  });
 
   const observer = new view.MutationObserver(() => {
     if (hasDeclaredInteractionLayer(root, view)) {
@@ -374,6 +430,9 @@ export function installDesktopSurface(
   return () => {
     disposed = true;
     observer.disconnect();
+    resizeObserver.disconnect();
+    observedDragTargets.clear();
+    dragSettleUntil = 0;
     root.removeEventListener("beforetoggle", handleBeforeToggle, true);
     root.removeEventListener("toggle", handleLayerStateChange, true);
     root.removeEventListener(
@@ -385,6 +444,7 @@ export function installDesktopSurface(
       view.cancelAnimationFrame(frame);
       frame = undefined;
     }
+    disposeTopDragRegion();
     clearDesktopMarkers(root);
     disposeStyles();
   };

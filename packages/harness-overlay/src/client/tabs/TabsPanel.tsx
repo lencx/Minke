@@ -373,6 +373,7 @@ export function TabsPanel({
     >
       <div
         className="minke-tabs-resize-handle"
+        data-minke-tabs-resize-handle=""
         role="separator"
         aria-label={t(
           placement === "bottom"
@@ -624,6 +625,7 @@ export function TabsPanel({
             context={{ cwd }}
             t={t}
             onCreated={() => setChoosingType(false)}
+            windowDrag={placement === "right"}
           />
         )}
         {hasTabs && snapshot.tabs.map((tab) => {

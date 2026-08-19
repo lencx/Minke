@@ -98,6 +98,8 @@
   outline: none;
   pointer-events: none;
   touch-action: none;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .minke-tabs-panel[data-placement="right"]
@@ -515,6 +517,8 @@
   transition:
     background var(--ds-transition-duration-fast) var(--ds-ease-out),
     border-color var(--ds-transition-duration-fast) var(--ds-ease-out);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .minke-tabs-empty__option:hover {

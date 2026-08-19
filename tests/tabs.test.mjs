@@ -3003,10 +3003,17 @@ test("bottom Tabs chooser uses a height-efficient grid", () => {
   );
 });
 
-test("right Tabs window dragging stays outside click and reorder targets", () => {
+test("right Tabs window dragging covers populated and empty panels without claiming controls", () => {
   const panelSource = readFileSync(
     new URL(
       "../packages/harness-overlay/src/client/tabs/TabsPanel.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const emptyStateSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/TabsEmptyState.tsx",
       import.meta.url,
     ),
     "utf8",
@@ -3024,6 +3031,11 @@ test("right Tabs window dragging stays outside click and reorder targets", () =>
   assert.match(
     panelSource,
     /\{placement === "right" && \([\s\S]*?data-minke-tabs-window-drag=""/u,
+  );
+  assert.match(
+    panelSource,
+    /className="minke-tabs-resize-handle"\s+data-minke-tabs-resize-handle=""/u,
+    "the resize interaction must expose a semantic marker independent of styling",
   );
   assert.ok(
     stripIndex >= 0 &&
@@ -3046,6 +3058,28 @@ test("right Tabs window dragging stays outside click and reorder targets", () =>
   assert.match(
     TABS_STYLES,
     /\.minke-tabs-tabbar__window-drag\s*\{[\s\S]*?min-width:\s*12px;[\s\S]*?flex:\s*1 0 12px;/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-resize-handle\s*\{[\s\S]*?-webkit-app-region:\s*no-drag;[\s\S]*?app-region:\s*no-drag;/u,
+    "the overhanging resize hit strip must remain interactive above native drag regions",
+  );
+
+  assert.match(
+    emptyStateSource,
+    /readonly windowDrag\?: boolean;[\s\S]*data-minke-tabs-window-drag=\{windowDrag \? "" : undefined\}/u,
+  );
+  assert.match(
+    emptyStateSource,
+    /className="minke-tabs-empty__option"/u,
+  );
+  assert.match(
+    panelSource,
+    /windowDrag=\{placement === "right"\}/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-empty__option\s*\{[\s\S]*?-webkit-app-region:\s*no-drag;/u,
   );
 });
 
@@ -3156,7 +3190,7 @@ test("Tabs resize stays interactive with and without a host details handle", asy
     panel.closest = (selector) =>
       selector === "[data-shell-overlay]" ? overlay : undefined;
     panel.querySelector = (selector) =>
-      selector === ".minke-tabs-resize-handle"
+      selector === "[data-minke-tabs-resize-handle]"
         ? handle
         : undefined;
     panel.ownerDocument = {
@@ -3218,7 +3252,7 @@ test("Tabs resize stays interactive with and without a host details handle", asy
         ? overlayLayer
         : undefined;
     overlayPanel.querySelector = (selector) =>
-      selector === ".minke-tabs-resize-handle"
+      selector === "[data-minke-tabs-resize-handle]"
         ? overlayHandle
         : undefined;
     overlayPanel.ownerDocument = {
@@ -3265,7 +3299,7 @@ test("Tabs resize stays interactive with and without a host details handle", asy
         ? bottomOverlay
         : undefined;
     bottomPanel.querySelector = (selector) =>
-      selector === ".minke-tabs-resize-handle"
+      selector === "[data-minke-tabs-resize-handle]"
         ? bottomHandle
         : undefined;
     bottomPanel.ownerDocument = {

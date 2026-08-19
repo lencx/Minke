@@ -13,6 +13,7 @@ export interface TabsEmptyStateProps {
   readonly context: TabCreateContext;
   readonly t: TabsTranslate;
   readonly onCreated?: () => void;
+  readonly windowDrag?: boolean;
 }
 
 /** Shared chooser for first-use and subsequent tab creation. */
@@ -21,10 +22,12 @@ export function TabsEmptyState({
   context,
   t,
   onCreated,
+  windowDrag,
 }: TabsEmptyStateProps) {
   return (
     <div
       className="minke-tabs-empty"
+      data-minke-tabs-window-drag={windowDrag ? "" : undefined}
       role="group"
       aria-label={t("panel.create")}
     >

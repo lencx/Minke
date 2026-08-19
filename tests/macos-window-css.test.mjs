@@ -46,6 +46,13 @@ const desktopSurfaceCss = readFileSync(
   ),
   "utf8",
 );
+const desktopTopDragRegionSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/desktop/top-drag-region.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const overlayBridgeSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/desktop/window.ts",
@@ -200,7 +207,7 @@ test("Electron wires native desktop capabilities through preload", () => {
   );
   assert.match(
     desktopPreloadSource,
-    /Object\.freeze\(\{\s*about,\s*dataHome,\s*files,\s*locale,\s*modelRuntime,\s*sessionLogs,\s*tabs,\s*terminal,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
+    /Object\.freeze\(\{\s*about,\s*dataHome,\s*files,\s*locale,\s*modelRuntime,\s*pluginCatalog,\s*sessionLogs,\s*tabs,\s*terminal,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
   );
   assert.match(
     desktopPreloadSource,
@@ -498,28 +505,24 @@ test("the desktop sidebar toggle keeps one stable glyph across hover", () => {
   );
 });
 
-test("the desktop New Session button is transparent only before conversation content", () => {
+test("the desktop New Session button stays fully transparent in every state", () => {
   assert.match(
     desktopSurfaceSource,
     /setAttribute\("data-dsh-desktop-frame"/,
   );
   assert.match(
     desktopSurfaceCss,
-    /\[data-dsh-desktop-frame\]:has\(\[data-phase="hero"\]\)[\s\S]*?\[data-dsh-desktop-new-session\],[\s\S]*?\[data-dsh-desktop-frame\]:has\(\[data-phase="settling"\]\)[\s\S]*?\[data-dsh-desktop-new-session\]\s*\{[\s\S]*?background:\s*transparent\s*!important;/,
-  );
-  assert.match(
-    desktopSurfaceCss,
-    /\[data-dsh-desktop-frame\]:has\(\[data-phase="hero"\]\)[\s\S]*?\[data-dsh-desktop-new-session\]:hover,[\s\S]*?\[data-dsh-desktop-frame\]:has\(\[data-phase="settling"\]\)[\s\S]*?\[data-dsh-desktop-new-session\]:hover\s*\{[\s\S]*?background:\s*var\(--dsw-alias-interactive-bg-hover\)\s*!important;/,
+    /\[data-dsh-desktop-new-session\]\s*\{[\s\S]*?background:\s*transparent\s*!important;/,
   );
   assert.match(
     harnessSidebarCss,
     /\.newSession\s*\{[\s\S]*?background:\s*var\(--dsw-alias-button-elevated-fill\);/,
-    "active conversations must fall back to the upstream default fill",
+    "the macOS-only override must leave the shared Harness material unchanged",
   );
   assert.doesNotMatch(
     desktopSurfaceCss,
-    /data-phase="active"[\s\S]*?data-dsh-desktop-new-session/,
-    "the active phase must not override the upstream New Session material",
+    /data-dsh-desktop-new-session[^\{]*:(?:hover|active)[\s\S]*?\{[\s\S]*?background:/,
+    "interaction states must not reintroduce a fill",
   );
 });
 
@@ -555,7 +558,7 @@ test("macOS New Session uses quieter composer action colors", () => {
   assert.doesNotMatch(earlyCss, /data-dsh-desktop-composer-/);
 });
 
-test("the conversation header slot is the full-height drag target without claiming controls or text", () => {
+test("the stable top drag region owns its responsive boundary without claiming controls or text", () => {
   const conversationRoot = earlyCss.match(
     /\[data-phase\]:has\(> \[data-slot="conversation\.session\.header"\]\)\s*\{([\s\S]*?)\}/,
   )?.[1];
@@ -571,8 +574,11 @@ test("the conversation header slot is the full-height drag target without claimi
   const tabsWindowDragTarget = desktopSurfaceCss.match(
     /\[data-minke-tabs-window-drag\]\s*\{([\s\S]*?)\}/,
   )?.[1];
+  const topDragTarget = desktopSurfaceCss.match(
+    /\[data-dsh-desktop-top-drag-region\]\s*\{([\s\S]*?)\}/,
+  )?.[1];
   const gatedDragRule = desktopSurfaceCss.match(
-    /:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-dsh-desktop-titlebar-anchor\],\s*\n:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-slot="conversation\.session\.header"\],\s*\n:root\[data-dsh-desktop-drag-enabled\]\s*\n\s*\[data-minke-tabs-window-drag\]\s*\{([\s\S]*?)\}/,
+    /\[data-dsh-desktop-titlebar-anchor\]\[data-dsh-desktop-drag-enabled\],\s*\n\[data-dsh-desktop-top-drag-region\]\[data-dsh-desktop-drag-enabled\],\s*\n\[data-minke-tabs-window-drag\]\[data-dsh-desktop-drag-enabled\]\s*\{([\s\S]*?)\}/,
   )?.[1];
   assert.ok(conversationRoot, "the conversation root must anchor blank chrome");
   assert.ok(
@@ -593,6 +599,11 @@ test("the conversation header slot is the full-height drag target without claimi
   assert.match(sessionHeaderSlot, /min-height:\s*75px/);
   assert.match(sessionHeaderSlot, /-webkit-app-region:\s*no-drag/);
   assert.ok(
+    topDragTarget,
+    "the managed top region must fail safe before drag is enabled",
+  );
+  assert.match(topDragTarget, /-webkit-app-region:\s*no-drag/);
+  assert.ok(
     tabsWindowDragTarget,
     "the right Tabs spacer must fail safe before drag is enabled",
   );
@@ -602,11 +613,41 @@ test("the conversation header slot is the full-height drag target without claimi
   );
   assert.match(
     desktopSurfaceSource,
-    /DESKTOP_DRAG_TARGET_SELECTOR[\s\S]*"\[data-minke-tabs-window-drag\]"/,
+    /DESKTOP_DRAG_TARGET_SELECTOR[\s\S]*"\[data-dsh-desktop-top-drag-region\]"[\s\S]*"\[data-minke-tabs-window-drag\]"/,
+  );
+  assert.match(
+    desktopSurfaceSource,
+    /DESKTOP_RESIZE_HANDLE_SELECTOR[\s\S]*"\[data-minke-tabs-resize-handle\]"/,
+    "desktop hit testing must use the Tabs resize handle's semantic marker",
+  );
+  assert.doesNotMatch(
+    desktopSurfaceSource,
+    /DESKTOP_RESIZE_HANDLE_SELECTOR[\s\S]*"\.minke-tabs-resize-handle"/,
+    "desktop behavior must not depend on the resize handle's presentation class",
+  );
+  assert.match(
+    desktopTopDragRegionSource,
+    /RIGHT_PANEL_SELECTOR[\s\S]*data-placement="right"\]\[data-open\]/,
+  );
+  assert.match(
+    desktopTopDragRegionSource,
+    /safeRight[\s\S]*Math\.min\(naturalRight, panelRect\.left\)/,
+  );
+  assert.match(
+    desktopTopDragRegionSource,
+    /new view\.ResizeObserver[\s\S]*new view\.MutationObserver/,
+  );
+  assert.match(
+    desktopTopDragRegionSource,
+    /removeAttribute\(TOP_DRAG_REGION_ATTRIBUTE\)[\s\S]*setBoundedWidth\(target, undefined\)/,
+  );
+  assert.match(
+    desktopSurfaceCss,
+    /\[data-dsh-desktop-top-drag-region\]\[data-dsh-desktop-top-drag-bounded\]\s*\{[\s\S]*?width:\s*var\(--dsh-desktop-top-drag-width\)\s*!important;/,
   );
   assert.ok(
     gatedDragRule,
-    "desktop drag must require the runtime safety gate",
+    "each desktop drag target must require its runtime safety gate",
   );
   assert.match(gatedDragRule, /-webkit-app-region:\s*drag/);
   assert.match(blankSessionHeaderSlot, /position:\s*absolute/);

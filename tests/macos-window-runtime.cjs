@@ -343,6 +343,11 @@ async function run() {
         conversationHeader: appRegion(
           '[data-slot="conversation.session.header"]',
         ),
+        conversationHeaderWidth: Math.round(
+          document.querySelector(
+            '[data-slot="conversation.session.header"]',
+          ).getBoundingClientRect().width,
+        ),
         sidebarTitlebar: appRegion(
           '[data-dsh-desktop-titlebar-anchor]',
         ),
@@ -438,6 +443,11 @@ async function run() {
         conversationHeader: appRegion(
           '[data-slot="conversation.session.header"]',
         ),
+        conversationHeaderWidth: Math.round(
+          document.querySelector(
+            '[data-slot="conversation.session.header"]',
+          ).getBoundingClientRect().width,
+        ),
         sidebarTitlebar: appRegion(
           '[data-dsh-desktop-titlebar-anchor]',
         ),
@@ -497,6 +507,154 @@ async function run() {
       await nextFrame();
       const afterInertRoot = snapshot();
 
+      const deferredDragStyle = document.createElement('style');
+      deferredDragStyle.textContent = [
+        '#deferred-drag-toggle:not(:checked) + .deferredWindowDrag',
+        '{ display: none; }',
+        '.deferredWindowDrag {',
+        'position: fixed; top: 90px; left: 12px; z-index: 600;',
+        'width: 60px; height: 28px;',
+        '}',
+      ].join('');
+      const deferredDragToggle = document.createElement('input');
+      deferredDragToggle.id = 'deferred-drag-toggle';
+      deferredDragToggle.type = 'checkbox';
+      deferredDragToggle.hidden = true;
+      const deferredDragTarget = document.createElement('div');
+      deferredDragTarget.className = 'deferredWindowDrag';
+      deferredDragTarget.setAttribute(
+        'data-minke-tabs-window-drag',
+        '',
+      );
+      deferredDragTarget.setAttribute('aria-hidden', 'true');
+      inertRoot.append(
+        deferredDragStyle,
+        deferredDragToggle,
+        deferredDragTarget,
+      );
+      await Promise.resolve();
+      await nextFrame();
+      const beforeDeferredDragLayout = getComputedStyle(
+        deferredDragTarget,
+      ).getPropertyValue('-webkit-app-region').trim();
+      deferredDragToggle.checked = true;
+      await nextFrame();
+      await nextFrame();
+      const afterDeferredDragLayout = getComputedStyle(
+        deferredDragTarget,
+      ).getPropertyValue('-webkit-app-region').trim();
+      deferredDragStyle.remove();
+      deferredDragToggle.remove();
+      deferredDragTarget.remove();
+      await Promise.resolve();
+      await nextFrame();
+
+      const settlingDragTarget = document.createElement('div');
+      settlingDragTarget.style.cssText =
+        'position:fixed;top:126px;left:12px;z-index:600;'
+          + 'width:60px;height:28px';
+      settlingDragTarget.setAttribute(
+        'data-minke-tabs-window-drag',
+        '',
+      );
+      settlingDragTarget.setAttribute('aria-hidden', 'true');
+      const settlingDragOccluder = document.createElement('div');
+      settlingDragOccluder.style.cssText =
+        'position:fixed;top:126px;left:12px;z-index:601;'
+          + 'width:60px;height:28px';
+      inertRoot.append(settlingDragTarget, settlingDragOccluder);
+      const settlingAnimation = settlingDragOccluder.animate(
+        [
+          { visibility: 'visible', offset: 0 },
+          { visibility: 'visible', offset: 0.99 },
+          { visibility: 'hidden', offset: 1 },
+        ],
+        { duration: 120, fill: 'forwards' },
+      );
+      await Promise.resolve();
+      await nextFrame();
+      const beforeSettlingDragLayout = getComputedStyle(
+        settlingDragTarget,
+      ).getPropertyValue('-webkit-app-region').trim();
+      await settlingAnimation.finished;
+      await nextFrame();
+      await nextFrame();
+      const afterSettlingDragLayout = getComputedStyle(
+        settlingDragTarget,
+      ).getPropertyValue('-webkit-app-region').trim();
+      settlingDragTarget.remove();
+      settlingDragOccluder.remove();
+      await Promise.resolve();
+      await nextFrame();
+
+      const wideRightPanel = document.createElement('div');
+      wideRightPanel.className = 'minke-tabs-panel';
+      wideRightPanel.setAttribute('data-open', '');
+      wideRightPanel.setAttribute('data-placement', 'right');
+      wideRightPanel.style.cssText =
+        'position:fixed;inset:0 0 0 210px;z-index:2;pointer-events:auto;'
+          + '-webkit-app-region:no-drag;app-region:no-drag';
+      const wideRightPanelResizeHandle =
+        document.createElement('div');
+      wideRightPanelResizeHandle.className =
+        'minke-tabs-resize-handle';
+      wideRightPanelResizeHandle.setAttribute(
+        'data-minke-tabs-resize-handle',
+        '',
+      );
+      wideRightPanelResizeHandle.style.cssText =
+        'position:absolute;inset:0 auto 0 -5px;z-index:3;width:10px;'
+          + '-webkit-app-region:no-drag;app-region:no-drag';
+      const wideEmptyDrag = document.createElement('div');
+      wideEmptyDrag.className = 'wideEmptyDrag';
+      wideEmptyDrag.setAttribute(
+        'data-minke-tabs-window-drag',
+        '',
+      );
+      wideEmptyDrag.style.cssText =
+        'position:absolute;inset:40px 0 0 0';
+      wideRightPanel.append(
+        wideRightPanelResizeHandle,
+        wideEmptyDrag,
+      );
+      inertRoot.append(wideRightPanel);
+      await Promise.resolve();
+      await nextFrame();
+      await nextFrame();
+      const wideRightPanelRect =
+        wideRightPanel.getBoundingClientRect();
+      const conversationHeaderRect = document.querySelector(
+        '[data-slot="conversation.session.header"]',
+      ).getBoundingClientRect();
+      const duringWideRightPanel = {
+        ...snapshot(),
+        wideEmptyDrag: appRegion('.wideEmptyDrag'),
+        conversationHeaderRight: Math.round(
+          conversationHeaderRect.right,
+        ),
+        rightPanelLeft: Math.round(wideRightPanelRect.left),
+      };
+      wideRightPanel.style.left = '170px';
+      await nextFrame();
+      await nextFrame();
+      const resizedRightPanelRect =
+        wideRightPanel.getBoundingClientRect();
+      const resizedConversationHeaderRect = document.querySelector(
+        '[data-slot="conversation.session.header"]',
+      ).getBoundingClientRect();
+      const duringResizedRightPanel = {
+        ...snapshot(),
+        wideEmptyDrag: appRegion('.wideEmptyDrag'),
+        conversationHeaderRight: Math.round(
+          resizedConversationHeaderRect.right,
+        ),
+        rightPanelLeft: Math.round(resizedRightPanelRect.left),
+      };
+      wideRightPanel.remove();
+      await Promise.resolve();
+      await nextFrame();
+      const afterWideRightPanel = snapshot();
+
       const occludingBanner = document.createElement('div');
       occludingBanner.style.cssText =
         'position:fixed;inset:0 0 auto;height:40px;z-index:500';
@@ -516,11 +674,18 @@ async function run() {
         afterInertRoot,
         afterOcclusion,
         afterPopover,
+        afterWideRightPanel,
+        afterDeferredDragLayout,
+        afterSettlingDragLayout,
         beforePopover,
+        beforeDeferredDragLayout,
+        beforeSettlingDragLayout,
         duringFixedPortal,
         duringInertRoot,
         duringOcclusion,
         duringPopover,
+        duringResizedRightPanel,
+        duringWideRightPanel,
         whileDialogHidden,
       };
     })()
@@ -663,9 +828,9 @@ async function run() {
             '[data-slot="conversation.session.header"]',
           ),
         ).getPropertyValue('-webkit-app-region').trim(),
-        dragEnabled: document.documentElement.hasAttribute(
-          'data-dsh-desktop-drag-enabled',
-        ),
+        dragEnabled: document.querySelector(
+          '[data-dsh-desktop-drag-enabled]',
+        ) !== null,
         marker: document.querySelector(
           '[data-dsh-desktop-new-session]',
         ) !== null,
@@ -808,6 +973,49 @@ async function run() {
   ) {
     failures.push('desktop drag regions did not recover after the dialog closed');
   }
+  if (
+    result.dragSafety.duringWideRightPanel.conversationHeader !== 'drag' ||
+    result.dragSafety.duringWideRightPanel.sidebarTitlebar !== 'drag' ||
+    result.dragSafety.duringWideRightPanel.tabsWindowDrag !== 'drag' ||
+    result.dragSafety.duringWideRightPanel.wideEmptyDrag !== 'drag' ||
+    result.dragSafety.duringWideRightPanel.conversationHeaderRight >
+      result.dragSafety.duringWideRightPanel.rightPanelLeft ||
+    result.dragSafety.duringWideRightPanel.conversationHeaderWidth >=
+      result.dragSafety.beforeDialog.conversationHeaderWidth
+  ) {
+    failures.push(
+      'top drag region did not shrink to the visible New Session boundary',
+    );
+  }
+  if (
+    result.dragSafety.duringResizedRightPanel.conversationHeader !==
+      'drag' ||
+    result.dragSafety.duringResizedRightPanel.wideEmptyDrag !== 'drag' ||
+    result.dragSafety.duringResizedRightPanel.conversationHeaderRight !==
+      result.dragSafety.duringResizedRightPanel.rightPanelLeft ||
+    result.dragSafety.duringResizedRightPanel.conversationHeaderWidth >=
+      result.dragSafety.duringWideRightPanel.conversationHeaderWidth
+  ) {
+    failures.push(
+      'top drag region did not track a live right panel resize',
+    );
+  }
+  if (
+    result.dragSafety.beforeDeferredDragLayout !== 'no-drag' ||
+    result.dragSafety.afterDeferredDragLayout !== 'drag'
+  ) {
+    failures.push(
+      'layout-only visibility change did not refresh its desktop drag region',
+    );
+  }
+  if (
+    result.dragSafety.beforeSettlingDragLayout !== 'no-drag' ||
+    result.dragSafety.afterSettlingDragLayout !== 'drag'
+  ) {
+    failures.push(
+      'transient layout occlusion left a desktop drag region stale',
+    );
+  }
   for (const [label, state] of Object.entries({
     'fixed portal': result.dragSafety.duringFixedPortal,
     'dialog attribute activation': result.dragSafety.afterDialogShown,
@@ -831,6 +1039,7 @@ async function run() {
     'inert root release': result.dragSafety.afterInertRoot,
     'fixed occlusion removal': result.dragSafety.afterOcclusion,
     'native popover close': result.dragSafety.afterPopover,
+    'wide right panel removal': result.dragSafety.afterWideRightPanel,
   })) {
     if (
       state.conversationHeader !== 'drag' ||

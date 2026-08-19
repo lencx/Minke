@@ -8,6 +8,9 @@ export const TABS_PANEL_DEFAULT_HEIGHT = 320;
 export const TABS_PANEL_MAX_HEIGHT = 640;
 export const TABS_PANEL_MIN_VERTICAL_REMAINDER = 200;
 
+const TABS_RESIZE_HANDLE_SELECTOR =
+  "[data-minke-tabs-resize-handle]";
+
 export function tabsPanelReflowMaxWidth(
   viewport: number,
   sidebar = 0,
@@ -637,7 +640,7 @@ export class TabsPanelResizeController {
     );
 
     const handle = this.#panel.querySelector<HTMLElement>(
-      ".minke-tabs-resize-handle",
+      TABS_RESIZE_HANDLE_SELECTOR,
     );
     if (handle === null) return;
     handle.tabIndex =
@@ -713,7 +716,7 @@ export class TabsPanelResizeController {
     );
 
     const handle = this.#panel.querySelector<HTMLElement>(
-      ".minke-tabs-resize-handle",
+      TABS_RESIZE_HANDLE_SELECTOR,
     );
     if (handle === null) return;
     handle.tabIndex = open ? 0 : -1;
