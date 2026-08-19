@@ -280,6 +280,80 @@ test("the Harness contract accepts a clean pin plus an external bundle", async (
   );
 });
 
+test("the product bundle composes declared Minke runtime packages", async () => {
+  const { commit, projectRoot } = fixture();
+  write(
+    projectRoot,
+    "packages/harness-overlay/package.json",
+    `${JSON.stringify({
+      name: "@lencx/minke-harness-overlay",
+      version: "1.0.0",
+      dsh: {
+        bundle: { patch: "./cordis.patch.yml" },
+        client: { platform: "web" },
+      },
+      dependencies: {
+        "@lencx/minke-model-runtime": "workspace:*",
+      },
+    })}\n`,
+  );
+  write(
+    projectRoot,
+    "packages/harness-overlay/cordis.patch.yml",
+    [
+      "- insert:",
+      "    - id: model-runtime",
+      "      name: '@lencx/minke-model-runtime/dsh'",
+      "    - id: minke-overlay",
+      "      name: '@lencx/minke-harness-overlay'",
+      "",
+    ].join("\n"),
+  );
+  write(
+    projectRoot,
+    "packages/model-runtime/package.json",
+    `${JSON.stringify({
+      name: "@lencx/minke-model-runtime",
+      version: "1.0.0",
+      exports: {
+        "./dsh": {
+          default: "./lib/dsh.js",
+        },
+      },
+    })}\n`,
+  );
+  writeContract(projectRoot, commit, {
+    productBundle: {
+      packageName: "@lencx/minke-harness-overlay",
+      packagePath: "packages/harness-overlay",
+      patch: "cordis.patch.yml",
+      workspaceRuntimePackages: [
+        {
+          packageName: "@lencx/minke-model-runtime",
+          packagePath: "packages/model-runtime",
+        },
+      ],
+    },
+  });
+
+  const verified = await verifyHarnessContract(projectRoot);
+
+  assert.deepEqual(
+    verified.productBundle.workspaceRuntimePackages.map(
+      ({ packageName, packagePath }) => ({
+        packageName,
+        packagePath,
+      }),
+    ),
+    [
+      {
+        packageName: "@lencx/minke-model-runtime",
+        packagePath: "packages/model-runtime",
+      },
+    ],
+  );
+});
+
 test("the Harness contract requires an explicit local runtime patch", async () => {
   const { commit, projectRoot } = fixture();
   writeContract(projectRoot, commit, { patches: [] });

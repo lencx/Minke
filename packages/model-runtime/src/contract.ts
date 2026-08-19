@@ -1,3 +1,4 @@
+/** Renderer-safe settings contracts for the model-runtime module. */
 export const MODEL_RUNTIME_SETTINGS_READ_CHANNEL =
   "minke:model-runtime-settings:read";
 export const MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL =

@@ -10,7 +10,7 @@ import {
   type ModelRuntimeAvailability,
   type ModelRuntimeSettings,
   type ModelRuntimeSettingsSnapshot,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 
 interface IpcMainLike {
   handle(

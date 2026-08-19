@@ -27,6 +27,24 @@ const manifest = JSON.parse(
     "utf8",
   ),
 );
+const pluginCatalogManifest = JSON.parse(
+  readFileSync(
+    new URL("../packages/plugin-catalog/package.json", import.meta.url),
+    "utf8",
+  ),
+);
+const remoteAccessManifest = JSON.parse(
+  readFileSync(
+    new URL("../packages/remote-access/package.json", import.meta.url),
+    "utf8",
+  ),
+);
+const modelRuntimeManifest = JSON.parse(
+  readFileSync(
+    new URL("../packages/model-runtime/package.json", import.meta.url),
+    "utf8",
+  ),
+);
 const contract = JSON.parse(
   readFileSync(
     new URL("../config/harness-runtime.json", import.meta.url),
@@ -43,7 +61,7 @@ const bundle = readFileSync(
 );
 const modelRuntimeBundle = readFileSync(
   new URL(
-    "../packages/harness-overlay/lib/model-runtime.js",
+    "../packages/model-runtime/lib/dsh.js",
     import.meta.url,
   ),
   "utf8",
@@ -118,8 +136,11 @@ const dataHomeStylesSource = readFileSync(
   ),
   "utf8",
 );
-const overlayBuildSource = readFileSync(
-  new URL("../scripts/harness/build-overlay.mjs", import.meta.url),
+const productBuildSource = readFileSync(
+  new URL(
+    "../scripts/harness/build-product-packages.mjs",
+    import.meta.url,
+  ),
   "utf8",
 );
 const tabsCoreSource = [
@@ -143,6 +164,7 @@ test("the client entry stays a composition root", () => {
     "installAbout",
     "installDataHome",
     "installLocalModel",
+    "installRemote",
     "installTabs",
     "installShortcuts",
     "installOnboarding",
@@ -155,8 +177,20 @@ test("the client entry stays a composition root", () => {
   );
 });
 
-test("the product overlay uses the shared @lencx package scope", () => {
+test("product capability packages follow the shared naming convention", () => {
   assert.equal(manifest.name, "@lencx/minke-harness-overlay");
+  assert.equal(
+    pluginCatalogManifest.name,
+    "@lencx/minke-plugin-catalog",
+  );
+  assert.equal(
+    remoteAccessManifest.name,
+    "@lencx/minke-remote-access",
+  );
+  assert.equal(
+    modelRuntimeManifest.name,
+    "@lencx/minke-model-runtime",
+  );
   assert.equal(
     contract.productBundle.packageName,
     "@lencx/minke-harness-overlay",
@@ -181,13 +215,31 @@ test("the product overlay uses the shared @lencx package scope", () => {
       "@deepseek-ai/dsh-client-ui-sidebar",
     ),
   );
+  assert.equal(manifest.exports["./model-runtime"], undefined);
   assert.equal(
-    manifest.exports["./model-runtime"],
-    "./lib/model-runtime.js",
+    modelRuntimeManifest.exports["./dsh"].default,
+    "./lib/dsh.js",
   );
   assert.deepEqual(contract.productBundle.runtimePackages, [
     "@deepseek-ai/dsh-subagent-codex",
   ]);
+  assert.equal(
+    manifest.dependencies["@lencx/minke-model-runtime"],
+    "workspace:*",
+  );
+  assert.equal(
+    manifest.dependencies["@lencx/minke-remote-access"],
+    "workspace:*",
+  );
+  assert.deepEqual(
+    contract.productBundle.workspaceRuntimePackages,
+    [
+      {
+        packageName: "@lencx/minke-model-runtime",
+        packagePath: "packages/model-runtime",
+      },
+    ],
+  );
   assert.match(
     manifest.devDependencies?.["@lucide/icons"] ?? "",
     /^\d+\.\d+\.\d+$/u,
@@ -223,7 +275,7 @@ test("the product overlay composes Codex CLI and the generic model runtime", () 
   );
   assert.match(
     patch,
-    /id: model-runtime[\s\S]*name: '@lencx\/minke-harness-overlay\/model-runtime'[\s\S]*enabled: true[\s\S]*lifecycle: !!js "process\.env\.MINKE_LM_STUDIO_ENABLED === '1' && process\.env\.MINKE_LM_STUDIO_COMMAND \? 'ensure-running' : 'external'"[\s\S]*command: !!js process\.env\.MINKE_LM_STUDIO_COMMAND/u,
+    /id: model-runtime[\s\S]*name: '@lencx\/minke-model-runtime\/dsh'[\s\S]*enabled: true[\s\S]*lifecycle: !!js "process\.env\.MINKE_LM_STUDIO_ENABLED === '1' && process\.env\.MINKE_LM_STUDIO_COMMAND \? 'ensure-running' : 'external'"[\s\S]*command: !!js process\.env\.MINKE_LM_STUDIO_COMMAND/u,
   );
   assert.match(
     patch,
@@ -350,7 +402,7 @@ test("About uses the public sidebar action and packaged desktop metadata", () =>
   assert.match(aboutInstallSource, /desktopAboutInfo\(\)/u);
   assert.match(aboutInstallSource, /installAboutStyles\(\)/u);
   assert.match(
-    overlayBuildSource,
+    productBuildSource,
     /loader:\s*\{[\s\S]*"\.png":\s*"dataurl"/u,
   );
 

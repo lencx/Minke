@@ -12,6 +12,7 @@ const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sourceRoots = [
   "desktop",
   "packages/harness-overlay/src",
+  "packages/model-runtime/src",
   "packages/plugin-catalog/src",
   "packages/remote-access/src",
   "src",
@@ -28,7 +29,6 @@ const sourceExtensions = new Set([
 ]);
 const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/session-export-contract",
-  "@minke/harness-overlay/model-runtime-settings-contract",
   "@minke/harness-overlay/data-home-contract",
   "@minke/harness-overlay/shortcut-contract",
   "@minke/harness-overlay/tabs/contract",
@@ -142,6 +142,28 @@ test("the remote-access package stays independent of desktop transports", () => 
   );
 });
 
+test("the model-runtime package stays independent of desktop and overlay transports", () => {
+  const modelRuntimeRoot = resolve(
+    projectRoot,
+    "packages/model-runtime/src",
+  );
+  const violations = productionImports.filter(
+    ({ path, specifier }) =>
+      path.startsWith(`${modelRuntimeRoot}${sep}`) &&
+      (
+        specifier === "electron" ||
+        specifier.startsWith("@minke/desktop/") ||
+        specifier.startsWith("@minke/harness-overlay/")
+      ),
+  );
+  assert.deepEqual(
+    violations.map(({ path, specifier }) => [
+      relative(projectRoot, path),
+      specifier,
+    ]),
+    [],
+  );
+});
 
 test("production sources do not restore retired model environment seams", () => {
   const violations = productionFiles.filter((path) =>

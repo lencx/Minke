@@ -14,6 +14,7 @@ out
 runtime/host
 docs/research
 /packages/harness-overlay/lib/
+/packages/model-runtime/lib/
 
 # Local verification artifacts
 /artifacts/design-qa/

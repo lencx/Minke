@@ -16,7 +16,7 @@ import {
   MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
   parseModelRuntimeSettings,
   type ModelRuntimeSettings,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 import {
   isProductShortcutActionId,
   parseShortcutBindings,

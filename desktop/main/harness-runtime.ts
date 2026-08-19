@@ -5,7 +5,7 @@ import {
 } from "../../config/embedded-node-runtime.mts";
 import {
   type LocalModelRuntimeId,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 import {
   harnessWebArguments,
   readHarnessRuntimeLayout,

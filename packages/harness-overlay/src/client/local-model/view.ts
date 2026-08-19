@@ -1,7 +1,7 @@
 import {
   LOCAL_MODEL_RUNTIMES,
   type LocalModelRuntimeId,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 import type {
   LocalModelTranslate,
 } from "./locales.ts";

@@ -21,6 +21,12 @@
     "packageName": "@lencx/minke-harness-overlay",
     "packagePath": "packages/harness-overlay",
     "patch": "cordis.patch.yml",
+    "workspaceRuntimePackages": [
+      {
+        "packageName": "@lencx/minke-model-runtime",
+        "packagePath": "packages/model-runtime"
+      }
+    ],
     "runtimePackages": [
       "@deepseek-ai/dsh-subagent-codex"
     ]

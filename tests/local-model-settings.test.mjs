@@ -23,7 +23,7 @@ import {
   MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
   MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL,
   parseModelRuntimeSettingsSnapshot,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 import {
   LocalModelSettingsRuntime,
 } from "@minke/harness-overlay/client/local-model/runtime.ts";

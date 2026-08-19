@@ -1,34 +1,12 @@
 {
-  "extends": "../../vendor/deepseek-harness/tsconfig.base.json",
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
     "composite": true,
     "noEmit": true,
     "rootDir": "src",
-    "target": "ES2022",
     "tsBuildInfoFile": "./lib/tsconfig.host.tsbuildinfo"
   },
   "include": [
-    "src/index.ts",
-    "src/model-runtime"
-  ],
-  "references": [
-    {
-      "path": "../../vendor/deepseek-harness/vendor/cordis"
-    },
-    {
-      "path": "../../vendor/deepseek-harness/vendor/schemastery"
-    },
-    {
-      "path": "../../vendor/deepseek-harness/packages/credentials/credentials"
-    },
-    {
-      "path": "../../vendor/deepseek-harness/packages/util/launch-environment"
-    },
-    {
-      "path": "../../vendor/deepseek-harness/packages/llm/llm-pi-ai"
-    },
-    {
-      "path": "../../vendor/deepseek-harness/packages/subprocess/subprocess"
-    }
+    "src/index.ts"
   ]
 }

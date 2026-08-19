@@ -1,3 +1,7 @@
+/**
+ * Local model discovery, lifecycle, request preparation, and cleanup.
+ * @module @lencx/minke-model-runtime
+ */
 const DEFAULT_LM_STUDIO_BASE_URL = "http://127.0.0.1:1234/v1";
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1";
 const DEFAULT_CONTEXT_WINDOW = 32_768;

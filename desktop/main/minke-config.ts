@@ -10,7 +10,7 @@ import {
   DEFAULT_MODEL_RUNTIME_SETTINGS,
   parseModelRuntimeSettings,
   type ModelRuntimeSettings,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 import {
   parseShortcutBindings,
   type ShortcutBindings,

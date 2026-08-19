@@ -1,3 +1,7 @@
+/**
+ * DeepSeek Harness adapter for the Minke model-runtime module.
+ * @module @lencx/minke-model-runtime/dsh
+ */
 import type { Context } from "@deepseek-ai/cordis";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";

@@ -6,7 +6,7 @@ import {
   type LocalModelRuntimeId,
   type ModelRuntimeAvailability,
   type ModelRuntimeSettings,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 import type {
   ModelRuntimeSettingsStore,
 } from "@minke/harness-overlay/client/desktop/index.ts";

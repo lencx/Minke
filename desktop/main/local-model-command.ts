@@ -10,7 +10,7 @@ import {
 } from "node:path";
 import type {
   LocalModelRuntimeId,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 
 export type LocalModelCommands = Partial<
   Record<LocalModelRuntimeId, string>

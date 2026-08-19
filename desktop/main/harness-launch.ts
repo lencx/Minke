@@ -26,7 +26,7 @@ export async function readHarnessRuntimeLayout(
   const packageName = metadata.productBundle?.packageName;
   const patch = metadata.productBundle?.patch;
   if (
-    metadata.schemaVersion !== 2 ||
+    metadata.schemaVersion !== 3 ||
     typeof packageName !== "string" ||
     !/^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/u.test(packageName) ||
     typeof patch !== "string" ||

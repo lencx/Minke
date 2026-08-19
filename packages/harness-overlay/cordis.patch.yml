@@ -7,7 +7,7 @@
     # Minke's two supported local-model runtimes stay configurable even when
     # their service is offline. Auto-start is an explicit desktop preference.
     - id: model-runtime
-      name: '@lencx/minke-harness-overlay/model-runtime'
+      name: '@lencx/minke-model-runtime/dsh'
       config:
         lmStudio:
           enabled: true

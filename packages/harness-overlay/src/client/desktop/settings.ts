@@ -11,7 +11,7 @@ import {
   NO_MODEL_RUNTIME_AVAILABILITY,
   parseModelRuntimeSettings,
   parseModelRuntimeSettingsSnapshot,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 import {
   parseTerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";

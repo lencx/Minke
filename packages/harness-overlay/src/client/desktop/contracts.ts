@@ -8,7 +8,7 @@ import type {
 import type {
   ModelRuntimeSettings,
   ModelRuntimeSettingsSnapshot,
-} from "@minke/harness-overlay/model-runtime-settings-contract.ts";
+} from "@lencx/minke-model-runtime/contract";
 import type {
   ProductShortcutActionId,
   ShortcutBindings,

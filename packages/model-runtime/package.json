@@ -1,0 +1,31 @@
+{
+  "name": "@lencx/minke-model-runtime",
+  "description": "Minke local model discovery, lifecycle, and DeepSeek Harness integration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "node ../../vendor/deepseek-harness/node_modules/typescript/bin/tsc -b tsconfig.json --pretty false"
+  },
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/core.ts",
+      "default": "./lib/index.js"
+    },
+    "./contract": {
+      "types": "./src/contract.ts",
+      "default": "./lib/contract.js"
+    },
+    "./dsh": {
+      "types": "./src/dsh.ts",
+      "default": "./lib/dsh.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "license": "Apache-2.0"
+}

@@ -92,6 +92,32 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
       "Harness productBundle.runtimePackages must be unique @deepseek-ai package names.",
     );
   }
+  const workspaceRuntimePackageConfigs =
+    bundle.workspaceRuntimePackages ?? [];
+  if (
+    !Array.isArray(workspaceRuntimePackageConfigs) ||
+    workspaceRuntimePackageConfigs.some(
+      (entry) =>
+        typeof entry !== "object" ||
+        entry === null ||
+        Array.isArray(entry) ||
+        typeof entry.packageName !== "string" ||
+        !/^@lencx\/minke-[a-z0-9][a-z0-9-]*$/u.test(
+          entry.packageName,
+        ) ||
+        typeof entry.packagePath !== "string",
+    ) ||
+    new Set(
+      workspaceRuntimePackageConfigs.map((entry) => entry.packageName),
+    ).size !== workspaceRuntimePackageConfigs.length ||
+    new Set(
+      workspaceRuntimePackageConfigs.map((entry) => entry.packagePath),
+    ).size !== workspaceRuntimePackageConfigs.length
+  ) {
+    throw new Error(
+      "Harness productBundle.workspaceRuntimePackages must be unique @lencx/minke-* package descriptors.",
+    );
+  }
   if (!bundle.packageName.startsWith("@lencx/")) {
     throw new Error("Minke product packages must use the @lencx scope.");
   }
@@ -135,7 +161,69 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
       `${bundle.patch} does not compose runtime package ${runtimePackage}`,
     );
   }
-  return { bundle, packageRoot, manifest };
+  const workspaceRuntimePackages = await Promise.all(
+    workspaceRuntimePackageConfigs.map(async (entry) => {
+      if (entry.packageName === bundle.packageName) {
+        throw new Error(
+          "Harness productBundle cannot list itself as a workspace runtime package.",
+        );
+      }
+      const runtimePackageRoot = resolveInside(
+        projectRoot,
+        entry.packagePath,
+        `workspace runtime package ${entry.packageName}`,
+      );
+      if (
+        runtimePackageRoot === harnessRoot ||
+        runtimePackageRoot.startsWith(`${harnessRoot}${sep}`)
+      ) {
+        throw new Error(
+          `Minke workspace runtime package ${entry.packageName} must live outside vendor/deepseek-harness.`,
+        );
+      }
+      const runtimeManifest = await readJson(
+        join(runtimePackageRoot, "package.json"),
+      );
+      if (runtimeManifest.name !== entry.packageName) {
+        throw new Error(
+          `Minke workspace runtime package name changed: expected ${entry.packageName}, found ${String(runtimeManifest.name)}`,
+        );
+      }
+      if (
+        manifest.dependencies?.[entry.packageName] !== "workspace:*"
+      ) {
+        throw new Error(
+          `${bundle.packageName} must depend on ${entry.packageName} through workspace:*`,
+        );
+      }
+      const adapterExport = runtimeManifest.exports?.["./dsh"];
+      const adapterTarget =
+        typeof adapterExport === "string"
+          ? adapterExport
+          : adapterExport?.default;
+      if (adapterTarget !== "./lib/dsh.js") {
+        throw new Error(
+          `${entry.packageName} must expose its Harness adapter as ./dsh -> ./lib/dsh.js`,
+        );
+      }
+      requireSourceSeam(
+        patchSource,
+        `name: '${entry.packageName}/dsh'`,
+        `${bundle.patch} does not compose workspace runtime package ${entry.packageName}/dsh`,
+      );
+      return {
+        ...entry,
+        packageRoot: runtimePackageRoot,
+        manifest: runtimeManifest,
+      };
+    }),
+  );
+  return {
+    bundle,
+    packageRoot,
+    manifest,
+    workspaceRuntimePackages,
+  };
 }
 
 /**

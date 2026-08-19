@@ -48,11 +48,11 @@ import {
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const activeRuntimeRoot = join(projectRoot, "runtime", "host");
 const generatedPackageName = "@dsh-desktop/runtime-build";
-const runtimeMetadataVersion = 2;
+const runtimeMetadataVersion = 3;
 const runtimeFingerprintPaths = [
   "config/harness-runtime.json",
   "config/embedded-node-runtime.mts",
-  "scripts/harness/build-overlay.mjs",
+  "scripts/harness/build-product-packages.mjs",
   "scripts/harness/command-invocation.mjs",
   "scripts/harness/contract.mjs",
   "scripts/harness/pnpm-invocation.mjs",
@@ -93,6 +93,8 @@ async function fingerprintRuntimeCore(contract, harnessRoot, commit) {
     productBundle: {
       packageName: contract.productBundle.packageName,
       patch: contract.productBundle.patch,
+      workspaceRuntimePackages:
+        contract.productBundle.workspaceRuntimePackages ?? [],
       runtimePackages: contract.productBundle.runtimePackages ?? [],
     },
     schemaVersion: runtimeMetadataVersion,
@@ -100,19 +102,40 @@ async function fingerprintRuntimeCore(contract, harnessRoot, commit) {
 }
 
 async function fingerprintProductBundle(productBundle) {
-  return fingerprintPaths(
-    productBundle.packageRoot,
-    [
-      "package.json",
-      "lib",
-      "config",
-      productBundle.bundle.patch,
-      "LICENSE",
-    ],
-    {
-      shouldIgnore: isPrunableRuntimePath,
-    },
-  );
+  const [bundleFingerprint, workspaceRuntimePackageFingerprints] =
+    await Promise.all([
+      fingerprintPaths(
+        productBundle.packageRoot,
+        [
+          "package.json",
+          "lib",
+          "config",
+          productBundle.bundle.patch,
+          "LICENSE",
+        ],
+        {
+          shouldIgnore: isPrunableRuntimePath,
+        },
+      ),
+      Promise.all(
+        productBundle.workspaceRuntimePackages.map(
+          async ({ packageName, packageRoot }) => ({
+            packageName,
+            fingerprint: await fingerprintPaths(
+              packageRoot,
+              ["package.json", "lib", "config", "LICENSE"],
+              {
+                shouldIgnore: isPrunableRuntimePath,
+              },
+            ),
+          }),
+        ),
+      ),
+    ]);
+  return fingerprintRecord({
+    bundle: bundleFingerprint,
+    workspaceRuntimePackages: workspaceRuntimePackageFingerprints,
+  });
 }
 
 async function inspectPrunedRuntime(runtimeRoot, contract) {
@@ -410,6 +433,43 @@ async function injectWorkspacePackage(
   }
 }
 
+async function injectProductPackages(
+  runtimeRoot,
+  productBundle,
+  options = {},
+) {
+  for (const runtimePackage of productBundle.workspaceRuntimePackages) {
+    await injectWorkspacePackage(
+      runtimeRoot,
+      runtimePackage.packageName,
+      runtimePackage.packageRoot,
+      options,
+    );
+  }
+  // Publish the composition root last so a failed dependency refresh leaves
+  // the previously staged patch active.
+  await injectWorkspacePackage(
+    runtimeRoot,
+    productBundle.bundle.packageName,
+    productBundle.packageRoot,
+    options,
+  );
+}
+
+function installedProductBundle(runtimeRoot, productBundle) {
+  const installedPackageRoot = (packageName) =>
+    join(runtimeRoot, "node_modules", ...packageName.split("/"));
+  return {
+    ...productBundle,
+    packageRoot: installedPackageRoot(productBundle.bundle.packageName),
+    workspaceRuntimePackages:
+      productBundle.workspaceRuntimePackages.map((runtimePackage) => ({
+        ...runtimePackage,
+        packageRoot: installedPackageRoot(runtimePackage.packageName),
+      })),
+  };
+}
+
 async function injectMissingWorkspacePackages(
   runtimeRoot,
   selectedPackages,
@@ -446,6 +506,12 @@ async function exposeProductBundleToProfiles(
   manifest.dependencies = {
     ...(manifest.dependencies ?? {}),
     [productBundle.bundle.packageName]: productBundle.manifest.version,
+    ...Object.fromEntries(
+      productBundle.workspaceRuntimePackages.map((runtimePackage) => [
+        runtimePackage.packageName,
+        runtimePackage.manifest.version,
+      ]),
+    ),
     ...Object.fromEntries(
       (productBundle.bundle.runtimePackages ?? []).map((packageName) => [
         packageName,
@@ -532,6 +598,8 @@ async function writeRuntimeAdapters(
         productBundle: {
           packageName: contract.productBundle.packageName,
           patch: contract.productBundle.patch,
+          workspaceRuntimePackages:
+            contract.productBundle.workspaceRuntimePackages ?? [],
           runtimePackages: contract.productBundle.runtimePackages ?? [],
           fingerprint: productBundleFingerprint,
         },
@@ -548,14 +616,10 @@ async function writeRuntimeAdapters(
 async function validateRuntime(
   runtimeRoot,
   contract,
+  productBundle,
   { commit, coreFingerprint, productBundleFingerprint, runtimeSize },
   runtimePatches,
 ) {
-  const productPackageRoot = join(
-    runtimeRoot,
-    "node_modules",
-    ...contract.productBundle.packageName.split("/"),
-  );
   const required = [
     join(runtimeRoot, "index.mjs"),
     join(
@@ -586,6 +650,23 @@ async function validateRuntime(
       ...contract.productBundle.packageName.split("/"),
       contract.productBundle.patch,
     ),
+    ...(contract.productBundle.workspaceRuntimePackages ?? []).flatMap(
+      ({ packageName }) => [
+        join(
+          runtimeRoot,
+          "node_modules",
+          ...packageName.split("/"),
+          "package.json",
+        ),
+        join(
+          runtimeRoot,
+          "node_modules",
+          ...packageName.split("/"),
+          "lib",
+          "dsh.js",
+        ),
+      ],
+    ),
     ...(contract.productBundle.runtimePackages ?? []).flatMap((packageName) => [
       join(runtimeRoot, "node_modules", ...packageName.split("/"), "package.json"),
       join(runtimeRoot, "node_modules", ...packageName.split("/"), "lib", "index.js"),
@@ -599,10 +680,9 @@ async function validateRuntime(
     }
   }
   await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
-  const installedProductBundleFingerprint = await fingerprintProductBundle({
-    bundle: contract.productBundle,
-    packageRoot: productPackageRoot,
-  });
+  const installedProductBundleFingerprint = await fingerprintProductBundle(
+    installedProductBundle(runtimeRoot, productBundle),
+  );
   if (installedProductBundleFingerprint !== productBundleFingerprint) {
     throw new Error(
       "staged Harness product bundle does not match its built source",
@@ -625,6 +705,12 @@ async function validateRuntime(
       contract.productBundle.packageName ||
     metadata.productBundle?.patch !== contract.productBundle.patch ||
     metadata.productBundle?.fingerprint !== productBundleFingerprint ||
+    JSON.stringify(
+      metadata.productBundle?.workspaceRuntimePackages ?? [],
+    ) !==
+      JSON.stringify(
+        contract.productBundle.workspaceRuntimePackages ?? [],
+      ) ||
     JSON.stringify(metadata.productBundle?.runtimePackages ?? []) !==
       JSON.stringify(contract.productBundle.runtimePackages ?? []) ||
     metadata.platform !== process.platform ||
@@ -661,6 +747,12 @@ async function validateReusableRuntime(
     metadata.productBundle?.packageName !==
       contract.productBundle.packageName ||
     metadata.productBundle?.patch !== contract.productBundle.patch ||
+    JSON.stringify(
+      metadata.productBundle?.workspaceRuntimePackages ?? [],
+    ) !==
+      JSON.stringify(
+        contract.productBundle.workspaceRuntimePackages ?? [],
+      ) ||
     JSON.stringify(metadata.productBundle?.runtimePackages ?? []) !==
       JSON.stringify(contract.productBundle.runtimePackages ?? []) ||
     metadata.platform !== process.platform ||
@@ -691,6 +783,23 @@ async function validateReusableRuntime(
       "index.html",
     ),
     join(runtimeRoot, "node_modules", "pnpm", "bin", "pnpm.cjs"),
+    ...(contract.productBundle.workspaceRuntimePackages ?? []).flatMap(
+      ({ packageName }) => [
+        join(
+          runtimeRoot,
+          "node_modules",
+          ...packageName.split("/"),
+          "package.json",
+        ),
+        join(
+          runtimeRoot,
+          "node_modules",
+          ...packageName.split("/"),
+          "lib",
+          "dsh.js",
+        ),
+      ],
+    ),
     ...(contract.productBundle.runtimePackages ?? []).flatMap((packageName) => [
       join(runtimeRoot, "node_modules", ...packageName.split("/"), "package.json"),
       join(runtimeRoot, "node_modules", ...packageName.split("/"), "lib", "index.js"),
@@ -739,7 +848,14 @@ async function main() {
 
   await run(
     process.execPath,
-    [join(projectRoot, "scripts", "harness", "build-overlay.mjs")],
+    [
+      join(
+        projectRoot,
+        "scripts",
+        "harness",
+        "build-product-packages.mjs",
+      ),
+    ],
     projectRoot,
   );
   const [coreFingerprint, productBundleFingerprint] = await Promise.all([
@@ -760,10 +876,9 @@ async function main() {
       coreFingerprint,
       runtimePatches,
     );
-    await injectWorkspacePackage(
+    await injectProductPackages(
       activeRuntimeRoot,
-      productBundle.bundle.packageName,
-      productBundle.packageRoot,
+      productBundle,
       { prune: true, transactional: true },
     );
     await exposeProductBundleToProfiles(
@@ -785,6 +900,7 @@ async function main() {
     await validateRuntime(
       activeRuntimeRoot,
       contract,
+      productBundle,
       expectedRuntime,
       runtimePatches,
     );
@@ -866,10 +982,9 @@ async function main() {
       selectedPackages,
       packages,
     );
-    await injectWorkspacePackage(
+    await injectProductPackages(
       candidateRuntimeRoot,
-      productBundle.bundle.packageName,
-      productBundle.packageRoot,
+      productBundle,
     );
     await exposeProductBundleToProfiles(
       candidateRuntimeRoot,
@@ -908,6 +1023,7 @@ async function main() {
         validateRuntime(
           runtimeRoot,
           contract,
+          productBundle,
           expectedRuntime,
           runtimePatches,
         ),

@@ -27,7 +27,7 @@ async function withRuntime(metadata, callback) {
 test("desktop and smoke launch Harness through one staged layout contract", async () => {
   await withRuntime(
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       productBundle: {
         packageName: "@lencx/minke-harness-overlay",
         patch: "cordis.patch.yml",
@@ -73,7 +73,7 @@ test("desktop and smoke launch Harness through one staged layout contract", asyn
 test("the staged layout contract rejects unsafe product metadata", async () => {
   await withRuntime(
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       productBundle: {
         packageName: "@lencx/minke-harness-overlay",
         patch: "../outside.yml",
@@ -88,6 +88,23 @@ test("the staged layout contract rejects unsafe product metadata", async () => {
   );
 });
 
+test("the staged layout contract rejects stale runtime metadata", async () => {
+  await withRuntime(
+    {
+      schemaVersion: 2,
+      productBundle: {
+        packageName: "@lencx/minke-harness-overlay",
+        patch: "cordis.patch.yml",
+      },
+    },
+    async (runtimeRoot) => {
+      await assert.rejects(
+        readHarnessRuntimeLayout(runtimeRoot),
+        /invalid product bundle metadata/u,
+      );
+    },
+  );
+});
 
 test("the desktop adds only canonical explicit trusted hosts", () => {
   const layout = {

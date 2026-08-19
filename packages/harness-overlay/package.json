@@ -11,7 +11,6 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
-    "./model-runtime": "./lib/model-runtime.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -39,6 +38,7 @@
   "license": "MIT",
   "dependencies": {
     "@lencx/minke-plugin-catalog": "workspace:*",
+    "@lencx/minke-model-runtime": "workspace:*",
     "@lencx/minke-remote-access": "workspace:*"
   },
   "devDependencies": {
