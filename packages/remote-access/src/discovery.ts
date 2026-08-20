@@ -12,6 +12,7 @@ import {
 
 export interface RemoteCommands {
   tailscale?: string;
+  cloudflared?: string;
 }
 
 export interface RemoteCommandDiscoveryOptions {
@@ -29,16 +30,27 @@ function pathDelimiter(platform: NodeJS.Platform): string {
 
 function executableNames(
   platform: NodeJS.Platform,
+  command: "tailscale" | "cloudflared",
 ): readonly string[] {
+  const name = command;
   return platform === "win32"
-    ? ["tailscale.exe", "tailscale.cmd", "tailscale.bat", "tailscale"]
-    : ["tailscale"];
+    ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, name]
+    : [name];
 }
 
 function installedCandidates(
   options: RemoteCommandDiscoveryOptions,
+  command: "tailscale" | "cloudflared",
 ): readonly string[] {
   if (options.platform === "darwin") {
+    if (command === "cloudflared") {
+      return options.includeSystemLocations === false
+        ? []
+        : [
+            "/opt/homebrew/bin/cloudflared",
+            "/usr/local/bin/cloudflared",
+          ];
+    }
     const relative = join(
       "Tailscale.app",
       "Contents",
@@ -57,6 +69,7 @@ function installedCandidates(
     ];
   }
   if (options.platform === "win32") {
+    if (command === "cloudflared") return [];
     return [
       ...(options.programFiles === undefined
         ? []
@@ -81,26 +94,43 @@ function installedCandidates(
   return options.includeSystemLocations === false
     ? []
     : [
-        "/usr/local/bin/tailscale",
-        "/usr/bin/tailscale",
+        `/usr/local/bin/${command}`,
+        `/usr/bin/${command}`,
       ];
 }
 
 function pathCandidates(
   options: RemoteCommandDiscoveryOptions,
+  command: "tailscale" | "cloudflared",
 ): string[] {
   return (options.pathValue ?? "")
     .split(pathDelimiter(options.platform))
     .map((entry) => entry.trim())
     .filter((entry) => entry !== "")
     .flatMap((directory) =>
-      executableNames(options.platform).map((name) =>
+      executableNames(options.platform, command).map((name) =>
         join(
           isAbsolute(directory) ? directory : resolve(directory),
           name,
         )
       )
     );
+}
+
+async function discoverRemoteCommand(
+  options: RemoteCommandDiscoveryOptions,
+  command: "tailscale" | "cloudflared",
+): Promise<string | undefined> {
+  const candidates = [
+    ...installedCandidates(options, command),
+    ...pathCandidates(options, command),
+  ];
+  for (const candidate of new Set(candidates)) {
+    if (await isExecutableFile(candidate, options.platform)) {
+      return candidate;
+    }
+  }
+  return undefined;
 }
 
 async function isExecutableFile(
@@ -126,14 +156,12 @@ async function isExecutableFile(
 export async function discoverRemoteCommands(
   options: RemoteCommandDiscoveryOptions,
 ): Promise<RemoteCommands> {
-  const candidates = [
-    ...installedCandidates(options),
-    ...pathCandidates(options),
-  ];
-  for (const candidate of new Set(candidates)) {
-    if (await isExecutableFile(candidate, options.platform)) {
-      return { tailscale: candidate };
-    }
-  }
-  return {};
+  const [tailscale, cloudflared] = await Promise.all([
+    discoverRemoteCommand(options, "tailscale"),
+    discoverRemoteCommand(options, "cloudflared"),
+  ]);
+  return {
+    ...(tailscale === undefined ? {} : { tailscale }),
+    ...(cloudflared === undefined ? {} : { cloudflared }),
+  };
 }

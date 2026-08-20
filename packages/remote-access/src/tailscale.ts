@@ -1,4 +1,4 @@
-/** Tailscale Serve adapter for the remote-access module. */
+/** Tailscale Serve and direct-IP transports. */
 import {
   execFile,
   spawn as spawnChild,
@@ -6,43 +6,52 @@ import {
   type SpawnOptions,
 } from "node:child_process";
 import {
+  createServer,
+  connect as connectSocket,
+  type Server,
+  type Socket,
+} from "node:net";
+import {
   parseRemoteRuntimeSnapshot,
   parseRemoteSettings,
-  type RemoteRuntimeError,
   type RemoteRuntimeSnapshot,
   type RemoteSettings,
 } from "./contract.ts";
+import {
+  RemoteAccessError,
+  type RemoteAccessLifecycle,
+  type RemoteCommandExecutionOptions,
+  type RemoteCommandExecutionResult,
+  type RemoteCommandExecutor,
+  type RemoteLaunchPlan,
+  type RemoteProcessSpawner,
+} from "./lifecycle.ts";
 
 const DEFAULT_STATUS_TIMEOUT_MS = 10_000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 const MAX_COMMAND_OUTPUT = 1024 * 1024;
+const TAILSCALE_SERVE_READY_MARKER = "Press Ctrl+C to exit.";
 const TAILSCALE_HOSTNAME =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
 
-export interface RemoteCommandExecutionOptions {
-  env: NodeJS.ProcessEnv;
-  timeoutMs: number;
+type ServeError =
+  | "serve"
+  | "serve-conflict"
+  | "serve-https"
+  | "serve-permission";
+
+interface TailscaleSelf {
+  DNSName?: unknown;
+  TailscaleIPs?: unknown;
 }
 
-export interface RemoteCommandExecutionResult {
-  stdout: string;
-  stderr: string;
+interface ParsedTailscaleStatus {
+  status: Record<string, unknown>;
+  self: TailscaleSelf;
 }
 
-export type RemoteCommandExecutor = (
-  command: string,
-  args: readonly string[],
-  options: RemoteCommandExecutionOptions,
-) => Promise<RemoteCommandExecutionResult>;
-
-export type RemoteProcessSpawner = (
-  command: string,
-  args: readonly string[],
-  options: SpawnOptions,
-) => ChildProcess;
-
-export interface RemoteAccessServiceOptions {
+export interface TailscaleServiceOptions {
   command?: string;
   settings: RemoteSettings;
   execute?: RemoteCommandExecutor;
@@ -53,18 +62,18 @@ export interface RemoteAccessServiceOptions {
   shutdownTimeoutMs?: number;
 }
 
-export interface RemoteLaunchPlan {
-  trustedHosts: string[];
-}
+export type TailscaleDirectServerFactory = (
+  listener: (socket: Socket) => void,
+) => Server;
 
-export class RemoteAccessError extends Error {
-  readonly kind: RemoteRuntimeError;
-
-  constructor(kind: RemoteRuntimeError, message: string) {
-    super(message);
-    this.name = "RemoteAccessError";
-    this.kind = kind;
-  }
+export interface TailscaleDirectServiceOptions {
+  command?: string;
+  settings: RemoteSettings;
+  execute?: RemoteCommandExecutor;
+  environment?: NodeJS.ProcessEnv;
+  statusTimeoutMs?: number;
+  createServer?: TailscaleDirectServerFactory;
+  connect?: typeof connectSocket;
 }
 
 function defaultExecute(
@@ -114,6 +123,51 @@ function tailscaleEnvironment(
   };
 }
 
+function classifyServeFailure(output: string): ServeError {
+  const normalized = output.toLowerCase();
+  if (
+    (
+      normalized.includes("prefs_save") ||
+      normalized.includes("tailscale-serve/")
+    ) &&
+    (
+      normalized.includes("keychain") ||
+      normalized.includes("operation not permitted")
+    )
+  ) {
+    return "serve-permission";
+  }
+  if (
+    normalized.includes("error enabling https feature") ||
+    normalized.includes("https is not enabled") ||
+    normalized.includes("enable https")
+  ) {
+    return "serve-https";
+  }
+  if (
+    normalized.includes(
+      "another client is changing the serve config",
+    ) ||
+    normalized.includes("listener already exists for port 443")
+  ) {
+    return "serve-conflict";
+  }
+  return "serve";
+}
+
+function serveFailureMessage(kind: ServeError): string {
+  switch (kind) {
+    case "serve-permission":
+      return "Tailscale could not save its Serve configuration to macOS Keychain";
+    case "serve-https":
+      return "Tailscale Serve requires HTTPS to be enabled for this tailnet";
+    case "serve-conflict":
+      return "Another Tailscale client is changing the Serve configuration";
+    case "serve":
+      return "Tailscale Serve failed to become ready";
+  }
+}
+
 function object(
   value: unknown,
   label: string,
@@ -128,10 +182,9 @@ function object(
   return value as Record<string, unknown>;
 }
 
-/** Derive the one HTTPS hostname Tailscale Serve will publish. */
-export function parseTailscaleStatusHostname(
+function parseTailscaleStatusSelf(
   output: string,
-): string {
+): ParsedTailscaleStatus {
   let parsed: unknown;
   try {
     parsed = JSON.parse(output);
@@ -139,14 +192,23 @@ export function parseTailscaleStatusHostname(
     throw new TypeError("Tailscale status returned invalid JSON");
   }
   const status = object(parsed, "Tailscale status");
-  const self = object(status.Self, "Tailscale status Self");
-  if (
-    status.BackendState !== "Running" ||
-    typeof self.DNSName !== "string"
-  ) {
-    throw new TypeError(
-      "Tailscale status is not connected",
-    );
+  const self = object(
+    status.Self,
+    "Tailscale status Self",
+  ) as TailscaleSelf;
+  if (status.BackendState !== "Running") {
+    throw new TypeError("Tailscale status is not connected");
+  }
+  return { status, self };
+}
+
+/** Derive the one HTTPS hostname Tailscale Serve will publish. */
+export function parseTailscaleStatusHostname(
+  output: string,
+): string {
+  const { self } = parseTailscaleStatusSelf(output);
+  if (typeof self.DNSName !== "string") {
+    throw new TypeError("Tailscale status is not connected");
   }
   const hostname = self.DNSName
     .replace(/\.$/u, "")
@@ -161,6 +223,47 @@ export function parseTailscaleStatusHostname(
     );
   }
   return hostname;
+}
+
+function isTailscaleIpv4(value: string): boolean {
+  const parts = value.split(".");
+  if (
+    parts.length !== 4 ||
+    parts.some(
+      (part) =>
+        !/^(?:0|[1-9]\d{0,2})$/u.test(part) ||
+        Number(part) > 255,
+    )
+  ) {
+    return false;
+  }
+  return (
+    Number(parts[0]) === 100 &&
+    Number(parts[1]) >= 64 &&
+    Number(parts[1]) <= 127
+  );
+}
+
+/** Resolve the exact CGNAT IPv4 address owned by this Tailscale node. */
+export function parseTailscaleStatusIpv4(
+  output: string,
+): string {
+  const { self } = parseTailscaleStatusSelf(output);
+  if (!Array.isArray(self.TailscaleIPs)) {
+    throw new TypeError(
+      "Tailscale status did not provide node addresses",
+    );
+  }
+  const ipv4 = self.TailscaleIPs.find(
+    (value): value is string =>
+      typeof value === "string" && isTailscaleIpv4(value),
+  );
+  if (ipv4 === undefined) {
+    throw new TypeError(
+      "Tailscale status did not provide a valid IPv4 address",
+    );
+  }
+  return ipv4;
 }
 
 /** Refuse to expose anything except DSH's exact random loopback origin. */
@@ -178,7 +281,9 @@ export function parseLoopbackHarnessUrl(value: string): string {
       url.hash !== "" ||
       value !== url.origin
     ) {
-      throw new TypeError("remote target must be a loopback Harness URL");
+      throw new TypeError(
+        "remote target must be a loopback Harness URL",
+      );
     }
     return url.origin;
   } catch (error) {
@@ -195,12 +300,13 @@ export function parseLoopbackHarnessUrl(value: string): string {
 }
 
 /**
- * Own Tailscale's two-phase lifecycle: resolve the trusted hostname before DSH
- * starts, then foreground-Serve DSH's resolved loopback port.
+ * Own Tailscale Serve's two-phase lifecycle: resolve the trusted hostname
+ * before DSH starts, then foreground-Serve DSH's random loopback port.
  */
-export class RemoteAccessService {
+export class TailscaleServeService
+implements RemoteAccessLifecycle {
   readonly #command: string | undefined;
-  readonly #settings: RemoteSettings;
+  readonly #enabled: boolean;
   readonly #execute: RemoteCommandExecutor;
   readonly #spawn: RemoteProcessSpawner;
   readonly #environment: NodeJS.ProcessEnv;
@@ -213,12 +319,16 @@ export class RemoteAccessService {
   #output = "";
   #snapshot: RemoteRuntimeSnapshot;
 
-  constructor(options: RemoteAccessServiceOptions) {
+  constructor(options: TailscaleServiceOptions) {
+    const settings = parseRemoteSettings(options.settings);
     this.#command =
       options.command?.trim() === ""
         ? undefined
         : options.command;
-    this.#settings = parseRemoteSettings(options.settings);
+    this.#enabled =
+      settings.enabled &&
+      settings.method === "tailscale" &&
+      settings.tailscale.transport === "serve";
     this.#execute = options.execute ?? defaultExecute;
     this.#spawn = options.spawn ?? defaultSpawn;
     this.#environment = tailscaleEnvironment(
@@ -232,10 +342,9 @@ export class RemoteAccessService {
       options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
     this.#snapshot = {
       method: "tailscale",
-      state: this.#settings.tailscale.enabled
-        ? this.#command === undefined
-          ? "unavailable"
-          : "disabled"
+      transport: "serve",
+      state: this.#enabled && this.#command === undefined
+        ? "unavailable"
         : "disabled",
     };
   }
@@ -245,15 +354,15 @@ export class RemoteAccessService {
   }
 
   async prepare(): Promise<RemoteLaunchPlan> {
-    if (!this.#settings.tailscale.enabled) {
+    if (!this.#enabled) {
       this.#hostname = undefined;
-      this.#publish({ method: "tailscale", state: "disabled" });
+      this.#publish("disabled");
       return { trustedHosts: [] };
     }
     const command = this.#command;
     if (command === undefined) {
       this.#hostname = undefined;
-      this.#publish({ method: "tailscale", state: "unavailable" });
+      this.#publish("unavailable");
       return { trustedHosts: [] };
     }
     if (this.#hostname !== undefined) {
@@ -269,21 +378,14 @@ export class RemoteAccessService {
           timeoutMs: this.#statusTimeoutMs,
         },
       );
-      const hostname = parseTailscaleStatusHostname(result.stdout);
+      const hostname =
+        parseTailscaleStatusHostname(result.stdout);
       this.#hostname = hostname;
-      this.#publish({
-        method: "tailscale",
-        state: "ready",
-        url: `https://${hostname}`,
-      });
+      this.#publish("ready", `https://${hostname}`);
       return { trustedHosts: [hostname] };
     } catch {
       this.#hostname = undefined;
-      this.#publish({
-        method: "tailscale",
-        state: "error",
-        error: "status",
-      });
+      this.#publishError("status");
       throw new RemoteAccessError(
         "status",
         "Tailscale status could not provide a connected *.ts.net hostname",
@@ -292,12 +394,7 @@ export class RemoteAccessService {
   }
 
   async start(targetValue: string): Promise<void> {
-    if (
-      !this.#settings.tailscale.enabled ||
-      this.#command === undefined
-    ) {
-      return;
-    }
+    if (!this.#enabled || this.#command === undefined) return;
     if (this.#process !== undefined) {
       throw new Error("remote access is already running");
     }
@@ -316,7 +413,7 @@ export class RemoteAccessService {
     try {
       child = this.#spawn(
         this.#command,
-        ["serve", "--yes", target],
+        ["serve", "--yes", "--bg=false", target],
         {
           detached: false,
           env: this.#environment,
@@ -325,7 +422,7 @@ export class RemoteAccessService {
         },
       );
     } catch {
-      this.#publishServeError();
+      this.#publishError("serve");
       throw new RemoteAccessError(
         "serve",
         "Tailscale Serve could not start",
@@ -342,32 +439,32 @@ export class RemoteAccessService {
     child.stdout?.on("data", capture);
     child.stderr?.on("data", capture);
     child.on("error", () => {
-      if (
-        this.#process === child &&
-        !this.#stopping
-      ) {
-        this.#publishServeError();
+      if (this.#process === child && !this.#stopping) {
+        this.#publishError(
+          classifyServeFailure(this.#output),
+        );
       }
     });
     child.once("exit", () => {
       if (this.#process !== child) return;
       this.#process = undefined;
-      if (!this.#stopping) this.#publishServeError();
+      if (!this.#stopping) {
+        this.#publishError(
+          classifyServeFailure(this.#output),
+        );
+      }
     });
 
     try {
-      await this.#waitUntilReady(child, hostname);
-      this.#publish({
-        method: "tailscale",
-        state: "active",
-        url: `https://${hostname}`,
-      });
+      await this.#waitUntilReady(child);
+      this.#publish("active", `https://${hostname}`);
     } catch {
+      const kind = classifyServeFailure(this.#output);
       await this.#terminate(child);
-      this.#publishServeError();
+      this.#publishError(kind);
       throw new RemoteAccessError(
-        "serve",
-        "Tailscale Serve did not publish the expected HTTPS URL",
+        kind,
+        serveFailureMessage(kind),
       );
     }
   }
@@ -378,35 +475,41 @@ export class RemoteAccessService {
       await this.#terminate(child);
     }
     if (this.#hostname !== undefined) {
-      this.#publish({
-        method: "tailscale",
-        state: "ready",
-        url: `https://${this.#hostname}`,
-      });
-    } else if (!this.#settings.tailscale.enabled) {
-      this.#publish({ method: "tailscale", state: "disabled" });
+      this.#publish(
+        "ready",
+        `https://${this.#hostname}`,
+      );
+    } else if (!this.#enabled) {
+      this.#publish("disabled");
     } else if (this.#command === undefined) {
-      this.#publish({ method: "tailscale", state: "unavailable" });
+      this.#publish("unavailable");
     }
   }
 
-  #publish(snapshot: RemoteRuntimeSnapshot): void {
-    this.#snapshot = parseRemoteRuntimeSnapshot(snapshot);
+  #publish(
+    state: "disabled" | "unavailable" | "ready" | "active",
+    url?: string,
+  ): void {
+    this.#snapshot = parseRemoteRuntimeSnapshot({
+      method: "tailscale",
+      transport: "serve",
+      state,
+      ...(url === undefined ? {} : { url }),
+    });
   }
 
-  #publishServeError(): void {
-    this.#publish({
+  #publishError(error: "status" | ServeError): void {
+    this.#snapshot = parseRemoteRuntimeSnapshot({
       method: "tailscale",
+      transport: "serve",
       state: "error",
-      error: "serve",
+      error,
     });
   }
 
   async #waitUntilReady(
     child: ChildProcess,
-    hostname: string,
   ): Promise<void> {
-    const expectedUrl = `https://${hostname}`;
     await new Promise<void>((resolvePromise, reject) => {
       let settled = false;
       const finish = (error?: Error): void => {
@@ -421,16 +524,30 @@ export class RemoteAccessService {
         else reject(error);
       };
       const inspect = (): void => {
-        if (this.#output.includes(expectedUrl)) finish();
+        if (
+          this.#output.includes(
+            TAILSCALE_SERVE_READY_MARKER,
+          )
+        ) {
+          finish();
+        }
       };
       const onError = (): void => {
         finish(new Error("Tailscale Serve process failed"));
       };
       const onExit = (): void => {
-        finish(new Error("Tailscale Serve exited before readiness"));
+        finish(
+          new Error(
+            "Tailscale Serve exited before readiness",
+          ),
+        );
       };
       const timeout = setTimeout(() => {
-        finish(new Error("Tailscale Serve readiness timed out"));
+        finish(
+          new Error(
+            "Tailscale Serve readiness timed out",
+          ),
+        );
       }, this.#startupTimeoutMs);
       child.stdout?.on("data", inspect);
       child.stderr?.on("data", inspect);
@@ -482,6 +599,282 @@ export class RemoteAccessService {
         resolvePromise(true);
       };
       child.once("exit", onExit);
+    });
+  }
+}
+
+/**
+ * Bind a raw TCP forwarder to this node's exact Tailscale IPv4 address. The
+ * original Host and Origin bytes reach DSH unchanged, preserving its
+ * trusted-host and loopback-only privileged-method fences.
+ */
+export class TailscaleDirectService
+implements RemoteAccessLifecycle {
+  readonly #command: string | undefined;
+  readonly #enabled: boolean;
+  readonly #execute: RemoteCommandExecutor;
+  readonly #environment: NodeJS.ProcessEnv;
+  readonly #statusTimeoutMs: number;
+  readonly #createServer: TailscaleDirectServerFactory;
+  readonly #connect: typeof connectSocket;
+  readonly #sockets = new Set<Socket>();
+  #ip: string | undefined;
+  #port: number | undefined;
+  #target: URL | undefined;
+  #server: Server | undefined;
+  #stopping = false;
+  #snapshot: RemoteRuntimeSnapshot;
+
+  constructor(options: TailscaleDirectServiceOptions) {
+    const settings = parseRemoteSettings(options.settings);
+    this.#command =
+      options.command?.trim() === ""
+        ? undefined
+        : options.command;
+    this.#enabled =
+      settings.enabled &&
+      settings.method === "tailscale" &&
+      settings.tailscale.transport === "direct";
+    this.#execute = options.execute ?? defaultExecute;
+    this.#environment = tailscaleEnvironment(
+      options.environment ?? process.env,
+    );
+    this.#statusTimeoutMs =
+      options.statusTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS;
+    this.#createServer =
+      options.createServer ?? ((listener) => createServer(listener));
+    this.#connect = options.connect ?? connectSocket;
+    this.#snapshot = {
+      method: "tailscale",
+      transport: "direct",
+      state: this.#enabled && this.#command === undefined
+        ? "unavailable"
+        : "disabled",
+    };
+  }
+
+  read(): RemoteRuntimeSnapshot {
+    return parseRemoteRuntimeSnapshot(this.#snapshot);
+  }
+
+  async prepare(): Promise<RemoteLaunchPlan> {
+    if (!this.#enabled) {
+      this.#publish("disabled");
+      return { trustedHosts: [] };
+    }
+    const command = this.#command;
+    if (command === undefined) {
+      this.#publish("unavailable");
+      return { trustedHosts: [] };
+    }
+    if (this.#ip === undefined) {
+      try {
+        const result = await this.#execute(
+          command,
+          ["status", "--json"],
+          {
+            env: this.#environment,
+            timeoutMs: this.#statusTimeoutMs,
+          },
+        );
+        this.#ip = parseTailscaleStatusIpv4(result.stdout);
+      } catch {
+        this.#publishError("status");
+        throw new RemoteAccessError(
+          "status",
+          "Tailscale status could not provide a connected node IPv4 address",
+        );
+      }
+    }
+    try {
+      await this.#ensureServer(this.#port ?? 0);
+    } catch {
+      this.#publishError("direct-bind");
+      throw new RemoteAccessError(
+        "direct-bind",
+        "Minke could not bind its direct proxy to the Tailscale IPv4 address",
+      );
+    }
+    const authority = this.#authority();
+    this.#publish("ready", `http://${authority}`);
+    return { trustedHosts: [authority] };
+  }
+
+  async start(targetValue: string): Promise<void> {
+    if (!this.#enabled || this.#command === undefined) return;
+    if (this.#ip === undefined || this.#port === undefined) {
+      throw new RemoteAccessError(
+        "status",
+        "Tailscale direct access must be prepared before it starts",
+      );
+    }
+    const target = new URL(
+      parseLoopbackHarnessUrl(targetValue),
+    );
+    try {
+      await this.#ensureServer(this.#port);
+    } catch {
+      this.#publishError("direct-bind");
+      throw new RemoteAccessError(
+        "direct-bind",
+        "Minke could not rebind its direct Tailscale proxy",
+      );
+    }
+    this.#target = target;
+    this.#publish(
+      "active",
+      `http://${this.#authority()}`,
+    );
+  }
+
+  async stop(): Promise<void> {
+    this.#target = undefined;
+    await this.#closeServer();
+    if (this.#ip !== undefined && this.#port !== undefined) {
+      this.#publish(
+        "ready",
+        `http://${this.#authority()}`,
+      );
+    } else if (!this.#enabled) {
+      this.#publish("disabled");
+    } else if (this.#command === undefined) {
+      this.#publish("unavailable");
+    }
+  }
+
+  #authority(): string {
+    if (this.#ip === undefined || this.#port === undefined) {
+      throw new Error("Tailscale direct endpoint is unresolved");
+    }
+    return `${this.#ip}:${String(this.#port)}`;
+  }
+
+  async #ensureServer(port: number): Promise<void> {
+    if (this.#server?.listening === true) return;
+    const ip = this.#ip;
+    if (ip === undefined) {
+      throw new Error("Tailscale direct IPv4 is unresolved");
+    }
+    const server = this.#createServer((socket) => {
+      this.#accept(socket);
+    });
+    this.#server = server;
+    this.#stopping = false;
+    server.on("error", () => {
+      if (this.#server === server && !this.#stopping) {
+        this.#publishError("direct-bind");
+      }
+    });
+    server.on("close", () => {
+      if (
+        this.#server === server &&
+        !this.#stopping &&
+        this.#target !== undefined
+      ) {
+        this.#server = undefined;
+        this.#publishError("direct-bind");
+      }
+    });
+    try {
+      await new Promise<void>((resolvePromise, reject) => {
+        const onError = (error: Error): void => {
+          server.off("listening", onListening);
+          reject(error);
+        };
+        const onListening = (): void => {
+          server.off("error", onError);
+          resolvePromise();
+        };
+        server.once("error", onError);
+        server.once("listening", onListening);
+        server.listen({
+          host: ip,
+          port,
+          exclusive: true,
+        });
+      });
+    } catch (error) {
+      if (this.#server === server) this.#server = undefined;
+      throw error;
+    }
+    const address = server.address();
+    if (
+      address === null ||
+      typeof address === "string" ||
+      address.address !== ip ||
+      !Number.isInteger(address.port)
+    ) {
+      await this.#closeServer();
+      throw new Error(
+        "Tailscale direct proxy bound an unexpected address",
+      );
+    }
+    this.#port = address.port;
+  }
+
+  #accept(client: Socket): void {
+    const target = this.#target;
+    if (target === undefined) {
+      client.destroy();
+      return;
+    }
+    this.#track(client);
+    const upstream = this.#connect({
+      host: target.hostname,
+      port: Number(target.port),
+    });
+    this.#track(upstream);
+    const fail = (): void => {
+      client.destroy();
+      upstream.destroy();
+    };
+    client.once("error", fail);
+    upstream.once("error", fail);
+    upstream.once("connect", () => {
+      client.pipe(upstream);
+      upstream.pipe(client);
+    });
+  }
+
+  #track(socket: Socket): void {
+    this.#sockets.add(socket);
+    socket.once("close", () => {
+      this.#sockets.delete(socket);
+    });
+  }
+
+  async #closeServer(): Promise<void> {
+    this.#stopping = true;
+    for (const socket of this.#sockets) socket.destroy();
+    this.#sockets.clear();
+    const server = this.#server;
+    this.#server = undefined;
+    if (server?.listening === true) {
+      await new Promise<void>((resolvePromise) => {
+        server.close(() => resolvePromise());
+      });
+    }
+    this.#stopping = false;
+  }
+
+  #publish(
+    state: "disabled" | "unavailable" | "ready" | "active",
+    url?: string,
+  ): void {
+    this.#snapshot = parseRemoteRuntimeSnapshot({
+      method: "tailscale",
+      transport: "direct",
+      state,
+      ...(url === undefined ? {} : { url }),
+    });
+  }
+
+  #publishError(error: "status" | "direct-bind"): void {
+    this.#snapshot = parseRemoteRuntimeSnapshot({
+      method: "tailscale",
+      transport: "direct",
+      state: "error",
+      error,
     });
   }
 }

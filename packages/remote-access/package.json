@@ -1,6 +1,6 @@
 {
   "name": "@lencx/minke-remote-access",
-  "description": "Minke optional remote-access lifecycle with a Tailscale transport",
+  "description": "Minke optional private remote-access lifecycles",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,5 +11,8 @@
     ".": "./src/index.ts",
     "./contract": "./src/contract.ts"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "dependencies": {
+    "jose": "6.2.9"
+  }
 }
