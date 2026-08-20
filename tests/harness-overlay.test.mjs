@@ -573,6 +573,11 @@ test("the global command palette maps product actions without replacing slash co
     clientSource,
     /id:\s*"session\.export"[\s\S]*shortcutConfigurable:\s*false[\s\S]*sessionLogsPort\s*\.export\(sessionId\)/u,
   );
+  assert.match(
+    clientSource,
+    /const observeSessionSelection[\s\S]*sessionNavigation\.observe\([\s\S]*commandPalette\.refresh\(\)[\s\S]*ctx\.sessions\.list\.subscribe\(\s*observeSessionSelection/u,
+    "session history must update before palette availability is refreshed",
+  );
   assert.doesNotMatch(clientSource, /CommandUiRuntime|commandUi/u);
   assert.match(bundle, /Mod\+K/u);
 });

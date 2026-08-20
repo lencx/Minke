@@ -747,12 +747,22 @@ export function apply(ctx: HarnessClientContext): void {
     () => () => commandPalette.dispose(),
     "minke-overlay: command palette runtime",
   );
+  const sessionNavigation = new SessionNavigationHistory((sessionId) => {
+    ctx.sessions.open(sessionId);
+  });
+  const observeSessionSelection = (): void => {
+    sessionNavigation.observe(
+      ctx.sessions.list.getSnapshot().current,
+    );
+    commandPalette.refresh();
+  };
+  observeSessionSelection();
   ctx.effect(
     () => {
       const offRuntime = runtime.subscribe(() => commandPalette.refresh());
       const offLocale = ctx.locale.subscribe(() => commandPalette.refresh());
       const offSessions = ctx.sessions.list.subscribe(
-        () => commandPalette.refresh(),
+        observeSessionSelection,
       );
       return () => {
         offRuntime();
@@ -776,19 +786,6 @@ export function apply(ctx: HarnessClientContext): void {
       },
       CommandPalette as ComponentType<never>,
     ),
-  );
-  const sessionNavigation = new SessionNavigationHistory((sessionId) => {
-    ctx.sessions.open(sessionId);
-  });
-  const observeSessionSelection = (): void => {
-    sessionNavigation.observe(
-      ctx.sessions.list.getSnapshot().current,
-    );
-  };
-  observeSessionSelection();
-  ctx.effect(
-    () => ctx.sessions.list.subscribe(observeSessionSelection),
-    "minke-overlay: Session navigation history",
   );
   ctx.effect(
     () => () => {
