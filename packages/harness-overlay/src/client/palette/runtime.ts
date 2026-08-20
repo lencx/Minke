@@ -28,8 +28,8 @@ export class CommandPaletteRuntime {
   readonly #invoke: ActionInvoker;
   readonly #canOpen: OpenGuard;
   readonly #listeners = new Set<() => void>();
+  readonly #beforeCloseListeners = new Set<() => void>();
   #snapshot: CommandPaletteSnapshot = EMPTY_SNAPSHOT;
-  #restoreFocusOnClose = true;
 
   constructor(
     actions: ActionSource,
@@ -43,10 +43,6 @@ export class CommandPaletteRuntime {
 
   getSnapshot = (): CommandPaletteSnapshot => this.#snapshot;
 
-  get restoreFocusOnClose(): boolean {
-    return this.#restoreFocusOnClose;
-  }
-
   subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
     return () => {
@@ -54,9 +50,15 @@ export class CommandPaletteRuntime {
     };
   };
 
+  onBeforeClose(listener: () => void): () => void {
+    this.#beforeCloseListeners.add(listener);
+    return () => {
+      this.#beforeCloseListeners.delete(listener);
+    };
+  }
+
   open(): void {
     if (!this.#canOpen()) return;
-    this.#restoreFocusOnClose = true;
     const results = searchPaletteActions(this.#actions(), "");
     this.#publish({
       open: true,
@@ -66,9 +68,9 @@ export class CommandPaletteRuntime {
     });
   }
 
-  close(options: { restoreFocus?: boolean } = {}): void {
+  close(): void {
     if (!this.#snapshot.open) return;
-    this.#restoreFocusOnClose = options.restoreFocus ?? true;
+    for (const listener of [...this.#beforeCloseListeners]) listener();
     this.#publish(EMPTY_SNAPSHOT);
   }
 
@@ -142,14 +144,14 @@ export class CommandPaletteRuntime {
     if (action === undefined || action.disabledReason !== undefined) {
       return false;
     }
-    this.close({ restoreFocus: false });
+    this.close();
     return this.#invoke(id);
   }
 
   dispose(): void {
     this.#listeners.clear();
+    this.#beforeCloseListeners.clear();
     this.#snapshot = EMPTY_SNAPSHOT;
-    this.#restoreFocusOnClose = true;
   }
 
   #publish(snapshot: CommandPaletteSnapshot): void {

@@ -31,6 +31,12 @@ export function CommandPalette({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
+  useEffect(() => runtime.onBeforeClose(() => {
+    const target = returnFocusRef.current;
+    if (target?.isConnected) target.focus();
+    returnFocusRef.current = null;
+  }), [runtime]);
+
   useEffect(() => {
     if (!snapshot.open) return;
     const activeElement = document.activeElement;
@@ -39,11 +45,9 @@ export function CommandPalette({
       : null;
     inputRef.current?.focus();
     return () => {
-      const target = returnFocusRef.current;
-      if (runtime.restoreFocusOnClose && target?.isConnected) target.focus();
       returnFocusRef.current = null;
     };
-  }, [runtime, snapshot.open]);
+  }, [snapshot.open]);
 
   useEffect(() => {
     const active = snapshot.activeId === undefined

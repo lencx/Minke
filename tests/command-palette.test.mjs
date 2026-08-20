@@ -86,6 +86,9 @@ test("palette runtime navigates enabled actions and closes before invocation", (
       return true;
     },
   );
+  runtime.onBeforeClose(() => {
+    events.push("restore-focus");
+  });
 
   runtime.open();
   assert.equal(runtime.getSnapshot().activeId, "session.new");
@@ -96,18 +99,16 @@ test("palette runtime navigates enabled actions and closes before invocation", (
   assert.equal(runtime.execute("session.back"), false);
   assert.equal(runtime.getSnapshot().open, true);
   assert.equal(runtime.execute(), true);
-  assert.equal(runtime.restoreFocusOnClose, false);
-  assert.deepEqual(events, [{ id: "session.new", open: false }]);
+  assert.deepEqual(events, [
+    "restore-focus",
+    { id: "session.new", open: false },
+  ]);
   assert.deepEqual(runtime.getSnapshot(), {
     open: false,
     query: "",
     results: [],
     activeId: undefined,
   });
-
-  runtime.open();
-  runtime.close();
-  assert.equal(runtime.restoreFocusOnClose, true);
 });
 
 test("palette refresh preserves a valid selection and replaces a disabled one", () => {
