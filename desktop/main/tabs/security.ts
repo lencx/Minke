@@ -20,6 +20,20 @@ function canOpenWithHost(value: string): boolean {
   }
 }
 
+export function canGrantTabWebPermission(
+  permission: string,
+  candidate: string | undefined,
+): boolean {
+  if (
+    permission !== "clipboard-sanitized-write" ||
+    candidate === undefined
+  ) {
+    return false;
+  }
+  const url = normalizeWebTabUrl(candidate);
+  return url !== undefined && new URL(url).protocol === "https:";
+}
+
 function openWithHost(
   external: ExternalTabOpener,
   url: string,

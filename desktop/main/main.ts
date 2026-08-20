@@ -104,6 +104,7 @@ import {
 } from "./session-export";
 import {
   bindTabs,
+  canGrantTabWebPermission,
   type TabsBinding,
 } from "./tabs";
 import { bindWindowLocale } from "./window-locale";
@@ -475,9 +476,21 @@ function installPermissionPolicy(): void {
   const tabsWebSession = session.fromPartition(
     TABS_WEB_PARTITION,
   );
-  tabsWebSession.setPermissionCheckHandler(() => false);
+  tabsWebSession.setPermissionCheckHandler(
+    (_webContents, permission, requestingOrigin, details) =>
+      canGrantTabWebPermission(
+        permission,
+        details.requestingUrl ?? requestingOrigin,
+      ),
+  );
   tabsWebSession.setPermissionRequestHandler(
-    (_webContents, _permission, callback) => callback(false),
+    (_webContents, permission, callback, details) =>
+      callback(
+        canGrantTabWebPermission(
+          permission,
+          details.requestingUrl,
+        ),
+      ),
   );
 }
 

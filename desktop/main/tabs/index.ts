@@ -1,6 +1,9 @@
 export { bindTabs } from "./ipc.ts";
 export { FileManagerRuntime } from "./files.ts";
-export { secureTabWebview } from "./security.ts";
+export {
+  canGrantTabWebPermission,
+  secureTabWebview,
+} from "./security.ts";
 export {
   loadTerminalPty,
   TerminalSessionRuntime,

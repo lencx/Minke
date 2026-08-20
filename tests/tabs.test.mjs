@@ -111,6 +111,7 @@ import {
   FileWatchRuntime,
 } from "@minke/desktop/main/tabs/file-watch.ts";
 import {
+  canGrantTabWebPermission,
   protectTabWebviewGuest,
   secureTabWebview,
 } from "@minke/desktop/main/tabs/security.ts";
@@ -2291,6 +2292,44 @@ test("webview attachment overwrites untrusted guest preferences", () => {
     secureTabWebview(
       {},
       { src: "file:///tmp/report.html" },
+    ),
+    false,
+  );
+});
+
+test("tab web guests allow only sanitized clipboard writes from secure pages", () => {
+  assert.equal(
+    canGrantTabWebPermission(
+      "clipboard-sanitized-write",
+      "https://github.com/minke/example-plugin",
+    ),
+    true,
+  );
+  assert.equal(
+    canGrantTabWebPermission(
+      "clipboard-read",
+      "https://github.com/minke/example-plugin",
+    ),
+    false,
+  );
+  assert.equal(
+    canGrantTabWebPermission(
+      "geolocation",
+      "https://github.com/minke/example-plugin",
+    ),
+    false,
+  );
+  assert.equal(
+    canGrantTabWebPermission(
+      "clipboard-sanitized-write",
+      "http://example.com/",
+    ),
+    false,
+  );
+  assert.equal(
+    canGrantTabWebPermission(
+      "clipboard-sanitized-write",
+      "https://user:secret@example.com/",
     ),
     false,
   );
