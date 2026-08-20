@@ -40,10 +40,10 @@ export function CommandPalette({
     inputRef.current?.focus();
     return () => {
       const target = returnFocusRef.current;
-      if (target?.isConnected) target.focus();
+      if (runtime.restoreFocusOnClose && target?.isConnected) target.focus();
       returnFocusRef.current = null;
     };
-  }, [snapshot.open]);
+  }, [runtime, snapshot.open]);
 
   useEffect(() => {
     const active = snapshot.activeId === undefined

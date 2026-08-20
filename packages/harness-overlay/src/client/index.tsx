@@ -755,7 +755,9 @@ export function apply(ctx: HarnessClientContext): void {
   );
   ctx.effect(
     () => runtime.onBeforeInvoke((id) => {
-      if (id !== "palette.open") commandPalette.close();
+      if (id !== "palette.open") {
+        commandPalette.close({ restoreFocus: false });
+      }
     }),
     "minke-overlay: command palette action arbitration",
   );

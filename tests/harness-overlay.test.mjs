@@ -579,7 +579,7 @@ test("the global command palette maps product actions without replacing slash co
   );
   assert.match(
     clientSource,
-    /runtime\.onBeforeInvoke\([\s\S]*id !== "palette\.open"[\s\S]*commandPalette\.close\(\)/u,
+    /runtime\.onBeforeInvoke\([\s\S]*id !== "palette\.open"[\s\S]*commandPalette\.close\(\{ restoreFocus: false \}\)/u,
     "other global actions must dismiss the palette before they run",
   );
   assert.match(
@@ -599,6 +599,11 @@ test("the global command palette maps product actions without replacing slash co
     commandPaletteSource,
     /const onKeyDown[\s\S]*if \(event\.nativeEvent\.isComposing\) return;[\s\S]*event\.key === "ArrowDown"/u,
     "IME composition keys must bypass palette navigation",
+  );
+  assert.match(
+    commandPaletteSource,
+    /runtime\.restoreFocusOnClose && target\?\.isConnected/u,
+    "executed actions must retain ownership of their resulting focus",
   );
   assert.doesNotMatch(clientSource, /CommandUiRuntime|commandUi/u);
   assert.match(bundle, /Mod\+K/u);
