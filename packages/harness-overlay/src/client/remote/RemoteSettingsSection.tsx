@@ -1,50 +1,178 @@
 import {
+  useEffect,
+  useRef,
+  useState,
   useSyncExternalStore,
+  type ClipboardEvent,
   type ReactNode,
 } from "react";
-import type {
-  RemoteRuntimeSnapshot,
-} from "@lencx/minke-remote-access/contract";
+import {
+  copyRemoteAddress,
+} from "./clipboard.ts";
 import type {
   RemoteTranslate,
 } from "./locales.ts";
-import type {
-  RemoteSettingsErrorKind,
-  RemoteSettingsRuntime,
+import {
+  maskRemoteAddress,
+  presentRemoteStatus,
+} from "./presentation.ts";
+import {
+  canEnableRemoteSettings,
+  type RemoteSettingsRuntime,
 } from "./runtime.ts";
+
+type CopyAddress = typeof copyRemoteAddress;
+type CopyState = "idle" | "copying" | "copied" | "error";
+const TAILSCALE_SERVE_PERMISSION_ISSUE =
+  "https://github.com/tailscale/tailscale/issues/19933";
 
 export interface RemoteSettingsSectionProps {
   runtime?: RemoteSettingsRuntime;
   t?: RemoteTranslate;
+  copyAddress?: CopyAddress;
 }
 
-/** Desktop-only Settings page for private mobile access. */
+/** Desktop-only Settings page for controlled mobile access. */
 export function RemoteSettingsSection({
   runtime,
   t,
+  copyAddress = copyRemoteAddress,
 }: RemoteSettingsSectionProps): ReactNode {
   if (runtime === undefined || t === undefined) return null;
-  return <LoadedRemoteSettings runtime={runtime} t={t} />;
+  return (
+    <LoadedRemoteSettings
+      runtime={runtime}
+      t={t}
+      copyAddress={copyAddress}
+    />
+  );
 }
 
 function LoadedRemoteSettings({
   runtime,
   t,
-}: Required<RemoteSettingsSectionProps>): ReactNode {
+  copyAddress,
+}: {
+  runtime: RemoteSettingsRuntime;
+  t: RemoteTranslate;
+  copyAddress: CopyAddress;
+}): ReactNode {
   const snapshot = useSyncExternalStore(
     runtime.subscribe,
     runtime.getSnapshot,
     runtime.getSnapshot,
   );
+  const [copyState, setCopyState] =
+    useState<CopyState>("idle");
+  const [restarting, setRestarting] = useState(false);
+  const [restartFailed, setRestartFailed] = useState(false);
+  const copyReset = useRef<number | undefined>(undefined);
   const data = snapshot.data;
-  const available = data.available.tailscale;
-  const enabled = data.settings.tailscale.enabled;
-  const statusHelp =
-    data.runtime.state === "error"
-      ? data.runtime.error === "serve"
-        ? t("serveErrorHelp")
-        : t("statusErrorHelp")
-      : undefined;
+  const settings = data.settings;
+  const method = settings.method;
+  const available = data.available[method];
+  const enabled = settings.enabled;
+  const presentation = presentRemoteStatus(snapshot);
+  const address = presentation.showAddress
+    ? data.runtime.url
+    : undefined;
+  const maskedAddress =
+    address === undefined
+      ? undefined
+      : maskRemoteAddress(address);
+  const providerLocked =
+    !snapshot.editable ||
+    enabled ||
+    restarting;
+  const canEnable =
+    enabled ||
+    canEnableRemoteSettings(settings, data.available);
+  const cloudflare = settings.cloudflare;
+  const generatedHostname =
+    cloudflare.generatedLabel === "" ||
+    cloudflare.domain === ""
+      ? ""
+      : `${cloudflare.generatedLabel}.${cloudflare.domain}`;
+  const configuredHostname =
+    cloudflare.hostnameMode === "generated"
+      ? generatedHostname
+      : cloudflare.customHostname;
+  const originAddress =
+    `http://127.0.0.1:${String(cloudflare.originPort)}`;
+
+  useEffect(() => {
+    setCopyState("idle");
+    if (copyReset.current !== undefined) {
+      window.clearTimeout(copyReset.current);
+      copyReset.current = undefined;
+    }
+    return () => {
+      if (copyReset.current !== undefined) {
+        window.clearTimeout(copyReset.current);
+      }
+    };
+  }, [address]);
+
+  useEffect(() => {
+    if (
+      snapshot.editable &&
+      !enabled &&
+      method === "cloudflare" &&
+      cloudflare.generatedLabel === ""
+    ) {
+      runtime.regenerateCloudflareHostname();
+    }
+  }, [
+    cloudflare.generatedLabel,
+    enabled,
+    method,
+    runtime,
+    snapshot.editable,
+  ]);
+
+  const scheduleCopyReset = (): void => {
+    if (copyReset.current !== undefined) {
+      window.clearTimeout(copyReset.current);
+    }
+    copyReset.current = window.setTimeout(() => {
+      setCopyState("idle");
+      copyReset.current = undefined;
+    }, 1_500);
+  };
+
+  const copy = async (): Promise<void> => {
+    if (address === undefined || copyState === "copying") return;
+    setCopyState("copying");
+    const copied = await copyAddress(address);
+    setCopyState(copied ? "copied" : "error");
+    scheduleCopyReset();
+  };
+
+  const copySelection = (
+    event: ClipboardEvent<HTMLElement>,
+  ): void => {
+    if (address === undefined) return;
+    try {
+      event.clipboardData.setData("text/plain", address);
+      event.preventDefault();
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+    scheduleCopyReset();
+  };
+
+  const restart = async (): Promise<void> => {
+    if (restarting) return;
+    setRestartFailed(false);
+    setRestarting(true);
+    try {
+      await runtime.restart();
+    } catch {
+      setRestarting(false);
+      setRestartFailed(true);
+    }
+  };
 
   return (
     <section
@@ -70,54 +198,499 @@ function LoadedRemoteSettings({
         <div className="minke-remote__card-header">
           <div className="minke-remote__method">
             <span className="minke-remote__method-name">
-              {t("tailscaleTitle")}
+              {t(
+                method === "tailscale"
+                  ? "tailscaleTitle"
+                  : "cloudflareTitle",
+              )}
             </span>
             <span className="minke-remote__method-description">
-              {t("tailscaleDescription")}
+              {t(
+                method === "tailscale"
+                  ? "tailscaleDescription"
+                  : "cloudflareDescription",
+              )}
             </span>
           </div>
           <div className="minke-remote__status-actions">
             <span
               className="minke-remote__status"
-              data-state={data.runtime.state}
+              data-state={presentation.state}
             >
-              {t(statusKey(data.runtime))}
+              {t(presentation.statusKey)}
             </span>
-            <button
-              type="button"
-              className="minke-remote__refresh"
-              disabled={snapshot.refreshing}
-              aria-busy={snapshot.refreshing}
-              onClick={() => {
-                void runtime.refresh();
-              }}
-            >
-              {snapshot.refreshing
-                ? t("refreshing")
-                : t("refresh")}
-            </button>
+            {presentation.canRefresh && (
+              <button
+                type="button"
+                className="minke-remote__refresh"
+                disabled={snapshot.refreshing}
+                aria-busy={snapshot.refreshing}
+                onClick={() => {
+                  void runtime.refresh();
+                }}
+              >
+                {snapshot.refreshing
+                  ? t("refreshing")
+                  : t("refresh")}
+              </button>
+            )}
           </div>
         </div>
 
-        {(data.runtime.state === "ready" ||
-          data.runtime.state === "active") && (
+        {address !== undefined && (
           <div className="minke-remote__address">
             <span className="minke-remote__label">
               {t("address")}
             </span>
-            <code>{data.runtime.url}</code>
+            <div className="minke-remote__address-control">
+              <a
+                className="minke-remote__address-link"
+                href={address}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t("openAddress")}
+                onCopy={copySelection}
+              >
+                <code>{maskedAddress}</code>
+              </a>
+              <button
+                type="button"
+                className="minke-remote__copy"
+                disabled={copyState === "copying"}
+                aria-live="polite"
+                onClick={() => {
+                  void copy();
+                }}
+              >
+                {copyState === "copying"
+                  ? t("copyingAddress")
+                  : copyState === "copied"
+                    ? t("copiedAddress")
+                    : t("copyAddress")}
+              </button>
+            </div>
+            {copyState === "error" && (
+              <p className="minke-remote__error" role="alert">
+                {t("copyAddressError")}
+              </p>
+            )}
           </div>
         )}
 
         {!available && (
           <p className="minke-remote__help">
-            {t("unavailable")}
+            {t(
+              method === "tailscale"
+                ? "unavailableTailscale"
+                : "unavailableCloudflare",
+            )}
           </p>
         )}
-        {statusHelp !== undefined && (
-          <p className="minke-remote__error" role="alert">
-            {statusHelp}
-          </p>
+        {snapshot.pendingChange === undefined &&
+          presentation.helpKey !== undefined && (
+          <div className="minke-remote__error" role="alert">
+            <p>{t(presentation.helpKey)}</p>
+            {data.runtime.error === "serve-permission" && (
+              <a
+                className="minke-remote__help-link"
+                href={TAILSCALE_SERVE_PERMISSION_ISSUE}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("servePermissionIssue")}
+              </a>
+            )}
+          </div>
+        )}
+
+        <fieldset className="minke-remote__fieldset">
+          <legend className="minke-remote__fieldset-title">
+            {t("methodTitle")}
+          </legend>
+          <div className="minke-remote__choices">
+            <label
+              className="minke-remote__choice"
+              data-selected={method === "tailscale"}
+            >
+              <input
+                type="radio"
+                name="minke-remote-method"
+                value="tailscale"
+                checked={method === "tailscale"}
+                disabled={providerLocked}
+                onChange={() => {
+                  runtime.setMethod("tailscale");
+                }}
+              />
+              <span className="minke-remote__choice-copy">
+                <span className="minke-remote__choice-title">
+                  {t("tailscaleTitle")}
+                  <span className="minke-remote__tag">
+                    {t("recommended")}
+                  </span>
+                </span>
+                <span className="minke-remote__help">
+                  {t("tailscaleDescription")}
+                </span>
+              </span>
+            </label>
+            <label
+              className="minke-remote__choice"
+              data-selected={method === "cloudflare"}
+            >
+              <input
+                type="radio"
+                name="minke-remote-method"
+                value="cloudflare"
+                checked={method === "cloudflare"}
+                disabled={providerLocked}
+                onChange={() => {
+                  runtime.setMethod("cloudflare");
+                }}
+              />
+              <span className="minke-remote__choice-copy">
+                <span className="minke-remote__choice-title">
+                  {t("cloudflareTitle")}
+                  <span className="minke-remote__tag">
+                    {t("advanced")}
+                  </span>
+                </span>
+                <span className="minke-remote__help">
+                  {t("cloudflareDescription")}
+                </span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
+        {method === "tailscale" ? (
+          <fieldset className="minke-remote__fieldset">
+            <legend className="minke-remote__fieldset-title">
+              {t("tailscaleTransportTitle")}
+            </legend>
+            <div className="minke-remote__choices">
+              <label
+                className="minke-remote__choice"
+                data-selected={
+                  settings.tailscale.transport === "serve"
+                }
+              >
+                <input
+                  type="radio"
+                  name="minke-tailscale-transport"
+                  value="serve"
+                  checked={
+                    settings.tailscale.transport === "serve"
+                  }
+                  disabled={providerLocked}
+                  onChange={() => {
+                    runtime.setTailscaleTransport("serve");
+                  }}
+                />
+                <span className="minke-remote__choice-copy">
+                  <span className="minke-remote__choice-title">
+                    {t("serveTitle")}
+                    <span className="minke-remote__tag">
+                      {t("recommended")}
+                    </span>
+                  </span>
+                  <span className="minke-remote__help">
+                    {t("serveDescription")}
+                  </span>
+                </span>
+              </label>
+              <label
+                className="minke-remote__choice"
+                data-selected={
+                  settings.tailscale.transport === "direct"
+                }
+              >
+                <input
+                  type="radio"
+                  name="minke-tailscale-transport"
+                  value="direct"
+                  checked={
+                    settings.tailscale.transport === "direct"
+                  }
+                  disabled={providerLocked}
+                  onChange={() => {
+                    runtime.setTailscaleTransport("direct");
+                  }}
+                />
+                <span className="minke-remote__choice-copy">
+                  <span className="minke-remote__choice-title">
+                    {t("directTitle")}
+                    <span className="minke-remote__tag">
+                      {t("advanced")}
+                    </span>
+                  </span>
+                  <span className="minke-remote__help">
+                    {t("directDescription")}
+                  </span>
+                  <span className="minke-remote__warning">
+                    {t("directWarning")}
+                  </span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+        ) : (
+          <div className="minke-remote__cloudflare">
+            <div className="minke-remote__notice">
+              <strong>{t("cloudflareSetupTitle")}</strong>
+              <span>{t("cloudflareSetupDescription")}</span>
+            </div>
+
+            <fieldset className="minke-remote__fieldset">
+              <legend className="minke-remote__fieldset-title">
+                {t("hostnameModeTitle")}
+              </legend>
+              <div className="minke-remote__choices">
+                <label
+                  className="minke-remote__choice"
+                  data-selected={
+                    cloudflare.hostnameMode === "generated"
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="minke-cloudflare-hostname"
+                    checked={
+                      cloudflare.hostnameMode === "generated"
+                    }
+                    disabled={providerLocked}
+                    onChange={() => {
+                      runtime.setCloudflareSettings({
+                        hostnameMode: "generated",
+                      });
+                    }}
+                  />
+                  <span className="minke-remote__choice-copy">
+                    <span className="minke-remote__choice-title">
+                      {t("generatedHostnameTitle")}
+                      <span className="minke-remote__tag">
+                        {t("recommended")}
+                      </span>
+                    </span>
+                    <span className="minke-remote__help">
+                      {t("generatedHostnameDescription")}
+                    </span>
+                  </span>
+                </label>
+                <label
+                  className="minke-remote__choice"
+                  data-selected={
+                    cloudflare.hostnameMode === "custom"
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="minke-cloudflare-hostname"
+                    checked={
+                      cloudflare.hostnameMode === "custom"
+                    }
+                    disabled={providerLocked}
+                    onChange={() => {
+                      runtime.setCloudflareSettings({
+                        hostnameMode: "custom",
+                      });
+                    }}
+                  />
+                  <span className="minke-remote__choice-copy">
+                    <span className="minke-remote__choice-title">
+                      {t("customHostnameTitle")}
+                    </span>
+                    <span className="minke-remote__help">
+                      {t("customHostnameDescription")}
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div className="minke-remote__form-grid">
+              {cloudflare.hostnameMode === "generated" ? (
+                <>
+                  <label className="minke-remote__field">
+                    <span>{t("baseDomain")}</span>
+                    <input
+                      type="text"
+                      value={cloudflare.domain}
+                      placeholder="example.com"
+                      disabled={providerLocked}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onChange={(event) => {
+                        runtime.setCloudflareSettings({
+                          domain: event.currentTarget.value
+                            .trim()
+                            .toLowerCase(),
+                        });
+                      }}
+                    />
+                  </label>
+                  <label className="minke-remote__field">
+                    <span>{t("randomLabel")}</span>
+                    <span className="minke-remote__inline-control">
+                      <input
+                        type="text"
+                        value={cloudflare.generatedLabel}
+                        readOnly
+                      />
+                      <button
+                        type="button"
+                        disabled={providerLocked}
+                        onClick={() => {
+                          runtime.regenerateCloudflareHostname();
+                        }}
+                      >
+                        {t("regenerateHostname")}
+                      </button>
+                    </span>
+                  </label>
+                </>
+              ) : (
+                <label className="minke-remote__field minke-remote__field--wide">
+                  <span>{t("customHostname")}</span>
+                  <input
+                    type="text"
+                    value={cloudflare.customHostname}
+                    placeholder="minke.example.com"
+                    disabled={providerLocked}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    onChange={(event) => {
+                      runtime.setCloudflareSettings({
+                        customHostname:
+                          event.currentTarget.value
+                            .trim()
+                            .toLowerCase(),
+                      });
+                    }}
+                  />
+                </label>
+              )}
+
+              <div className="minke-remote__field minke-remote__field--wide">
+                <span>{t("hostnamePreview")}</span>
+                <code>
+                  {configuredHostname === ""
+                    ? "—"
+                    : configuredHostname}
+                </code>
+                <small>{t("hostnamePrivacyNote")}</small>
+              </div>
+
+              <label className="minke-remote__field">
+                <span>{t("teamName")}</span>
+                <span className="minke-remote__input-suffix">
+                  <input
+                    type="text"
+                    value={cloudflare.teamName}
+                    placeholder="my-team"
+                    disabled={providerLocked}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    onChange={(event) => {
+                      runtime.setCloudflareSettings({
+                        teamName: event.currentTarget.value
+                          .trim()
+                          .toLowerCase(),
+                      });
+                    }}
+                  />
+                  <span>{t("teamNameSuffix")}</span>
+                </span>
+              </label>
+
+              <label className="minke-remote__field">
+                <span>{t("audience")}</span>
+                <input
+                  type="text"
+                  value={cloudflare.audience}
+                  disabled={providerLocked}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onChange={(event) => {
+                    runtime.setCloudflareSettings({
+                      audience: event.currentTarget.value.trim(),
+                    });
+                  }}
+                />
+              </label>
+
+              <label className="minke-remote__field">
+                <span>{t("tunnelName")}</span>
+                <input
+                  type="text"
+                  value={cloudflare.tunnel}
+                  disabled={providerLocked}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onChange={(event) => {
+                    runtime.setCloudflareSettings({
+                      tunnel: event.currentTarget.value.trim(),
+                    });
+                  }}
+                />
+              </label>
+
+              <label className="minke-remote__field">
+                <span>{t("originPort")}</span>
+                <input
+                  type="number"
+                  min={1024}
+                  max={65535}
+                  value={cloudflare.originPort}
+                  disabled={providerLocked}
+                  onChange={(event) => {
+                    const value = Number(event.currentTarget.value);
+                    if (
+                      Number.isInteger(value) &&
+                      value >= 1024 &&
+                      value <= 65535
+                    ) {
+                      runtime.setCloudflareSettings({
+                        originPort: value,
+                      });
+                    }
+                  }}
+                />
+              </label>
+
+              <label className="minke-remote__field minke-remote__field--wide">
+                <span>{t("configPath")}</span>
+                <input
+                  type="text"
+                  value={cloudflare.configPath}
+                  placeholder="/absolute/path/to/config.yml"
+                  disabled={providerLocked}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onChange={(event) => {
+                    runtime.setCloudflareSettings({
+                      configPath: event.currentTarget.value,
+                    });
+                  }}
+                />
+              </label>
+
+              <div className="minke-remote__field minke-remote__field--wide">
+                <span>{t("originAddress")}</span>
+                <code>{originAddress}</code>
+              </div>
+            </div>
+
+            <p className="minke-remote__notice">
+              {t("cloudflareAccessRequired")}
+            </p>
+          </div>
         )}
 
         <label className="minke-remote__toggle-row">
@@ -134,22 +707,43 @@ function LoadedRemoteSettings({
               type="checkbox"
               checked={enabled}
               disabled={
-                !snapshot.editable || (!available && !enabled)
+                !snapshot.editable ||
+                restarting ||
+                (!canEnable && !enabled)
               }
               aria-label={t("enable")}
               onChange={(event) => {
-                runtime.setTailscaleEnabled(
-                  event.currentTarget.checked,
-                );
+                runtime.setEnabled(event.currentTarget.checked);
               }}
             />
             <span aria-hidden="true" />
           </span>
         </label>
 
-        {snapshot.restartRequired && (
-          <p className="minke-remote__pending" role="status">
-            {t("restartRequired")}
+        {snapshot.pendingChange !== undefined &&
+          presentation.helpKey !== undefined && (
+          <div className="minke-remote__pending" role="status">
+            <p>{t(presentation.helpKey)}</p>
+            {!snapshot.saving && (
+              <button
+                type="button"
+                className="minke-remote__restart"
+                disabled={restarting}
+                aria-busy={restarting}
+                onClick={() => {
+                  void restart();
+                }}
+              >
+                {restarting
+                  ? t("restarting")
+                  : t("restartNow")}
+              </button>
+            )}
+          </div>
+        )}
+        {restartFailed && (
+          <p className="minke-remote__error" role="alert">
+            {t("restartError")}
           </p>
         )}
       </div>
@@ -164,30 +758,8 @@ function LoadedRemoteSettings({
   );
 }
 
-function statusKey(
-  runtime: RemoteRuntimeSnapshot,
-):
-  | "statusDisabled"
-  | "statusUnavailable"
-  | "statusReady"
-  | "statusActive"
-  | "statusError" {
-  switch (runtime.state) {
-    case "disabled":
-      return "statusDisabled";
-    case "unavailable":
-      return "statusUnavailable";
-    case "ready":
-      return "statusReady";
-    case "active":
-      return "statusActive";
-    case "error":
-      return "statusError";
-  }
-}
-
 function errorKey(
-  error: RemoteSettingsErrorKind,
+  error: "unavailable" | "read" | "write",
 ): "readError" | "writeError" {
   return error === "write" ? "writeError" : "readError";
 }
