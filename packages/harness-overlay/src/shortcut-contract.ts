@@ -7,6 +7,7 @@ export const SHORTCUT_SETTINGS_WRITE_CHANNEL =
 export const SHORTCUT_INVOKE_CHANNEL = "minke:shortcut:invoke";
 
 export const DEFAULT_SHORTCUT_BINDINGS = Object.freeze({
+  "palette.open": "Mod+K",
   "settings.open": "Mod+Comma",
   "session.new": "Mod+N",
   "session.back": "Mod+BracketLeft",

@@ -20,7 +20,11 @@ test("session navigation walks backward and forward through selection history", 
   history.observe("b");
   history.observe("c");
 
+  assert.equal(history.canBack, true);
+  assert.equal(history.canForward, false);
+
   assert.equal(history.back(), true);
+  assert.equal(history.canForward, true);
   assert.equal(history.back(), true);
   assert.equal(history.forward(), true);
   assert.deepEqual(opened, ["b", "a", "b"]);
@@ -46,6 +50,7 @@ test("back from the no-session surface returns to the last session", () => {
   history.observe("b");
   history.observe(undefined);
 
+  assert.equal(history.canBack, true);
   assert.equal(history.back(), true);
   assert.deepEqual(opened, ["b"]);
 });

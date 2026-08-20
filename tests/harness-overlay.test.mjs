@@ -55,6 +55,20 @@ const clientSource = readFileSync(
   ),
   "utf8",
 );
+const commandPaletteSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/palette/CommandPalette.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const commandPaletteSearchSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/palette/search.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const shortcutStylesSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/styles.ts",
@@ -554,6 +568,58 @@ test("Mod+B toggles the independent bottom Tabs panel", () => {
   );
   assert.match(bundle, /tabs\.bottom\.toggle/u);
   assert.match(bundle, /Mod\+B/u);
+});
+
+test("the global command palette maps product actions without replacing slash commands", () => {
+  assert.match(
+    clientSource,
+    /id:\s*"minke-command-palette"[\s\S]*CommandPalette as ComponentType<never>/u,
+  );
+  assert.match(
+    clientSource,
+    /id:\s*"palette\.open"[\s\S]*DEFAULT_SHORTCUT_BINDINGS\["palette\.open"\][\s\S]*commandPalette\.toggle\(\)/u,
+  );
+  assert.match(
+    clientSource,
+    /createCommandPaletteRuntime\(\s*runtime,\s*\(\) => !hasOpenModalSurface\(\)/u,
+    "all palette triggers must respect the active modal surface",
+  );
+  assert.match(
+    clientSource,
+    /runtime\.onBeforeInvoke\([\s\S]*id !== "palette\.open"[\s\S]*commandPalette\.close\(\)/u,
+    "other global actions must dismiss the palette before they run",
+  );
+  assert.match(
+    clientSource,
+    /"files\.open"[\s\S]*tabsWorkspaces\.right[\s\S]*"terminal\.open"[\s\S]*tabsWorkspaces\.bottom[\s\S]*"browser\.open"[\s\S]*tabsWorkspaces\.right[\s\S]*"plugins\.browse"[\s\S]*tabsWorkspaces\.right/u,
+  );
+  assert.match(
+    clientSource,
+    /id:\s*"session\.export"[\s\S]*shortcutConfigurable:\s*false[\s\S]*sessionLogsPort\s*\.export\(sessionId\)/u,
+  );
+  assert.match(
+    clientSource,
+    /const observeSessionSelection[\s\S]*sessionNavigation\.observe\([\s\S]*commandPalette\.refresh\(\)[\s\S]*ctx\.sessions\.list\.subscribe\(\s*observeSessionSelection/u,
+    "session history must update before palette availability is refreshed",
+  );
+  assert.match(
+    commandPaletteSource,
+    /const onKeyDown[\s\S]*if \(event\.nativeEvent\.isComposing\) return;[\s\S]*event\.key === "ArrowDown"/u,
+    "IME composition keys must bypass palette navigation",
+  );
+  assert.match(
+    commandPaletteSource,
+    /runtime\.onBeforeClose\([\s\S]*target\?\.isConnected[\s\S]*target\.focus\(\)/u,
+    "prior focus must be restored before an action claims final focus",
+  );
+  assert.match(commandPaletteSearchSource, /\.toLowerCase\(\)/u);
+  assert.doesNotMatch(
+    commandPaletteSearchSource,
+    /\.toLocaleLowerCase\(\)/u,
+    "palette search must not depend on the host locale",
+  );
+  assert.doesNotMatch(clientSource, /CommandUiRuntime|commandUi/u);
+  assert.match(bundle, /Mod\+K/u);
 });
 
 test("Minke bypasses the upstream internal-testing notice through slot shadowing", () => {
