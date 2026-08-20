@@ -155,9 +155,10 @@ test("persistence failures become observable without unhandled rejection", async
 });
 
 test("palette actions expose metadata without cluttering shortcut settings", async () => {
+  const target = new KeyboardTarget();
   const runtime = new ShortcutRuntime(
-    store(),
-    new KeyboardTarget(),
+    store({ "session.export": "Mod+E" }),
+    target,
     "apple",
   );
   let runs = 0;
@@ -197,6 +198,8 @@ test("palette actions expose metadata without cluttering shortcut settings", asy
   );
 
   unavailable = false;
+  target.dispatch(keyboardEvent({ key: "e" }));
+  assert.equal(runs, 0);
   assert.equal(runtime.invoke("session.export"), true);
   assert.equal(runs, 1);
   runtime.dispose();

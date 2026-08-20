@@ -335,6 +335,9 @@ export class ShortcutRuntime {
   }
 
   #effectiveBinding(action: ShortcutAction): string | null {
+    if (action.shortcutConfigurable === false) {
+      return action.defaultBinding;
+    }
     const override = this.#overrides[action.id];
     if (override === "") return null;
     if (override !== undefined && isShortcutBinding(override)) return override;
