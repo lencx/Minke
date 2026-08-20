@@ -96,6 +96,34 @@ test("shortcuts hydrate, dispatch, and preserve unknown durable actions", async 
   assert.equal(target.listener, undefined);
 });
 
+test("shortcut actions notify observers before they run", () => {
+  const runtime = new ShortcutRuntime(
+    { available: false },
+    new KeyboardTarget(),
+    "apple",
+  );
+  const events = [];
+  runtime.register({
+    id: "settings.open",
+    label: () => "Settings",
+    defaultBinding: "Mod+Comma",
+    run() {
+      events.push("run");
+    },
+  });
+  const unsubscribe = runtime.onBeforeInvoke((id) => {
+    events.push(`before:${id}`);
+  });
+
+  assert.equal(runtime.invoke("settings.open"), true);
+  assert.deepEqual(events, ["before:settings.open", "run"]);
+
+  unsubscribe();
+  assert.equal(runtime.invoke("settings.open"), true);
+  assert.deepEqual(events, ["before:settings.open", "run", "run"]);
+  runtime.dispose();
+});
+
 test("a conflicting assignment is rejected without persistence", async () => {
   const persistence = store();
   const runtime = new ShortcutRuntime(

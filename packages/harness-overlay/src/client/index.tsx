@@ -753,6 +753,12 @@ export function apply(ctx: HarnessClientContext): void {
     () => () => commandPalette.dispose(),
     "minke-overlay: command palette runtime",
   );
+  ctx.effect(
+    () => runtime.onBeforeInvoke((id) => {
+      if (id !== "palette.open") commandPalette.close();
+    }),
+    "minke-overlay: command palette action arbitration",
+  );
   const sessionNavigation = new SessionNavigationHistory((sessionId) => {
     ctx.sessions.open(sessionId);
   });

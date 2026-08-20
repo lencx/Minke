@@ -91,6 +91,7 @@ export class ShortcutRuntime {
   #error: ShortcutErrorKind | undefined;
   #snapshot: ShortcutRuntimeSnapshot = Object.freeze({ revision: 0 });
   #listeners = new Set<() => void>();
+  #beforeInvokeListeners = new Set<(id: string) => void>();
   #saveTail: Promise<void> = Promise.resolve();
   #saveGeneration = 0;
   #initializePromise: Promise<void> | undefined;
@@ -127,6 +128,13 @@ export class ShortcutRuntime {
     this.#listeners.add(listener);
     return () => {
       this.#listeners.delete(listener);
+    };
+  }
+
+  onBeforeInvoke(listener: (id: string) => void): () => void {
+    this.#beforeInvokeListeners.add(listener);
+    return () => {
+      this.#beforeInvokeListeners.delete(listener);
     };
   }
 
@@ -167,6 +175,7 @@ export class ShortcutRuntime {
     ) {
       return false;
     }
+    for (const listener of [...this.#beforeInvokeListeners]) listener(id);
     action.run();
     return true;
   }
@@ -290,6 +299,7 @@ export class ShortcutRuntime {
     this.#disposed = true;
     this.target?.removeEventListener("keydown", this.#onKeyDown);
     this.#listeners.clear();
+    this.#beforeInvokeListeners.clear();
     this.#actions.clear();
   }
 

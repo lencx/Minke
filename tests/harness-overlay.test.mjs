@@ -579,6 +579,11 @@ test("the global command palette maps product actions without replacing slash co
   );
   assert.match(
     clientSource,
+    /runtime\.onBeforeInvoke\([\s\S]*id !== "palette\.open"[\s\S]*commandPalette\.close\(\)/u,
+    "other global actions must dismiss the palette before they run",
+  );
+  assert.match(
+    clientSource,
     /"files\.open"[\s\S]*tabsWorkspaces\.right[\s\S]*"terminal\.open"[\s\S]*tabsWorkspaces\.bottom[\s\S]*"browser\.open"[\s\S]*tabsWorkspaces\.right[\s\S]*"plugins\.browse"[\s\S]*tabsWorkspaces\.right/u,
   );
   assert.match(
