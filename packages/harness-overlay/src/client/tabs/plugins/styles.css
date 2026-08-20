@@ -300,13 +300,14 @@
   width: 24px;
   height: 24px;
   flex: none;
+  justify-self: center;
   place-items: center;
   color: var(--dsw-alias-label-secondary);
 }
 
 .minke-plugins-browser__site-icon::after {
   position: absolute;
-  inset: 0;
+  inset: 1px;
   border: 1px solid transparent;
   border-radius: 50%;
   box-sizing: border-box;
@@ -334,7 +335,7 @@
   max-width: 380px;
   height: 30px;
   flex: 1 1 260px;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
@@ -626,14 +627,14 @@
   }
 
   .minke-plugins-browser__site-icon {
-    width: 23px;
-    height: 23px;
+    width: 22px;
+    height: 22px;
   }
 
   .minke-plugins-browser__search {
     min-width: 82px;
     height: 28px;
-    grid-template-columns: 24px minmax(0, 1fr) auto;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
   }
 
   .minke-plugins-browser__search button {

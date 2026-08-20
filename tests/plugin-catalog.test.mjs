@@ -456,11 +456,11 @@ test("the Plugins view embeds a sandboxed, compact GitHub topic browser", async 
   );
   assert.equal(
     pluginsZh["plugins.browser.searchPlaceholder"],
-    "搜索插件名称、仓库或描述",
+    "搜索插件",
   );
   assert.equal(
     pluginsEn["plugins.browser.searchPlaceholder"],
-    "Search plugin names, repositories, or descriptions",
+    "Search plugins",
   );
   assert.doesNotMatch(
     pluginsEn["plugins.browser.searchPlaceholder"],

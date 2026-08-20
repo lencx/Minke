@@ -19,8 +19,7 @@ export const pluginsZh = {
   "plugins.browser.title": "在 GitHub 上浏览插件",
   "plugins.browser.topic": "github.com/topics/dsh-plugin",
   "plugins.browser.searchLabel": "搜索 GitHub 插件仓库",
-  "plugins.browser.searchPlaceholder":
-    "搜索插件名称、仓库或描述",
+  "plugins.browser.searchPlaceholder": "搜索插件",
   "plugins.browser.searchClear": "清除搜索内容",
   "plugins.browser.loading": "正在载入 GitHub",
   "plugins.browser.back": "后退",
@@ -64,8 +63,7 @@ export const pluginsEn: Record<PluginsLocaleKey, string> = {
   "plugins.browser.topic": "github.com/topics/dsh-plugin",
   "plugins.browser.searchLabel":
     "Search GitHub plugin repositories",
-  "plugins.browser.searchPlaceholder":
-    "Search plugin names, repositories, or descriptions",
+  "plugins.browser.searchPlaceholder": "Search plugins",
   "plugins.browser.searchClear": "Clear search",
   "plugins.browser.loading": "Loading GitHub",
   "plugins.browser.back": "Back",
