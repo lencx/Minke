@@ -625,7 +625,7 @@ test("the Plugins tab reports command installation outcomes", async () => {
   tabs.dispose();
 });
 
-test("the Plugins view embeds a sandboxed, compact GitHub topic browser", async () => {
+test("the Plugins view switches between installed cards and GitHub discovery", async () => {
   const [
     viewSource,
     topicCss,
@@ -679,6 +679,17 @@ test("the Plugins view embeds a sandboxed, compact GitHub topic browser", async 
     viewSource,
     /createElement\(\s*"webview"/u,
   );
+  assert.match(viewSource, /role="tablist"/u);
+  assert.match(viewSource, /plugins\.view\.installed/u);
+  assert.match(viewSource, /plugins\.view\.discover/u);
+  assert.match(viewSource, /installedPlugins\.map/u);
+  assert.match(viewSource, /InstalledPluginCard/u);
+  assert.match(viewSource, /controller\.setView/u);
+  assert.match(viewSource, /controller\.refreshInstalled/u);
+  assert.match(
+    viewSource,
+    /tab\.payload\.view !== "discover"/u,
+  );
   assert.match(viewSource, /TABS_WEB_PARTITION/u);
   assert.match(viewSource, /nodeIntegration=no/u);
   assert.match(viewSource, /sandbox=yes/u);
@@ -696,11 +707,23 @@ test("the Plugins view embeds a sandboxed, compact GitHub topic browser", async 
   assert.match(topicCss, /\.col-md-6/u);
   assert.match(searchCss, /\.Layout-sidebar/u);
   assert.match(styles, /@container minke-plugins/u);
+  assert.match(styles, /\.minke-plugins-switcher/u);
+  assert.match(styles, /\.minke-plugins-installed__grid/u);
+  assert.match(styles, /\.minke-plugins-installed__card/u);
+  assert.match(styles, /\.minke-plugins-installed__state/u);
   assert.doesNotMatch(
     `${viewSource}\n${rendererSource}`,
     /catalog\.refresh|cancelRefresh|GitHub Token|minke-plugins-card/u,
   );
   assert.equal(pluginsEn["plugins.install.action"], "Install");
+  assert.equal(
+    pluginsZh["plugins.view.installed"],
+    "已安装",
+  );
+  assert.equal(
+    pluginsEn["plugins.view.discover"],
+    "Discover on GitHub",
+  );
   assert.equal(
     pluginsEn["plugins.install.placeholder"],
     "dsh plugin --profile web add <package-or-github-repo>",

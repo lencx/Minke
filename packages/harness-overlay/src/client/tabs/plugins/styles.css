@@ -88,11 +88,7 @@
   border-color: var(--dsw-alias-state-business-primary);
   background: var(--dsw-alias-bg-base);
   box-shadow: 0 2px 8px
-    color-mix(
-      in srgb,
-      var(--dsw-alias-state-business-primary) 13%,
-      transparent
-    );
+    color-mix(in srgb, var(--dsw-alias-state-business-primary) 13%, transparent);
 }
 
 .minke-plugins-install__form:has(input[aria-invalid="true"]) {
@@ -172,6 +168,8 @@
 }
 
 .minke-plugins-install__form button:focus-visible,
+.minke-plugins-switcher button:focus-visible,
+.minke-plugins-installed button:focus-visible,
 .minke-plugins-browser__action:focus-visible,
 .minke-plugins-browser__error button:focus-visible,
 .minke-plugins-browser__error a:focus-visible {
@@ -226,6 +224,498 @@
   margin-top: -1px;
 }
 
+.minke-plugins-switcher {
+  display: flex;
+  min-width: 0;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  box-sizing: border-box;
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-button-floating-fill) 44%,
+    var(--dsw-alias-bg-base)
+  );
+}
+
+.minke-plugins-switcher > div[role="tablist"] {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+  gap: 3px;
+}
+
+.minke-plugins-switcher > div > button,
+.minke-plugins-switcher__refresh {
+  position: relative;
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+
+.minke-plugins-switcher > div > button {
+  min-width: 0;
+  gap: 6px;
+  padding: 0 9px;
+  font-size: 10px;
+  font-weight: 580;
+  line-height: 16px;
+}
+
+.minke-plugins-switcher > div > button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-plugins-switcher > div > button > svg {
+  flex: none;
+}
+
+.minke-plugins-switcher > div > button > small {
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.minke-plugins-switcher > div > button:hover,
+.minke-plugins-switcher__refresh:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-plugins-switcher > div > button[data-active] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 9%,
+    transparent
+  );
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.minke-plugins-switcher > div > button[data-active]::after {
+  position: absolute;
+  right: 8px;
+  bottom: -5px;
+  left: 8px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--dsw-alias-state-business-primary);
+  content: "";
+}
+
+.minke-plugins-switcher > div > button[data-active] > small {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 14%,
+    transparent
+  );
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.minke-plugins-switcher__refresh {
+  width: 30px;
+  flex: none;
+}
+
+.minke-plugins-switcher__refresh:disabled {
+  cursor: default;
+}
+
+.minke-plugins-switcher__refresh[data-spinning] svg {
+  color: var(--dsw-alias-state-business-primary);
+  animation: minke-plugin-spin 820ms linear infinite;
+}
+
+.minke-plugins-installed {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  background: var(--dsw-alias-bg-base);
+  scrollbar-color: var(--dsw-alias-scrollbar-bg-l2) transparent;
+  scrollbar-width: thin;
+}
+
+.minke-plugins-installed::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.minke-plugins-installed::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.minke-plugins-installed::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--dsw-alias-scrollbar-bg-l2) content-box;
+}
+
+.minke-plugins-installed__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+}
+
+.minke-plugins-installed__card {
+  display: grid;
+  min-width: 0;
+  min-height: 124px;
+  grid-template-rows: auto 1fr auto;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  box-sizing: border-box;
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-button-floating-fill) 38%,
+    var(--dsw-alias-bg-base)
+  );
+  transition:
+    border-color 150ms ease-out,
+    background-color 150ms ease-out;
+}
+
+.minke-plugins-installed__card:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 28%,
+    var(--dsw-alias-border-l2)
+  );
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 3%,
+    var(--dsw-alias-bg-base)
+  );
+}
+
+.minke-plugins-installed__card[data-state="missing"] {
+  border-color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warning-primary) 32%,
+    var(--dsw-alias-border-l2)
+  );
+}
+
+.minke-plugins-installed__card > header {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.minke-plugins-installed__icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 10%,
+    var(--dsw-alias-interactive-bg-hover)
+  );
+  color: var(--dsw-alias-state-business-primary);
+  place-items: center;
+}
+
+.minke-plugins-installed__card[data-state="missing"]
+  .minke-plugins-installed__icon {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warning-primary) 10%,
+    var(--dsw-alias-interactive-bg-hover)
+  );
+  color: var(--dsw-alias-state-warning-primary);
+}
+
+.minke-plugins-installed__heading {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.minke-plugins-installed__heading > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-plugins-installed__heading > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.minke-plugins-installed__heading > span > span {
+  padding: 1px 6px;
+  border-radius: 7px;
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 10%,
+    transparent
+  );
+  color: var(--dsw-alias-state-success-primary);
+  font-size: 8px;
+  font-weight: 620;
+  line-height: 14px;
+}
+
+.minke-plugins-installed__heading > span > span[data-state="missing"] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warning-primary) 10%,
+    transparent
+  );
+  color: var(--dsw-alias-state-warning-primary);
+}
+
+.minke-plugins-installed__heading small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-plugins-installed__repository {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  place-items: center;
+}
+
+.minke-plugins-installed__repository:hover {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 9%,
+    var(--dsw-alias-interactive-bg-hover)
+  );
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.minke-plugins-installed__card > p {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 9.5px;
+  line-height: 15px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.minke-plugins-installed__card > footer {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l3);
+}
+
+.minke-plugins-installed__card > footer > span {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 8.5px;
+  line-height: 14px;
+}
+
+.minke-plugins-installed__card > footer > code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--ds-font-family-code);
+  font-size: 8.5px;
+  line-height: 14px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-plugins-installed__notice {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 12px 0;
+  padding: 6px 8px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--dsw-alias-state-warning-primary) 30%,
+      var(--dsw-alias-border-l2)
+    );
+  border-radius: 9px;
+  box-sizing: border-box;
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warning-primary) 6%,
+    var(--dsw-alias-bg-base)
+  );
+  color: var(--dsw-alias-state-warning-primary);
+  font-size: 9px;
+  line-height: 14px;
+}
+
+.minke-plugins-installed__notice > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.minke-plugins-installed__notice > button {
+  flex: none;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 620;
+}
+
+.minke-plugins-installed__notice > button:hover {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warning-primary) 10%,
+    transparent
+  );
+}
+
+.minke-plugins-installed__state {
+  display: flex;
+  width: min(420px, 100%);
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  margin: auto;
+  padding: 28px 18px;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-secondary);
+  text-align: center;
+}
+
+.minke-plugins-installed__state > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 9%,
+    var(--dsw-alias-interactive-bg-hover)
+  );
+  color: var(--dsw-alias-state-business-primary);
+  place-items: center;
+}
+
+.minke-plugins-installed__state[data-state="loading"] > span svg {
+  animation: minke-plugin-spin 820ms linear infinite;
+}
+
+.minke-plugins-installed__state[data-state="error"] > span {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 9%,
+    var(--dsw-alias-interactive-bg-hover)
+  );
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.minke-plugins-installed__state h3 {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-weight: 630;
+  line-height: 18px;
+}
+
+.minke-plugins-installed__state p {
+  max-width: 56ch;
+  margin: 5px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 9.5px;
+  line-height: 15px;
+}
+
+.minke-plugins-installed__state button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 13px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 13%,
+    var(--dsw-alias-button-floating-fill)
+  );
+  color: var(--dsw-alias-state-business-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 620;
+  line-height: 16px;
+}
+
+.minke-plugins-installed__state button:hover {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 18%,
+    var(--dsw-alias-button-floating-fill)
+  );
+}
+
 .minke-plugins-browser {
   display: flex;
   min-width: 0;
@@ -247,12 +737,11 @@
   padding: 4px 8px 4px 11px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   box-sizing: border-box;
-  background:
-    color-mix(
-      in srgb,
-      var(--dsw-alias-button-floating-fill) 56%,
-      var(--dsw-alias-bg-base)
-    );
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-button-floating-fill) 56%,
+    var(--dsw-alias-bg-base)
+  );
 }
 
 .minke-plugins-browser__identity {
@@ -348,18 +837,16 @@
 }
 
 .minke-plugins-browser__search:focus-within {
-  border-color:
-    color-mix(
-      in srgb,
-      var(--dsw-alias-state-business-primary) 68%,
-      var(--dsw-alias-border-l2)
-    );
-  background:
-    color-mix(
-      in srgb,
-      var(--dsw-alias-state-business-primary) 3%,
-      var(--dsw-alias-bg-base)
-    );
+  border-color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 68%,
+    var(--dsw-alias-border-l2)
+  );
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 3%,
+    var(--dsw-alias-bg-base)
+  );
 }
 
 .minke-plugins-browser__search input {
@@ -382,8 +869,7 @@
   opacity: 1;
 }
 
-.minke-plugins-browser__search
-  input::-webkit-search-cancel-button {
+.minke-plugins-browser__search input::-webkit-search-cancel-button {
   display: none;
 }
 
@@ -440,12 +926,11 @@
 }
 
 .minke-plugins-browser__action:hover:not(:disabled) {
-  background:
-    color-mix(
-      in srgb,
-      var(--dsw-alias-state-business-primary) 7%,
-      var(--dsw-alias-interactive-bg-hover)
-    );
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 7%,
+    var(--dsw-alias-interactive-bg-hover)
+  );
   color: var(--dsw-alias-label-primary);
 }
 
@@ -454,15 +939,12 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
-.minke-plugins-browser__action[data-external]:hover:not(
-    :disabled
-  ) {
-  background:
-    color-mix(
-      in srgb,
-      var(--dsw-alias-state-business-primary) 11%,
-      transparent
-    );
+.minke-plugins-browser__action[data-external]:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary) 11%,
+    transparent
+  );
   color: var(--dsw-alias-state-business-primary);
 }
 
@@ -491,8 +973,7 @@
   background: var(--dsw-alias-bg-base);
 }
 
-.minke-plugins-browser__host[data-error]
-  .minke-plugins-browser__guest {
+.minke-plugins-browser__host[data-error] .minke-plugins-browser__guest {
   visibility: hidden;
 }
 
@@ -620,6 +1101,40 @@
     padding: 0 8px;
   }
 
+  .minke-plugins-switcher {
+    height: 38px;
+    padding: 4px 7px;
+  }
+
+  .minke-plugins-switcher > div > button {
+    height: 28px;
+    gap: 5px;
+    padding: 0 7px;
+  }
+
+  .minke-plugins-switcher > div > button[data-active]::after {
+    bottom: -5px;
+  }
+
+  .minke-plugins-switcher__refresh {
+    width: 28px;
+    height: 28px;
+  }
+
+  .minke-plugins-installed__grid {
+    gap: 8px;
+    padding: 9px;
+  }
+
+  .minke-plugins-installed__card {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .minke-plugins-installed__notice {
+    margin: 8px 9px 0;
+  }
+
   .minke-plugins-browser__bar {
     height: 38px;
     gap: 6px;
@@ -683,8 +1198,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .minke-plugins-install__form,
+  .minke-plugins-installed__card,
   .minke-plugins-browser__search,
   .minke-plugins-install__form button > span[data-spinning],
+  .minke-plugins-switcher__refresh[data-spinning] svg,
+  .minke-plugins-installed__state[data-state="loading"] > span svg,
   .minke-plugins-browser__site-icon[data-loading]::after,
   .minke-plugins-install__feedback {
     animation: none;
