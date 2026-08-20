@@ -43,9 +43,9 @@ It does not bind DSH to the LAN or enable the public Tailscale Funnel.
 1. Install Tailscale on the Minke computer and the phone, sign both into the
    same tailnet, and confirm the computer is connected.
 2. In Minke, open **Settings → Remote access**, enable
-   **Access through Tailscale**, then fully quit and restart Minke.
-3. Return to **Remote access** and open the displayed `https://…ts.net`
-   address on the phone.
+   **Access through Tailscale**, then choose **Restart Minke** when prompted.
+3. Return to **Remote access**, then copy or open the displayed
+   `https://…ts.net` address on the phone.
 
 Minke owns a foreground Serve session and stops it when the app exits. The
 remote page can start agent tasks and use local tools already authorized in

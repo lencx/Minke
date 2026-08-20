@@ -1,24 +1,35 @@
 # Minke Remote Access
 
-`@lencx/minke-remote-access` owns optional remote-access lifecycles for Minke.
-The package is independent of Electron and currently implements one method:
-Tailscale Serve.
+`@lencx/minke-remote-access` owns Minke's optional remote-access lifecycle. It
+is independent of Electron, defaults off, and exposes one provider-neutral
+service over three transports:
 
-Remote access is opt-in and defaults off. When enabled, the Tailscale method:
+- **Tailscale Serve** resolves the connected node's `*.ts.net` name, adds only
+  that name to the Harness trusted-host fence, and owns one foreground
+  `tailscale serve --yes --bg=false` process targeting the random loopback
+  Harness origin.
+- **Tailscale direct** binds a raw TCP forwarder to the node's exact
+  `100.64.0.0/10` IPv4 address and an OS-assigned port. It never binds a LAN or
+  wildcard address, and the Harness continues to listen only on loopback.
+- **Cloudflare Access** owns one foreground, locally configured named tunnel.
+  A loopback-only origin gateway validates the Access JWT issuer and audience
+  with rotating JWKS before forwarding HTTP or WebSocket traffic, then removes
+  the Access JWT and authorization cookie before the Harness sees the request.
+  The spawned command pins `--url` to this gateway, so a supplied configuration
+  cannot select another local origin; configurations with ingress rules fail
+  closed because cloudflared does not allow them together with `--url`.
 
-1. resolves the installed Tailscale CLI without executing it during discovery;
-2. reads the connected node's `*.ts.net` name from `tailscale status --json`;
-3. gives that exact hostname to DSH's trusted-host fence while DSH continues to
-   listen only on `127.0.0.1` and an OS-assigned port;
-4. starts `tailscale serve --yes` in foreground mode against that exact
-   loopback URL; and
-5. stops the foreground process before Minke shuts down.
+Cloudflare hostnames use a compact random `m-<16 character>` label by default,
+encoding 80 bits without user or machine metadata. A readable custom hostname
+is an explicit opt-in. The label is an identifier, not an authentication
+secret.
 
-Foreground Serve configuration is tied to the CLI session, so Minke never
-creates a persistent background Serve rule and never uses Tailscale Funnel.
-The target validator rejects LAN addresses, hostnames, paths, credentials,
-queries, and fragments.
+Command discovery checks known installation paths and `PATH` without executing
+either CLI. Provider startup is two-phase: `prepare()` derives the exact trusted
+host before the Harness starts, while `start()` activates the foreground
+transport only after the local page has loaded. `stop()` owns all process,
+listener, and socket cleanup.
 
-The package intentionally has no provider-adapter interface yet. A second
-remote method can establish the real shared seam instead of making Tailscale
-conform to a speculative abstraction.
+The module never enables Tailscale Funnel, never creates a persistent Serve
+rule, and does not use Cloudflare Quick Tunnels or token-based environment
+overrides. Targets must be exact random-port `127.0.0.1` Harness origins.
