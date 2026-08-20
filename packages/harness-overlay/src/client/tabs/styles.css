@@ -39,6 +39,8 @@
 
 .minke-tabs-panel[data-placement="bottom"] {
   --minke-tabs-panel-height: 320px;
+  container-name: minke-tabs-panel;
+  container-type: size;
   right: 0;
   bottom: 0;
   left: var(--minke-tabs-panel-left);

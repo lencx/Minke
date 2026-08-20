@@ -756,3 +756,52 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
     /dsh-status-rotator/u,
   );
 });
+
+test("the bottom Plugins view splits only when its panel is decisively wide", async () => {
+  const [pluginStyles, panelStyles] = await Promise.all([
+    readFile(
+      new URL(
+        "../packages/harness-overlay/src/client/tabs/plugins/styles.css",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../packages/harness-overlay/src/client/tabs/styles.css",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(
+    panelStyles,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s*\{[^}]*container-name:\s*minke-tabs-panel;[^}]*container-type:\s*size;/su,
+  );
+
+  const wideLayout = pluginStyles.match(
+    /@container minke-tabs-panel\s*\(min-width:\s*\d+px\)\s*and\s*\(min-aspect-ratio:\s*(\d+)\s*\/\s*(\d+)\)/u,
+  );
+  assert.notEqual(wideLayout, null);
+  assert.equal(
+    Number(wideLayout?.[1]) / Number(wideLayout?.[2]) >= 1.5,
+    true,
+  );
+  assert.match(
+    pluginStyles,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-plugins-page\s*\{[^}]*grid-template-areas:\s*"install switcher"\s*"install content";/su,
+  );
+  assert.match(
+    pluginStyles,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-plugins-install\s*\{[^}]*grid-area:\s*install;/su,
+  );
+  assert.match(
+    pluginStyles,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-plugins-switcher\s*\{[^}]*grid-area:\s*switcher;/su,
+  );
+  assert.match(
+    pluginStyles,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-plugins-(?:installed|browser)[^{]*\{[^}]*grid-area:\s*content;/su,
+  );
+});

@@ -1034,6 +1034,75 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+@container minke-tabs-panel (min-width: 760px) and (min-aspect-ratio: 5 / 3) {
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-page {
+    display: grid;
+    grid-template-areas:
+      "install switcher"
+      "install content";
+    grid-template-columns: clamp(280px, 34%, 390px) minmax(0, 1fr);
+    grid-template-rows: 40px minmax(0, 1fr);
+  }
+
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-install {
+    grid-area: install;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: 12px;
+    padding: 18px 16px;
+    overflow: auto;
+    background: color-mix(
+      in srgb,
+      var(--dsw-alias-button-floating-fill) 30%,
+      var(--dsw-alias-bg-base)
+    );
+  }
+
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-install__copy {
+    align-self: start;
+  }
+
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-install__copy p {
+    max-width: 46ch;
+    margin-top: 5px;
+  }
+
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-install__form {
+    width: 100%;
+    align-self: start;
+  }
+
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-install__detail {
+    grid-column: auto;
+    justify-content: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-install__feedback > span[role="alert"] {
+    max-width: 100%;
+  }
+
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-switcher {
+    grid-area: switcher;
+  }
+
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-installed,
+  .minke-tabs-panel[data-placement="bottom"]
+    .minke-plugins-browser {
+    grid-area: content;
+  }
+}
+
 @container minke-plugins (max-width: 660px) {
   .minke-plugins-install {
     grid-template-columns: minmax(0, 1fr);
