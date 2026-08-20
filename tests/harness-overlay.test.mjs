@@ -586,7 +586,11 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     tabsInstallSource,
-    /id:\s*"minke-tabs-new-session-toggle"[\s\S]*NewSessionTabsHeaderAction as ComponentType<never>/u,
+    /name:\s*"shell\.overlay"[\s\S]*?id:\s*"minke-tabs-toggle"[\s\S]*?TabsHeaderAction as ComponentType<never>/u,
+  );
+  assert.doesNotMatch(
+    tabsInstallSource,
+    /id:\s*"minke-tabs-new-session-toggle"/u,
   );
   assert.doesNotMatch(tabsInstallSource, /ResourceTabs|resource-tabs/u);
   assert.doesNotMatch(

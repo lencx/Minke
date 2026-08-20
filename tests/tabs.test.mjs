@@ -2411,12 +2411,37 @@ test("Tabs is content-agnostic and preserves hidden tab state", () => {
   tabs.dispose();
 });
 
-test("Session Header groups compact Lucide actions for both Tabs placements", () => {
+test("Session Header groups compact actions for both Tabs placements", () => {
   const sharedActionRule = SESSION_HEADER_ACTION_STYLES.match(
     /\[data-minke-session-log-action\],[\s\S]*?\{([\s\S]*?)\n\}/u,
   )?.[1];
+  const idleTabsActionRule = [
+    ...SESSION_HEADER_ACTION_STYLES.matchAll(
+      /\[data-minke-tabs-header-action\]\s*\{([^}]*)\}/gu,
+    ),
+  ].at(-1)?.[1];
+  const expandedTabsActionRule =
+    SESSION_HEADER_ACTION_STYLES.match(
+      /\[data-minke-tabs-header-action\]\[aria-expanded="true"\]\s*\{([^}]*)\}/u,
+    )?.[1];
   assert.ok(sharedActionRule);
   assert.match(sharedActionRule, /border:\s*none;/u);
+  assert.match(sharedActionRule, /appearance:\s*none;/u);
+  assert.ok(idleTabsActionRule);
+  assert.match(
+    idleTabsActionRule,
+    /color:\s*var\(--dsw-alias-label-tertiary\);/u,
+  );
+  assert.ok(expandedTabsActionRule);
+  assert.match(
+    expandedTabsActionRule,
+    /color:\s*var\(--dsw-alias-label-primary\);/u,
+  );
+  assert.match(expandedTabsActionRule, /background:\s*transparent;/u);
+  assert.match(
+    SESSION_HEADER_ACTION_STYLES,
+    /\[data-minke-tabs-header-action\]:hover:not\(:disabled\):not\(\s*\[aria-expanded="true"\]\s*\)/u,
+  );
 
   const exportMarkup = renderToStaticMarkup(
     createElement(SessionLogHeaderAction, {
@@ -2483,6 +2508,22 @@ test("Session Header groups compact Lucide actions for both Tabs placements", ()
   );
   assert.match(markup, /aria-expanded="false"/u);
   assert.equal((markup.match(/<svg/gu) ?? []).length, 2);
+  assert.equal(
+    (markup.match(/viewBox="0 0 21 21"/gu) ?? []).length,
+    2,
+  );
+  assert.equal(
+    (markup.match(/stroke-width="1.5"/gu) ?? []).length,
+    2,
+  );
+  assert.match(
+    markup,
+    /d="M5\.5 3\.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m1 12h8"/u,
+  );
+  assert.match(
+    markup,
+    /d="M5\.5 3\.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m10 11v-8"/u,
+  );
 
   rightTabs.show();
   assert.equal(rightTabs.getSnapshot().visible, true);
@@ -2596,11 +2637,43 @@ test("Tabs placement controls keep independent panels open", () => {
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-minke-new-session-tabs-action\][\s\S]*?position:\s*absolute;/u,
+    /\[data-shell-overlay\]\s*\{[\s\S]*?--minke-tabs-layout-actions-clearance:\s*80px;[\s\S]*?--minke-tabs-primary-row-top:\s*6px;/u,
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\.minke-tabs-panel\[data-placement="right"\]\[data-open\][\s\S]*?right:\s*calc\(var\(--minke-tabs-panel-width,\s*360px\)\s*\+\s*16px\);/u,
+    /\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*16px;[\s\S]*?z-index:\s*5;[\s\S]*?-webkit-app-region:\s*no-drag;[\s\S]*?app-region:\s*no-drag;/u,
+  );
+  assert.match(
+    SESSION_HEADER_ACTION_STYLES,
+    /\[data-minke-new-session-tabs-action\][\s\S]*?pointer-events:\s*none\s*!important;/u,
+  );
+  assert.match(
+    SESSION_HEADER_ACTION_STYLES,
+    /:has\([\s\S]*?> \[data-shell-overlay\] \[data-minke-tabs-layout-actions\][\s\S]*?\)\s*\[data-minke-session-log-action\]\s*\{[\s\S]*?margin-right:\s*64px;/u,
+  );
+  assert.match(
+    SESSION_HEADER_ACTION_STYLES,
+    /\[data-minke-tabs-right-open\]:has\([\s\S]*?\)\s*\[data-minke-session-log-action\]\s*\{[\s\S]*?margin-right:\s*0;/u,
+  );
+  assert.doesNotMatch(
+    SESSION_HEADER_ACTION_STYLES,
+    /minke-tabs-panel-width/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-tabbar\s*\{[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*var\(\s*--minke-tabs-layout-actions-clearance,\s*80px\s*\);/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-tabbar__actions\s*\{[\s\S]*?padding-right:\s*0;/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-tabbar__actions\s+\.minke-tabs-toolbar__button\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?border-radius:\s*8px;/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-chrome\[data-single-row\]\s*\{[\s\S]*?height:\s*44px;[\s\S]*?min-height:\s*44px;/u,
   );
   assert.doesNotMatch(
     SESSION_HEADER_ACTION_STYLES,
@@ -2872,7 +2945,7 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   );
   assert.match(
     TABS_STYLES,
-    /\.minke-tab\s*\{[\s\S]*?min-width:\s*60px;[\s\S]*?max-width:\s*160px;[\s\S]*?width:\s*max-content;[\s\S]*?flex:\s*0 1 auto;/u,
+    /\.minke-tab\s*\{[\s\S]*?min-width:\s*60px;[\s\S]*?max-width:\s*160px;[\s\S]*?width:\s*max-content;[\s\S]*?flex:\s*0 0 auto;/u,
   );
   assert.match(
     webStylesSource,
@@ -3038,7 +3111,17 @@ test("right Tabs window dragging covers populated and empty panels without claim
 
   assert.match(
     emptyStateSource,
-    /readonly windowDrag\?: boolean;[\s\S]*data-minke-tabs-window-drag=\{windowDrag \? "" : undefined\}/u,
+    /readonly windowDrag\?: boolean;[\s\S]*\{windowDrag && \([\s\S]*className="minke-tabs-empty__window-drag"[\s\S]*data-minke-tabs-window-drag=""/u,
+  );
+  assert.doesNotMatch(
+    emptyStateSource,
+    /className="minke-tabs-empty"\s+data-minke-tabs-window-drag=/u,
+    "the empty panel container must not turn the action corner into a native drag region",
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-empty__window-drag\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0\s+var\(\s*--minke-tabs-layout-actions-clearance,\s*80px\s*\)\s+0\s+0;/u,
+    "the empty-panel drag surface must stop before the fixed layout actions",
   );
   assert.match(
     emptyStateSource,

@@ -180,6 +180,12 @@
   min-height: 40px;
 }
 
+.minke-tabs-panel[data-placement="right"]
+  .minke-tabs-chrome[data-single-row] {
+  height: 44px;
+  min-height: 44px;
+}
+
 .minke-tabs-tabbar {
   position: absolute;
   top: max(2px, calc(var(--minke-tabs-primary-top) - 6px));
@@ -191,11 +197,33 @@
   align-items: stretch;
 }
 
+.minke-tabs-panel[data-placement="right"]
+  .minke-tabs-tabbar {
+  top: var(--minke-tabs-primary-row-top, 6px);
+  right: var(
+    --minke-tabs-layout-actions-clearance,
+    80px
+  );
+}
+
 .minke-tabs-tabbar__actions {
   display: flex;
   flex: none;
   align-items: center;
   padding: 0 6px 0 3px;
+}
+
+.minke-tabs-panel[data-placement="right"]
+  .minke-tabs-tabbar__actions {
+  padding-right: 0;
+}
+
+.minke-tabs-panel[data-placement="right"]
+  .minke-tabs-tabbar__actions
+  .minke-tabs-toolbar__button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 
 .minke-tabs-toolbar {
@@ -331,7 +359,7 @@
   max-width: 160px;
   width: max-content;
   height: var(--minke-tabs-control-height);
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--minke-tabs-control-radius);
@@ -483,6 +511,7 @@
 }
 
 .minke-tabs-empty {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
@@ -493,7 +522,16 @@
   box-sizing: border-box;
 }
 
+.minke-tabs-empty__window-drag {
+  position: absolute;
+  inset: 0
+    var(--minke-tabs-layout-actions-clearance, 80px)
+    0 0;
+}
+
 .minke-tabs-empty__options {
+  position: relative;
+  z-index: 1;
   display: grid;
   width: 100%;
   max-width: 560px;

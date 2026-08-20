@@ -27,10 +27,16 @@ export function TabsEmptyState({
   return (
     <div
       className="minke-tabs-empty"
-      data-minke-tabs-window-drag={windowDrag ? "" : undefined}
       role="group"
       aria-label={t("panel.create")}
     >
+      {windowDrag && (
+        <div
+          className="minke-tabs-empty__window-drag"
+          data-minke-tabs-window-drag=""
+          aria-hidden="true"
+        />
+      )}
       <div className="minke-tabs-empty__options">
         {renderers.creators().map((option) => (
           <button

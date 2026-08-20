@@ -1,9 +1,21 @@
+[data-shell-overlay] {
+  --minke-tabs-layout-actions-clearance: 80px;
+  --minke-tabs-primary-row-top: 6px;
+}
+
 [data-minke-tabs-layout-actions] {
+  position: absolute;
+  top: var(--minke-tabs-primary-row-top, 6px);
+  right: 16px;
+  z-index: 5;
   display: inline-flex;
   height: 32px;
   flex: none;
   align-items: center;
   gap: 4px;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 [data-minke-session-log-action],
@@ -19,6 +31,7 @@
   padding: 0 !important;
   border: none;
   border-radius: 10px;
+  appearance: none;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
@@ -26,10 +39,30 @@
   app-region: no-drag;
 }
 
+[data-minke-tabs-header-action] {
+  width: 28px;
+  min-width: 28px !important;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 [data-minke-session-log-action]:hover:not(:disabled),
-[data-minke-tabs-header-action]:hover:not(:disabled),
-[data-minke-tabs-header-action][aria-expanded="true"] {
+[data-minke-tabs-header-action]:hover:not(:disabled):not(
+    [aria-expanded="true"]
+  ) {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+[data-minke-tabs-header-action]:hover:not(:disabled):not(
+    [aria-expanded="true"]
+  ) {
+  color: var(--dsw-alias-label-secondary);
+}
+
+[data-minke-tabs-header-action][aria-expanded="true"] {
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
 }
 
 [data-minke-session-log-action]:focus-visible,
@@ -42,18 +75,22 @@
   cursor: wait;
 }
 
-[data-minke-new-session-tabs-action] {
-  position: absolute;
-  top: 12px;
-  right: 16px;
-  pointer-events: none !important;
+:has(
+    > [data-shell-overlay] [data-minke-tabs-layout-actions]
+  )
+  [data-minke-session-log-action] {
+  margin-right: 64px;
 }
 
-[data-shell-overlay]:has(
-    .minke-tabs-panel[data-placement="right"][data-open]
+[data-minke-tabs-right-open]:has(
+    > [data-shell-overlay] [data-minke-tabs-layout-actions]
   )
-  [data-minke-new-session-tabs-action] {
-  right: calc(var(--minke-tabs-panel-width, 360px) + 16px);
+  [data-minke-session-log-action] {
+  margin-right: 0;
+}
+
+[data-minke-new-session-tabs-action] {
+  pointer-events: none !important;
 }
 
 [data-minke-new-session-tabs-action]

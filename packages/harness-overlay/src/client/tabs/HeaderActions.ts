@@ -1,7 +1,5 @@
 import {
   FileDown,
-  PanelBottom,
-  PanelRight,
 } from "@lucide/icons";
 import {
   createElement,
@@ -82,6 +80,40 @@ interface SessionListSelection {
   >;
 }
 
+const PANEL_PLACEMENT_PATHS = {
+  bottom:
+    "M5.5 3.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m1 12h8",
+  right:
+    "M5.5 3.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m10 11v-8",
+} as const;
+
+function PanelPlacementIcon(props: {
+  placement: TabsPanelPlacement;
+}): ReactNode {
+  return createElement(
+    "svg",
+    {
+      xmlns: "http://www.w3.org/2000/svg",
+      width: "1em",
+      height: "1em",
+      viewBox: "0 0 21 21",
+      "aria-hidden": "true",
+    },
+    createElement("path", {
+      d: "M0 0h21v21H0z",
+      fill: "none",
+    }),
+    createElement("path", {
+      d: PANEL_PLACEMENT_PATHS[props.placement],
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "1.5",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+    }),
+  );
+}
+
 interface NewSessionTabsHeaderActionProps
   extends TabsHeaderActionProps {
   useSessions: <T>(
@@ -141,13 +173,7 @@ export function TabsHeaderAction({
           "aria-pressed": active,
           onClick: () => runtime.toggle(),
         },
-        createElement(LucideIcon, {
-          icon:
-            placement === "bottom"
-              ? PanelBottom
-              : PanelRight,
-          size: 16,
-        }),
+        createElement(PanelPlacementIcon, { placement }),
       );
     }),
   );
