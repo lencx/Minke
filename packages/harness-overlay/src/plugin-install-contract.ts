@@ -1,4 +1,5 @@
 export const PLUGIN_INSTALL_CHANNEL = "minke:plugin:install";
+export const PLUGIN_UNINSTALL_CHANNEL = "minke:plugin:uninstall";
 export const PLUGIN_INSTALLED_READ_CHANNEL =
   "minke:plugin:installed:read";
 
@@ -22,6 +23,10 @@ export interface PluginInstallCommand {
 
 export interface PluginInstallRequest {
   readonly command: string;
+}
+
+export interface PluginUninstallRequest {
+  readonly name: string;
 }
 
 export type InstalledPluginState = "ready" | "missing";
@@ -241,5 +246,35 @@ export function parsePluginInstallRequest(
     command: parsePluginInstallCommand(
       (value as Record<string, unknown>).command,
     ).command,
+  });
+}
+
+export function parsePluginUninstallTarget(
+  value: unknown,
+): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > MAX_PLUGIN_NAME_LENGTH ||
+    value.trim() !== value ||
+    !NPM_PACKAGE_NAME.test(value)
+  ) {
+    throw new TypeError("invalid plugin uninstall target");
+  }
+  return value;
+}
+
+export function parsePluginUninstallRequest(
+  value: unknown,
+): PluginUninstallRequest {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 1 ||
+    !Object.hasOwn(value, "name")
+  ) {
+    throw new TypeError("invalid plugin uninstall request");
+  }
+  return Object.freeze({
+    name: parsePluginUninstallTarget(value.name),
   });
 }

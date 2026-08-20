@@ -12,10 +12,13 @@ import { afterEach, test } from "node:test";
 import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
+  PLUGIN_UNINSTALL_CHANNEL,
   parseInstalledPluginsSnapshot,
   parsePluginInstallCommand,
   parsePluginInstallRequest,
   parsePluginInstallTarget,
+  parsePluginUninstallRequest,
+  parsePluginUninstallTarget,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
   bindPluginInstallIpc,
@@ -154,6 +157,40 @@ test("plugin install commands accept one web-profile package target", () => {
   }
 });
 
+test("plugin uninstall requests accept one installed package name", () => {
+  assert.equal(
+    parsePluginUninstallTarget("@minke/example-plugin"),
+    "@minke/example-plugin",
+  );
+  assert.deepEqual(
+    parsePluginUninstallRequest({
+      name: "example-plugin",
+    }),
+    {
+      name: "example-plugin",
+    },
+  );
+
+  for (const invalid of [
+    "",
+    "../escape",
+    "example-plugin@1.0.0",
+    "example-plugin\nother-plugin",
+  ]) {
+    assert.throws(
+      () => parsePluginUninstallTarget(invalid),
+      /plugin uninstall/u,
+    );
+  }
+  assert.throws(
+    () => parsePluginUninstallRequest({
+      name: "example-plugin",
+      extra: true,
+    }),
+    /plugin uninstall/u,
+  );
+});
+
 test("installed plugin snapshots accept only bounded display metadata", () => {
   assert.deepEqual(
     parseInstalledPluginsSnapshot({
@@ -287,9 +324,27 @@ test("the installation runtime forwards a validated target without a shell", asy
     commands[0].options.env.DSH_PNPM_ENTRY,
     undefined,
   );
+  await installation.uninstall("dsh-status-rotator");
+  assert.equal(commands.length, 2);
+  assert.equal(commands[1].command, join(root, "Minke"));
+  assert.deepEqual(commands[1].args, [
+    "--expose-internals",
+    layout.entryPath,
+    "plugin",
+    "--profile",
+    "web",
+    "remove",
+    "dsh-status-rotator",
+  ]);
+  assert.equal(commands[1].options.cwd, dshHome);
+  assert.equal(commands[1].options.env.DSH_HOME, dshHome);
   await assert.rejects(
     installation.install("file:../plugin"),
     /invalid plugin install target/u,
+  );
+  await assert.rejects(
+    installation.uninstall("dsh-status-rotator@1.0.0"),
+    /invalid plugin uninstall target/u,
   );
 });
 
@@ -382,6 +437,7 @@ test("the installation runtime treats a missing web profile as empty", async () 
 test("the desktop IPC binding authorizes and parses install commands", async () => {
   const handlers = new Map();
   const installs = [];
+  const uninstalls = [];
   const binding = bindPluginInstallIpc(
     {
       handle(channel, handler) {
@@ -394,6 +450,9 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     {
       async install(target) {
         installs.push(target);
+      },
+      async uninstall(name) {
+        uninstalls.push(name);
       },
       async listInstalled() {
         return {
@@ -411,8 +470,12 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
   const readHandler = handlers.get(
     PLUGIN_INSTALLED_READ_CHANNEL,
   );
+  const uninstallHandler = handlers.get(
+    PLUGIN_UNINSTALL_CHANNEL,
+  );
   assert.equal(typeof handler, "function");
   assert.equal(typeof readHandler, "function");
+  assert.equal(typeof uninstallHandler, "function");
 
   await handler("trusted", {
     command:
@@ -427,6 +490,17 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     /unauthorized/u,
   );
   assert.deepEqual(installs, ["dsh-status-rotator"]);
+  await uninstallHandler("trusted", {
+    name: "dsh-status-rotator",
+  });
+  assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
+  await assert.rejects(
+    uninstallHandler("untrusted", {
+      name: "dsh-status-rotator",
+    }),
+    /unauthorized/u,
+  );
+  assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
   assert.deepEqual(await readHandler("trusted"), {
     plugins: [{
       name: "example-plugin",
@@ -443,6 +517,10 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
   assert.equal(handlers.has(PLUGIN_INSTALL_CHANNEL), false);
   assert.equal(
     handlers.has(PLUGIN_INSTALLED_READ_CHANNEL),
+    false,
+  );
+  assert.equal(
+    handlers.has(PLUGIN_UNINSTALL_CHANNEL),
     false,
   );
 });
@@ -477,11 +555,15 @@ test("legacy cleanup removes only the retired catalog cache", async () => {
 
 test("the renderer port exposes installation and installed plugins", async () => {
   const commands = [];
+  const uninstalls = [];
   const port = desktopPluginInstallerPort({
     minkeDesktop: {
       pluginInstaller: {
         async install(command) {
           commands.push(command);
+        },
+        async uninstall(name) {
+          uninstalls.push(name);
         },
         async readInstalled() {
           return {
@@ -502,6 +584,8 @@ test("the renderer port exposes installation and installed plugins", async () =>
   assert.deepEqual(commands, [
     "dsh plugin --profile web add dsh-status-rotator",
   ]);
+  await port.uninstall("dsh-status-rotator");
+  assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
   assert.deepEqual(await port.readInstalled(), {
     plugins: [{
       name: "example-plugin",
@@ -520,6 +604,10 @@ test("the renderer port exposes installation and installed plugins", async () =>
   );
   await assert.rejects(
     unavailable.readInstalled(),
+    /bridge is unavailable/u,
+  );
+  await assert.rejects(
+    unavailable.uninstall("dsh-status-rotator"),
     /bridge is unavailable/u,
   );
 });

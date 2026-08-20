@@ -3,8 +3,10 @@ import appManifest from "../../package.json";
 import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
+  PLUGIN_UNINSTALL_CHANNEL,
   parseInstalledPluginsSnapshot,
   parsePluginInstallRequest,
+  parsePluginUninstallRequest,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
   MODEL_RUNTIME_SETTINGS_READ_CHANNEL,
@@ -436,6 +438,12 @@ const pluginInstaller = Object.freeze({
     await ipcRenderer.invoke(
       PLUGIN_INSTALL_CHANNEL,
       parsePluginInstallRequest({ command }),
+    );
+  },
+  async uninstall(name: string): Promise<void> {
+    await ipcRenderer.invoke(
+      PLUGIN_UNINSTALL_CHANNEL,
+      parsePluginUninstallRequest({ name }),
     );
   },
   async readInstalled(): Promise<unknown> {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   parseInstalledPluginsSnapshot,
   parsePluginInstallTarget,
+  parsePluginUninstallTarget,
   type InstalledPlugin,
   type InstalledPluginsSnapshot,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
@@ -15,7 +16,7 @@ import {
   type HarnessRuntimeLayout,
 } from "./harness-launch.ts";
 
-const INSTALL_TIMEOUT_MS = 10 * 60_000;
+const PLUGIN_COMMAND_TIMEOUT_MS = 10 * 60_000;
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
 const PROFILE_NAME = "web";
 
@@ -51,13 +52,13 @@ function commandFailure(
     .slice(-8_192);
   return new Error(
     detail === ""
-      ? "plugin installation failed"
-      : `plugin installation failed: ${detail}`,
+      ? "plugin command failed"
+      : `plugin command failed: ${detail}`,
     { cause: error },
   );
 }
 
-function runInstallCommand(
+function runPluginCommand(
   command: string,
   args: readonly string[],
   options: PluginInstallCommandOptions,
@@ -71,7 +72,7 @@ function runInstallCommand(
         env: options.env,
         encoding: "utf8",
         maxBuffer: MAX_COMMAND_OUTPUT_BYTES,
-        timeout: INSTALL_TIMEOUT_MS,
+        timeout: PLUGIN_COMMAND_TIMEOUT_MS,
         windowsHide: true,
       },
       (error, stdout, stderr) => {
@@ -226,7 +227,7 @@ export class PluginInstallationRuntime {
     this.#readRuntimeLayout =
       options.readRuntimeLayout ??
       (() => readHarnessRuntimeLayout(this.#runtimeRoot));
-    this.#runCommand = options.runCommand ?? runInstallCommand;
+    this.#runCommand = options.runCommand ?? runPluginCommand;
   }
 
   async listInstalled(): Promise<InstalledPluginsSnapshot> {
@@ -280,6 +281,18 @@ export class PluginInstallationRuntime {
 
   async install(candidate: string): Promise<void> {
     const target = parsePluginInstallTarget(candidate);
+    await this.#runProfileCommand("add", target);
+  }
+
+  async uninstall(candidate: string): Promise<void> {
+    const target = parsePluginUninstallTarget(candidate);
+    await this.#runProfileCommand("remove", target);
+  }
+
+  async #runProfileCommand(
+    action: "add" | "remove",
+    target: string,
+  ): Promise<void> {
     const layout = await this.#readRuntimeLayout();
     await mkdir(this.#dshHome, {
       recursive: true,
@@ -302,7 +315,7 @@ export class PluginInstallationRuntime {
         "plugin",
         "--profile",
         PROFILE_NAME,
-        "add",
+        action,
         target,
       ],
       {

@@ -1,9 +1,11 @@
 import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
+  PLUGIN_UNINSTALL_CHANNEL,
   parseInstalledPluginsSnapshot,
   parsePluginInstallCommand,
   parsePluginInstallRequest,
+  parsePluginUninstallRequest,
   type InstalledPluginsSnapshot,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 
@@ -17,6 +19,7 @@ interface IpcMainLike {
 
 export interface PluginInstaller {
   install(target: string): Promise<void>;
+  uninstall(name: string): Promise<void>;
   listInstalled(): Promise<InstalledPluginsSnapshot>;
 }
 
@@ -53,8 +56,19 @@ export function bindPluginInstallIpc(
       await installer.listInstalled(),
     );
   };
+  const uninstall = async (
+    event: unknown,
+    value: unknown,
+  ): Promise<void> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized plugin uninstall request");
+    }
+    const request = parsePluginUninstallRequest(value);
+    await installer.uninstall(request.name);
+  };
 
   ipcMain.handle(PLUGIN_INSTALL_CHANNEL, install);
+  ipcMain.handle(PLUGIN_UNINSTALL_CHANNEL, uninstall);
   ipcMain.handle(
     PLUGIN_INSTALLED_READ_CHANNEL,
     readInstalled,
@@ -66,6 +80,7 @@ export function bindPluginInstallIpc(
       if (disposed) return;
       disposed = true;
       ipcMain.removeHandler(PLUGIN_INSTALL_CHANNEL);
+      ipcMain.removeHandler(PLUGIN_UNINSTALL_CHANNEL);
       ipcMain.removeHandler(PLUGIN_INSTALLED_READ_CHANNEL);
     },
   });
