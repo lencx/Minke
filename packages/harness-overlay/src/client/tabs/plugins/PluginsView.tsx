@@ -162,9 +162,9 @@ function InstalledPluginCard(props: {
             className="minke-plugins-installed__repository"
             title={t("plugins.installed.repository")}
             aria-label={t("plugins.installed.repository")}
-            onClick={() => controller.openExternal(repositoryUrl)}
+            onClick={() => controller.openInTab(repositoryUrl)}
           >
-            <PluginExternalIcon />
+            <PluginBrowserIcon />
           </button>
         )}
       </header>

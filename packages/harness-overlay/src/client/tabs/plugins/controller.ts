@@ -11,6 +11,9 @@ import type {
 import type {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
+import type {
+  WebTabsController,
+} from "@minke/harness-overlay/client/tabs/web/controller.ts";
 import {
   isPluginTab,
   type PluginView,
@@ -26,6 +29,7 @@ export class PluginTabsController {
   readonly #tabs: TabsRuntime;
   readonly #installer: PluginInstallerPort;
   readonly #desktop: DesktopTabsPort;
+  readonly #webTabs: Pick<WebTabsController, "open">;
   readonly #revisions = new Map<string, number>();
   readonly #listRevisions = new Map<string, number>();
   #disposed = false;
@@ -34,10 +38,12 @@ export class PluginTabsController {
     tabs: TabsRuntime,
     installer: PluginInstallerPort,
     desktop: DesktopTabsPort,
+    webTabs: Pick<WebTabsController, "open">,
   ) {
     this.#tabs = tabs;
     this.#installer = installer;
     this.#desktop = desktop;
+    this.#webTabs = webTabs;
   }
 
   create(title: string): string | undefined {
@@ -148,6 +154,13 @@ export class PluginTabsController {
     const url = normalizeWebTabUrl(candidate);
     if (url === undefined) return;
     this.#desktop.openExternal(url);
+  }
+
+  openInTab(candidate: string): void {
+    if (this.#disposed) return;
+    const url = normalizeWebTabUrl(candidate);
+    if (url === undefined) return;
+    this.#webTabs.open(url);
   }
 
   dispose(): void {

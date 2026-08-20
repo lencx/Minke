@@ -33,7 +33,7 @@ export const pluginsZh = {
     "此插件已登记在 web profile 中，但本地文件缺失。请重新安装。",
   "plugins.installed.noDescription": "此插件没有提供说明。",
   "plugins.installed.requested": "安装来源",
-  "plugins.installed.repository": "打开插件仓库",
+  "plugins.installed.repository": "在内部标签页打开插件仓库",
   "plugins.browser.title": "在 GitHub 上浏览插件",
   "plugins.browser.topic": "github.com/topics/dsh-plugin",
   "plugins.browser.searchLabel": "搜索 GitHub 插件仓库",
@@ -95,7 +95,7 @@ export const pluginsEn: Record<PluginsLocaleKey, string> = {
   "plugins.installed.noDescription":
     "No description was provided for this plugin.",
   "plugins.installed.requested": "Install source",
-  "plugins.installed.repository": "Open plugin repository",
+  "plugins.installed.repository": "Open plugin repository in a tab",
   "plugins.browser.title": "Browse plugins on GitHub",
   "plugins.browser.topic": "github.com/topics/dsh-plugin",
   "plugins.browser.searchLabel": "Search GitHub plugin repositories",

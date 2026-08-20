@@ -532,6 +532,7 @@ test("the Plugins tab reports command installation outcomes", async () => {
   const commands = [];
   let installedReads = 0;
   const externalUrls = [];
+  const internalUrls = [];
   const controller = new PluginTabsController(tabs, {
     available: true,
     async install(command) {
@@ -556,6 +557,10 @@ test("the Plugins tab reports command installation outcomes", async () => {
     async writeLayoutState() {},
     openExternal(url) {
       externalUrls.push(url);
+    },
+  }, {
+    open(url) {
+      internalUrls.push(url);
     },
   });
   const tabId = controller.create("Plugins");
@@ -620,6 +625,11 @@ test("the Plugins tab reports command installation outcomes", async () => {
   controller.openExternal("javascript:alert(1)");
   assert.deepEqual(externalUrls, [
     "https://github.com/topics/dsh-plugin",
+  ]);
+  controller.openInTab("https://github.com/minke/example-plugin");
+  controller.openInTab("javascript:alert(1)");
+  assert.deepEqual(internalUrls, [
+    "https://github.com/minke/example-plugin",
   ]);
   controller.dispose();
   tabs.dispose();
@@ -702,6 +712,7 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
   assert.match(viewSource, /plugins\.browser\.back/u);
   assert.match(viewSource, /plugins\.browser\.external/u);
   assert.match(viewSource, /controller\.openExternal/u);
+  assert.match(viewSource, /controller\.openInTab/u);
   assert.doesNotMatch(viewSource, /target="_blank"/u);
   assert.match(topicCss, /\.Layout-sidebar/u);
   assert.match(topicCss, /\.col-md-6/u);

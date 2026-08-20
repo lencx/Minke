@@ -277,6 +277,7 @@ export function installTabs(
           tabs,
           pluginInstallerPort,
           tabsPort,
+          webTabs,
         )
       : undefined;
     const filesTabs = filesPort.available

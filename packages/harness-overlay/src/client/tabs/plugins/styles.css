@@ -37,7 +37,6 @@
   grid-template-columns: minmax(170px, 0.58fr) minmax(280px, 1fr);
   gap: 9px 18px;
   padding: 13px 16px 11px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
   box-sizing: border-box;
   background: var(--dsw-alias-bg-base);
 }
@@ -232,14 +231,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 10px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  padding: 0 12px 1px;
   box-sizing: border-box;
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-button-floating-fill) 44%,
-    var(--dsw-alias-bg-base)
-  );
+  background: transparent;
 }
 
 .minke-plugins-switcher > div[role="tablist"] {
@@ -247,7 +241,7 @@
   min-width: 0;
   height: 100%;
   align-items: center;
-  gap: 3px;
+  gap: 18px;
 }
 
 .minke-plugins-switcher > div > button,
@@ -267,12 +261,14 @@
 }
 
 .minke-plugins-switcher > div > button {
+  height: 100%;
   min-width: 0;
   gap: 6px;
-  padding: 0 9px;
+  padding: 0 1px;
   font-size: 10px;
   font-weight: 580;
   line-height: 16px;
+  transition: color 140ms ease-out;
 }
 
 .minke-plugins-switcher > div > button > span {
@@ -287,10 +283,9 @@
 }
 
 .minke-plugins-switcher > div > button > small {
-  min-width: 17px;
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  min-width: 0;
+  padding: 0;
+  background: transparent;
   color: var(--dsw-alias-label-tertiary);
   font-size: 8.5px;
   font-variant-numeric: tabular-nums;
@@ -299,39 +294,26 @@
   text-align: center;
 }
 
-.minke-plugins-switcher > div > button:hover,
+.minke-plugins-switcher > div > button:hover {
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+}
+
 .minke-plugins-switcher__refresh:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 
 .minke-plugins-switcher > div > button[data-active] {
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-state-business-primary) 9%,
-    transparent
-  );
+  background: transparent;
   color: var(--dsw-alias-state-business-primary);
-}
-
-.minke-plugins-switcher > div > button[data-active]::after {
-  position: absolute;
-  right: 8px;
-  bottom: -5px;
-  left: 8px;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: var(--dsw-alias-state-business-primary);
-  content: "";
+  font-weight: 640;
 }
 
 .minke-plugins-switcher > div > button[data-active] > small {
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-state-business-primary) 14%,
-    transparent
-  );
+  background: transparent;
   color: var(--dsw-alias-state-business-primary);
+  opacity: 0.72;
 }
 
 .minke-plugins-switcher__refresh {
@@ -1103,17 +1085,17 @@
 
   .minke-plugins-switcher {
     height: 38px;
-    padding: 4px 7px;
+    padding: 0 9px 1px;
+  }
+
+  .minke-plugins-switcher > div[role="tablist"] {
+    gap: 14px;
   }
 
   .minke-plugins-switcher > div > button {
-    height: 28px;
+    height: 100%;
     gap: 5px;
-    padding: 0 7px;
-  }
-
-  .minke-plugins-switcher > div > button[data-active]::after {
-    bottom: -5px;
+    padding: 0 1px;
   }
 
   .minke-plugins-switcher__refresh {
