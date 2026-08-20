@@ -11,11 +11,26 @@ import type { ShortcutStore } from "./bridge.ts";
 
 export type ShortcutErrorKind = "unavailable" | "read" | "write";
 
+export type PaletteActionGroup =
+  | "session"
+  | "open"
+  | "view"
+  | "application";
+
+export interface PaletteActionMetadata {
+  group: PaletteActionGroup;
+  order?: number;
+  keywords?: () => readonly string[];
+  disabledReason?: () => string | undefined;
+}
+
 export interface ShortcutAction {
   id: string;
   label: () => string;
   defaultBinding: string | null;
   order?: number;
+  palette?: PaletteActionMetadata;
+  shortcutConfigurable?: boolean;
   run: () => void;
 }
 
@@ -32,6 +47,16 @@ export interface ShortcutActionView {
 
 export interface ShortcutRuntimeSnapshot {
   revision: number;
+}
+
+export interface PaletteActionView {
+  id: string;
+  label: string;
+  group: PaletteActionGroup;
+  keywords: readonly string[];
+  binding: string | null;
+  order: number;
+  disabledReason: string | undefined;
 }
 
 export type ShortcutMutationResult =
@@ -136,13 +161,20 @@ export class ShortcutRuntime {
   /** Run one registered action through the same path used by key events. */
   invoke(id: string): boolean {
     const action = this.#actions.get(id);
-    if (action === undefined) return false;
+    if (
+      action === undefined ||
+      action.palette?.disabledReason?.() !== undefined
+    ) {
+      return false;
+    }
     action.run();
     return true;
   }
 
   listActions(): readonly ShortcutActionView[] {
-    const actions = [...this.#actions.values()];
+    const actions = [...this.#actions.values()].filter(
+      (action) => action.shortcutConfigurable !== false,
+    );
     return actions
       .map((action): ShortcutActionView => {
         const binding = this.#effectiveBinding(action);
@@ -173,12 +205,34 @@ export class ShortcutRuntime {
       );
   }
 
+  listPaletteActions(): readonly PaletteActionView[] {
+    return [...this.#actions.values()]
+      .flatMap((action): PaletteActionView[] => {
+        const metadata = action.palette;
+        if (metadata === undefined) return [];
+        return [{
+          id: action.id,
+          label: action.label(),
+          group: metadata.group,
+          keywords: Object.freeze([...(metadata.keywords?.() ?? [])]),
+          binding: this.#effectiveBinding(action),
+          order: metadata.order ?? action.order ?? 0,
+          disabledReason: metadata.disabledReason?.(),
+        }];
+      })
+      .sort(
+        (left, right) =>
+          left.order - right.order || left.label.localeCompare(right.label),
+      );
+  }
+
   setBinding(
     id: string,
     binding: string | null,
   ): ShortcutMutationResult {
     this.#assertEditable();
     const action = this.#requireAction(id);
+    this.#assertShortcutConfigurable(action);
     if (binding !== null && !isShortcutBinding(binding)) {
       throw new Error(`invalid shortcut binding ${JSON.stringify(binding)}`);
     }
@@ -207,6 +261,7 @@ export class ShortcutRuntime {
   resetBinding(id: string): ShortcutMutationResult {
     this.#assertEditable();
     const action = this.#requireAction(id);
+    this.#assertShortcutConfigurable(action);
     const conflict =
       action.defaultBinding === null
         ? undefined
@@ -271,6 +326,12 @@ export class ShortcutRuntime {
       throw new Error(`unknown shortcut action ${JSON.stringify(id)}`);
     }
     return action;
+  }
+
+  #assertShortcutConfigurable(action: ShortcutAction): void {
+    if (action.shortcutConfigurable === false) {
+      throw new Error(`action ${JSON.stringify(action.id)} is not configurable`);
+    }
   }
 
   #effectiveBinding(action: ShortcutAction): string | null {

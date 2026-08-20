@@ -556,6 +556,27 @@ test("Mod+B toggles the independent bottom Tabs panel", () => {
   assert.match(bundle, /Mod\+B/u);
 });
 
+test("the global command palette maps product actions without replacing slash commands", () => {
+  assert.match(
+    clientSource,
+    /id:\s*"minke-command-palette"[\s\S]*CommandPalette as ComponentType<never>/u,
+  );
+  assert.match(
+    clientSource,
+    /id:\s*"palette\.open"[\s\S]*DEFAULT_SHORTCUT_BINDINGS\["palette\.open"\][\s\S]*commandPalette\.toggle\(\)/u,
+  );
+  assert.match(
+    clientSource,
+    /"files\.open"[\s\S]*tabsWorkspaces\.right[\s\S]*"terminal\.open"[\s\S]*tabsWorkspaces\.bottom[\s\S]*"browser\.open"[\s\S]*tabsWorkspaces\.right[\s\S]*"plugins\.browse"[\s\S]*tabsWorkspaces\.right/u,
+  );
+  assert.match(
+    clientSource,
+    /id:\s*"session\.export"[\s\S]*shortcutConfigurable:\s*false[\s\S]*sessionLogsPort\s*\.export\(sessionId\)/u,
+  );
+  assert.doesNotMatch(clientSource, /CommandUiRuntime|commandUi/u);
+  assert.match(bundle, /Mod\+K/u);
+});
+
 test("Minke bypasses the upstream internal-testing notice through slot shadowing", () => {
   assert.match(
     clientSource,

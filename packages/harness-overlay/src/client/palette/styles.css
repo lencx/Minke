@@ -1,0 +1,214 @@
+.minke-command-palette__backdrop {
+  position: absolute;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(44px, 12vh, 112px) 12px 12px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--dsw-alias-bg-mask-1) 72%, transparent);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  animation: minke-command-backdrop-in 120ms ease-out;
+}
+
+.minke-command-palette {
+  display: flex;
+  width: min(620px, 100%);
+  max-height: min(560px, calc(100vh - 64px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-base);
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.28);
+  color: var(--dsw-alias-label-primary);
+  transform-origin: top center;
+  animation: minke-command-palette-in 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.minke-command-palette__search {
+  padding: 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-command-palette__input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 2px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.minke-command-palette__input::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.minke-command-palette__results {
+  min-height: 72px;
+  flex: 1;
+  overflow: auto;
+  padding: 6px;
+  overscroll-behavior: contain;
+}
+
+.minke-command-palette__group + .minke-command-palette__group {
+  margin-top: 6px;
+}
+
+.minke-command-palette__group-label {
+  padding: 7px 10px 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.minke-command-palette__action {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-primary);
+  cursor: default;
+  font: inherit;
+  text-align: left;
+}
+
+.minke-command-palette__action[data-active] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.minke-command-palette__action:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+
+.minke-command-palette__action:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: not-allowed;
+}
+
+.minke-command-palette__action-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.minke-command-palette__action-label,
+.minke-command-palette__disabled-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-command-palette__action-label {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.minke-command-palette__disabled-reason {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.minke-command-palette__shortcut,
+.minke-command-palette__footer kbd {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+}
+
+.minke-command-palette__shortcut {
+  flex: none;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.minke-command-palette__empty {
+  display: grid;
+  min-height: 104px;
+  place-items: center;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+}
+
+.minke-command-palette__footer {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 0 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+}
+
+.minke-command-palette__footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.minke-command-palette__footer kbd {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 600;
+}
+
+@keyframes minke-command-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes minke-command-palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 480px), (max-height: 500px) {
+  .minke-command-palette__backdrop {
+    padding-top: 12px;
+  }
+
+  .minke-command-palette {
+    max-height: calc(100vh - 24px);
+  }
+
+  .minke-command-palette__footer {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .minke-command-palette__backdrop,
+  .minke-command-palette {
+    animation: none;
+  }
+}

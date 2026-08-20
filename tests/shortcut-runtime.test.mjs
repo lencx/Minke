@@ -153,3 +153,51 @@ test("persistence failures become observable without unhandled rejection", async
   assert.equal(runtime.error, "write");
   runtime.dispose();
 });
+
+test("palette actions expose metadata without cluttering shortcut settings", async () => {
+  const runtime = new ShortcutRuntime(
+    store(),
+    new KeyboardTarget(),
+    "apple",
+  );
+  let runs = 0;
+  let unavailable = true;
+  runtime.register({
+    id: "session.export",
+    label: () => "Export Current Session",
+    defaultBinding: null,
+    order: 20,
+    shortcutConfigurable: false,
+    palette: {
+      group: "session",
+      keywords: () => ["download", "log"],
+      disabledReason: () => unavailable ? "No active session" : undefined,
+    },
+    run() {
+      runs += 1;
+    },
+  });
+  await runtime.initialize();
+
+  assert.deepEqual(runtime.listActions(), []);
+  assert.deepEqual(runtime.listPaletteActions(), [{
+    id: "session.export",
+    label: "Export Current Session",
+    group: "session",
+    keywords: ["download", "log"],
+    binding: null,
+    order: 20,
+    disabledReason: "No active session",
+  }]);
+  assert.equal(runtime.invoke("session.export"), false);
+  assert.equal(runs, 0);
+  assert.throws(
+    () => runtime.setBinding("session.export", "Mod+E"),
+    /not configurable/u,
+  );
+
+  unavailable = false;
+  assert.equal(runtime.invoke("session.export"), true);
+  assert.equal(runs, 1);
+  runtime.dispose();
+});
