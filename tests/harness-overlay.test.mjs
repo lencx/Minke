@@ -55,6 +55,13 @@ const clientSource = readFileSync(
   ),
   "utf8",
 );
+const commandPaletteSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/palette/CommandPalette.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const shortcutStylesSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/styles.ts",
@@ -577,6 +584,11 @@ test("the global command palette maps product actions without replacing slash co
     clientSource,
     /const observeSessionSelection[\s\S]*sessionNavigation\.observe\([\s\S]*commandPalette\.refresh\(\)[\s\S]*ctx\.sessions\.list\.subscribe\(\s*observeSessionSelection/u,
     "session history must update before palette availability is refreshed",
+  );
+  assert.match(
+    commandPaletteSource,
+    /const onKeyDown[\s\S]*if \(event\.nativeEvent\.isComposing\) return;[\s\S]*event\.key === "ArrowDown"/u,
+    "IME composition keys must bypass palette navigation",
   );
   assert.doesNotMatch(clientSource, /CommandUiRuntime|commandUi/u);
   assert.match(bundle, /Mod\+K/u);

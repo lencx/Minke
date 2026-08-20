@@ -55,6 +55,7 @@ export function CommandPalette({
   if (!snapshot.open) return null;
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.nativeEvent.isComposing) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
