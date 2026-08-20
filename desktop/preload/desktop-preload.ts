@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 import appManifest from "../../package.json";
 import {
+  PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
+  parseInstalledPluginsSnapshot,
   parsePluginInstallRequest,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
@@ -430,6 +432,13 @@ const pluginInstaller = Object.freeze({
     await ipcRenderer.invoke(
       PLUGIN_INSTALL_CHANNEL,
       parsePluginInstallRequest({ command }),
+    );
+  },
+  async readInstalled(): Promise<unknown> {
+    return parseInstalledPluginsSnapshot(
+      await ipcRenderer.invoke(
+        PLUGIN_INSTALLED_READ_CHANNEL,
+      ),
     );
   },
 });

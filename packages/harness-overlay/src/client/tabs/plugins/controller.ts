@@ -13,6 +13,7 @@ import type {
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
 import {
   isPluginTab,
+  type PluginView,
   type PluginTabPayload,
 } from "./types.ts";
 
@@ -26,6 +27,7 @@ export class PluginTabsController {
   readonly #installer: PluginInstallerPort;
   readonly #desktop: DesktopTabsPort;
   readonly #revisions = new Map<string, number>();
+  readonly #listRevisions = new Map<string, number>();
   #disposed = false;
 
   constructor(
@@ -42,12 +44,53 @@ export class PluginTabsController {
     if (this.#disposed || !this.#installer.available) {
       return undefined;
     }
-    return this.#tabs.open<PluginTabPayload>({
+    const tabId = this.#tabs.open<PluginTabPayload>({
       kind: "plugin-catalog",
       key: "plugins",
       title,
-      payload: { installing: false },
+      payload: {
+        view: "installed",
+        installing: false,
+        loadingInstalled: true,
+        installedPlugins: [],
+      },
     });
+    if (tabId !== undefined) {
+      void this.refreshInstalled(tabId);
+    }
+    return tabId;
+  }
+
+  setView(tabId: string, view: PluginView): void {
+    this.#update(tabId, { view });
+  }
+
+  async refreshInstalled(tabId: string): Promise<void> {
+    if (this.#disposed) return;
+    const tab = this.#tabs.tab(tabId);
+    if (tab === undefined || !isPluginTab(tab)) return;
+    const revision =
+      (this.#listRevisions.get(tabId) ?? 0) + 1;
+    this.#listRevisions.set(tabId, revision);
+    this.#update(tabId, {
+      loadingInstalled: true,
+      installedError: undefined,
+    });
+    try {
+      const snapshot = await this.#installer.readInstalled();
+      if (!this.#isListCurrent(tabId, revision)) return;
+      this.#update(tabId, {
+        loadingInstalled: false,
+        installedPlugins: snapshot.plugins,
+        installedError: undefined,
+      });
+    } catch (error) {
+      if (!this.#isListCurrent(tabId, revision)) return;
+      this.#update(tabId, {
+        loadingInstalled: false,
+        installedError: errorMessage(error),
+      });
+    }
   }
 
   async install(tabId: string, candidate: string): Promise<void> {
@@ -77,15 +120,19 @@ export class PluginTabsController {
     this.#update(tabId, {
       installing: true,
       attemptedCommand: command,
+      error: undefined,
     });
     try {
       await this.#installer.install(command);
       if (!this.#isCurrent(tabId, revision)) return;
       this.#update(tabId, {
+        view: "installed",
         installing: false,
         attemptedCommand: command,
         installedCommand: command,
+        error: undefined,
       });
+      await this.refreshInstalled(tabId);
     } catch (error) {
       if (!this.#isCurrent(tabId, revision)) return;
       this.#update(tabId, {
@@ -107,6 +154,7 @@ export class PluginTabsController {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#revisions.clear();
+    this.#listRevisions.clear();
   }
 
   #isCurrent(tabId: string, revision: number): boolean {
@@ -117,10 +165,26 @@ export class PluginTabsController {
     );
   }
 
-  #update(tabId: string, payload: PluginTabPayload): void {
+  #isListCurrent(tabId: string, revision: number): boolean {
+    return (
+      !this.#disposed &&
+      this.#listRevisions.get(tabId) === revision &&
+      this.#tabs.tab(tabId) !== undefined
+    );
+  }
+
+  #update(
+    tabId: string,
+    patch: Partial<PluginTabPayload>,
+  ): void {
     if (this.#disposed) return;
     const tab = this.#tabs.tab(tabId);
     if (tab === undefined || !isPluginTab(tab)) return;
-    this.#tabs.update(tabId, { payload });
+    this.#tabs.update(tabId, {
+      payload: {
+        ...tab.payload,
+        ...patch,
+      },
+    });
   }
 }

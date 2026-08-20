@@ -10,6 +10,9 @@ import type {
   ModelRuntimeSettingsSnapshot,
 } from "@lencx/minke-model-runtime/contract";
 import type {
+  InstalledPluginsSnapshot,
+} from "@minke/harness-overlay/plugin-install-contract.ts";
+import type {
   ProductShortcutActionId,
   ShortcutBindings,
 } from "@minke/harness-overlay/shortcut-contract.ts";
@@ -165,6 +168,7 @@ export interface DesktopSessionLogsPort {
 export interface PluginInstallerPort {
   readonly available: boolean;
   install(command: string): Promise<void>;
+  readInstalled(): Promise<InstalledPluginsSnapshot>;
 }
 
 export interface DesktopShortcutBridge {
@@ -232,6 +236,7 @@ export interface DesktopRemoteBridge {
 
 export interface DesktopPluginInstallerBridge {
   install(command: string): Promise<void>;
+  readInstalled(): Promise<unknown>;
 }
 
 export interface DesktopDataHomeBridge {

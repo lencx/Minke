@@ -1,7 +1,10 @@
 import {
+  PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
+  parseInstalledPluginsSnapshot,
   parsePluginInstallCommand,
   parsePluginInstallRequest,
+  type InstalledPluginsSnapshot,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 
 interface IpcMainLike {
@@ -14,6 +17,7 @@ interface IpcMainLike {
 
 export interface PluginInstaller {
   install(target: string): Promise<void>;
+  listInstalled(): Promise<InstalledPluginsSnapshot>;
 }
 
 export interface PluginInstallBinding {
@@ -37,8 +41,24 @@ export function bindPluginInstallIpc(
     const command = parsePluginInstallCommand(request.command);
     await installer.install(command.target);
   };
+  const readInstalled = async (
+    event: unknown,
+  ): Promise<InstalledPluginsSnapshot> => {
+    if (!authorize(event)) {
+      throw new Error(
+        "unauthorized installed plugin request",
+      );
+    }
+    return parseInstalledPluginsSnapshot(
+      await installer.listInstalled(),
+    );
+  };
 
   ipcMain.handle(PLUGIN_INSTALL_CHANNEL, install);
+  ipcMain.handle(
+    PLUGIN_INSTALLED_READ_CHANNEL,
+    readInstalled,
+  );
 
   let disposed = false;
   return Object.freeze({
@@ -46,6 +66,7 @@ export function bindPluginInstallIpc(
       if (disposed) return;
       disposed = true;
       ipcMain.removeHandler(PLUGIN_INSTALL_CHANNEL);
+      ipcMain.removeHandler(PLUGIN_INSTALLED_READ_CHANNEL);
     },
   });
 }

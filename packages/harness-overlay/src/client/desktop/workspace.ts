@@ -1,4 +1,7 @@
 import {
+  parseInstalledPluginsSnapshot,
+} from "@minke/harness-overlay/plugin-install-contract.ts";
+import {
   parseSessionLogExportId,
 } from "@minke/harness-overlay/session-export-contract.ts";
 import {
@@ -37,7 +40,7 @@ import type {
   DesktopTerminalPort,
 } from "./contracts.ts";
 
-/** Adapt the command-only plugin installer exposed by the isolated preload. */
+/** Adapt plugin management exposed by the isolated preload. */
 export function desktopPluginInstallerPort(
   source: DesktopBridgeWindow =
     window as unknown as DesktopBridgeWindow,
@@ -51,12 +54,22 @@ export function desktopPluginInstallerPort(
           "Minke desktop plugin installer bridge is unavailable",
         );
       },
+      async readInstalled() {
+        throw new Error(
+          "Minke desktop plugin installer bridge is unavailable",
+        );
+      },
     };
   }
   return {
     available: true,
     async install(command) {
       await bridge.install(command);
+    },
+    async readInstalled() {
+      return parseInstalledPluginsSnapshot(
+        await bridge.readInstalled(),
+      );
     },
   };
 }

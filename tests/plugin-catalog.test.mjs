@@ -10,7 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
+  PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
+  parseInstalledPluginsSnapshot,
   parsePluginInstallCommand,
   parsePluginInstallRequest,
   parsePluginInstallTarget,
@@ -152,6 +154,79 @@ test("plugin install commands accept one web-profile package target", () => {
   }
 });
 
+test("installed plugin snapshots accept only bounded display metadata", () => {
+  assert.deepEqual(
+    parseInstalledPluginsSnapshot({
+      plugins: [
+        {
+          name: "@minke/example-plugin",
+          requested: "^1.2.0",
+          version: "1.2.3",
+          description: "A web profile plugin.",
+          repositoryUrl:
+            "https://github.com/minke/example-plugin",
+          state: "ready",
+        },
+        {
+          name: "missing-plugin",
+          requested: "github:minke/missing-plugin",
+          state: "missing",
+        },
+      ],
+    }),
+    {
+      plugins: [
+        {
+          name: "@minke/example-plugin",
+          requested: "^1.2.0",
+          version: "1.2.3",
+          description: "A web profile plugin.",
+          repositoryUrl:
+            "https://github.com/minke/example-plugin",
+          state: "ready",
+        },
+        {
+          name: "missing-plugin",
+          requested: "github:minke/missing-plugin",
+          state: "missing",
+        },
+      ],
+    },
+  );
+
+  for (const invalid of [
+    { plugins: "not-an-array" },
+    {
+      plugins: [{
+        name: "../escape",
+        requested: "^1.0.0",
+        state: "ready",
+      }],
+    },
+    {
+      plugins: [{
+        name: "example-plugin",
+        requested: "^1.0.0",
+        repositoryUrl:
+          "https://token@github.com/minke/example-plugin",
+        state: "ready",
+      }],
+    },
+    {
+      plugins: [{
+        name: "example-plugin",
+        requested: "^1.0.0",
+        state: "unknown",
+      }],
+    },
+  ]) {
+    assert.throws(
+      () => parseInstalledPluginsSnapshot(invalid),
+      /installed plugin/u,
+    );
+  }
+});
+
 test("the installation runtime forwards a validated target without a shell", async () => {
   const root = await temporaryRoot();
   const dshHome = join(root, "dsh-home");
@@ -218,6 +293,92 @@ test("the installation runtime forwards a validated target without a shell", asy
   );
 });
 
+test("the installation runtime lists only active web-profile plugins", async () => {
+  const root = await temporaryRoot();
+  const dshHome = join(root, "dsh-home");
+  const profileRoot = join(dshHome, "profiles", "web");
+  await mkdir(
+    join(profileRoot, "node_modules", "@minke", "example-plugin"),
+    { recursive: true },
+  );
+  await writeFile(
+    join(profileRoot, "package.json"),
+    JSON.stringify({
+      dependencies: {
+        "@minke/example-plugin": "^1.2.0",
+        "missing-plugin": "github:minke/missing-plugin",
+        "profile-helper": "^4.0.0",
+      },
+      dsh: {
+        profile: {
+          bundles: [
+            "@deepseek-ai/dsh-base",
+            "@deepseek-ai/dsh-web-app",
+            "@minke/example-plugin",
+            "missing-plugin",
+          ],
+        },
+      },
+    }),
+  );
+  await writeFile(
+    join(
+      profileRoot,
+      "node_modules",
+      "@minke",
+      "example-plugin",
+      "package.json",
+    ),
+    JSON.stringify({
+      name: "@minke/example-plugin",
+      version: "1.2.3",
+      description: "A web profile plugin.",
+      repository: {
+        type: "git",
+        url:
+          "git+https://github.com/minke/example-plugin.git",
+      },
+    }),
+  );
+  const installation = new PluginInstallationRuntime({
+    runtimeRoot: join(root, "runtime"),
+    dshHome,
+    electronExecutable: join(root, "Minke"),
+  });
+
+  assert.deepEqual(await installation.listInstalled(), {
+    plugins: [
+      {
+        name: "@minke/example-plugin",
+        requested: "^1.2.0",
+        version: "1.2.3",
+        description: "A web profile plugin.",
+        repositoryUrl:
+          "https://github.com/minke/example-plugin",
+        state: "ready",
+      },
+      {
+        name: "missing-plugin",
+        requested: "github:minke/missing-plugin",
+        state: "missing",
+      },
+    ],
+  });
+});
+
+test("the installation runtime treats a missing web profile as empty", async () => {
+  const root = await temporaryRoot();
+  const installation = new PluginInstallationRuntime({
+    runtimeRoot: join(root, "runtime"),
+    dshHome: join(root, "dsh-home"),
+    electronExecutable: join(root, "Minke"),
+  });
+
+  assert.deepEqual(await installation.listInstalled(), {
+    plugins: [],
+  });
+});
+
 test("the desktop IPC binding authorizes and parses install commands", async () => {
   const handlers = new Map();
   const installs = [];
@@ -234,11 +395,24 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
       async install(target) {
         installs.push(target);
       },
+      async listInstalled() {
+        return {
+          plugins: [{
+            name: "example-plugin",
+            requested: "^1.0.0",
+            state: "ready",
+          }],
+        };
+      },
     },
     (event) => event === "trusted",
   );
   const handler = handlers.get(PLUGIN_INSTALL_CHANNEL);
+  const readHandler = handlers.get(
+    PLUGIN_INSTALLED_READ_CHANNEL,
+  );
   assert.equal(typeof handler, "function");
+  assert.equal(typeof readHandler, "function");
 
   await handler("trusted", {
     command:
@@ -253,9 +427,24 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     /unauthorized/u,
   );
   assert.deepEqual(installs, ["dsh-status-rotator"]);
+  assert.deepEqual(await readHandler("trusted"), {
+    plugins: [{
+      name: "example-plugin",
+      requested: "^1.0.0",
+      state: "ready",
+    }],
+  });
+  await assert.rejects(
+    readHandler("untrusted"),
+    /unauthorized/u,
+  );
 
   binding.dispose();
   assert.equal(handlers.has(PLUGIN_INSTALL_CHANNEL), false);
+  assert.equal(
+    handlers.has(PLUGIN_INSTALLED_READ_CHANNEL),
+    false,
+  );
 });
 
 test("legacy cleanup removes only the retired catalog cache", async () => {
@@ -286,13 +475,22 @@ test("legacy cleanup removes only the retired catalog cache", async () => {
   await clearLegacyPluginCatalogCache(root);
 });
 
-test("the renderer port exposes only command installation", async () => {
+test("the renderer port exposes installation and installed plugins", async () => {
   const commands = [];
   const port = desktopPluginInstallerPort({
     minkeDesktop: {
       pluginInstaller: {
         async install(command) {
           commands.push(command);
+        },
+        async readInstalled() {
+          return {
+            plugins: [{
+              name: "example-plugin",
+              requested: "^1.0.0",
+              state: "ready",
+            }],
+          };
         },
       },
     },
@@ -304,6 +502,13 @@ test("the renderer port exposes only command installation", async () => {
   assert.deepEqual(commands, [
     "dsh plugin --profile web add dsh-status-rotator",
   ]);
+  assert.deepEqual(await port.readInstalled(), {
+    plugins: [{
+      name: "example-plugin",
+      requested: "^1.0.0",
+      state: "ready",
+    }],
+  });
 
   const unavailable = desktopPluginInstallerPort({});
   assert.equal(unavailable.available, false);
@@ -311,6 +516,10 @@ test("the renderer port exposes only command installation", async () => {
     unavailable.install(
       "dsh plugin --profile web add dsh-status-rotator",
     ),
+    /bridge is unavailable/u,
+  );
+  await assert.rejects(
+    unavailable.readInstalled(),
     /bridge is unavailable/u,
   );
 });
@@ -321,11 +530,23 @@ test("the Plugins tab reports command installation outcomes", async () => {
     hidePanel() {},
   });
   const commands = [];
+  let installedReads = 0;
   const externalUrls = [];
   const controller = new PluginTabsController(tabs, {
     available: true,
     async install(command) {
       commands.push(command);
+    },
+    async readInstalled() {
+      installedReads += 1;
+      return {
+        plugins: [{
+          name: "example-plugin",
+          requested: "^1.0.0",
+          version: "1.0.0",
+          state: "ready",
+        }],
+      };
     },
   }, {
     available: true,
@@ -341,6 +562,26 @@ test("the Plugins tab reports command installation outcomes", async () => {
   assert.equal(typeof tabId, "string");
   assert.equal(controller.create("Plugins"), tabId);
   assert.equal(tabs.getSnapshot().tabs.length, 1);
+  await controller.refreshInstalled(tabId);
+  assert.equal(installedReads >= 1, true);
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.view,
+    "installed",
+  );
+  assert.deepEqual(
+    tabs.getSnapshot().tabs[0].payload.installedPlugins,
+    [{
+      name: "example-plugin",
+      requested: "^1.0.0",
+      version: "1.0.0",
+      state: "ready",
+    }],
+  );
+  controller.setView(tabId, "discover");
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.view,
+    "discover",
+  );
 
   await controller.install(
     tabId,
@@ -349,13 +590,23 @@ test("the Plugins tab reports command installation outcomes", async () => {
   assert.deepEqual(commands, [
     "dsh plugin --profile web add dsh-status-rotator",
   ]);
-  assert.deepEqual(tabs.getSnapshot().tabs[0].payload, {
-    installing: false,
-    attemptedCommand:
-      "dsh plugin --profile web add dsh-status-rotator",
-    installedCommand:
-      "dsh plugin --profile web add dsh-status-rotator",
-  });
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.installing,
+    false,
+  );
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.attemptedCommand,
+    "dsh plugin --profile web add dsh-status-rotator",
+  );
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.installedCommand,
+    "dsh plugin --profile web add dsh-status-rotator",
+  );
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.view,
+    "installed",
+  );
+  assert.equal(installedReads >= 2, true);
 
   await controller.install(tabId, "echo unsafe");
   assert.equal(commands.length, 1);
