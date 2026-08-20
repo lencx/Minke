@@ -618,6 +618,8 @@ test("the Plugins tab reports command installation outcomes", async () => {
     hidePanel() {},
   });
   const commands = [];
+  const uninstalls = [];
+  let pluginInstalled = true;
   let installedReads = 0;
   const externalUrls = [];
   const internalUrls = [];
@@ -626,15 +628,21 @@ test("the Plugins tab reports command installation outcomes", async () => {
     async install(command) {
       commands.push(command);
     },
+    async uninstall(name) {
+      uninstalls.push(name);
+      pluginInstalled = false;
+    },
     async readInstalled() {
       installedReads += 1;
       return {
-        plugins: [{
-          name: "example-plugin",
-          requested: "^1.0.0",
-          version: "1.0.0",
-          state: "ready",
-        }],
+        plugins: pluginInstalled
+          ? [{
+              name: "example-plugin",
+              requested: "^1.0.0",
+              version: "1.0.0",
+              state: "ready",
+            }]
+          : [],
       };
     },
   }, {
@@ -700,6 +708,28 @@ test("the Plugins tab reports command installation outcomes", async () => {
     "installed",
   );
   assert.equal(installedReads >= 2, true);
+
+  await controller.uninstall(tabId, "example-plugin");
+  assert.deepEqual(uninstalls, ["example-plugin"]);
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.uninstallingPlugin,
+    undefined,
+  );
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.uninstalledPlugin,
+    "example-plugin",
+  );
+  assert.deepEqual(
+    tabs.getSnapshot().tabs[0].payload.installedPlugins,
+    [],
+  );
+
+  await controller.uninstall(tabId, "../escape");
+  assert.deepEqual(uninstalls, ["example-plugin"]);
+  assert.match(
+    tabs.getSnapshot().tabs[0].payload.uninstallError,
+    /plugin uninstall/u,
+  );
 
   await controller.install(tabId, "echo unsafe");
   assert.equal(commands.length, 1);
@@ -784,6 +814,8 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
   assert.match(viewSource, /InstalledPluginCard/u);
   assert.match(viewSource, /controller\.setView/u);
   assert.match(viewSource, /controller\.refreshInstalled/u);
+  assert.match(viewSource, /controller\.uninstall/u);
+  assert.match(viewSource, /window\?\.confirm/u);
   assert.match(
     viewSource,
     /tab\.payload\.view !== "discover"/u,
@@ -809,6 +841,7 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
   assert.match(styles, /\.minke-plugins-switcher/u);
   assert.match(styles, /\.minke-plugins-installed__grid/u);
   assert.match(styles, /\.minke-plugins-installed__card/u);
+  assert.match(styles, /\.minke-plugins-installed__uninstall/u);
   assert.match(styles, /\.minke-plugins-installed__state/u);
   assert.doesNotMatch(
     `${viewSource}\n${rendererSource}`,
@@ -822,6 +855,10 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
   assert.equal(
     pluginsEn["plugins.view.discover"],
     "Discover on GitHub",
+  );
+  assert.equal(
+    pluginsZh["plugins.installed.uninstall"],
+    "卸载",
   );
   assert.equal(
     pluginsEn["plugins.install.placeholder"],

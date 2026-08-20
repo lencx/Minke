@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Square,
   SquareArrowOutUpRight,
+  Trash2,
   X,
 } from "@lucide/icons";
 import {
@@ -26,6 +27,10 @@ export function PluginIcon(
 
 export function PluginInstallIcon(): ReactNode {
   return <LucideIcon icon={Download} size={14} />;
+}
+
+export function PluginUninstallIcon(): ReactNode {
+  return <LucideIcon icon={Trash2} size={14} />;
 }
 
 export function PluginSuccessIcon(): ReactNode {

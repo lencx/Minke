@@ -10,12 +10,15 @@ export type PluginView = "installed" | "discover";
 export interface PluginTabPayload {
   readonly view: PluginView;
   readonly installing: boolean;
+  readonly uninstallingPlugin?: string;
   readonly loadingInstalled: boolean;
   readonly installedPlugins: readonly InstalledPlugin[];
   readonly attemptedCommand?: string;
   readonly installedCommand?: string;
   readonly error?: string;
   readonly installedError?: string;
+  readonly uninstalledPlugin?: string;
+  readonly uninstallError?: string;
 }
 
 export type PluginTab = ManagedTab<PluginTabPayload>;

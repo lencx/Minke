@@ -32,6 +32,7 @@ import {
   PluginRefreshIcon,
   PluginStopIcon,
   PluginSuccessIcon,
+  PluginUninstallIcon,
   PluginWarningIcon,
 } from "./icons.tsx";
 import type { PluginTabsController } from "./controller.ts";
@@ -127,13 +128,42 @@ function BrowserAction(props: {
 }
 
 function InstalledPluginCard(props: {
+  readonly tabId: string;
   readonly plugin: InstalledPlugin;
+  readonly busy: boolean;
+  readonly uninstalling: boolean;
   readonly controller: PluginTabsController;
   readonly t: PluginsTranslate;
 }): ReactNode {
-  const { plugin, controller, t } = props;
+  const {
+    tabId,
+    plugin,
+    busy,
+    uninstalling,
+    controller,
+    t,
+  } = props;
   const missing = plugin.state === "missing";
   const repositoryUrl = plugin.repositoryUrl;
+  const uninstallLabel = t(
+    uninstalling
+      ? "plugins.installed.uninstalling"
+      : "plugins.installed.uninstallLabel",
+    { name: plugin.name },
+  );
+  const requestUninstall = (): void => {
+    if (
+      busy ||
+      !(globalThis.window?.confirm(
+        t("plugins.installed.uninstallConfirm", {
+          name: plugin.name,
+        }),
+      ) ?? true)
+    ) {
+      return;
+    }
+    void controller.uninstall(tabId, plugin.name);
+  };
   return (
     <article
       className="minke-plugins-installed__card"
@@ -156,17 +186,33 @@ function InstalledPluginCard(props: {
             {plugin.version !== undefined && <small>v{plugin.version}</small>}
           </span>
         </span>
-        {repositoryUrl !== undefined && (
+        <span className="minke-plugins-installed__actions">
+          {repositoryUrl !== undefined && (
+            <button
+              type="button"
+              className="minke-plugins-installed__repository"
+              title={t("plugins.installed.repository")}
+              aria-label={t("plugins.installed.repository")}
+              disabled={busy}
+              onClick={() => controller.openInTab(repositoryUrl)}
+            >
+              <PluginBrowserIcon />
+            </button>
+          )}
           <button
             type="button"
-            className="minke-plugins-installed__repository"
-            title={t("plugins.installed.repository")}
-            aria-label={t("plugins.installed.repository")}
-            onClick={() => controller.openInTab(repositoryUrl)}
+            className="minke-plugins-installed__uninstall"
+            title={uninstallLabel}
+            aria-label={uninstallLabel}
+            disabled={busy}
+            data-spinning={uninstalling || undefined}
+            onClick={requestUninstall}
           >
-            <PluginBrowserIcon />
+            {uninstalling
+              ? <PluginRefreshIcon />
+              : <PluginUninstallIcon />}
           </button>
-        )}
+        </span>
       </header>
       <p>
         {missing
@@ -213,6 +259,9 @@ export function PluginsView({
   const installed =
     feedbackMatches && tab.payload.installedCommand === attemptedCommand;
   const installError = feedbackMatches ? tab.payload.error : undefined;
+  const mutating =
+    tab.payload.installing ||
+    tab.payload.uninstallingPlugin !== undefined;
 
   useEffect(() => {
     if (tab.payload.view !== "discover") return;
@@ -373,7 +422,7 @@ export function PluginsView({
 
   const submitInstall = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (parsedCommand === undefined || tab.payload.installing) {
+    if (parsedCommand === undefined || mutating) {
       return;
     }
     void controller.install(tab.id, parsedCommand.command);
@@ -406,7 +455,7 @@ export function PluginsView({
       role="tabpanel"
       aria-labelledby={`minke-tab-${tab.id}`}
       aria-busy={
-        tab.payload.installing ||
+        mutating ||
         (tab.payload.view === "installed" && tab.payload.loadingInstalled)
       }
       hidden={!active}
@@ -434,7 +483,7 @@ export function PluginsView({
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            disabled={tab.payload.installing}
+            disabled={mutating}
             aria-invalid={invalid || undefined}
             aria-describedby={`minke-plugin-command-detail-${tab.id}`}
             placeholder={t("plugins.install.placeholder")}
@@ -442,7 +491,7 @@ export function PluginsView({
           />
           <button
             type="submit"
-            disabled={parsedCommand === undefined || tab.payload.installing}
+            disabled={parsedCommand === undefined || mutating}
           >
             <span
               data-spinning={tab.payload.installing || undefined}
@@ -528,7 +577,10 @@ export function PluginsView({
             className="minke-plugins-switcher__refresh"
             title={t("plugins.installed.refresh")}
             aria-label={t("plugins.installed.refresh")}
-            disabled={tab.payload.loadingInstalled}
+            disabled={
+              tab.payload.loadingInstalled ||
+              tab.payload.uninstallingPlugin !== undefined
+            }
             data-spinning={tab.payload.loadingInstalled || undefined}
             onClick={() => void controller.refreshInstalled(tab.id)}
           >
@@ -543,8 +595,39 @@ export function PluginsView({
           className="minke-plugins-installed"
           role="tabpanel"
           aria-labelledby={`minke-plugin-view-installed-${tab.id}`}
-          aria-busy={tab.payload.loadingInstalled}
+          aria-busy={
+            tab.payload.loadingInstalled ||
+            tab.payload.uninstallingPlugin !== undefined
+          }
         >
+          {tab.payload.uninstalledPlugin !== undefined && (
+            <div
+              className="minke-plugins-installed__notice"
+              data-state="success"
+              role="status"
+            >
+              <PluginSuccessIcon />
+              <span>
+                {t("plugins.installed.uninstallSuccess", {
+                  name: tab.payload.uninstalledPlugin,
+                })}
+              </span>
+            </div>
+          )}
+          {tab.payload.uninstallError !== undefined && (
+            <div
+              className="minke-plugins-installed__notice"
+              data-state="error"
+              role="alert"
+            >
+              <PluginWarningIcon />
+              <span>
+                {t("plugins.installed.uninstallFailed", {
+                  message: tab.payload.uninstallError,
+                })}
+              </span>
+            </div>
+          )}
           {tab.payload.installedError !== undefined &&
             tab.payload.installedPlugins.length > 0 && (
               <div className="minke-plugins-installed__notice" role="alert">
@@ -609,7 +692,12 @@ export function PluginsView({
               {tab.payload.installedPlugins.map((plugin) => (
                 <InstalledPluginCard
                   key={plugin.name}
+                  tabId={tab.id}
                   plugin={plugin}
+                  busy={tab.payload.uninstallingPlugin !== undefined}
+                  uninstalling={
+                    tab.payload.uninstallingPlugin === plugin.name
+                  }
                   controller={controller}
                   t={t}
                 />

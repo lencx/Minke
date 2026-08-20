@@ -1,5 +1,6 @@
 import {
   parsePluginInstallCommand,
+  parsePluginUninstallTarget,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
   normalizeWebTabUrl,
@@ -31,6 +32,7 @@ export class PluginTabsController {
   readonly #desktop: DesktopTabsPort;
   readonly #webTabs: Pick<WebTabsController, "open">;
   readonly #revisions = new Map<string, number>();
+  readonly #uninstallRevisions = new Map<string, number>();
   readonly #listRevisions = new Map<string, number>();
   #disposed = false;
 
@@ -105,7 +107,8 @@ export class PluginTabsController {
     if (
       tab === undefined ||
       !isPluginTab(tab) ||
-      tab.payload.installing
+      tab.payload.installing ||
+      tab.payload.uninstallingPlugin !== undefined
     ) {
       return;
     }
@@ -127,6 +130,8 @@ export class PluginTabsController {
       installing: true,
       attemptedCommand: command,
       error: undefined,
+      uninstalledPlugin: undefined,
+      uninstallError: undefined,
     });
     try {
       await this.#installer.install(command);
@@ -149,6 +154,61 @@ export class PluginTabsController {
     }
   }
 
+  async uninstall(tabId: string, candidate: string): Promise<void> {
+    if (this.#disposed) return;
+    const tab = this.#tabs.tab(tabId);
+    if (
+      tab === undefined ||
+      !isPluginTab(tab) ||
+      tab.payload.installing ||
+      tab.payload.uninstallingPlugin !== undefined
+    ) {
+      return;
+    }
+    let name: string;
+    try {
+      name = parsePluginUninstallTarget(candidate);
+    } catch (error) {
+      this.#update(tabId, {
+        uninstallingPlugin: undefined,
+        uninstalledPlugin: undefined,
+        uninstallError: errorMessage(error),
+      });
+      return;
+    }
+
+    const revision =
+      (this.#uninstallRevisions.get(tabId) ?? 0) + 1;
+    this.#uninstallRevisions.set(tabId, revision);
+    this.#update(tabId, {
+      uninstallingPlugin: name,
+      uninstalledPlugin: undefined,
+      uninstallError: undefined,
+    });
+    try {
+      await this.#installer.uninstall(name);
+      if (!this.#isUninstallCurrent(tabId, revision)) return;
+      const current = this.#tabs.tab(tabId);
+      if (current === undefined || !isPluginTab(current)) return;
+      this.#update(tabId, {
+        uninstallingPlugin: undefined,
+        uninstalledPlugin: name,
+        uninstallError: undefined,
+        installedPlugins: current.payload.installedPlugins.filter(
+          (plugin) => plugin.name !== name,
+        ),
+      });
+      await this.refreshInstalled(tabId);
+    } catch (error) {
+      if (!this.#isUninstallCurrent(tabId, revision)) return;
+      this.#update(tabId, {
+        uninstallingPlugin: undefined,
+        uninstalledPlugin: undefined,
+        uninstallError: errorMessage(error),
+      });
+    }
+  }
+
   openExternal(candidate: string): void {
     if (this.#disposed || !this.#desktop.available) return;
     const url = normalizeWebTabUrl(candidate);
@@ -167,6 +227,7 @@ export class PluginTabsController {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#revisions.clear();
+    this.#uninstallRevisions.clear();
     this.#listRevisions.clear();
   }
 
@@ -182,6 +243,14 @@ export class PluginTabsController {
     return (
       !this.#disposed &&
       this.#listRevisions.get(tabId) === revision &&
+      this.#tabs.tab(tabId) !== undefined
+    );
+  }
+
+  #isUninstallCurrent(tabId: string, revision: number): boolean {
+    return (
+      !this.#disposed &&
+      this.#uninstallRevisions.get(tabId) === revision &&
       this.#tabs.tab(tabId) !== undefined
     );
   }

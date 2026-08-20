@@ -34,6 +34,14 @@ export const pluginsZh = {
   "plugins.installed.noDescription": "此插件没有提供说明。",
   "plugins.installed.requested": "安装来源",
   "plugins.installed.repository": "在内部标签页打开插件仓库",
+  "plugins.installed.uninstall": "卸载",
+  "plugins.installed.uninstallLabel": "卸载 {name}",
+  "plugins.installed.uninstalling": "正在卸载 {name}",
+  "plugins.installed.uninstallConfirm":
+    "确定卸载 {name} 吗？重启 Minke 后插件才会完全停用。",
+  "plugins.installed.uninstallSuccess":
+    "已卸载 {name}。重启 Minke 后完全停用。",
+  "plugins.installed.uninstallFailed": "卸载失败：{message}",
   "plugins.browser.title": "在 GitHub 上浏览插件",
   "plugins.browser.topic": "github.com/topics/dsh-plugin",
   "plugins.browser.searchLabel": "搜索 GitHub 插件仓库",
@@ -96,6 +104,14 @@ export const pluginsEn: Record<PluginsLocaleKey, string> = {
     "No description was provided for this plugin.",
   "plugins.installed.requested": "Install source",
   "plugins.installed.repository": "Open plugin repository in a tab",
+  "plugins.installed.uninstall": "Uninstall",
+  "plugins.installed.uninstallLabel": "Uninstall {name}",
+  "plugins.installed.uninstalling": "Uninstalling {name}",
+  "plugins.installed.uninstallConfirm":
+    "Uninstall {name}? Restart Minke to fully deactivate it.",
+  "plugins.installed.uninstallSuccess":
+    "Uninstalled {name}. Restart Minke to fully deactivate it.",
+  "plugins.installed.uninstallFailed": "Uninstall failed: {message}",
   "plugins.browser.title": "Browse plugins on GitHub",
   "plugins.browser.topic": "github.com/topics/dsh-plugin",
   "plugins.browser.searchLabel": "Search GitHub plugin repositories",

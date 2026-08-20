@@ -496,7 +496,14 @@
   white-space: nowrap;
 }
 
-.minke-plugins-installed__repository {
+.minke-plugins-installed__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.minke-plugins-installed__repository,
+.minke-plugins-installed__uninstall {
   display: grid;
   width: 28px;
   height: 28px;
@@ -509,13 +516,33 @@
   place-items: center;
 }
 
-.minke-plugins-installed__repository:hover {
+.minke-plugins-installed__repository:hover:not(:disabled) {
   background: color-mix(
     in srgb,
     var(--dsw-alias-state-business-primary) 9%,
     var(--dsw-alias-interactive-bg-hover)
   );
   color: var(--dsw-alias-state-business-primary);
+}
+
+.minke-plugins-installed__uninstall {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.minke-plugins-installed__uninstall:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.minke-plugins-installed__repository:disabled,
+.minke-plugins-installed__uninstall:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.minke-plugins-installed__uninstall[data-spinning] svg {
+  color: var(--dsw-alias-state-error-primary);
+  animation: minke-plugin-spin 820ms linear infinite;
 }
 
 .minke-plugins-installed__card > p {
@@ -587,6 +614,34 @@
 .minke-plugins-installed__notice > span {
   min-width: 0;
   flex: 1;
+}
+
+.minke-plugins-installed__notice[data-state="success"] {
+  border-color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 30%,
+    var(--dsw-alias-border-l2)
+  );
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 6%,
+    var(--dsw-alias-bg-base)
+  );
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.minke-plugins-installed__notice[data-state="error"] {
+  border-color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 30%,
+    var(--dsw-alias-border-l2)
+  );
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 6%,
+    var(--dsw-alias-bg-base)
+  );
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .minke-plugins-installed__notice > button {
@@ -1253,6 +1308,7 @@
   .minke-plugins-browser__search,
   .minke-plugins-install__form button > span[data-spinning],
   .minke-plugins-switcher__refresh[data-spinning] svg,
+  .minke-plugins-installed__uninstall[data-spinning] svg,
   .minke-plugins-installed__state[data-state="loading"] > span svg,
   .minke-plugins-browser__site-icon[data-loading]::after,
   .minke-plugins-install__feedback {
