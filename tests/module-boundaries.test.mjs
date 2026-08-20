@@ -13,7 +13,6 @@ const sourceRoots = [
   "desktop",
   "packages/harness-overlay/src",
   "packages/model-runtime/src",
-  "packages/plugin-catalog/src",
   "packages/remote-access/src",
   "src",
 ].map((path) => resolve(projectRoot, path)).filter(existsSync);
@@ -30,6 +29,7 @@ const sourceExtensions = new Set([
 const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/session-export-contract",
   "@minke/harness-overlay/data-home-contract",
+  "@minke/harness-overlay/plugin-install-contract",
   "@minke/harness-overlay/shortcut-contract",
   "@minke/harness-overlay/tabs/contract",
   "@minke/harness-overlay/tabs/files-contract",
@@ -87,29 +87,6 @@ test("desktop imports only the overlay's explicit cross-process contracts", () =
     }
     return !desktopOverlayContracts.has(specifier.replace(/\.ts$/u, ""));
   });
-  assert.deepEqual(
-    violations.map(({ path, specifier }) => [
-      relative(projectRoot, path),
-      specifier,
-    ]),
-    [],
-  );
-});
-
-test("the plugin catalog package stays independent of desktop transports", () => {
-  const catalogRoot = resolve(
-    projectRoot,
-    "packages/plugin-catalog/src",
-  );
-  const violations = productionImports.filter(
-    ({ path, specifier }) =>
-      path.startsWith(`${catalogRoot}${sep}`) &&
-      (
-        specifier === "electron" ||
-        specifier.startsWith("@minke/desktop/") ||
-        specifier.startsWith("@minke/harness-overlay/")
-      ),
-  );
   assert.deepEqual(
     violations.map(({ path, specifier }) => [
       relative(projectRoot, path),

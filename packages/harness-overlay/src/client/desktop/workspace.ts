@@ -2,9 +2,6 @@ import {
   parseSessionLogExportId,
 } from "@minke/harness-overlay/session-export-contract.ts";
 import {
-  parsePluginCatalogSnapshot,
-} from "@lencx/minke-plugin-catalog/contract";
-import {
   parseTabsLayoutState,
   parseTabsLayoutStateUpdate,
 } from "@minke/harness-overlay/tabs/contract.ts";
@@ -34,78 +31,32 @@ import {
 import type {
   DesktopBridgeWindow,
   DesktopFilesPort,
-  PluginCatalogPort,
+  PluginInstallerPort,
   DesktopSessionLogsPort,
   DesktopTabsPort,
   DesktopTerminalPort,
 } from "./contracts.ts";
 
-/** Adapt the cache-backed plugin catalog exposed by the isolated preload. */
-export function desktopPluginCatalogPort(
+/** Adapt the command-only plugin installer exposed by the isolated preload. */
+export function desktopPluginInstallerPort(
   source: DesktopBridgeWindow =
     window as unknown as DesktopBridgeWindow,
-): PluginCatalogPort {
-  const bridge = source.minkeDesktop?.pluginCatalog;
+): PluginInstallerPort {
+  const bridge = source.minkeDesktop?.pluginInstaller;
   if (bridge === undefined) {
     return {
       available: false,
-      async read() {
-        throw new Error(
-          "Minke desktop plugin catalog bridge is unavailable",
-        );
-      },
-      async refresh() {
-        throw new Error(
-          "Minke desktop plugin catalog bridge is unavailable",
-        );
-      },
-      async cancel() {
-        throw new Error(
-          "Minke desktop plugin catalog bridge is unavailable",
-        );
-      },
       async install() {
         throw new Error(
-          "Minke desktop plugin catalog bridge is unavailable",
-        );
-      },
-      async setToken() {
-        throw new Error(
-          "Minke desktop plugin catalog bridge is unavailable",
-        );
-      },
-      async clearToken() {
-        throw new Error(
-          "Minke desktop plugin catalog bridge is unavailable",
+          "Minke desktop plugin installer bridge is unavailable",
         );
       },
     };
   }
   return {
     available: true,
-    async read() {
-      return parsePluginCatalogSnapshot(await bridge.read());
-    },
-    async refresh() {
-      return parsePluginCatalogSnapshot(await bridge.refresh());
-    },
-    async cancel() {
-      return parsePluginCatalogSnapshot(await bridge.cancel());
-    },
-    async install(pluginId) {
-      return parsePluginCatalogSnapshot(
-        await bridge.install(pluginId),
-      );
-    },
-    async setToken(token) {
-      return parsePluginCatalogSnapshot(
-        await bridge.setToken(token),
-      );
-    },
-    async clearToken() {
-      return parsePluginCatalogSnapshot(
-        await bridge.clearToken(),
-      );
+    async install(command) {
+      await bridge.install(command);
     },
   };
 }

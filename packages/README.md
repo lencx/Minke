@@ -4,7 +4,6 @@ Product capability modules use one naming rule:
 
 | Directory | Package |
 | --- | --- |
-| `plugin-catalog` | `@lencx/minke-plugin-catalog` |
 | `remote-access` | `@lencx/minke-remote-access` |
 | `model-runtime` | `@lencx/minke-model-runtime` |
 | `harness-overlay` | `@lencx/minke-harness-overlay` |

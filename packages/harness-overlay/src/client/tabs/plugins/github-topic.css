@@ -1,0 +1,51 @@
+.AppHeader,
+.Header,
+.HeaderMktg,
+.header-wrapper,
+header[role="banner"],
+[aria-label="Explore navigation"],
+footer {
+  display: none !important;
+}
+
+.application-main {
+  padding-top: 0 !important;
+}
+
+main > .container-lg,
+main > .container-xl,
+.container-lg,
+.container-xl {
+  width: 100% !important;
+  max-width: none !important;
+  margin-inline: 0 !important;
+  padding: 12px 14px 20px !important;
+  box-sizing: border-box !important;
+}
+
+.Layout {
+  display: block !important;
+}
+
+.Layout-sidebar {
+  display: none !important;
+}
+
+.Layout-main,
+.col-md-8,
+.col-md-9 {
+  flex: 0 0 100% !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.col-md-6 {
+  flex: 0 0 100% !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+article,
+.Box {
+  scroll-margin-top: 12px !important;
+}

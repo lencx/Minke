@@ -1,21 +1,21 @@
 export {
-  PluginCatalogTabsController,
+  PluginTabsController,
 } from "./controller.ts";
 export {
-  createPluginCatalogTabRenderer,
+  createPluginTabRenderer,
 } from "./renderer.tsx";
 export {
-  pluginCatalogEn,
-  pluginCatalogZh,
+  pluginsEn,
+  pluginsZh,
 } from "./locales.ts";
 export type {
-  PluginCatalogLocaleKey,
-  PluginCatalogTranslate,
+  PluginsLocaleKey,
+  PluginsTranslate,
 } from "./locales.ts";
 export {
   PLUGIN_DISCOVERY_TOPIC_URL,
 } from "./resources.ts";
 export {
-  installPluginCatalogStyles,
-  PLUGIN_CATALOG_STYLES,
+  installPluginStyles,
+  PLUGIN_STYLES,
 } from "./styles.ts";

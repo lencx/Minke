@@ -18,9 +18,6 @@ importers:
       '@lencx/minke-model-runtime':
         specifier: workspace:*
         version: link:packages/model-runtime
-      '@lencx/minke-plugin-catalog':
-        specifier: workspace:*
-        version: link:packages/plugin-catalog
       '@lencx/minke-remote-access':
         specifier: workspace:*
         version: link:packages/remote-access
@@ -113,9 +110,6 @@ importers:
       '@lencx/minke-model-runtime':
         specifier: workspace:*
         version: link:../model-runtime
-      '@lencx/minke-plugin-catalog':
-        specifier: workspace:*
-        version: link:../plugin-catalog
       '@lencx/minke-remote-access':
         specifier: workspace:*
         version: link:../remote-access
@@ -152,8 +146,6 @@ importers:
         version: 4.4.3
 
   packages/model-runtime: {}
-
-  packages/plugin-catalog: {}
 
   packages/remote-access: {}
 

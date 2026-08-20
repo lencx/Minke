@@ -6,7 +6,6 @@ import {
   Menu,
   // nativeImage,
   nativeTheme,
-  safeStorage,
   session,
   shell,
   // Tray,
@@ -18,10 +17,6 @@ import {
 } from "electron";
 import started from "electron-squirrel-startup";
 import { join, parse } from "node:path";
-import {
-  PluginCatalogService,
-  type PluginCatalogModule,
-} from "@lencx/minke-plugin-catalog";
 import {
   DEFAULT_REMOTE_SETTINGS,
   discoverRemoteCommands,
@@ -67,15 +62,15 @@ import {
   type RemoteSettingsBinding,
 } from "./remote-settings";
 import {
-  bindPluginCatalogIpc,
-  type PluginCatalogBinding,
-} from "./plugin-catalog";
+  clearLegacyPluginCatalogCache,
+} from "./plugin-cache";
 import {
-  EncryptedGitHubTokenStore,
-} from "./plugin-catalog-credential";
+  bindPluginInstallIpc,
+  type PluginInstallBinding,
+} from "./plugin-install";
 import {
-  PluginCatalogInstallationRuntime,
-} from "./plugin-catalog-installation";
+  PluginInstallationRuntime,
+} from "./plugin-installation";
 import {
   macOSWindowOptions,
 } from "./macos-window";
@@ -131,8 +126,7 @@ let modelRuntimeSettingsBinding:
   | undefined;
 let remoteSettingsBinding: RemoteSettingsBinding | undefined;
 let remoteAccess: RemoteAccessService | undefined;
-let pluginCatalog: PluginCatalogModule | undefined;
-let pluginCatalogBinding: PluginCatalogBinding | undefined;
+let pluginInstallBinding: PluginInstallBinding | undefined;
 let dataHomeSettingsBinding: DataHomeSettingsBinding | undefined;
 let sessionLogExportBinding: SessionLogExportBinding | undefined;
 let tabsBinding: TabsBinding | undefined;
@@ -620,35 +614,17 @@ async function bootstrap(): Promise<void> {
     activeDshHome,
     process.env,
   );
-  const pluginCredential = new EncryptedGitHubTokenStore({
-    userDataPath: app.getPath("userData"),
-    environment: process.env,
-    secureStorage: {
-      isEncryptionAvailable: () => (
-        safeStorage.isEncryptionAvailable() &&
-        (
-          process.platform !== "linux" ||
-          safeStorage.getSelectedStorageBackend() !==
-            "basic_text"
-        )
-      ),
-      encryptString: (plainText) =>
-        safeStorage.encryptString(plainText),
-      decryptString: (encrypted) =>
-        safeStorage.decryptString(encrypted),
-    },
+  try {
+    await clearLegacyPluginCatalogCache(app.getPath("userData"));
+  } catch (error) {
+    console.error("Unable to clear the retired plugin catalog cache:", error);
+  }
+  const pluginInstallation = new PluginInstallationRuntime({
+    runtimeRoot: runtimeRoot(),
+    dshHome: activeDshHome,
+    electronExecutable: process.execPath,
+    environment: activeDshEnvironment,
   });
-  pluginCatalog = new PluginCatalogService({
-    userDataPath: app.getPath("userData"),
-    credentialProvider: pluginCredential,
-    installation: new PluginCatalogInstallationRuntime({
-      runtimeRoot: runtimeRoot(),
-      dshHome: activeDshHome,
-      electronExecutable: process.execPath,
-      environment: activeDshEnvironment,
-    }),
-  });
-  await pluginCatalog.start();
   const localModelCommands = await discoverLocalModelCommands({
     homeDirectory: app.getPath("home"),
     pathValue: process.env.PATH,
@@ -783,9 +759,9 @@ async function bootstrap(): Promise<void> {
       );
     },
   );
-  pluginCatalogBinding = bindPluginCatalogIpc(
+  pluginInstallBinding = bindPluginInstallIpc(
     ipcMain,
-    pluginCatalog,
+    pluginInstallation,
     (candidate) => {
       const event = candidate as IpcMainInvokeEvent;
       return (
@@ -856,10 +832,8 @@ app.on("before-quit", (event) => {
   modelRuntimeSettingsBinding = undefined;
   remoteSettingsBinding?.dispose();
   remoteSettingsBinding = undefined;
-  pluginCatalogBinding?.dispose();
-  pluginCatalogBinding = undefined;
-  pluginCatalog?.dispose();
-  pluginCatalog = undefined;
+  pluginInstallBinding?.dispose();
+  pluginInstallBinding = undefined;
   dataHomeSettingsBinding?.dispose();
   dataHomeSettingsBinding = undefined;
   if (shutdownStarted) return;

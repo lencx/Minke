@@ -1,0 +1,74 @@
+html,
+body {
+  min-width: 0 !important;
+}
+
+body {
+  overflow-x: hidden !important;
+}
+
+.AppHeader,
+.Header,
+.HeaderMktg,
+.header-wrapper,
+header[role="banner"] {
+  min-width: 0 !important;
+}
+
+.AppHeader .AppHeader-globalBar,
+.Header {
+  padding-inline: 12px !important;
+}
+
+.container-xl,
+.container-lg,
+.container-md {
+  width: 100% !important;
+  max-width: none !important;
+  padding-inline: 14px !important;
+}
+
+.Layout {
+  column-gap: 16px !important;
+}
+
+.Layout-main {
+  min-width: 0 !important;
+}
+
+@media (max-width: 720px) {
+  .AppHeader .AppHeader-globalBar,
+  .Header,
+  .HeaderMktg,
+  .header-wrapper,
+  header[role="banner"] {
+    display: none !important;
+  }
+
+  .application-main {
+    padding-top: 0 !important;
+  }
+
+  .Layout {
+    display: block !important;
+  }
+
+  .Layout-sidebar {
+    display: none !important;
+  }
+
+  .Layout-main {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .container-xl,
+  .container-lg,
+  .container-md {
+    padding-inline: 10px !important;
+  }
+
+  footer {
+    display: none !important;
+  }
+}

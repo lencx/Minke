@@ -1,15 +1,11 @@
 import { execFile } from "node:child_process";
+import { mkdir } from "node:fs/promises";
 import {
-  mkdir,
-  readFile,
-} from "node:fs/promises";
-import { join } from "node:path";
+  parsePluginInstallTarget,
+} from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
   embeddedNodeChildEnvironment,
 } from "../../config/embedded-node-runtime.mts";
-import type {
-  PluginCatalogInstallationAdapter,
-} from "@lencx/minke-plugin-catalog";
 import {
   readHarnessRuntimeLayout,
   type HarnessRuntimeLayout,
@@ -17,29 +13,27 @@ import {
 
 const INSTALL_TIMEOUT_MS = 10 * 60_000;
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
-const INSTALL_SPEC =
-  /^github:[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}(?:#path:[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)?$/u;
 
-export interface PluginCatalogInstallCommandOptions {
+export interface PluginInstallCommandOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
 }
 
-export interface PluginCatalogInstallCommandRunner {
+export interface PluginInstallCommandRunner {
   (
     command: string,
     args: readonly string[],
-    options: PluginCatalogInstallCommandOptions,
+    options: PluginInstallCommandOptions,
   ): Promise<void>;
 }
 
-export interface PluginCatalogInstallationOptions {
+export interface PluginInstallationOptions {
   runtimeRoot: string;
   dshHome: string;
   electronExecutable: string;
   environment?: NodeJS.ProcessEnv;
   readRuntimeLayout?: () => Promise<HarnessRuntimeLayout>;
-  runCommand?: PluginCatalogInstallCommandRunner;
+  runCommand?: PluginInstallCommandRunner;
 }
 
 function commandFailure(
@@ -61,7 +55,7 @@ function commandFailure(
 function runInstallCommand(
   command: string,
   args: readonly string[],
-  options: PluginCatalogInstallCommandOptions,
+  options: PluginInstallCommandOptions,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -86,62 +80,19 @@ function runInstallCommand(
   });
 }
 
-function installedDependencies(
-  value: unknown,
-): string[] {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new TypeError(
-      "plugin profile manifest must be an object",
-    );
-  }
-  const dependencies = (
-    value as Record<string, unknown>
-  ).dependencies;
-  if (dependencies === undefined) return [];
-  if (
-    typeof dependencies !== "object" ||
-    dependencies === null ||
-    Array.isArray(dependencies)
-  ) {
-    throw new TypeError(
-      "plugin profile dependencies must be an object",
-    );
-  }
-  const entries = Object.entries(dependencies);
-  if (
-    entries.some(
-      ([name, spec]) =>
-        name.length === 0 ||
-        name.length > 214 ||
-        typeof spec !== "string" ||
-        spec.length === 0,
-    )
-  ) {
-    throw new TypeError(
-      "plugin profile dependencies are invalid",
-    );
-  }
-  return entries.map(([name]) => name);
-}
-
 /**
- * Installs validated catalog entries into Minke's active web profile through
- * the bundled command runtime. The adapter never uses a shell.
+ * Install one explicitly entered package into Minke's web profile. The
+ * runtime validates a single package target and executes without a shell.
  */
-export class PluginCatalogInstallationRuntime
-implements PluginCatalogInstallationAdapter {
+export class PluginInstallationRuntime {
   readonly #runtimeRoot: string;
   readonly #dshHome: string;
   readonly #electronExecutable: string;
   readonly #environment: NodeJS.ProcessEnv;
   readonly #readRuntimeLayout: () => Promise<HarnessRuntimeLayout>;
-  readonly #runCommand: PluginCatalogInstallCommandRunner;
+  readonly #runCommand: PluginInstallCommandRunner;
 
-  constructor(options: PluginCatalogInstallationOptions) {
+  constructor(options: PluginInstallationOptions) {
     this.#runtimeRoot = options.runtimeRoot;
     this.#dshHome = options.dshHome;
     this.#electronExecutable = options.electronExecutable;
@@ -151,39 +102,11 @@ implements PluginCatalogInstallationAdapter {
     this.#readRuntimeLayout =
       options.readRuntimeLayout ??
       (() => readHarnessRuntimeLayout(this.#runtimeRoot));
-    this.#runCommand =
-      options.runCommand ?? runInstallCommand;
+    this.#runCommand = options.runCommand ?? runInstallCommand;
   }
 
-  async listInstalledPackageNames(): Promise<readonly string[]> {
-    try {
-      return installedDependencies(
-        JSON.parse(
-          await readFile(
-            join(
-              this.#dshHome,
-              "profiles",
-              "web",
-              "package.json",
-            ),
-            "utf8",
-          ),
-        ),
-      );
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return [];
-      }
-      throw error;
-    }
-  }
-
-  async install(installSpec: string): Promise<void> {
-    if (!INSTALL_SPEC.test(installSpec)) {
-      throw new TypeError(
-        "invalid plugin catalog install specification",
-      );
-    }
+  async install(candidate: string): Promise<void> {
+    const target = parsePluginInstallTarget(candidate);
     const layout = await this.#readRuntimeLayout();
     await mkdir(this.#dshHome, {
       recursive: true,
@@ -207,7 +130,7 @@ implements PluginCatalogInstallationAdapter {
         "--profile",
         "web",
         "add",
-        installSpec,
+        target,
       ],
       {
         cwd: this.#dshHome,

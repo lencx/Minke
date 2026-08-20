@@ -27,12 +27,6 @@ const manifest = JSON.parse(
     "utf8",
   ),
 );
-const pluginCatalogManifest = JSON.parse(
-  readFileSync(
-    new URL("../packages/plugin-catalog/package.json", import.meta.url),
-    "utf8",
-  ),
-);
 const remoteAccessManifest = JSON.parse(
   readFileSync(
     new URL("../packages/remote-access/package.json", import.meta.url),
@@ -179,10 +173,6 @@ test("the client entry stays a composition root", () => {
 
 test("product capability packages follow the shared naming convention", () => {
   assert.equal(manifest.name, "@lencx/minke-harness-overlay");
-  assert.equal(
-    pluginCatalogManifest.name,
-    "@lencx/minke-plugin-catalog",
-  );
   assert.equal(
     remoteAccessManifest.name,
     "@lencx/minke-remote-access",

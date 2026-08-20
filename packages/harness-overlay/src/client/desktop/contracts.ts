@@ -42,9 +42,6 @@ import type {
   TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import type {
-  PluginCatalogSnapshot,
-} from "@lencx/minke-plugin-catalog/contract";
-import type {
   RemoteSettings,
   RemoteSettingsSnapshot,
 } from "@lencx/minke-remote-access/contract";
@@ -165,14 +162,9 @@ export interface DesktopSessionLogsPort {
   export(sessionId: string): Promise<void>;
 }
 
-export interface PluginCatalogPort {
+export interface PluginInstallerPort {
   readonly available: boolean;
-  read(): Promise<PluginCatalogSnapshot>;
-  refresh(): Promise<PluginCatalogSnapshot>;
-  cancel(): Promise<PluginCatalogSnapshot>;
-  install(pluginId: string): Promise<PluginCatalogSnapshot>;
-  setToken(token: string): Promise<PluginCatalogSnapshot>;
-  clearToken(): Promise<PluginCatalogSnapshot>;
+  install(command: string): Promise<void>;
 }
 
 export interface DesktopShortcutBridge {
@@ -238,13 +230,8 @@ export interface DesktopRemoteBridge {
   write(settings: RemoteSettings): Promise<void>;
 }
 
-export interface DesktopPluginCatalogBridge {
-  read(): Promise<unknown>;
-  refresh(): Promise<unknown>;
-  cancel(): Promise<unknown>;
-  install(pluginId: string): Promise<unknown>;
-  setToken(token: string): Promise<unknown>;
-  clearToken(): Promise<unknown>;
+export interface DesktopPluginInstallerBridge {
+  install(command: string): Promise<void>;
 }
 
 export interface DesktopDataHomeBridge {
@@ -279,7 +266,7 @@ export interface DesktopBridgeWindow {
     files?: DesktopFilesBridge;
     locale?: DesktopWindowLocaleBridge;
     modelRuntime?: DesktopModelRuntimeBridge;
-    pluginCatalog?: DesktopPluginCatalogBridge;
+    pluginInstaller?: DesktopPluginInstallerBridge;
     remote?: DesktopRemoteBridge;
     sessionLogs?: DesktopSessionLogsBridge;
     tabs?: DesktopTabsBridge;

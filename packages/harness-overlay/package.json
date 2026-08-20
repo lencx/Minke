@@ -37,7 +37,6 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@lencx/minke-plugin-catalog": "workspace:*",
     "@lencx/minke-model-runtime": "workspace:*",
     "@lencx/minke-remote-access": "workspace:*"
   },
