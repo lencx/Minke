@@ -157,15 +157,24 @@ export function desktopRemoteSettingsStore(
         return {
           available: { ...NO_REMOTE_AVAILABILITY },
           settings: {
-            tailscale: {
-              ...DEFAULT_REMOTE_SETTINGS.tailscale,
+            enabled: DEFAULT_REMOTE_SETTINGS.enabled,
+            method: DEFAULT_REMOTE_SETTINGS.method,
+            tailscale: { ...DEFAULT_REMOTE_SETTINGS.tailscale },
+            cloudflare: {
+              ...DEFAULT_REMOTE_SETTINGS.cloudflare,
             },
           },
           runtime: {
             method: "tailscale",
+            transport: "serve",
             state: "unavailable",
           },
         };
+      },
+      async restart() {
+        throw new Error(
+          "Minke desktop remote settings bridge is unavailable",
+        );
       },
       async write() {
         throw new Error(
@@ -178,6 +187,9 @@ export function desktopRemoteSettingsStore(
     available: true,
     async read() {
       return parseRemoteSettingsSnapshot(await bridge.read());
+    },
+    async restart() {
+      await bridge.restart();
     },
     async write(settings) {
       await bridge.write(parseRemoteSettings(settings));

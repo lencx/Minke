@@ -44,6 +44,30 @@ async function withStore(callback) {
   }
 }
 
+function assertDefaultRemoteSettings(settings, enabled = false) {
+  assert.match(
+    settings.cloudflare.generatedLabel,
+    /^m-[0123456789abcdefghjkmnpqrstvwxyz]{16}$/u,
+  );
+  assert.deepEqual(settings, {
+    enabled,
+    method: "tailscale",
+    tailscale: { transport: "serve" },
+    cloudflare: {
+      hostnameMode: "generated",
+      domain: "",
+      generatedLabel:
+        settings.cloudflare.generatedLabel,
+      customHostname: "",
+      teamName: "",
+      audience: "",
+      tunnel: "",
+      configPath: "",
+      originPort: 49_321,
+    },
+  });
+}
+
 test("main window state is restored and tracked beside minke.config.json", () => {
   const config = new MinkeConfigStore(
     join(tmpdir(), "minke-window-state-profile"),
@@ -224,9 +248,8 @@ test("desktop settings share one versioned Minke config", async () => {
       lmStudio: { enabled: false },
       ollama: { enabled: false },
     });
-    assert.deepEqual(await store.remote.read(), {
-      tailscale: { enabled: false },
-    });
+    const remote = await store.remote.read();
+    assertDefaultRemoteSettings(remote);
 
     await Promise.all([
       store.shortcuts.write({
@@ -243,7 +266,8 @@ test("desktop settings share one versioned Minke config", async () => {
         ollama: { enabled: false },
       }),
       store.remote.write({
-        tailscale: { enabled: true },
+        ...remote,
+        enabled: true,
       }),
     ]);
 
@@ -263,7 +287,8 @@ test("desktop settings share one versioned Minke config", async () => {
         ollama: { enabled: false },
       },
       remote: {
-        tailscale: { enabled: true },
+        ...remote,
+        enabled: true,
       },
     });
     assert.deepEqual(
@@ -306,15 +331,18 @@ test("invalid section updates leave the shared document unchanged", async () => 
   });
 });
 
-test("legacy version 1 configs default new runtime settings off", async () => {
+test("legacy version 1 configs migrate remote settings into the new schema", async () => {
   await withStore(async ({ root, store }) => {
     await mkdir(join(root, "desktop"), { recursive: true });
     await writeFile(
       store.path,
       JSON.stringify({
-        version: MINKE_CONFIG_VERSION,
+        version: 1,
         shortcuts: {},
         terminal: DEFAULT_TERMINAL_SETTINGS,
+        remote: {
+          tailscale: { enabled: true },
+        },
       }),
     );
 
@@ -322,9 +350,10 @@ test("legacy version 1 configs default new runtime settings off", async () => {
       lmStudio: { enabled: false },
       ollama: { enabled: false },
     });
-    assert.deepEqual(await store.remote.read(), {
-      tailscale: { enabled: false },
-    });
+    assertDefaultRemoteSettings(
+      await store.remote.read(),
+      true,
+    );
   });
 });
 

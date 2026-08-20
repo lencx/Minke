@@ -24,13 +24,15 @@ import {
   parseDataHomePath,
 } from "@minke/harness-overlay/data-home-contract.ts";
 import {
-  DEFAULT_REMOTE_SETTINGS,
+  createDefaultRemoteSettings,
+  migrateLegacyRemoteSettings,
   parseRemoteSettings,
   type RemoteSettings,
 } from "@lencx/minke-remote-access/contract";
 
 /** Current schema version of the unified Minke desktop configuration. */
-export const MINKE_CONFIG_VERSION = 1;
+export const MINKE_CONFIG_VERSION = 2;
+const LEGACY_MINKE_CONFIG_VERSION = 1;
 
 /** Resolve the unified desktop config path below Minke's user-data root. */
 export function minkeConfigFilePath(userDataPath: string): string {
@@ -79,12 +81,22 @@ function defaultDocument(): MinkeConfigDocument {
         ...DEFAULT_MODEL_RUNTIME_SETTINGS.ollama,
       },
     },
-    remote: {
-      tailscale: {
-        ...DEFAULT_REMOTE_SETTINGS.tailscale,
-      },
-    },
+    remote: createDefaultRemoteSettings(),
   };
+}
+
+function parseStoredRemoteSettings(
+  value: unknown,
+): RemoteSettings {
+  try {
+    return parseRemoteSettings(value);
+  } catch (currentError) {
+    try {
+      return migrateLegacyRemoteSettings(value);
+    } catch {
+      throw currentError;
+    }
+  }
 }
 
 /** Validate and copy one unified Minke desktop configuration document. */
@@ -105,7 +117,10 @@ export function parseMinkeConfigDocument(
     !Object.hasOwn(record, "version") ||
     !Object.hasOwn(record, "shortcuts") ||
     !Object.hasOwn(record, "terminal") ||
-    record.version !== MINKE_CONFIG_VERSION
+    (
+      record.version !== MINKE_CONFIG_VERSION &&
+      record.version !== LEGACY_MINKE_CONFIG_VERSION
+    )
   ) {
     throw new TypeError("unsupported Minke config document");
   }
@@ -126,12 +141,8 @@ export function parseMinkeConfigDocument(
         : parseModelRuntimeSettings(record.modelRuntime),
     remote:
       record.remote === undefined
-        ? {
-            tailscale: {
-              ...DEFAULT_REMOTE_SETTINGS.tailscale,
-            },
-          }
-        : parseRemoteSettings(record.remote),
+        ? createDefaultRemoteSettings()
+        : parseStoredRemoteSettings(record.remote),
     ...(record.dshHome === undefined
       ? {}
       : { dshHome: parseDataHomePath(record.dshHome) }),
@@ -236,7 +247,10 @@ export class MinkeConfigStore {
     return this.#runExclusive(async () => {
       const settings = (await this.#load()).remote;
       return {
+        enabled: settings.enabled,
+        method: settings.method,
         tailscale: { ...settings.tailscale },
+        cloudflare: { ...settings.cloudflare },
       };
     });
   }

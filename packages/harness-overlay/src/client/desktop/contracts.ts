@@ -81,6 +81,7 @@ export interface ModelRuntimeSettingsStore {
 export interface RemoteSettingsStore {
   readonly available: boolean;
   read(): Promise<RemoteSettingsSnapshot>;
+  restart(): Promise<void>;
   write(settings: RemoteSettings): Promise<void>;
 }
 
@@ -231,6 +232,7 @@ export interface DesktopModelRuntimeBridge {
 
 export interface DesktopRemoteBridge {
   read(): Promise<unknown>;
+  restart(): Promise<void>;
   write(settings: RemoteSettings): Promise<void>;
 }
 

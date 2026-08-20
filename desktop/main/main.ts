@@ -21,6 +21,7 @@ import {
   DEFAULT_REMOTE_SETTINGS,
   discoverRemoteCommands,
   RemoteAccessService,
+  type RemoteSettings,
 } from "@lencx/minke-remote-access";
 import {
   DesktopLocaleRuntime,
@@ -146,6 +147,14 @@ function desktopText(
 ): string {
   return desktopLocale?.t(key, params) ??
     translateDesktop("en", key, params);
+}
+
+function scheduleDesktopRestart(): void {
+  setTimeout(() => {
+    requestDesktopRestart(app, (exitCode) => {
+      requestedExitCode = exitCode;
+    });
+  }, 100);
 }
 
 function sessionExportSaveDialogOptions(
@@ -507,14 +516,12 @@ async function startHarness(): Promise<void> {
     }
   }
   harnessUrl = await activeRuntime.start();
-  if (activeRemote?.read().state === "ready") {
-    try {
-      await activeRemote.start(harnessUrl);
-    } catch (error) {
-      console.error("Remote access failed to start:", error);
-    }
-  }
   await window.loadURL(harnessUrl);
+  if (activeRemote?.read().state === "ready") {
+    void activeRemote.start(harnessUrl).catch((error: unknown) => {
+      console.error("Remote access failed to start:", error);
+    });
+  }
 }
 
 async function handleUnexpectedExit(exit: HarnessRuntimeExit): Promise<void> {
@@ -606,13 +613,7 @@ async function bootstrap(): Promise<void> {
         ? undefined
         : result.filePaths[0];
     },
-    restart() {
-      setTimeout(() => {
-        requestDesktopRestart(app, (exitCode) => {
-          requestedExitCode = exitCode;
-        });
-      }, 100);
-    },
+    restart: scheduleDesktopRestart,
   });
   const migrationState =
     await dataHomeManager.completePendingMigration();
@@ -632,6 +633,7 @@ async function bootstrap(): Promise<void> {
   } catch (error) {
     console.error("Unable to clear the retired plugin catalog cache:", error);
   }
+  await createWindow();
   const pluginInstallation = new PluginInstallationRuntime({
     runtimeRoot: runtimeRoot(),
     dshHome: activeDshHome,
@@ -666,10 +668,11 @@ async function bootstrap(): Promise<void> {
     lmStudio: { enabled: false },
     ollama: { enabled: false },
   };
-  let remoteSettings = {
-    tailscale: {
-      ...DEFAULT_REMOTE_SETTINGS.tailscale,
-    },
+  let remoteSettings: RemoteSettings = {
+    enabled: DEFAULT_REMOTE_SETTINGS.enabled,
+    method: DEFAULT_REMOTE_SETTINGS.method,
+    tailscale: { ...DEFAULT_REMOTE_SETTINGS.tailscale },
+    cloudflare: { ...DEFAULT_REMOTE_SETTINGS.cloudflare },
   };
   try {
     shortcutBindings = await shortcutStore.read();
@@ -688,9 +691,7 @@ async function bootstrap(): Promise<void> {
   }
   remoteAccess = new RemoteAccessService({
     settings: remoteSettings,
-    ...(remoteCommands.tailscale === undefined
-      ? {}
-      : { command: remoteCommands.tailscale }),
+    commands: remoteCommands,
   });
   let remoteTrustedHosts: readonly string[] = [];
   try {
@@ -700,7 +701,6 @@ async function bootstrap(): Promise<void> {
   } catch (error) {
     console.error("Remote access preparation failed:", error);
   }
-  await createWindow();
   // installMacOSTray();
   shortcutMenuBinding = bindShortcutMenu(
     Menu,
@@ -756,12 +756,18 @@ async function bootstrap(): Promise<void> {
     remoteSettingsStore,
     {
       tailscale: remoteCommands.tailscale !== undefined,
+      cloudflare: remoteCommands.cloudflared !== undefined,
     },
     () =>
       remoteAccess?.read() ?? {
-        method: "tailscale",
+        method: remoteSettings.method,
+        transport:
+          remoteSettings.method === "cloudflare"
+            ? "access"
+            : remoteSettings.tailscale.transport,
         state: "unavailable",
       },
+    scheduleDesktopRestart,
     (candidate) => {
       const event = candidate as IpcMainInvokeEvent;
       return (

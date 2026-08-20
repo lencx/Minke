@@ -119,6 +119,7 @@ import {
 import {
   parseRemoteSettings,
   parseRemoteSettingsSnapshot,
+  REMOTE_RESTART_CHANNEL,
   REMOTE_SETTINGS_READ_CHANNEL,
   REMOTE_SETTINGS_WRITE_CHANNEL,
   type RemoteSettings,
@@ -418,6 +419,9 @@ const remote = Object.freeze({
     return parseRemoteSettingsSnapshot(
       await ipcRenderer.invoke(REMOTE_SETTINGS_READ_CHANNEL),
     );
+  },
+  async restart(): Promise<void> {
+    await ipcRenderer.invoke(REMOTE_RESTART_CHANNEL);
   },
   async write(settings: RemoteSettings): Promise<void> {
     await ipcRenderer.invoke(

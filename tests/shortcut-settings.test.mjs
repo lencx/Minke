@@ -42,6 +42,30 @@ afterEach(async () => {
   );
 });
 
+function assertDefaultRemoteSettings(settings) {
+  assert.match(
+    settings.cloudflare.generatedLabel,
+    /^m-[0123456789abcdefghjkmnpqrstvwxyz]{16}$/u,
+  );
+  assert.deepEqual(settings, {
+    enabled: false,
+    method: "tailscale",
+    tailscale: { transport: "serve" },
+    cloudflare: {
+      hostnameMode: "generated",
+      domain: "",
+      generatedLabel:
+        settings.cloudflare.generatedLabel,
+      customHostname: "",
+      teamName: "",
+      audience: "",
+      tunnel: "",
+      configPath: "",
+      originPort: 49_321,
+    },
+  });
+}
+
 test("the desktop store writes the shared Minke config", async () => {
   const { path, store } = await fixture();
   assert.deepEqual(await store.read(), {});
@@ -55,7 +79,9 @@ test("the desktop store writes the shared Minke config", async () => {
     "settings.open": "Mod+Comma",
     "session.new": "",
   });
-  assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
+  const document = JSON.parse(await readFile(path, "utf8"));
+  const { remote, ...documentWithoutRemote } = document;
+  assert.deepEqual(documentWithoutRemote, {
     version: MINKE_CONFIG_VERSION,
     shortcuts: {
       "settings.open": "Mod+Comma",
@@ -66,10 +92,8 @@ test("the desktop store writes the shared Minke config", async () => {
       lmStudio: { enabled: false },
       ollama: { enabled: false },
     },
-    remote: {
-      tailscale: { enabled: false },
-    },
   });
+  assertDefaultRemoteSettings(remote);
 });
 
 test("invalid bindings never reach disk", async () => {

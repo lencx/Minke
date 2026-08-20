@@ -3,6 +3,7 @@ import {
   parseRemoteAvailability,
   parseRemoteRuntimeSnapshot,
   parseRemoteSettings,
+  REMOTE_RESTART_CHANNEL,
   REMOTE_SETTINGS_READ_CHANNEL,
   REMOTE_SETTINGS_WRITE_CHANNEL,
   type RemoteAvailability,
@@ -10,6 +11,9 @@ import {
   type RemoteSettings,
   type RemoteSettingsSnapshot,
 } from "@lencx/minke-remote-access/contract";
+import {
+  parseCloudflareAccessConfig,
+} from "@lencx/minke-remote-access";
 
 interface IpcMainLike {
   handle(
@@ -34,6 +38,7 @@ export function bindRemoteSettingsIpc(
   store: RemoteSettingsStore,
   availabilityValue: RemoteAvailability,
   runtime: () => RemoteRuntimeSnapshot,
+  restartDesktop: () => void,
   authorize: (event: unknown) => boolean,
 ): RemoteSettingsBinding {
   const available = parseRemoteAvailability(availabilityValue);
@@ -52,8 +57,11 @@ export function bindRemoteSettingsIpc(
       return {
         available,
         settings: {
-          tailscale: {
-            ...DEFAULT_REMOTE_SETTINGS.tailscale,
+          enabled: DEFAULT_REMOTE_SETTINGS.enabled,
+          method: DEFAULT_REMOTE_SETTINGS.method,
+          tailscale: { ...DEFAULT_REMOTE_SETTINGS.tailscale },
+          cloudflare: {
+            ...DEFAULT_REMOTE_SETTINGS.cloudflare,
           },
         },
         runtime: currentRuntime,
@@ -67,11 +75,24 @@ export function bindRemoteSettingsIpc(
   ): Promise<void> => {
     assertAuthorized(authorize, event);
     const settings = parseRemoteSettings(value);
-    if (settings.tailscale.enabled && !available.tailscale) {
-      throw new Error("Tailscale command is unavailable");
+    if (settings.enabled && !available[settings.method]) {
+      throw new Error(
+        `${settings.method} remote command is unavailable`,
+      );
+    }
+    if (
+      settings.enabled &&
+      settings.method === "cloudflare"
+    ) {
+      parseCloudflareAccessConfig(settings);
     }
     await store.write(settings);
   };
+  const restart = (event: unknown): void => {
+    assertAuthorized(authorize, event);
+    restartDesktop();
+  };
+  ipcMain.handle(REMOTE_RESTART_CHANNEL, restart);
   ipcMain.handle(REMOTE_SETTINGS_READ_CHANNEL, read);
   ipcMain.handle(REMOTE_SETTINGS_WRITE_CHANNEL, write);
 
@@ -80,6 +101,7 @@ export function bindRemoteSettingsIpc(
     dispose() {
       if (disposed) return;
       disposed = true;
+      ipcMain.removeHandler(REMOTE_RESTART_CHANNEL);
       ipcMain.removeHandler(REMOTE_SETTINGS_READ_CHANNEL);
       ipcMain.removeHandler(REMOTE_SETTINGS_WRITE_CHANNEL);
     },

@@ -59,6 +59,30 @@ afterEach(async () => {
   );
 });
 
+function assertDefaultRemoteSettings(settings) {
+  assert.match(
+    settings.cloudflare.generatedLabel,
+    /^m-[0123456789abcdefghjkmnpqrstvwxyz]{16}$/u,
+  );
+  assert.deepEqual(settings, {
+    enabled: false,
+    method: "tailscale",
+    tailscale: { transport: "serve" },
+    cloudflare: {
+      hostnameMode: "generated",
+      domain: "",
+      generatedLabel:
+        settings.cloudflare.generatedLabel,
+      customHostname: "",
+      teamName: "",
+      audience: "",
+      tunnel: "",
+      configPath: "",
+      originPort: 49_321,
+    },
+  });
+}
+
 test("Terminal settings validate a small, exact rendering contract", () => {
   assert.deepEqual(
     parseTerminalSettings({
@@ -212,7 +236,9 @@ test("the desktop store writes Terminal settings into Minke config", async () =>
     fontSize: 14,
     lineHeight: 1.35,
   });
-  assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
+  const document = JSON.parse(await readFile(path, "utf8"));
+  const { remote, ...documentWithoutRemote } = document;
+  assert.deepEqual(documentWithoutRemote, {
     version: MINKE_CONFIG_VERSION,
     shortcuts: {},
     terminal: {
@@ -224,10 +250,8 @@ test("the desktop store writes Terminal settings into Minke config", async () =>
       lmStudio: { enabled: false },
       ollama: { enabled: false },
     },
-    remote: {
-      tailscale: { enabled: false },
-    },
   });
+  assertDefaultRemoteSettings(remote);
 });
 
 test("Terminal settings IPC authorizes and validates reads and writes", async () => {
