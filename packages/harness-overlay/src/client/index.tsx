@@ -10,7 +10,10 @@ import {
   type AboutLocaleKey,
   type AboutTranslate,
 } from "./about/index.tsx";
-import { openHarnessSettings } from "./actions.ts";
+import {
+  hasOpenModalSurface,
+  openHarnessSettings,
+} from "./actions.ts";
 import {
   desktopAboutInfo,
   desktopFilesPort,
@@ -742,7 +745,10 @@ export function apply(ctx: HarnessClientContext): void {
     () => installCommandPaletteStyles(),
     "minke-overlay: command palette styles",
   );
-  const commandPalette = createCommandPaletteRuntime(runtime);
+  const commandPalette = createCommandPaletteRuntime(
+    runtime,
+    () => !hasOpenModalSurface(),
+  );
   ctx.effect(
     () => () => commandPalette.dispose(),
     "minke-overlay: command palette runtime",

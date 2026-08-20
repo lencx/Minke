@@ -13,6 +13,7 @@ export interface CommandPaletteSnapshot {
 
 type ActionSource = () => readonly PaletteActionView[];
 type ActionInvoker = (id: string) => boolean;
+type OpenGuard = () => boolean;
 
 const EMPTY_SNAPSHOT: CommandPaletteSnapshot = Object.freeze({
   open: false,
@@ -25,15 +26,18 @@ const EMPTY_SNAPSHOT: CommandPaletteSnapshot = Object.freeze({
 export class CommandPaletteRuntime {
   readonly #actions: ActionSource;
   readonly #invoke: ActionInvoker;
+  readonly #canOpen: OpenGuard;
   readonly #listeners = new Set<() => void>();
   #snapshot: CommandPaletteSnapshot = EMPTY_SNAPSHOT;
 
   constructor(
     actions: ActionSource,
     invoke: ActionInvoker,
+    canOpen: OpenGuard = () => true,
   ) {
     this.#actions = actions;
     this.#invoke = invoke;
+    this.#canOpen = canOpen;
   }
 
   getSnapshot = (): CommandPaletteSnapshot => this.#snapshot;
@@ -46,6 +50,7 @@ export class CommandPaletteRuntime {
   };
 
   open(): void {
+    if (!this.#canOpen()) return;
     const results = searchPaletteActions(this.#actions(), "");
     this.#publish({
       open: true,
@@ -158,9 +163,11 @@ function firstEnabledId(
 
 export function createCommandPaletteRuntime(
   actions: Pick<ShortcutRuntime, "listPaletteActions" | "invoke">,
+  canOpen?: OpenGuard,
 ): CommandPaletteRuntime {
   return new CommandPaletteRuntime(
     () => actions.listPaletteActions(),
     (id) => actions.invoke(id),
+    canOpen,
   );
 }

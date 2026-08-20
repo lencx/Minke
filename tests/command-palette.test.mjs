@@ -125,3 +125,23 @@ test("palette refresh preserves a valid selection and replaces a disabled one", 
   assert.equal(runtime.getSnapshot().activeId, undefined);
   assert.equal(runtime.getSnapshot().results[0]?.disabledReason, "Unavailable");
 });
+
+test("palette opening is suppressed while another modal owns focus", () => {
+  let canOpen = false;
+  const runtime = new CommandPaletteRuntime(
+    () => [action("session.new", "New Session")],
+    () => true,
+    () => canOpen,
+  );
+
+  runtime.open();
+  assert.equal(runtime.getSnapshot().open, false);
+
+  canOpen = true;
+  runtime.toggle();
+  assert.equal(runtime.getSnapshot().open, true);
+
+  canOpen = false;
+  runtime.toggle();
+  assert.equal(runtime.getSnapshot().open, false);
+});

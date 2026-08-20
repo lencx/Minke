@@ -574,6 +574,11 @@ test("the global command palette maps product actions without replacing slash co
   );
   assert.match(
     clientSource,
+    /createCommandPaletteRuntime\(\s*runtime,\s*\(\) => !hasOpenModalSurface\(\)/u,
+    "all palette triggers must respect the active modal surface",
+  );
+  assert.match(
+    clientSource,
     /"files\.open"[\s\S]*tabsWorkspaces\.right[\s\S]*"terminal\.open"[\s\S]*tabsWorkspaces\.bottom[\s\S]*"browser\.open"[\s\S]*tabsWorkspaces\.right[\s\S]*"plugins\.browse"[\s\S]*tabsWorkspaces\.right/u,
   );
   assert.match(
