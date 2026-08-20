@@ -4,7 +4,7 @@ function normalize(value: string): string {
   return value
     .normalize("NFKD")
     .replace(/\p{Mark}+/gu, "")
-    .toLocaleLowerCase()
+    .toLowerCase()
     .trim();
 }
 

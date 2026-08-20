@@ -62,6 +62,13 @@ const commandPaletteSource = readFileSync(
   ),
   "utf8",
 );
+const commandPaletteSearchSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/palette/search.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const shortcutStylesSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/styles.ts",
@@ -604,6 +611,12 @@ test("the global command palette maps product actions without replacing slash co
     commandPaletteSource,
     /runtime\.onBeforeClose\([\s\S]*target\?\.isConnected[\s\S]*target\.focus\(\)/u,
     "prior focus must be restored before an action claims final focus",
+  );
+  assert.match(commandPaletteSearchSource, /\.toLowerCase\(\)/u);
+  assert.doesNotMatch(
+    commandPaletteSearchSource,
+    /\.toLocaleLowerCase\(\)/u,
+    "palette search must not depend on the host locale",
   );
   assert.doesNotMatch(clientSource, /CommandUiRuntime|commandUi/u);
   assert.match(bundle, /Mod\+K/u);
