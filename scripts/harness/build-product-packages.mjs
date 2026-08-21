@@ -94,7 +94,8 @@ await Promise.all([
   build({
     entryPoints: [join(overlayPackageRoot, "src", "index.ts")],
     outfile: join(overlayOutputRoot, "index.js"),
-    bundle: false,
+    bundle: true,
+    packages: "external",
     format: "esm",
     platform: "node",
     target: "es2022",

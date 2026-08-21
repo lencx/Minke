@@ -16,9 +16,14 @@ import {
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
 import {
   parseTerminalCreateRequest,
+  parseTerminalReadRequest,
+  parseTerminalReadResult,
   parseTerminalResizeRequest,
   parseTerminalWriteRequest,
 } from "@minke/harness-overlay/tabs/terminal-contract.ts";
+import {
+  HostTerminalRuntime,
+} from "@minke/harness-overlay/host/terminal.ts";
 
 test("terminal IPC requests keep dimensions and input bounded", () => {
   assert.deepEqual(
@@ -70,6 +75,135 @@ test("terminal IPC requests keep dimensions and input bounded", () => {
     }),
     /terminal input/u,
   );
+  assert.deepEqual(
+    parseTerminalReadRequest({
+      sessionId: "terminal-1",
+      cursor: 4,
+      waitMs: 20_000,
+    }),
+    {
+      sessionId: "terminal-1",
+      cursor: 4,
+      waitMs: 20_000,
+    },
+  );
+  assert.deepEqual(
+    parseTerminalReadResult({
+      cursor: 5,
+      done: false,
+      truncated: false,
+      events: [{
+        type: "data",
+        sessionId: "terminal-1",
+        data: "$ ",
+      }],
+    }),
+    {
+      cursor: 5,
+      done: false,
+      truncated: false,
+      events: [{
+        type: "data",
+        sessionId: "terminal-1",
+        data: "$ ",
+      }],
+    },
+  );
+  assert.throws(
+    () => parseTerminalReadRequest({
+      sessionId: "terminal-1",
+      cursor: 0,
+      waitMs: 25_001,
+    }),
+    /terminal poll wait/u,
+  );
+});
+
+test("Host terminal runtime streams output and tears down an abandoned poll", async () => {
+  const writes = [];
+  const resizes = [];
+  let dataListener;
+  let exitListener;
+  let killed = false;
+  const runtime = new HostTerminalRuntime({
+    pty: {
+      spawn() {
+        return {
+          pid: 42,
+          write(data) {
+            writes.push(data);
+          },
+          resize(cols, rows) {
+            resizes.push([cols, rows]);
+          },
+          kill() {
+            killed = true;
+          },
+          onData(listener) {
+            dataListener = listener;
+            return { dispose() {} };
+          },
+          onExit(listener) {
+            exitListener = listener;
+            return { dispose() {} };
+          },
+        };
+      },
+    },
+    shell: "/bin/zsh",
+    defaultCwd: "/host/home",
+    environment: { PATH: "/usr/bin" },
+    resolveCwd: async (candidate) => candidate,
+    createId: () => "host-terminal-1",
+  });
+
+  assert.deepEqual(
+    await runtime.create({ cols: 80, rows: 24 }),
+    { sessionId: "host-terminal-1" },
+  );
+  runtime.write({
+    sessionId: "host-terminal-1",
+    data: "pwd\r",
+  });
+  runtime.resize({
+    sessionId: "host-terminal-1",
+    cols: 100,
+    rows: 30,
+  });
+  dataListener("$ ");
+  assert.deepEqual(
+    await runtime.read({
+      sessionId: "host-terminal-1",
+      cursor: 0,
+      waitMs: 0,
+    }, new AbortController().signal),
+    {
+      cursor: 1,
+      done: false,
+      truncated: false,
+      events: [{
+        type: "data",
+        sessionId: "host-terminal-1",
+        data: "$ ",
+      }],
+    },
+  );
+  assert.deepEqual(writes, ["pwd\r"]);
+  assert.deepEqual(resizes, [[100, 30]]);
+
+  const disconnected = new AbortController();
+  const pending = runtime.read({
+    sessionId: "host-terminal-1",
+    cursor: 1,
+    waitMs: 20_000,
+  }, disconnected.signal);
+  disconnected.abort(new Error("browser disconnected"));
+  await assert.rejects(pending, /browser disconnected/u);
+  assert.equal(killed, true);
+  assert.equal(runtime.activeSessions, 0);
+
+  exitListener({ exitCode: 0, signal: 0 });
+  await runtime.dispose();
 });
 
 test("desktop terminal runtime owns PTY data, resize, and teardown", async () => {

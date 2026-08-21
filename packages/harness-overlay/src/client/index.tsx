@@ -12,6 +12,7 @@ import { installTabs } from "./tabs/install.tsx";
 
 /** Cordis services required by this out-of-tree browser plugin. */
 export const inject = [
+  "connection",
   "slots",
   "locale",
   "theme",

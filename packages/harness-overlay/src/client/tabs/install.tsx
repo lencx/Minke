@@ -3,13 +3,17 @@ import type {
   HarnessClientContext,
 } from "../core/context.ts";
 import {
-  desktopFilesPort,
   desktopPluginInstallerPort,
   desktopSessionLogsPort,
-  desktopTabsPort,
-  desktopTerminalPort,
   desktopTerminalSettingsStore,
 } from "../desktop/index.ts";
+import {
+  minkeWorkspacePorts,
+} from "../host/workspace.ts";
+import {
+  installMobileWebViewport,
+  installMobileWebViewportStyles,
+} from "../host/mobile-web-viewport.ts";
 import {
   PreferencesSection,
   preferencesEn,
@@ -60,6 +64,9 @@ import {
   tabsZh,
 } from "./index.ts";
 import {
+  ResponsiveRightTabsHost,
+} from "./responsive-right-host.ts";
+import {
   createTerminalTabRenderer,
   installTerminalTabStyles,
   terminalTabsEn,
@@ -99,10 +106,11 @@ export type TabsRuntimes = Readonly<{
 export function installTabs(
   ctx: HarnessClientContext,
 ): TabsRuntimes | undefined {
-  const tabsPort = desktopTabsPort();
-  const filesPort = desktopFilesPort();
+  const workspacePorts = minkeWorkspacePorts(ctx.connection);
+  const tabsPort = workspacePorts.tabs;
+  const filesPort = workspacePorts.files;
+  const terminalPort = workspacePorts.terminal;
   const pluginInstallerPort = desktopPluginInstallerPort();
-  const terminalPort = desktopTerminalPort();
   const terminalSettingsStore = desktopTerminalSettingsStore();
   const sessionLogsPort = desktopSessionLogsPort();
   const terminalSettings = new TerminalSettingsRuntime(
@@ -112,6 +120,16 @@ export function installTabs(
     filesPort,
     ctx.theme.getTheme().active.colorScheme,
   );
+  if (!tabsPort.embeddedWebAvailable) {
+    ctx.effect(
+      () => installMobileWebViewportStyles(),
+      "minke-overlay: mobile Web viewport styles",
+    );
+    ctx.effect(
+      () => installMobileWebViewport(),
+      "minke-overlay: mobile Web viewport",
+    );
+  }
   ctx.on("theme/change", (snapshot) =>
     codeThemes.setColorScheme(snapshot.active.colorScheme)
   );
@@ -240,14 +258,16 @@ export function installTabs(
     },
     "minke-overlay: Tabs layout state",
   );
-  ctx.effect(
-    () =>
-      ctx.locale.register(WEB_TABS_NAMESPACE, {
-        zh: webTabsZh,
-        en: webTabsEn,
-      }),
-    "minke-overlay: Web tab dictionaries",
-  );
+  if (tabsPort.embeddedWebAvailable) {
+    ctx.effect(
+      () =>
+        ctx.locale.register(WEB_TABS_NAMESPACE, {
+          zh: webTabsZh,
+          en: webTabsEn,
+        }),
+      "minke-overlay: Web tab dictionaries",
+    );
+  }
   if (pluginInstallerPort.available) {
     ctx.effect(
       () =>
@@ -266,10 +286,12 @@ export function installTabs(
     () => installTabsStyles(),
     "minke-overlay: tabs styles",
   );
-  ctx.effect(
-    () => installWebTabStyles(),
-    "minke-overlay: Web tab styles",
-  );
+  if (tabsPort.embeddedWebAvailable) {
+    ctx.effect(
+      () => installWebTabStyles(),
+      "minke-overlay: Web tab styles",
+    );
+  }
   ctx.effect(
     () => installDetailsTabStyles(),
     "minke-overlay: Details tab styles",
@@ -289,10 +311,15 @@ export function installTabs(
 
   const openRightHost = ctx.layout.openDetails.bind(ctx.layout);
   const closeRightHost = ctx.layout.closeDetails.bind(ctx.layout);
-  const rightTabs = new TabsRuntime({
-    showPanel: openRightHost,
-    hidePanel: closeRightHost,
+  const rightHost = new ResponsiveRightTabsHost({
+    openDetails: openRightHost,
+    closeDetails: closeRightHost,
+  }, {
+    // The preload bridge is the capability boundary. Do not infer the
+    // runtime from user-agent or packaging metadata.
+    drawerEnabled: !tabsPort.embeddedWebAvailable,
   });
+  const rightTabs = new TabsRuntime(rightHost);
   const bottomTabs = new TabsRuntime({
     showPanel() {},
     hidePanel() {},
@@ -303,6 +330,12 @@ export function installTabs(
     bottom: bottomTabs,
     right: rightTabs,
   });
+  ctx.effect(
+    () => () => {
+      rightHost.dispose();
+    },
+    "minke-overlay: responsive right Tabs host",
+  );
   const webT = ctx.locale.bind<WebTabsLocaleKey>(
     WEB_TABS_NAMESPACE,
   ) as WebTabsTranslate;
@@ -315,8 +348,11 @@ export function installTabs(
     placement: "bottom" | "right",
   ) => {
     const renderers = new TabRendererRegistry();
-    const webTabs = new WebTabsController(tabs, tabsPort);
-    const pluginTabs = pluginInstallerPort.available
+    const webTabs = tabsPort.embeddedWebAvailable
+      ? new WebTabsController(tabs, tabsPort)
+      : undefined;
+    const pluginTabs =
+      pluginInstallerPort.available && webTabs !== undefined
       ? new PluginTabsController(
           tabs,
           pluginInstallerPort,
@@ -337,7 +373,7 @@ export function installTabs(
         terminalTabs?.dispose();
         pluginTabs?.dispose();
         filesTabs?.dispose();
-        webTabs.dispose();
+        webTabs?.dispose();
         renderers.clear();
         tabs.dispose();
       },
@@ -379,13 +415,15 @@ export function installTabs(
         `minke-overlay: ${placement} Plugins renderer`,
       );
     }
-    ctx.effect(
-      () =>
-        renderers.register(
-          createWebTabRenderer(webTabs, webT),
-        ),
-      `minke-overlay: ${placement} Web tab renderer`,
-    );
+    if (webTabs !== undefined) {
+      ctx.effect(
+        () =>
+          renderers.register(
+            createWebTabRenderer(webTabs, webT),
+          ),
+        `minke-overlay: ${placement} Web tab renderer`,
+      );
+    }
     return Object.freeze({
       filesTabs,
       pluginTabs,
@@ -436,10 +474,13 @@ export function installTabs(
       "minke-overlay: conversation Files reader",
     );
   }
-  ctx.effect(
-    () => installWebLinkTabs(rightWorkspace.webTabs),
-    "minke-overlay: Web link tabs",
-  );
+  const rightWebTabs = rightWorkspace.webTabs;
+  if (rightWebTabs !== undefined) {
+    ctx.effect(
+      () => installWebLinkTabs(rightWebTabs),
+      "minke-overlay: Web link tabs",
+    );
+  }
 
   ctx.slots.inject("shell.overlay", () =>
     ctx.slots.register(
@@ -465,6 +506,7 @@ export function installTabs(
           runtime: rightTabs,
           renderers: rightWorkspace.renderers,
           layoutState: tabsLayoutState,
+          presentation: rightHost,
           setRightTrackWidth,
         }),
       },

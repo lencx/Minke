@@ -29,6 +29,9 @@ import type {
   TabRendererRegistry,
 } from "./registry.ts";
 import type {
+  RightTabsPresentationPort,
+} from "./responsive-right-host.ts";
+import type {
   TabsRuntime,
 } from "./runtime.ts";
 import {
@@ -53,11 +56,23 @@ interface DropTarget {
   readonly edge: "before" | "after";
 }
 
+const dockedPresentation = () => "docked" as const;
+const ignorePresentationChanges = () => () => {};
+const drawerFocusableSelector = [
+  "button:not(:disabled)",
+  "[href]",
+  "input:not(:disabled)",
+  "select:not(:disabled)",
+  "textarea:not(:disabled)",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
 export interface TabsPanelProps {
   placement: TabsPanelPlacement;
   runtime: TabsRuntime;
   renderers: TabRendererRegistry;
   layoutState: TabsLayoutStateRuntime;
+  presentation?: RightTabsPresentationPort;
   setRightTrackWidth?: (width: number) => void;
   useSessions: <T>(
     selector: (state: SessionListSelection) => T,
@@ -96,6 +111,7 @@ export function TabsPanel({
   runtime,
   renderers,
   layoutState,
+  presentation,
   setRightTrackWidth,
   useSessions,
   t,
@@ -110,6 +126,14 @@ export function TabsPanel({
     renderers.getSnapshot,
     renderers.getSnapshot,
   );
+  const responsivePresentation = useSyncExternalStore(
+    presentation?.subscribe ?? ignorePresentationChanges,
+    presentation?.getSnapshot ?? dockedPresentation,
+    dockedPresentation,
+  );
+  const drawer =
+    placement === "right" &&
+    responsivePresentation === "drawer";
   const sessionId = useSessions((state) => state.current);
   const cwd = useSessions((state) => {
     const current = state.current;
@@ -149,6 +173,7 @@ export function TabsPanel({
     !showCreateChooser &&
     activeTab !== undefined &&
     activeRenderer?.loading?.(activeTab) === true;
+  const hidePanelLabel = t("panel.hide");
 
   useEffect(() => {
     if (snapshot.visible) runtime.syncPanel();
@@ -158,7 +183,11 @@ export function TabsPanel({
 
   useEffect(() => {
     const panel = panelRef.current;
-    if (panel === null || !panelRendered) return;
+    if (
+      panel === null ||
+      !panelRendered ||
+      drawer
+    ) return;
     let active = true;
     const resize = new TabsPanelResizeController(panel, {
       applyRightTrackWidth:
@@ -184,6 +213,7 @@ export function TabsPanel({
     };
   }, [
     layoutState,
+    drawer,
     panelRendered,
     placement,
     setRightTrackWidth,
@@ -221,6 +251,7 @@ export function TabsPanel({
   useEffect(() => {
     const panel = panelRef.current;
     const wasVisible = wasVisibleRef.current;
+    let cancelScheduledFocus: (() => void) | undefined;
     if (
       snapshot.visible &&
       !wasVisible &&
@@ -233,6 +264,28 @@ export function TabsPanel({
       ) {
         returnFocusRef.current = focused;
       }
+      if (drawer) {
+        const focusPanel = (): void => {
+          if (!runtime.getSnapshot().visible) return;
+          panel
+            .querySelector<HTMLElement>(
+              [
+                '.minke-tab__target[aria-selected="true"]',
+                ".minke-tabs-empty__option",
+                drawerFocusableSelector,
+              ].join(","),
+            )
+            ?.focus({ preventScroll: true });
+        };
+        const view = panel.ownerDocument.defaultView;
+        if (view === null) {
+          queueMicrotask(focusPanel);
+        } else {
+          const frame = view.requestAnimationFrame(focusPanel);
+          cancelScheduledFocus = () =>
+            view.cancelAnimationFrame(frame);
+        }
+      }
     } else if (!snapshot.visible && wasVisible) {
       const target = returnFocusRef.current;
       if (target?.isConnected === true) {
@@ -241,7 +294,8 @@ export function TabsPanel({
       returnFocusRef.current = null;
     }
     wasVisibleRef.current = snapshot.visible;
-  }, [snapshot.visible]);
+    return cancelScheduledFocus;
+  }, [drawer, runtime, snapshot.visible]);
 
   useEffect(() => {
     if (!snapshot.visible || snapshot.activeId === undefined) return;
@@ -348,16 +402,82 @@ export function TabsPanel({
   };
 
   return (
+    <>
+    {drawer && (
+      <button
+        type="button"
+        className="minke-tabs-mobile-scrim"
+        data-open={snapshot.visible || undefined}
+        aria-label={hidePanelLabel}
+        tabIndex={-1}
+        onClick={() => runtime.hide()}
+      />
+    )}
     <aside
       id={tabsPanelId(placement)}
       ref={panelRef}
       className="minke-tabs-panel"
       data-minke-tabs
       data-placement={placement}
+      data-presentation={drawer ? "drawer" : "docked"}
       data-open={snapshot.visible || undefined}
+      role={drawer ? "dialog" : undefined}
+      aria-modal={
+        drawer && snapshot.visible ? true : undefined
+      }
       aria-label={t("panel.label")}
       aria-hidden={!snapshot.visible}
       onKeyDown={(event) => {
+        if (
+          drawer &&
+          snapshot.visible &&
+          event.key === "Escape"
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          setChoosingType(false);
+          runtime.hide();
+          return;
+        }
+        if (
+          drawer &&
+          snapshot.visible &&
+          event.key === "Tab"
+        ) {
+          const focusable = Array.from(
+            event.currentTarget.querySelectorAll<HTMLElement>(
+              drawerFocusableSelector,
+            ),
+          ).filter(
+            (element) =>
+              element.closest('[hidden], [aria-hidden="true"]') ===
+              null,
+          );
+          const first = focusable[0];
+          const last = focusable.at(-1);
+          if (first === undefined || last === undefined) {
+            event.preventDefault();
+            return;
+          }
+          const active =
+            event.currentTarget.ownerDocument.activeElement;
+          if (
+            event.shiftKey &&
+            (active === first ||
+              !event.currentTarget.contains(active))
+          ) {
+            event.preventDefault();
+            last.focus();
+          } else if (
+            !event.shiftKey &&
+            (active === last ||
+              !event.currentTarget.contains(active))
+          ) {
+            event.preventDefault();
+            first.focus();
+          }
+          return;
+        }
         if (
           event.key !== "Escape" ||
           !choosingType ||
@@ -371,10 +491,25 @@ export function TabsPanel({
         focusActiveTab();
       }}
     >
+      {drawer && (
+        <button
+          type="button"
+          className="minke-tabs-panel__close"
+          aria-label={hidePanelLabel}
+          title={hidePanelLabel}
+          onClick={() => {
+            setChoosingType(false);
+            runtime.hide();
+          }}
+        >
+          <CloseIcon size={18} />
+        </button>
+      )}
       <div
         className="minke-tabs-resize-handle"
         data-minke-tabs-resize-handle=""
         role="separator"
+        aria-hidden={drawer || undefined}
         aria-label={t(
           placement === "bottom"
             ? "panel.resizeBottom"
@@ -647,5 +782,6 @@ export function TabsPanel({
         })}
       </div>
     </aside>
+    </>
   );
 }

@@ -348,15 +348,17 @@ export function FilePreviewPane(props: {
               </button>
             </div>
           )}
-          <button
-            type="button"
-            aria-label={t("files.preview.openSystem")}
-            title={t("files.preview.openSystem")}
-            onClick={() =>
-              controller.open(tabId, preview.entry.path)}
-          >
-            <OpenSystemIcon size={15} />
-          </button>
+          {controller.nativeOpenAvailable && (
+            <button
+              type="button"
+              aria-label={t("files.preview.openSystem")}
+              title={t("files.preview.openSystem")}
+              onClick={() =>
+                controller.open(tabId, preview.entry.path)}
+            >
+              <OpenSystemIcon size={15} />
+            </button>
+          )}
           <button
             type="button"
             aria-label={t("files.preview.close")}

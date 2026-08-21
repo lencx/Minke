@@ -15,6 +15,8 @@ export const TERMINAL_MAX_COLS = 500;
 export const TERMINAL_MIN_ROWS = 2;
 export const TERMINAL_MAX_ROWS = 300;
 export const TERMINAL_MAX_INPUT_LENGTH = 65_536;
+export const TERMINAL_MAX_EVENTS_PER_READ = 128;
+export const TERMINAL_MAX_POLL_WAIT_MS = 25_000;
 
 export interface TerminalCreateRequest {
   readonly cwd?: string;
@@ -35,6 +37,19 @@ export interface TerminalResizeRequest {
   readonly sessionId: string;
   readonly cols: number;
   readonly rows: number;
+}
+
+export interface TerminalReadRequest {
+  readonly sessionId: string;
+  readonly cursor: number;
+  readonly waitMs: number;
+}
+
+export interface TerminalReadResult {
+  readonly cursor: number;
+  readonly done: boolean;
+  readonly truncated: boolean;
+  readonly events: readonly TerminalEvent[];
 }
 
 export type TerminalEvent =
@@ -90,6 +105,22 @@ function terminalDimension(
     value > maximum
   ) {
     throw new TypeError("invalid terminal dimensions");
+  }
+  return value;
+}
+
+function naturalInteger(
+  value: unknown,
+  label: string,
+  maximum = Number.MAX_SAFE_INTEGER,
+): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > maximum
+  ) {
+    throw new TypeError(`invalid ${label}`);
   }
   return value;
 }
@@ -171,6 +202,21 @@ export function parseTerminalResizeRequest(
   };
 }
 
+export function parseTerminalReadRequest(
+  value: unknown,
+): TerminalReadRequest {
+  const input = record(value);
+  return {
+    sessionId: terminalSessionId(input.sessionId),
+    cursor: naturalInteger(input.cursor, "terminal cursor"),
+    waitMs: naturalInteger(
+      input.waitMs,
+      "terminal poll wait",
+      TERMINAL_MAX_POLL_WAIT_MS,
+    ),
+  };
+}
+
 export function parseTerminalSessionId(value: unknown): string {
   return terminalSessionId(value);
 }
@@ -218,4 +264,24 @@ export function parseTerminalEvent(value: unknown): TerminalEvent {
     };
   }
   throw new TypeError("invalid terminal event");
+}
+
+export function parseTerminalReadResult(
+  value: unknown,
+): TerminalReadResult {
+  const input = record(value);
+  if (
+    typeof input.done !== "boolean" ||
+    typeof input.truncated !== "boolean" ||
+    !Array.isArray(input.events) ||
+    input.events.length > TERMINAL_MAX_EVENTS_PER_READ
+  ) {
+    throw new TypeError("invalid terminal read result");
+  }
+  return {
+    cursor: naturalInteger(input.cursor, "terminal cursor"),
+    done: input.done,
+    truncated: input.truncated,
+    events: input.events.map(parseTerminalEvent),
+  };
 }

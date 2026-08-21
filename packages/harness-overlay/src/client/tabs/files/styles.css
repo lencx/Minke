@@ -82,6 +82,12 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+.minke-tabs-panel[data-presentation="drawer"]
+  .minke-files-mode-select {
+  width: 44px;
+  border-radius: 12px;
+}
+
 .minke-files-mode-select:hover,
 .minke-files-mode-select:focus-within {
   background: var(--dsw-alias-interactive-bg-hover);

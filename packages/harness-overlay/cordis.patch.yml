@@ -22,3 +22,5 @@
 
     - id: minke-overlay
       name: '@lencx/minke-harness-overlay'
+      config:
+        rootPath: !!js process.env.MINKE_HOST_ROOT

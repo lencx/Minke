@@ -27,6 +27,7 @@ const sourceExtensions = new Set([
   ".cjs",
 ]);
 const desktopOverlayContracts = new Set([
+  "@minke/harness-overlay/host/file-manager",
   "@minke/harness-overlay/session-export-contract",
   "@minke/harness-overlay/data-home-contract",
   "@minke/harness-overlay/plugin-install-contract",
@@ -76,7 +77,7 @@ test("production sources do not cross the root or vendored-source aliases", () =
   );
 });
 
-test("desktop imports only the overlay's explicit cross-process contracts", () => {
+test("desktop imports only the overlay's explicit shared modules", () => {
   const desktopRoot = resolve(projectRoot, "desktop");
   const violations = productionImports.filter(({ path, specifier }) => {
     if (

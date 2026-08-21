@@ -143,8 +143,9 @@ export function createFilesTabRenderer(
     renderIcon: () => <FilesIcon size={13} />,
     renderLeadingActions: (tab) =>
       leadingActions(tab, controller, t),
-    renderTrailingActions: (tab) => (
-      <>
+    renderTrailingActions: (tab) =>
+      controller.nativeOpenAvailable
+        ? (
         <ToolbarButton
           label={t("files.nav.openSystem")}
           disabled={
@@ -161,8 +162,8 @@ export function createFilesTabRenderer(
         >
           <OpenFolderIcon />
         </ToolbarButton>
-      </>
-    ),
+        )
+        : null,
     renderToolbarCenter: (tab) =>
       isFilesTab(tab)
         ? (

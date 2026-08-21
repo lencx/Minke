@@ -115,6 +115,7 @@ export function desktopTabsPort(
   if (bridge === undefined) {
     return {
       available: false,
+      embeddedWebAvailable: false,
       async readLayoutState() {
         return {};
       },
@@ -124,6 +125,7 @@ export function desktopTabsPort(
   }
   return {
     available: true,
+    embeddedWebAvailable: true,
     async readLayoutState() {
       if (bridge.readLayoutState === undefined) return {};
       return parseTabsLayoutState(await bridge.readLayoutState());
@@ -149,6 +151,7 @@ export function desktopFilesPort(
   if (bridge === undefined) {
     return {
       available: false,
+      nativeOpenAvailable: false,
       async diff() {
         throw new Error(
           "Minke desktop Files bridge is unavailable",
@@ -181,6 +184,7 @@ export function desktopFilesPort(
   }
   return {
     available: true,
+    nativeOpenAvailable: true,
     async diff(request) {
       return parseFileManagerDiffResult(
         await bridge.diff(

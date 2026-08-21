@@ -121,6 +121,10 @@ export class FilesTabsController {
     this.#hydrateViewState();
   }
 
+  get nativeOpenAvailable(): boolean {
+    return this.#desktop.nativeOpenAvailable !== false;
+  }
+
   create(path: string | undefined, title: string): string | undefined {
     if (this.#disposed || !this.#desktop.available) return undefined;
     const tabId = this.#tabs.open<FilesTabPayload>({
@@ -683,7 +687,9 @@ export class FilesTabsController {
   }
 
   open(tabId: string, path: string): void {
-    if (this.#disposed) return;
+    if (this.#disposed || !this.nativeOpenAvailable) {
+      return;
+    }
     void this.#desktop.open({ path }).catch((error: unknown) => {
       const tab = this.#tabs.tab(tabId);
       if (tab === undefined || !isFilesTab(tab)) return;

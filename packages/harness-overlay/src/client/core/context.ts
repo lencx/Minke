@@ -36,8 +36,8 @@ export interface LocaleService {
 
 export interface SlotRegistration {
   name: string;
-  id: string;
-  order: number;
+  id?: string;
+  order?: number;
   priority?: number;
   label?: () => string;
   locale?: string;
@@ -52,6 +52,20 @@ export interface SlotService {
   ): unknown;
 }
 
+export type HarnessRpcResult =
+  | {
+    readonly ok: true;
+    readonly value: unknown;
+  }
+  | {
+    readonly ok: false;
+    readonly error: {
+      readonly code: string;
+      readonly message: string;
+      readonly details: unknown;
+    };
+  };
+
 /**
  * Public Harness services consumed by the client feature installers.
  *
@@ -59,6 +73,16 @@ export interface SlotService {
  * the composition root from accumulating feature-specific overloads.
  */
 export interface HarnessClientContext {
+  connection: {
+    rpc: {
+      call(
+        channel: string,
+        endpoint: string,
+        payload: unknown,
+        signal?: AbortSignal,
+      ): Promise<HarnessRpcResult>;
+    };
+  };
   effect(
     callback: () => void | (() => void),
     label: string,

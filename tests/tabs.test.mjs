@@ -70,6 +70,13 @@ import {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
 import {
+  desktopTabsPort,
+} from "@minke/harness-overlay/client/desktop/workspace.ts";
+import {
+  MOBILE_TABS_MEDIA_QUERY,
+  ResponsiveRightTabsHost,
+} from "@minke/harness-overlay/client/tabs/responsive-right-host.ts";
+import {
   DetailsTabsController,
   installDetailsLayoutOpenBridge,
   installDetailsTabsBridge,
@@ -523,6 +530,7 @@ test("Files runtime falls back to the system root", async () => {
   });
   const runtime = new FileManagerRuntime({
     rootPath: root,
+    canonicalizePath: async (path) => path,
     readDirectory: async (path) => {
       assert.equal(path, root);
       return [
@@ -627,6 +635,7 @@ test("Files runtime bounds text and image previews", async () => {
   ]);
   const runtime = new FileManagerRuntime({
     rootPath: root,
+    canonicalizePath: async (path) => path,
     inspectPath: async (path) =>
       path === directoryPath
         ? {
@@ -767,6 +776,7 @@ test("Files runtime returns a bounded source diff baseline", async () => {
   const requests = [];
   const runtime = new FileManagerRuntime({
     rootPath: root,
+    canonicalizePath: async (candidate) => candidate,
     readOriginal: async (candidate) => {
       requests.push(candidate);
       return {
@@ -2898,6 +2908,235 @@ test("Tabs disposal releases an open host panel", () => {
 
   assert.equal(tabs.getSnapshot().visible, false);
   assert.deepEqual(hostEvents, ["show", "hide"]);
+});
+
+test("mobile right Tabs use a drawer without opening the desktop Details track", () => {
+  const layoutEvents = [];
+  const listeners = new Set();
+  const media = {
+    matches: true,
+    addEventListener(type, listener) {
+      assert.equal(type, "change");
+      listeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      assert.equal(type, "change");
+      listeners.delete(listener);
+    },
+  };
+  const host = new ResponsiveRightTabsHost(
+    {
+      openDetails: () => layoutEvents.push("open"),
+      closeDetails: () => layoutEvents.push("close"),
+    },
+    {
+      view: {
+        matchMedia(query) {
+          assert.equal(query, MOBILE_TABS_MEDIA_QUERY);
+          return media;
+        },
+      },
+    },
+  );
+  const presentations = [];
+  const unsubscribe = host.subscribe(() => {
+    presentations.push(host.getSnapshot());
+  });
+
+  assert.equal(host.getSnapshot(), "drawer");
+  host.showPanel();
+  assert.deepEqual(
+    layoutEvents,
+    ["close"],
+    "mobile open must collapse the desktop grid track",
+  );
+
+  media.matches = false;
+  for (const listener of listeners) {
+    listener({ matches: false });
+  }
+  assert.equal(host.getSnapshot(), "docked");
+  assert.deepEqual(layoutEvents, ["close", "open"]);
+  assert.deepEqual(presentations, ["docked"]);
+
+  host.hidePanel();
+  assert.deepEqual(layoutEvents, ["close", "open", "close"]);
+  unsubscribe();
+  host.dispose();
+  assert.equal(listeners.size, 0);
+});
+
+test("Electron right Tabs remain docked at a compact width", () => {
+  const layoutEvents = [];
+  const media = new EventTarget();
+  media.matches = true;
+  const host = new ResponsiveRightTabsHost(
+    {
+      openDetails: () => layoutEvents.push("open"),
+      closeDetails: () => layoutEvents.push("close"),
+    },
+    {
+      drawerEnabled: false,
+      view: {
+        matchMedia: () => media,
+      },
+    },
+  );
+
+  assert.equal(host.getSnapshot(), "docked");
+  host.showPanel();
+  assert.deepEqual(layoutEvents, ["open"]);
+  host.hidePanel();
+  assert.deepEqual(layoutEvents, ["open", "close"]);
+  host.dispose();
+});
+
+test("desktop presentation is selected by preload capability, not user-agent", () => {
+  const browserWithElectronUa = desktopTabsPort({
+    navigator: { userAgent: "Electron/99" },
+  });
+  const preloadWithBrowserUa = desktopTabsPort({
+    navigator: { userAgent: "Mobile Safari" },
+    minkeDesktop: {
+      tabs: {
+        openExternal() {},
+      },
+    },
+  });
+
+  assert.equal(browserWithElectronUa.embeddedWebAvailable, false);
+  assert.equal(preloadWithBrowserUa.embeddedWebAvailable, true);
+});
+
+test("mobile drawer presentation stays isolated from bottom Tabs", () => {
+  const panelSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/TabsPanel.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const installSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/install.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(
+    panelSource,
+    /const drawer\s*=\s*placement === "right"\s*&&\s*responsivePresentation === "drawer"/u,
+  );
+  assert.match(panelSource, /className="minke-tabs-mobile-scrim"/u);
+  assert.match(panelSource, /role=\{drawer \? "dialog"/u);
+  assert.match(panelSource, /event\.key === "Escape"/u);
+  assert.match(
+    installSource,
+    /presentation:\s*rightHost,[\s\S]*setRightTrackWidth/u,
+  );
+  assert.match(
+    installSource,
+    /drawerEnabled:\s*!tabsPort\.embeddedWebAvailable/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="right"\]\[data-presentation="drawer"\]\s*\{[\s\S]*env\(safe-area-inset-top\)[\s\S]*box-shadow:/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-mobile-scrim\[data-open\]\s*\{[\s\S]*pointer-events:\s*auto/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /data-presentation="drawer"[\s\S]*\.minke-tab__close\s*\{[\s\S]*width:\s*44px;[\s\S]*height:\s*44px;/u,
+  );
+  assert.doesNotMatch(
+    TABS_STYLES,
+    /data-placement="bottom"\]\[data-presentation="drawer"/u,
+    "bottom Tabs must keep reserving space for the conversation input",
+  );
+});
+
+test("mobile drawer Tabs expose a panel close action", () => {
+  const panelSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/TabsPanel.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(
+    panelSource,
+    /drawer\s*&&\s*\([\s\S]*className="minke-tabs-panel__close"[\s\S]*runtime\.hide\(\)/u,
+    "the mobile dialog needs its own visible close action",
+  );
+});
+
+test("mobile drawer Tabs reflow chrome instead of overlapping it", () => {
+  assert.match(
+    TABS_STYLES,
+    /data-presentation="drawer"[\s\S]*\.minke-tabs-chrome\s*\{[\s\S]*height:\s*auto;/u,
+    "mobile chrome must size from its tab and toolbar rows",
+  );
+  assert.match(
+    TABS_STYLES,
+    /data-presentation="drawer"[\s\S]*\.minke-tabs-tabbar\s*\{[\s\S]*position:\s*relative;[\s\S]*top:\s*auto;/u,
+    "mobile tabs must participate in layout instead of overlaying the toolbar",
+  );
+  assert.match(
+    TABS_STYLES,
+    /data-presentation="drawer"[\s\S]*\.minke-tabs-toolbar\s*\{[\s\S]*position:\s*relative;[\s\S]*top:\s*auto;/u,
+    "mobile toolbars must follow the tab row in normal flow",
+  );
+  assert.match(
+    TABS_STYLES,
+    /data-presentation="drawer"[\s\S]*\.minke-tabs-progress\s*\{[\s\S]*position:\s*relative;[\s\S]*top:\s*auto;/u,
+    "mobile progress must follow the variable-height chrome",
+  );
+});
+
+test("mobile drawer Tabs own their top actions", () => {
+  assert.match(
+    TABS_STYLES,
+    /:has\([\s\S]*data-presentation="drawer"[\s\S]*data-open[\s\S]*\)[\s\S]*\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*visibility:\s*hidden;/u,
+    "desktop placement controls must not sit above the mobile dialog",
+  );
+  assert.match(
+    TABS_STYLES,
+    /data-presentation="drawer"\][\s\S]*\.minke-tabs-tabbar__actions[\s\S]*\.minke-tabs-toolbar__button[\s\S]*\{[\s\S]*width:\s*44px;[\s\S]*height:\s*44px;/u,
+    "mobile new-tab actions need a full touch target",
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /data-presentation="drawer"[\s\S]*\.minke-files-mode-select\s*\{[\s\S]*width:\s*44px;/u,
+    "mobile Files layout selection needs a full touch target",
+  );
+});
+
+test("mobile right Tabs use a right-edge drawer presentation", () => {
+  const panelSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/TabsPanel.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(
+    panelSource,
+    /responsivePresentation === "drawer"/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /data-presentation="drawer"\]\s*\{[\s\S]*right:\s*0;[\s\S]*left:\s*auto;[\s\S]*transform:\s*translateX\(100%\);/u,
+    "the mobile Details surface must enter from the right edge",
+  );
+  assert.match(
+    TABS_STYLES,
+    /data-presentation="drawer"\]\[data-open\]\s*\{[\s\S]*transform:\s*translateX\(0\);/u,
+  );
 });
 
 test("Details state contract rejects incomplete plugin bridge payloads", () => {

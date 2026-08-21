@@ -7,6 +7,10 @@
     "tsBuildInfoFile": "./lib/tsconfig.host.tsbuildinfo"
   },
   "include": [
-    "src/index.ts"
+    "src/index.ts",
+    "src/minke-host-contract.ts",
+    "src/host",
+    "src/tabs/files-contract.ts",
+    "src/tabs/terminal-contract.ts"
   ]
 }

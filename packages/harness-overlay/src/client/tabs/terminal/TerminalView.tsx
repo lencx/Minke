@@ -32,6 +32,9 @@ import {
   applyTerminalRenderingSettings,
   terminalRenderingOptions,
 } from "./settings/rendering.ts";
+import {
+  observeTerminalVisualViewport,
+} from "./visual-viewport.ts";
 
 function themeFontFamilyFrom(host: HTMLElement): string {
   return (
@@ -107,7 +110,11 @@ export function TerminalView(props: {
         return;
       }
       try {
+        const anchoredToBottom =
+          terminal.buffer.active.viewportY >=
+          terminal.buffer.active.baseY;
         fit.fit();
+        if (anchoredToBottom) terminal.scrollToBottom();
         props.controller.resize(
           props.tab.id,
           terminal.cols,
@@ -126,6 +133,8 @@ export function TerminalView(props: {
     };
     const resize = new view.ResizeObserver(scheduleFit);
     resize.observe(host);
+    const disposeVisualViewport =
+      observeTerminalVisualViewport(view, scheduleFit);
     const appearance = new view.MutationObserver(() => {
       applyTerminalRenderingSettings(
         terminal,
@@ -155,6 +164,7 @@ export function TerminalView(props: {
       if (frame !== undefined) view.cancelAnimationFrame(frame);
       unsubscribe();
       input.dispose();
+      disposeVisualViewport();
       appearance.disconnect();
       resize.disconnect();
       terminal.dispose();

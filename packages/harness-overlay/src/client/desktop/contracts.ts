@@ -120,6 +120,8 @@ export interface DesktopWindowLocalePort {
 
 export interface DesktopTabsPort {
   readonly available: boolean;
+  /** Whether this renderer can host Electron's isolated `<webview>` tabs. */
+  readonly embeddedWebAvailable: boolean;
   readLayoutState(): Promise<TabsLayoutState>;
   writeLayoutState(update: TabsLayoutStateUpdate): Promise<void>;
   openExternal(url: string): void;
@@ -127,6 +129,8 @@ export interface DesktopTabsPort {
 
 export interface DesktopFilesPort {
   readonly available: boolean;
+  /** Whether paths can be handed to the host operating system. */
+  readonly nativeOpenAvailable: boolean;
   diff(
     request: FileManagerDiffRequest,
   ): Promise<FileManagerDiffResult>;

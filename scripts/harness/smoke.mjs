@@ -167,6 +167,140 @@ async function fetchManifest(baseUrl) {
   return parseManifest(await response.text());
 }
 
+let minkeHostRpcSequence = 0;
+
+async function callMinkeHost(baseUrl, endpoint, payload) {
+  const rpcId =
+    `minke-host-smoke-${String(Date.now())}-${String(++minkeHostRpcSequence)}`;
+  const response = await fetch(`${baseUrl}/minke/${endpoint}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "client-request",
+      rpcId,
+      method: endpoint,
+      payload,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `POST /minke/${endpoint} failed with HTTP ${String(response.status)}`,
+    );
+  }
+  const envelope = await response.json();
+  if (
+    envelope?.type !== "server-response" ||
+    envelope.rpcId !== rpcId
+  ) {
+    throw new Error(
+      `Minke Host returned an invalid ${endpoint} envelope: ${JSON.stringify(envelope)}`,
+    );
+  }
+  if (envelope.result?.ok !== true) {
+    throw new Error(
+      `Minke Host ${endpoint} failed: ${JSON.stringify(envelope.result?.error)}`,
+    );
+  }
+  return envelope.result.value;
+}
+
+async function fetchMinkeHostCapabilities(baseUrl) {
+  const capabilities = await callMinkeHost(
+    baseUrl,
+    "capabilities",
+    {},
+  );
+  if (
+    capabilities?.protocolVersion !== 2 ||
+    capabilities.files?.available !== true ||
+    capabilities.files?.write !== true ||
+    capabilities.tabs?.available !== true ||
+    capabilities.tabs?.embeddedWeb !== false ||
+    capabilities.terminal?.available !== true ||
+    capabilities.terminal?.resize !== true ||
+    capabilities.terminal?.transport !== "long-poll"
+  ) {
+    throw new Error(
+      `Minke Host returned unexpected capabilities: ${JSON.stringify(capabilities)}`,
+    );
+  }
+  return capabilities;
+}
+
+async function smokeMinkeHostTerminal(baseUrl) {
+  const marker = "minke-host-terminal-smoke";
+  const created = await callMinkeHost(
+    baseUrl,
+    "terminal.create",
+    {
+      cwd: projectRoot,
+      cols: 80,
+      rows: 24,
+    },
+  );
+  const sessionId = created?.sessionId;
+  if (typeof sessionId !== "string" || sessionId === "") {
+    throw new Error(
+      `Minke Host returned an invalid Terminal session: ${JSON.stringify(created)}`,
+    );
+  }
+  let cursor = 0;
+  let output = "";
+  let exited = false;
+  try {
+    await callMinkeHost(baseUrl, "terminal.resize", {
+      sessionId,
+      cols: 100,
+      rows: 30,
+    });
+    await callMinkeHost(baseUrl, "terminal.write", {
+      sessionId,
+      data:
+        process.platform === "win32"
+          ? `echo ${marker}\r\nexit\r\n`
+          : `printf '${marker}\\n'; exit\r`,
+    });
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline && !exited) {
+      const result = await callMinkeHost(
+        baseUrl,
+        "terminal.read",
+        {
+          sessionId,
+          cursor,
+          waitMs: 1_000,
+        },
+      );
+      if (
+        typeof result?.cursor !== "number" ||
+        !Array.isArray(result.events) ||
+        result.truncated === true
+      ) {
+        throw new Error(
+          `Minke Host returned invalid Terminal output: ${JSON.stringify(result)}`,
+        );
+      }
+      cursor = result.cursor;
+      for (const event of result.events) {
+        if (event?.type === "data") output += event.data;
+        if (event?.type === "exit") exited = true;
+      }
+      if (result.done === true) exited = true;
+    }
+  } finally {
+    await callMinkeHost(
+      baseUrl,
+      "terminal.close",
+      sessionId,
+    ).catch(() => {});
+  }
+  if (!output.includes(marker) || !exited) {
+    throw new Error(
+      `Minke Host Terminal smoke failed: ${JSON.stringify({ output, exited })}`,
+    );
+  }
+}
+
 async function waitForChangedRevision(baseUrl, pluginId, initialRevision) {
   const deadline = Date.now() + hmrTimeoutMs;
   while (Date.now() < deadline) {
@@ -432,6 +566,8 @@ async function main() {
       env,
     );
     const manifest = await fetchManifest(server.baseUrl);
+    const minkeCapabilities = await fetchMinkeHostCapabilities(server.baseUrl);
+    await smokeMinkeHostTerminal(server.baseUrl);
     const productRow = manifest.entries.find(
       (entry) => entry.id === productPackageName,
     );
@@ -496,6 +632,7 @@ async function main() {
         `  bundled esbuild: ${esbuildVersion.stdout.trim()}`,
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,
+        `  Minke Host RPC: files=${String(minkeCapabilities.files.available)}, tabs=${String(minkeCapabilities.tabs.available)}, terminal=${String(minkeCapabilities.terminal.available)}`,
         `  external plugin install/load/HMR: ${server.baseUrl}`,
         "  ambient dsh/Node/pnpm dependency: none",
         `  runtime source: ${packaged ? "packaged app" : "staged development host"}`,
