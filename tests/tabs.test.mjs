@@ -434,13 +434,9 @@ test("Harness Details portal patch preserves the native plugin slot chain", asyn
     await copyFile(
       join(
         projectRoot,
-        "vendor",
-        "deepseek-harness",
-        "packages",
-        "client",
-        "ui-conversation",
-        "lib",
-        "client.js",
+        "tests",
+        "fixtures",
+        "details-client-preimage.js",
       ),
       target,
     );
