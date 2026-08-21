@@ -35,7 +35,16 @@ Minke 在本地运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 - **安全、可恢复的数据迁移** — 自定义 Minke 数据目录，预览并合并现有 Session、插件与设置。Minke 会去重相同文件、保留冲突和源目录，并只在重启迁移成功后切换；也可以选择从全新数据目录开始。
 - **本地优先并覆盖三大平台** — 应用状态和浏览器会话数据保留在本机的 Minke 数据边界内。自动化发布覆盖 macOS、Windows 和 Linux，并提供便携的 AppImage。
 
-![Minke 代码工作区：文件 Diff 与终端](./assets/code.png)
+<table>
+  <tr>
+    <td width="50%"><img src="./assets/01.png" alt="Minke 对话工作空间"></td>
+    <td width="50%"><img src="./assets/02.png" alt="Minke 设置与工作空间"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="./assets/code.png" alt="Minke 代码工作区：文件 Diff 与终端"></td>
+    <td width="50%"><img src="./assets/plugin.png" alt="Minke 插件工作空间与 Tabs 布局"></td>
+  </tr>
+</table>
 
 ## 通过 Tailscale 在手机上访问
 

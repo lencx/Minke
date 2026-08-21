@@ -35,11 +35,16 @@ Minke brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 - **Safe, recoverable data migration** — Choose where Minke stores its data, then preview and merge existing Sessions, plugins, and settings. Minke deduplicates identical files, preserves conflicts and source directories, and switches only after the restart-time migration succeeds; starting with a clean data home remains an option.
 - **Local-first and cross-platform** — Application state and browser session data stay on your machine under the Minke data boundary. Automated releases target macOS, Windows, and Linux, including a portable AppImage.
 
-![Minke 01](./assets/01.png)
-
-![Minke 02](./assets/02.png)
-
-![Minke code workspace with Files diff and Terminal](./assets/code.png)
+<table>
+  <tr>
+    <td width="50%"><img src="./assets/01.png" alt="Minke conversation workspace"></td>
+    <td width="50%"><img src="./assets/02.png" alt="Minke settings and workspace"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="./assets/code.png" alt="Minke code workspace with Files diff and Terminal"></td>
+    <td width="50%"><img src="./assets/plugin.png" alt="Minke Plugins workspace and tab layout"></td>
+  </tr>
+</table>
 
 ## Mobile access with Tailscale
 
