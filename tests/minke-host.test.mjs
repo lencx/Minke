@@ -17,6 +17,9 @@ import {
   MINKE_HOST_RPC_CHANNEL,
 } from "@minke/harness-overlay/minke-host-contract.ts";
 import {
+  MINKE_PWA_ROUTES,
+} from "@minke/harness-overlay/pwa-contract.ts";
+import {
   browserFilesPort,
   browserTerminalPort,
   browserTabsPort,
@@ -74,6 +77,8 @@ test("Minke Host mounts Files RPC on the trusted DSH connection", async (t) => {
   ]);
 
   let registration;
+  const pwaRoutes = [];
+  const indexTaps = [];
   const context = {
     effect(callback) {
       return callback();
@@ -86,8 +91,32 @@ test("Minke Host mounts Files RPC on the trusted DSH connection", async (t) => {
         },
       },
     },
+    webServer: {
+      register(route) {
+        pwaRoutes.push(route);
+        return () => {};
+      },
+      tapIndex(transform) {
+        indexTaps.push(transform);
+        return () => {};
+      },
+    },
   };
   applyMinkeHost(context, { rootPath: root });
+  assert.equal(indexTaps.length, 1);
+  assert.deepEqual(
+    pwaRoutes.map(({ path }) => path),
+    [
+      MINKE_PWA_ROUTES.manifest,
+      MINKE_PWA_ROUTES.bootstrap,
+      MINKE_PWA_ROUTES.serviceWorker,
+      MINKE_PWA_ROUTES.iconSvg,
+      MINKE_PWA_ROUTES.icon192,
+      MINKE_PWA_ROUTES.icon512,
+      MINKE_PWA_ROUTES.maskableIcon512,
+      MINKE_PWA_ROUTES.appleTouchIcon,
+    ],
+  );
   assert.equal(registration.channel, MINKE_HOST_RPC_CHANNEL);
   assert.deepEqual(registration.options, {
     authority: "trusted-host",

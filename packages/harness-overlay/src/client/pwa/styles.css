@@ -1,0 +1,135 @@
+/* Optional Web install action and its non-modal platform guidance. */
+
+.minke-pwa-install {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+
+.minke-pwa-install__trigger,
+.minke-pwa-install__close {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.minke-pwa-install__trigger {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.minke-pwa-install[data-wide="false"]
+  .minke-pwa-install__trigger {
+  border-radius: 50%;
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-pwa-install__trigger:hover,
+.minke-pwa-install__close:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-pwa-install__trigger:focus-visible,
+.minke-pwa-install__close:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.minke-pwa-install__trigger:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.minke-pwa-install__guide {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  z-index: 1200;
+  box-sizing: border-box;
+  width: min(340px, calc(100vw - 32px));
+  padding: 18px 48px 18px 18px;
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary);
+  animation: minke-pwa-guide-in 220ms
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.minke-pwa-install__guide-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 12px;
+  border-radius: 11px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-pwa-install__guide h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 22px;
+  letter-spacing: -0.01em;
+}
+
+.minke-pwa-install__guide p {
+  margin: 7px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.minke-pwa-install__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+@keyframes minke-pwa-guide-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+@media (display-mode: standalone) {
+  .minke-pwa-install {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .minke-pwa-install__guide {
+    right: max(12px, env(safe-area-inset-right));
+    left: max(12px, env(safe-area-inset-left));
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .minke-pwa-install__guide {
+    animation: none;
+  }
+}

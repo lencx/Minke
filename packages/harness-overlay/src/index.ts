@@ -14,6 +14,10 @@ import {
   loadHostTerminalPty,
 } from "./host/terminal.ts";
 import {
+  installMinkePwaHost,
+  type PwaWebServer,
+} from "./host/pwa.ts";
+import {
   parseFileManagerDiffRequest,
   parseFileManagerListRequest,
   parseFileManagerPreviewRequest,
@@ -28,7 +32,7 @@ import {
 } from "./tabs/terminal-contract.ts";
 
 export const name = "minke-host";
-export const inject = ["connection"];
+export const inject = ["connection", "webServer"];
 
 export interface Config {
   /** Absolute filesystem boundary exposed to remote Files tabs. */
@@ -65,6 +69,7 @@ interface MinkeHostContext {
       ): () => Promise<void>;
     };
   };
+  readonly webServer: PwaWebServer;
 }
 
 function configuredRoot(config: Config | undefined): string {
@@ -127,6 +132,10 @@ export function apply(
   ctx.effect(
     () => () => terminal.dispose(),
     "minke-host: Terminal runtime",
+  );
+  ctx.effect(
+    () => installMinkePwaHost(ctx.webServer),
+    "minke-host: PWA resources",
   );
   const capabilities: MinkeHostCapabilities = {
     protocolVersion: MINKE_HOST_PROTOCOL_VERSION,

@@ -113,6 +113,7 @@ async function fingerprintProductBundle(productBundle) {
         [
           "package.json",
           "lib",
+          "assets",
           "config",
           productBundle.bundle.patch,
           "LICENSE",
@@ -127,7 +128,13 @@ async function fingerprintProductBundle(productBundle) {
             packageName,
             fingerprint: await fingerprintPaths(
               packageRoot,
-              ["package.json", "lib", "config", "LICENSE"],
+              [
+                "package.json",
+                "lib",
+                "assets",
+                "config",
+                "LICENSE",
+              ],
               {
                 shouldIgnore: isPrunableRuntimePath,
               },
@@ -392,6 +399,7 @@ async function copyWorkspacePackage(packageName, packageSource, destination) {
   for (const entry of [
     "package.json",
     "lib",
+    "assets",
     "config",
     "cordis.patch.yml",
     "LICENSE",

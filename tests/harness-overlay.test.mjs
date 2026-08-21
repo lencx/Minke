@@ -88,6 +88,20 @@ const onboardingInstallSource = readFileSync(
   ),
   "utf8",
 );
+const brandInstallSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/brand/install.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const brandMarkSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/brand/MinkeBrand.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const shortcutInstallSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/shortcuts/install.tsx",
@@ -157,6 +171,8 @@ test("the client entry stays a composition root", () => {
     "installDesktopClient",
     "installAbout",
     "installDataHome",
+    "installWebBrand",
+    "installPwa",
     "installLocalModel",
     "installRemote",
     "installTabs",
@@ -169,6 +185,28 @@ test("the client entry stays a composition root", () => {
     clientSource,
     /ctx\.slots\.(?:inject|register)|new (?:ShortcutRuntime|TabsRuntime)|runtime\.register/u,
   );
+});
+
+test("the Web projection shadows official DSH brand slots with Minke", () => {
+  assert.match(
+    brandInstallSource,
+    /if \(desktopTabsPort\(\)\.embeddedWebAvailable\) return;/u,
+  );
+  for (const slot of [
+    "conversation.hero.brand.mark",
+    "sidebar.brand.mark",
+    "sidebar.brand.name",
+  ]) {
+    assert.match(brandInstallSource, new RegExp(slot, "u"));
+  }
+  assert.match(
+    brandInstallSource,
+    /MINKE_BRAND_PRIORITY\s*=\s*-100/u,
+  );
+  assert.match(brandMarkSource, /viewBox="0 0 832 832"/u);
+  assert.match(brandMarkSource, /fill="#0e1324"/u);
+  assert.match(brandMarkSource, /fill="#fdfdfd"/u);
+  assert.match(brandMarkSource, />Minke<\/span>/u);
 });
 
 test("product capability packages follow the shared naming convention", () => {

@@ -9,6 +9,7 @@
   "include": [
     "src/index.ts",
     "src/minke-host-contract.ts",
+    "src/pwa-contract.ts",
     "src/host",
     "src/tabs/files-contract.ts",
     "src/tabs/terminal-contract.ts"

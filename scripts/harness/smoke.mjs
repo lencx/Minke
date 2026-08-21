@@ -227,6 +227,50 @@ async function fetchMinkeHostCapabilities(baseUrl) {
   return capabilities;
 }
 
+async function smokeMinkePwa(baseUrl) {
+  const [indexResponse, manifestResponse, workerResponse, iconResponse] =
+    await Promise.all([
+      fetch(`${baseUrl}/`),
+      fetch(`${baseUrl}/manifest.webmanifest`),
+      fetch(`${baseUrl}/minke-sw.js`),
+      fetch(`${baseUrl}/minke-pwa/icon-fullbleed-192.png`),
+    ]);
+  for (const [label, response] of [
+    ["index", indexResponse],
+    ["manifest", manifestResponse],
+    ["service worker", workerResponse],
+    ["icon", iconResponse],
+  ]) {
+    if (!response.ok) {
+      throw new Error(
+        `Minke PWA ${label} failed with HTTP ${String(response.status)}`,
+      );
+    }
+  }
+  const [index, manifest, worker, icon] = await Promise.all([
+    indexResponse.text(),
+    manifestResponse.json(),
+    workerResponse.text(),
+    iconResponse.arrayBuffer(),
+  ]);
+  if (
+    !index.includes('data-minke-pwa="head"') ||
+    !index.includes('/minke-pwa/bootstrap.js') ||
+    !index.includes('/minke-pwa/apple-touch-icon-fullbleed.png') ||
+    manifest?.name !== "Minke" ||
+    manifest?.display !== "standalone" ||
+    !Array.isArray(manifest.icons) ||
+    !manifest.icons.some((entry) => entry?.sizes === "192x192") ||
+    !manifest.icons.some((entry) => entry?.sizes === "512x512") ||
+    !worker.includes('request.mode !== "navigate"') ||
+    /\bcaches\.(?:open|match)|cache\.put/u.test(worker) ||
+    workerResponse.headers.get("service-worker-allowed") !== "/" ||
+    Buffer.from(icon).toString("ascii", 1, 4) !== "PNG"
+  ) {
+    throw new Error("Minke PWA resources are incomplete or unsafe");
+  }
+}
+
 async function smokeMinkeHostTerminal(baseUrl) {
   const marker = "minke-host-terminal-smoke";
   const created = await callMinkeHost(
@@ -567,6 +611,7 @@ async function main() {
     );
     const manifest = await fetchManifest(server.baseUrl);
     const minkeCapabilities = await fetchMinkeHostCapabilities(server.baseUrl);
+    await smokeMinkePwa(server.baseUrl);
     await smokeMinkeHostTerminal(server.baseUrl);
     const productRow = manifest.entries.find(
       (entry) => entry.id === productPackageName,
@@ -633,6 +678,7 @@ async function main() {
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,
         `  Minke Host RPC: files=${String(minkeCapabilities.files.available)}, tabs=${String(minkeCapabilities.tabs.available)}, terminal=${String(minkeCapabilities.terminal.available)}`,
+        "  Minke PWA: standalone manifest/icons/service worker",
         `  external plugin install/load/HMR: ${server.baseUrl}`,
         "  ambient dsh/Node/pnpm dependency: none",
         `  runtime source: ${packaged ? "packaged app" : "staged development host"}`,
