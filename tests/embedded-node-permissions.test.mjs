@@ -9,6 +9,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { registerHooks } from "node:module";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import test from "node:test";
@@ -22,11 +23,36 @@ import {
 import {
   harnessRuntimeEnvironment,
 } from "../desktop/main/harness-runtime.ts";
-import {
-  scrubbedParentEnv,
-} from "../vendor/deepseek-harness/packages/subprocess/subprocess/src/index.ts";
 
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
+
+async function loadHarnessScrubbedParentEnv() {
+  // The scrub is pure; its Cordis base classes are unrelated and are not
+  // compiled yet when this suite runs in a clean packaging checkout.
+  const cordisStubUrl =
+    `data:text/javascript,${encodeURIComponent(
+      "export class Context {}; export class Service {};",
+    )}`;
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === "@deepseek-ai/cordis") {
+        return {
+          shortCircuit: true,
+          url: cordisStubUrl,
+        };
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  try {
+    const subprocess = await import(
+      "../vendor/deepseek-harness/packages/subprocess/subprocess/src/index.ts"
+    );
+    return subprocess.scrubbedParentEnv;
+  } finally {
+    hooks.deregister();
+  }
+}
 
 async function withTemporaryDirectory(callback) {
   const root = await mkdtemp(join(tmpdir(), "minke-embedded-node-"));
@@ -104,7 +130,8 @@ test("the staged entry preserves embedded Node mode for descendants", async () =
   });
 });
 
-test("Minke's embedded Node adapter survives the Harness child scrub", () => {
+test("Minke's embedded Node adapter survives the Harness child scrub", async () => {
+  const scrubbedParentEnv = await loadHarnessScrubbedParentEnv();
   const runtimeEnvironment = harnessRuntimeEnvironment(
     {
       pnpmEntry: "C:\\Minke\\runtime\\pnpm.cjs",
