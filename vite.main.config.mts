@@ -5,7 +5,7 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   build: {
-    sourcemap: true,
+    sourcemap: false,
     rollupOptions: {
       external: ["sys"],
     },

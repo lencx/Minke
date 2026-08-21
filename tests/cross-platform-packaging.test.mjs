@@ -143,6 +143,14 @@ test("Forge keeps its Electron ABI worker only on macOS", () => {
   );
 });
 
+test("production main-process bundles do not emit source maps", async () => {
+  const config = (
+    await import(new URL("../vite.main.config.mts", import.meta.url))
+  ).default;
+
+  assert.equal(config.build?.sourcemap, false);
+});
+
 test("Forge package and make reserve enough standard Node heap", async () => {
   const manifest = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
