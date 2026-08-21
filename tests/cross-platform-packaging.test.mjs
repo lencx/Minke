@@ -46,6 +46,20 @@ function withWindowsLineEndings(source) {
   return source.replace(/\r?\n/gu, "\r\n");
 }
 
+function hasRepositoryLfPolicy(source) {
+  const rules = new Set(
+    source
+      .split(/\r?\n/gu)
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("#")),
+  );
+
+  return (
+    rules.has("* text=auto eol=lf") &&
+    rules.has("*.patch text eol=lf whitespace=-space-before-tab")
+  );
+}
+
 test("Windows batch adapters run through ComSpec without enabling a global shell", () => {
   assert.deepEqual(
     resolveCommandInvocation(
@@ -149,6 +163,21 @@ test("production main-process bundles do not emit source maps", async () => {
   ).default;
 
   assert.equal(config.build?.sourcemap, false);
+});
+
+test("repository text and patch inputs stay LF on every checkout", async () => {
+  const attributes = await readFile(
+    new URL("../.gitattributes", import.meta.url),
+    "utf8",
+  );
+
+  assert.equal(hasRepositoryLfPolicy(attributes), true);
+  for (const unsafePolicy of [
+    "* text=auto\n*.patch text",
+    "* text=auto eol=crlf\n*.patch text eol=crlf",
+  ]) {
+    assert.equal(hasRepositoryLfPolicy(unsafePolicy), false);
+  }
 });
 
 test("Forge package and make reserve enough standard Node heap", async () => {

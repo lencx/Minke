@@ -1,1 +1,2 @@
+* text=auto eol=lf
 *.patch text eol=lf whitespace=-space-before-tab
