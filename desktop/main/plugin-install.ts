@@ -32,6 +32,7 @@ export function bindPluginInstallIpc(
   ipcMain: IpcMainLike,
   installer: PluginInstaller,
   authorize: (event: unknown) => boolean,
+  restartDesktop: () => void,
 ): PluginInstallBinding {
   const install = async (
     event: unknown,
@@ -65,6 +66,7 @@ export function bindPluginInstallIpc(
     }
     const request = parsePluginUninstallRequest(value);
     await installer.uninstall(request.name);
+    restartDesktop();
   };
 
   ipcMain.handle(PLUGIN_INSTALL_CHANNEL, install);

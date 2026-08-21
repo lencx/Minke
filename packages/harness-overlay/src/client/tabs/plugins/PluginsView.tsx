@@ -41,6 +41,7 @@ import {
   PLUGIN_DISCOVERY_TOPIC_URL,
   createPluginSearchUrl,
   readPluginSearchQuery,
+  removeInsertedWebviewCssSafely,
 } from "./resources.ts";
 import type { PluginTab } from "./types.ts";
 
@@ -298,9 +299,7 @@ export function PluginsView({
     let insertedCssKeys: string[] = [];
 
     const removeInsertedCss = (keys: readonly string[]): void => {
-      for (const key of keys) {
-        void view.removeInsertedCSS(key).catch(() => {});
-      }
+      removeInsertedWebviewCssSafely(view, keys);
     };
 
     const injectGitHubLayout = async (): Promise<void> => {

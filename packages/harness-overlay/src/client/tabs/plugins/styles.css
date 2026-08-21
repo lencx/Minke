@@ -1091,7 +1091,7 @@
 
 @container minke-tabs-panel (min-width: 760px) and (min-aspect-ratio: 5 / 3) {
   .minke-tabs-panel[data-placement="bottom"]
-    .minke-plugins-page {
+    .minke-plugins-page:not([hidden]) {
     display: grid;
     grid-template-areas:
       "install switcher"
@@ -1107,6 +1107,7 @@
     align-content: start;
     gap: 12px;
     padding: 18px 16px;
+    border-right: 1px solid var(--dsw-alias-border-l2);
     overflow: auto;
     background: color-mix(
       in srgb,

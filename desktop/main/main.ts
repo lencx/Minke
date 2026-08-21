@@ -790,6 +790,7 @@ async function bootstrap(): Promise<void> {
         isHarnessUrl(event.senderFrame.url)
       );
     },
+    scheduleDesktopRestart,
   );
   dataHomeSettingsBinding = bindDataHomeSettingsIpc(
     ipcMain,

@@ -44,6 +44,7 @@ import {
   PLUGIN_DISCOVERY_TOPIC_URL,
   createPluginSearchUrl,
   readPluginSearchQuery,
+  removeInsertedWebviewCssSafely,
 } from "@minke/harness-overlay/client/tabs/plugins/resources.ts";
 import {
   TabsRuntime,
@@ -102,6 +103,35 @@ test("plugin discovery searches accept keywords and GitHub qualifiers", () => {
     ),
     undefined,
   );
+});
+
+test("detached plugin webviews skip native CSS cleanup", () => {
+  let removals = 0;
+  removeInsertedWebviewCssSafely(
+    {
+      isConnected: false,
+      removeInsertedCSS() {
+        removals += 1;
+        throw new Error("webview is detached");
+      },
+    },
+    ["compact", "topic"],
+  );
+  assert.equal(removals, 0);
+});
+
+test("plugin webview CSS cleanup contains synchronous Electron failures", () => {
+  assert.doesNotThrow(() => {
+    removeInsertedWebviewCssSafely(
+      {
+        isConnected: true,
+        removeInsertedCSS() {
+          throw new Error("dom-ready has not fired");
+        },
+      },
+      ["compact"],
+    );
+  });
 });
 
 test("plugin install commands accept one web-profile package target", () => {
@@ -438,6 +468,7 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
   const handlers = new Map();
   const installs = [];
   const uninstalls = [];
+  let restarts = 0;
   const binding = bindPluginInstallIpc(
     {
       handle(channel, handler) {
@@ -453,6 +484,9 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
       },
       async uninstall(name) {
         uninstalls.push(name);
+        if (name === "broken-plugin") {
+          throw new Error("plugin remove failed");
+        }
       },
       async listInstalled() {
         return {
@@ -465,6 +499,9 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
       },
     },
     (event) => event === "trusted",
+    () => {
+      restarts += 1;
+    },
   );
   const handler = handlers.get(PLUGIN_INSTALL_CHANNEL);
   const readHandler = handlers.get(
@@ -482,6 +519,7 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
       "dsh plugin --profile web add dsh-status-rotator",
   });
   assert.deepEqual(installs, ["dsh-status-rotator"]);
+  assert.equal(restarts, 0);
   await assert.rejects(
     handler("untrusted", {
       command:
@@ -494,6 +532,7 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     name: "dsh-status-rotator",
   });
   assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
+  assert.equal(restarts, 1);
   await assert.rejects(
     uninstallHandler("untrusted", {
       name: "dsh-status-rotator",
@@ -501,6 +540,18 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     /unauthorized/u,
   );
   assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
+  assert.equal(restarts, 1);
+  await assert.rejects(
+    uninstallHandler("trusted", {
+      name: "broken-plugin",
+    }),
+    /plugin remove failed/u,
+  );
+  assert.deepEqual(uninstalls, [
+    "dsh-status-rotator",
+    "broken-plugin",
+  ]);
+  assert.equal(restarts, 1);
   assert.deepEqual(await readHandler("trusted"), {
     plugins: [{
       name: "example-plugin",
@@ -860,6 +911,14 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
     pluginsZh["plugins.installed.uninstall"],
     "卸载",
   );
+  assert.match(
+    pluginsZh["plugins.installed.uninstallConfirm"],
+    /自动重启/u,
+  );
+  assert.match(
+    pluginsEn["plugins.installed.uninstallSuccess"],
+    /Restarting Minke/u,
+  );
   assert.equal(
     pluginsEn["plugins.install.placeholder"],
     "dsh plugin --profile web add <package-or-github-repo>",
@@ -913,9 +972,16 @@ test("the bottom Plugins view splits only when its panel is decisively wide", as
     Number(wideLayout?.[1]) / Number(wideLayout?.[2]) >= 1.5,
     true,
   );
+  assert.equal(
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-plugins-page:not\(\[hidden\]\)\s*\{[^}]*display:\s*grid;/su.test(
+      pluginStyles,
+    ),
+    true,
+    "opening the new-tab chooser must keep the inactive Plugins view hidden",
+  );
   assert.match(
     pluginStyles,
-    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-plugins-page\s*\{[^}]*grid-template-areas:\s*"install switcher"\s*"install content";/su,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-plugins-page:not\(\[hidden\]\)\s*\{[^}]*grid-template-areas:\s*"install switcher"\s*"install content";/su,
   );
   assert.match(
     pluginStyles,

@@ -7,6 +7,28 @@ const PLUGIN_TOPIC_QUALIFIER_PATTERN =
   /(?:^|\s)topic:dsh-plugin(?=\s|$)/giu;
 const MAX_PLUGIN_SEARCH_LENGTH = 512;
 
+interface InsertedCssWebview {
+  readonly isConnected: boolean;
+  removeInsertedCSS(key: string): Promise<void>;
+}
+
+/**
+ * Electron throws synchronously when removeInsertedCSS is called after a
+ * webview has detached or before its native guest is ready. A detached guest
+ * is being destroyed anyway, so its injected CSS needs no explicit cleanup.
+ */
+export function removeInsertedWebviewCssSafely(
+  view: InsertedCssWebview,
+  keys: readonly string[],
+): void {
+  if (!view.isConnected) return;
+  for (const key of keys) {
+    try {
+      void view.removeInsertedCSS(key).catch(() => {});
+    } catch {}
+  }
+}
+
 function normalizePluginSearchQuery(candidate: string): string {
   return candidate
     .replace(/\s+/gu, " ")
