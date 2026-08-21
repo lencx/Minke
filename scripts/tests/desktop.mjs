@@ -13,6 +13,7 @@ const projectRoot = resolve(
 const taskFiles = Object.freeze({
   core: Object.freeze([
     "app-data-paths.test.mjs",
+    "appimage-packaging.test.mjs",
     "cross-platform-packaging.test.mjs",
     "desktop-i18n.test.mjs",
     "development-restart.test.mjs",
@@ -40,6 +41,7 @@ const taskFiles = Object.freeze({
   ui: Object.freeze([
     "bootstrap-theme.test.mjs",
     "client-actions.test.mjs",
+    "command-palette.test.mjs",
     "data-home-settings.test.mjs",
     "macos-window-css.test.mjs",
     "mobile-web-viewport.test.mjs",

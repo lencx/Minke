@@ -112,7 +112,12 @@ export interface HarnessClientContext {
   };
   sessions: {
     list: {
-      getSnapshot(): { current: string | undefined };
+      getSnapshot(): {
+        current: string | undefined;
+        byId: Readonly<
+          Record<string, { readonly cwd?: string } | undefined>
+        >;
+      };
       subscribe(listener: () => void): () => void;
     };
     open(sessionId: string): void;

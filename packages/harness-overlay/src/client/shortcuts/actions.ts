@@ -10,8 +10,25 @@ interface SettingsQueryRoot {
   ): Iterable<Clickable>;
 }
 
+interface ModalQueryRoot {
+  querySelector(selector: string): Element | null;
+}
+
 export const SETTINGS_TRIGGER_SELECTOR =
   '[data-slot="sidebar.settings"] button[aria-haspopup="dialog"][aria-expanded]';
+
+export const MODAL_SURFACE_SELECTOR = [
+  "dialog[open]",
+  '[role="dialog"][aria-modal="true"]',
+  '[role="alertdialog"]',
+].join(",");
+
+/** Whether another modal surface currently owns keyboard focus. */
+export function hasOpenModalSurface(
+  root: ModalQueryRoot = document,
+): boolean {
+  return root.querySelector(MODAL_SURFACE_SELECTOR) !== null;
+}
 
 /**
  * Open the Harness Settings shell through its accessible trigger contract.

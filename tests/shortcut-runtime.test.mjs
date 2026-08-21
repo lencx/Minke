@@ -96,6 +96,34 @@ test("shortcuts hydrate, dispatch, and preserve unknown durable actions", async 
   assert.equal(target.listener, undefined);
 });
 
+test("shortcut actions notify observers before they run", () => {
+  const runtime = new ShortcutRuntime(
+    { available: false },
+    new KeyboardTarget(),
+    "apple",
+  );
+  const events = [];
+  runtime.register({
+    id: "settings.open",
+    label: () => "Settings",
+    defaultBinding: "Mod+Comma",
+    run() {
+      events.push("run");
+    },
+  });
+  const unsubscribe = runtime.onBeforeInvoke((id) => {
+    events.push(`before:${id}`);
+  });
+
+  assert.equal(runtime.invoke("settings.open"), true);
+  assert.deepEqual(events, ["before:settings.open", "run"]);
+
+  unsubscribe();
+  assert.equal(runtime.invoke("settings.open"), true);
+  assert.deepEqual(events, ["before:settings.open", "run", "run"]);
+  runtime.dispose();
+});
+
 test("a conflicting assignment is rejected without persistence", async () => {
   const persistence = store();
   const runtime = new ShortcutRuntime(
@@ -151,5 +179,56 @@ test("persistence failures become observable without unhandled rejection", async
   runtime.setBinding("session.new", "Mod+Shift+N");
   await runtime.flush();
   assert.equal(runtime.error, "write");
+  runtime.dispose();
+});
+
+test("palette actions expose metadata without cluttering shortcut settings", async () => {
+  const target = new KeyboardTarget();
+  const runtime = new ShortcutRuntime(
+    store({ "session.export": "Mod+E" }),
+    target,
+    "apple",
+  );
+  let runs = 0;
+  let unavailable = true;
+  runtime.register({
+    id: "session.export",
+    label: () => "Export Current Session",
+    defaultBinding: null,
+    order: 20,
+    shortcutConfigurable: false,
+    palette: {
+      group: "session",
+      keywords: () => ["download", "log"],
+      disabledReason: () => unavailable ? "No active session" : undefined,
+    },
+    run() {
+      runs += 1;
+    },
+  });
+  await runtime.initialize();
+
+  assert.deepEqual(runtime.listActions(), []);
+  assert.deepEqual(runtime.listPaletteActions(), [{
+    id: "session.export",
+    label: "Export Current Session",
+    group: "session",
+    keywords: ["download", "log"],
+    binding: null,
+    order: 20,
+    disabledReason: "No active session",
+  }]);
+  assert.equal(runtime.invoke("session.export"), false);
+  assert.equal(runs, 0);
+  assert.throws(
+    () => runtime.setBinding("session.export", "Mod+E"),
+    /not configurable/u,
+  );
+
+  unavailable = false;
+  target.dispatch(keyboardEvent({ key: "e" }));
+  assert.equal(runs, 0);
+  assert.equal(runtime.invoke("session.export"), true);
+  assert.equal(runs, 1);
   runtime.dispose();
 });

@@ -18,6 +18,7 @@ import {
 const OWNED_MENU_ID_PREFIX = "minke.shortcut.";
 
 const MENU_ITEM_IDS = Object.freeze({
+  "palette.open": `${OWNED_MENU_ID_PREFIX}palette.open`,
   "settings.open": `${OWNED_MENU_ID_PREFIX}settings.open`,
   "session.new": `${OWNED_MENU_ID_PREFIX}session.new`,
   "session.back": `${OWNED_MENU_ID_PREFIX}session.back`,
@@ -28,6 +29,7 @@ const MENU_ITEM_IDS = Object.freeze({
 } satisfies Record<ProductShortcutActionId, string>);
 
 const MENU_LABEL_KEYS = Object.freeze({
+  "palette.open": "menu.commandPalette",
   "settings.open": "menu.settings",
   "session.new": "menu.newSession",
   "session.back": "menu.sessionBack",
@@ -216,6 +218,12 @@ function injectActions(
     accelerators,
     dispatch,
   );
+  const commandPalette = actionMenuItem(
+    "palette.open",
+    locale,
+    accelerators,
+    dispatch,
+  );
   const settings = actionMenuItem(
     "settings.open",
     locale,
@@ -263,6 +271,11 @@ function injectActions(
   prependGroup(
     submenuOf(viewMenu.template),
     [
+      commandPalette,
+      {
+        id: `${OWNED_MENU_ID_PREFIX}palette.separator`,
+        type: "separator",
+      },
       sessionBack,
       sessionForward,
       {

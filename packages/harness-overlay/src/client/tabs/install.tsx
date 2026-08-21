@@ -97,6 +97,10 @@ const PREFERENCES_NAMESPACE = "minke.preferences";
 export type TabsRuntimes = Readonly<{
   bottom: TabsRuntime;
   right: TabsRuntime;
+  workspaces: Readonly<{
+    bottom: Readonly<{ renderers: TabRendererRegistry }>;
+    right: Readonly<{ renderers: TabRendererRegistry }>;
+  }>;
 }>;
 
 /**
@@ -326,10 +330,6 @@ export function installTabs(
   }, {
     idPrefix: "bottom-",
   });
-  const runtimes = Object.freeze({
-    bottom: bottomTabs,
-    right: rightTabs,
-  });
   ctx.effect(
     () => () => {
       rightHost.dispose();
@@ -462,6 +462,18 @@ export function installTabs(
     bottomTabs,
     "bottom",
   );
+  const runtimes: TabsRuntimes = Object.freeze({
+    bottom: bottomTabs,
+    right: rightTabs,
+    workspaces: Object.freeze({
+      bottom: Object.freeze({
+        renderers: bottomWorkspace.renderers,
+      }),
+      right: Object.freeze({
+        renderers: rightWorkspace.renderers,
+      }),
+    }),
+  });
   const rightFilesTabs = rightWorkspace.filesTabs;
   if (rightFilesTabs !== undefined) {
     ctx.effect(

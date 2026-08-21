@@ -50,6 +50,8 @@ test("shortcut dictionaries have the same complete key set", () => {
   }
   assert.equal(zh["action.toggleSidebar"], "展开或折叠左侧栏");
   assert.equal(en["action.toggleSidebar"], "Toggle Sidebar");
+  assert.equal(zh["action.commandPalette"], "打开命令面板");
+  assert.equal(en["action.commandPalette"], "Open Command Palette");
   assert.equal(zh["action.sessionBack"], "返回上一会话");
   assert.equal(en["action.sessionBack"], "Back to Previous Session");
   assert.equal(zh["action.sessionForward"], "前往下一会话");

@@ -13,6 +13,17 @@ export class SessionNavigationHistory {
     this.#open = open;
   }
 
+  get canBack(): boolean {
+    const index = this.#current === undefined
+      ? this.#index
+      : this.#index - 1;
+    return this.#entries[index] !== undefined;
+  }
+
+  get canForward(): boolean {
+    return this.#entries[this.#index + 1] !== undefined;
+  }
+
   /** Reconcile a Session selection made by any UI surface. */
   observe(sessionId: string | undefined): void {
     if (sessionId === this.#current) return;
