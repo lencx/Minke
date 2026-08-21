@@ -500,6 +500,11 @@ test("the desktop sidebar toggle keeps one stable glyph across hover", () => {
   );
   assert.match(
     desktopSurfaceCss,
+    /\[data-sidebar-collapsed\]\s+\[data-dsh-desktop-sidebar-toggle\]\s*>\s*span\[aria-hidden="true"\]\s*\{[^}]*display:\s*none\s*!important/,
+    "the collapsed desktop rail must hide the whale mark and show only the sidebar glyph",
+  );
+  assert.match(
+    desktopSurfaceCss,
     /\[data-sidebar-collapsed\] \[data-dsh-desktop-sidebar-toggle\]\s*\{[^}]*animation:\s*none\s*!important;[^}]*transform:\s*none\s*!important;/,
     "hover-driven rerenders must not restart Harness's rail-in slide",
   );

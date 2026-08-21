@@ -136,7 +136,6 @@ export function TabsHeaderAction({
     runtimes.right.getSnapshot,
     runtimes.right.getSnapshot,
   );
-
   return createElement(
     "div",
     {
@@ -179,7 +178,7 @@ export function TabsHeaderAction({
   );
 }
 
-/** Keep the Tabs toggle available while the Session Header is absent. */
+/** Keep the Tabs toggles available while blank Session Header chrome is absent. */
 export function NewSessionTabsHeaderAction({
   runtimes,
   t,

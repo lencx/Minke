@@ -3354,6 +3354,12 @@ test("Session export and window layout actions stay semantically separate", () =
     }),
   );
   assert.match(markup, /data-minke-tabs-layout-actions=""/u);
+  assert.match(
+    markup,
+    /data-minke-tabs-layout-actions=""[\s\S]*data-minke-tabs-placement="bottom"[\s\S]*data-minke-tabs-placement="right"/u,
+    "the window-level layout controls keep their stable order",
+  );
+  assert.doesNotMatch(markup, /data-minke-session-log-action/u);
   assert.equal(
     (markup.match(/data-minke-tabs-header-action=""/gu) ?? [])
       .length,
@@ -3393,6 +3399,47 @@ test("Session export and window layout actions stay semantically separate", () =
     markup,
     /d="M5\.5 3\.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m10 11v-8"/u,
   );
+  const blankMarkup = renderToStaticMarkup(
+    createElement(NewSessionTabsHeaderAction, {
+      runtimes: {
+        bottom: bottomTabs,
+        right: rightTabs,
+      },
+      t: (key) => tabsEn[key],
+      useSessions: (selector) =>
+        selector({
+          current: "blank-session",
+          byId: {
+            "blank-session": { blank: true },
+          },
+        }),
+    }),
+  );
+  assert.match(
+    blankMarkup,
+    /data-minke-new-session-tabs-action=""/u,
+  );
+  assert.match(
+    blankMarkup,
+    /data-minke-tabs-layout-actions=""/u,
+  );
+  const activeMarkup = renderToStaticMarkup(
+    createElement(NewSessionTabsHeaderAction, {
+      runtimes: {
+        bottom: bottomTabs,
+        right: rightTabs,
+      },
+      t: (key) => tabsEn[key],
+      useSessions: (selector) =>
+        selector({
+          current: "active-session",
+          byId: {
+            "active-session": { blank: false },
+          },
+        }),
+    }),
+  );
+  assert.equal(activeMarkup, "");
 
   rightTabs.show();
   assert.equal(rightTabs.getSnapshot().visible, true);
@@ -3485,44 +3532,46 @@ test("Tabs placement controls keep independent panels open", () => {
   );
   assert.doesNotMatch(panelSource, /if\s*\(!hasTabs\)\s*return null/u);
 
-  const newSessionMarkup = renderToStaticMarkup(
-    createElement(NewSessionTabsHeaderAction, {
-      runtimes: {
-        bottom: bottomTabs,
-        right: rightTabs,
-      },
-      useSessions: (selector) =>
-        selector({ current: undefined, byId: {} }),
-      t: (key) => tabsEn[key],
-    }),
-  );
   assert.match(
-    newSessionMarkup,
-    /data-minke-new-session-tabs-action=""/u,
-  );
-  assert.match(
-    newSessionMarkup,
-    /data-minke-tabs-header-action=""/u,
+    SESSION_HEADER_ACTION_STYLES,
+    /\[data-shell-overlay\]\s*\{[\s\S]*?--minke-tabs-layout-actions-clearance:\s*88px;[\s\S]*?--minke-tabs-primary-row-top:\s*6px;/u,
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-shell-overlay\]\s*\{[\s\S]*?--minke-tabs-layout-actions-clearance:\s*80px;[\s\S]*?--minke-tabs-primary-row-top:\s*6px;/u,
+    /\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?height:\s*32px;[\s\S]*?-webkit-app-region:\s*no-drag;[\s\S]*?app-region:\s*no-drag;/u,
+  );
+  const sessionActionGroupRule =
+    SESSION_HEADER_ACTION_STYLES.match(
+      /\[data-minke-tabs-layout-actions\]\s*\{([^}]*)\}/u,
+    )?.[1];
+  assert.ok(sessionActionGroupRule);
+  assert.match(
+    sessionActionGroupRule,
+    /position:\s*static;/u,
+    "layout controls must participate in the Session Header flow while the right panel is closed",
+  );
+  assert.doesNotMatch(
+    sessionActionGroupRule,
+    /(?:top|right|z-index):/u,
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*16px;[\s\S]*?z-index:\s*5;[\s\S]*?-webkit-app-region:\s*no-drag;[\s\S]*?app-region:\s*no-drag;/u,
+    /\[data-minke-tabs-right-open\][\s\S]*?\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*8px;[\s\S]*?z-index:\s*22;/u,
+    "opening the right panel moves only the layout controls to its top-right chrome",
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-minke-new-session-tabs-action\][\s\S]*?pointer-events:\s*none\s*!important;/u,
+    /\[data-minke-new-session-tabs-action\]\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*8px;/u,
+    "a blank Session without Header chrome keeps one overlay fallback",
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /:has\([\s\S]*?> \[data-shell-overlay\] \[data-minke-tabs-layout-actions\][\s\S]*?\)\s*\[data-minke-session-log-action\]\s*\{[\s\S]*?margin-right:\s*64px;/u,
+    /header:has\(\[data-minke-tabs-layout-actions\]\)\s*\{[\s\S]*?padding-right:\s*8px;/u,
+    "closed-panel controls share the same compact right edge in normal Header flow",
   );
-  assert.match(
+  assert.doesNotMatch(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-minke-tabs-right-open\]:has\([\s\S]*?\)\s*\[data-minke-session-log-action\]\s*\{[\s\S]*?margin-right:\s*0;/u,
+    /\[data-minke-session-log-action\]\s*\{[^}]*margin-right:/u,
   );
   assert.doesNotMatch(
     SESSION_HEADER_ACTION_STYLES,
@@ -3530,7 +3579,7 @@ test("Tabs placement controls keep independent panels open", () => {
   );
   assert.match(
     TABS_STYLES,
-    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-tabbar\s*\{[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*var\(\s*--minke-tabs-layout-actions-clearance,\s*80px\s*\);/u,
+    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-tabbar\s*\{[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*var\(\s*--minke-tabs-layout-actions-clearance,\s*88px\s*\);/u,
   );
   assert.match(
     TABS_STYLES,
@@ -3561,21 +3610,6 @@ test("Tabs placement controls keep independent panels open", () => {
     /#overlay\?\.style\.setProperty\(\s*"--minke-tabs-panel-width"/u,
   );
 
-  const activeSessionMarkup = renderToStaticMarkup(
-    createElement(NewSessionTabsHeaderAction, {
-      runtimes: {
-        bottom: bottomTabs,
-        right: rightTabs,
-      },
-      useSessions: (selector) =>
-        selector({
-          current: "session-1",
-          byId: { "session-1": { blank: false } },
-        }),
-      t: (key) => tabsEn[key],
-    }),
-  );
-  assert.equal(activeSessionMarkup, "");
   bottomTabs.dispose();
   rightTabs.dispose();
 });
@@ -3806,6 +3840,16 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   );
   assert.match(
     TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-tabs-chrome\[data-single-row\]\s*\{[\s\S]*?height:\s*36px;[\s\S]*?min-height:\s*36px;/u,
+    "the bottom single-row chrome should keep both vertical margins compact",
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-panel\[data-placement="bottom"\]\s+\.minke-tabs-chrome\[data-single-row\]\s+\.minke-tabs-tabbar\s*\{[\s\S]*?top:\s*4px;/u,
+    "the bottom single-row tabs should keep a smaller top inset",
+  );
+  assert.match(
+    TABS_STYLES,
     /--minke-tabs-secondary-control-offset-y:\s*-4px;/u,
   );
   assert.match(
@@ -3989,7 +4033,7 @@ test("right Tabs window dragging covers populated and empty panels without claim
   );
   assert.match(
     TABS_STYLES,
-    /\.minke-tabs-empty__window-drag\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0\s+var\(\s*--minke-tabs-layout-actions-clearance,\s*80px\s*\)\s+0\s+0;/u,
+    /\.minke-tabs-empty__window-drag\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0\s+var\(\s*--minke-tabs-layout-actions-clearance,\s*88px\s*\)\s+0\s+0;/u,
     "the empty-panel drag surface must stop before the fixed layout actions",
   );
   assert.match(

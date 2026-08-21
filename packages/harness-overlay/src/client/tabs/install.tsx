@@ -49,6 +49,7 @@ import {
 import {
   installSessionHeaderActionStyles,
   installTabsStyles,
+  NewSessionTabsHeaderAction,
   SessionLogHeaderAction,
   TabRendererRegistry,
   tabsEn,
@@ -444,12 +445,12 @@ export function installTabs(
     ctx.slots.register(
       {
         name: "shell.overlay",
-        id: "minke-tabs-toggle",
+        id: "minke-tabs-new-session-toggle",
         order: 10,
         locale: TABS_NAMESPACE,
         inject: () => ({ runtimes }),
       },
-      TabsHeaderAction as ComponentType<never>,
+      NewSessionTabsHeaderAction as ComponentType<never>,
     ),
   );
   ctx.slots.inject("shell.overlay", () =>
@@ -486,6 +487,20 @@ export function installTabs(
       },
       TabsPanel as ComponentType<never>,
     ),
+  );
+  ctx.slots.inject(
+    "conversation.session.header.utilities",
+    () =>
+      ctx.slots.register(
+        {
+          name: "conversation.session.header.utilities",
+          id: "minke-tabs-toggle",
+          order: 10,
+          locale: TABS_NAMESPACE,
+          inject: () => ({ runtimes }),
+        },
+        TabsHeaderAction as ComponentType<never>,
+      ),
   );
   return runtimes;
 }

@@ -580,11 +580,12 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     tabsInstallSource,
-    /name:\s*"shell\.overlay"[\s\S]*?id:\s*"minke-tabs-toggle"[\s\S]*?TabsHeaderAction as ComponentType<never>/u,
+    /name:\s*"shell\.overlay"[\s\S]*id:\s*"minke-tabs-right"[\s\S]*id:\s*"minke-tabs-bottom"/u,
   );
-  assert.doesNotMatch(
+  assert.match(
     tabsInstallSource,
-    /id:\s*"minke-tabs-new-session-toggle"/u,
+    /name:\s*"conversation\.session\.header\.utilities"[\s\S]*?id:\s*"minke-tabs-toggle"[\s\S]*?TabsHeaderAction as ComponentType<never>/u,
+    "active layout controls belong to the Session Header utility flow",
   );
   assert.doesNotMatch(tabsInstallSource, /ResourceTabs|resource-tabs/u);
   assert.doesNotMatch(
@@ -660,6 +661,17 @@ test("desktop Session export shadows the upstream Web action and modal", () => {
     tabsInstallSource,
     /sessionLogsPort\.export\(sessionId\)/u,
   );
+  assert.match(
+    tabsInstallSource,
+    /name:\s*"conversation\.session\.header\.utilities"[\s\S]*?id:\s*"minke-tabs-toggle"[\s\S]*?inject:\s*\(\)\s*=>\s*\(\{\s*runtimes\s*\}\)[\s\S]*?TabsHeaderAction as ComponentType<never>/u,
+    "active Session controls must participate in the Header utility flow",
+  );
+  assert.match(
+    tabsInstallSource,
+    /name:\s*"shell\.overlay"[\s\S]*?id:\s*"minke-tabs-new-session-toggle"[\s\S]*?inject:\s*\(\)\s*=>\s*\(\{\s*runtimes\s*\}\)[\s\S]*?NewSessionTabsHeaderAction as ComponentType<never>/u,
+    "blank Sessions need one overlay fallback while Header chrome is absent",
+  );
+  assert.doesNotMatch(tabsInstallSource, /id:\s*"minke-tabs-placement"/u);
   assert.doesNotMatch(bundle, /data-minke-session-log-download/u);
 });
 

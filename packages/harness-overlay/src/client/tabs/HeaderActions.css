@@ -1,13 +1,10 @@
 [data-shell-overlay] {
-  --minke-tabs-layout-actions-clearance: 80px;
+  --minke-tabs-layout-actions-clearance: 88px;
   --minke-tabs-primary-row-top: 6px;
 }
 
 [data-minke-tabs-layout-actions] {
-  position: absolute;
-  top: var(--minke-tabs-primary-row-top, 6px);
-  right: 16px;
-  z-index: 5;
+  position: static;
   display: inline-flex;
   height: 32px;
   flex: none;
@@ -16,6 +13,31 @@
   pointer-events: auto;
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+header:has([data-minke-tabs-layout-actions]) {
+  padding-right: 8px;
+}
+
+[data-minke-tabs-right-open]
+  [data-minke-tabs-layout-actions] {
+  position: fixed;
+  top: var(--minke-tabs-primary-row-top, 6px);
+  right: 8px;
+  z-index: 22;
+}
+
+[data-minke-new-session-tabs-action] {
+  position: absolute;
+  top: var(--minke-tabs-primary-row-top, 6px);
+  right: 8px;
+  z-index: 5;
+  pointer-events: none !important;
+}
+
+[data-minke-new-session-tabs-action]
+  > [data-minke-tabs-layout-actions] {
+  pointer-events: auto;
 }
 
 [data-minke-session-log-action],
@@ -40,10 +62,10 @@
 }
 
 [data-minke-tabs-header-action] {
-  width: 28px;
-  min-width: 28px !important;
-  height: 28px;
-  border-radius: 8px;
+  width: 32px;
+  min-width: 32px !important;
+  height: 32px;
+  border-radius: 10px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -73,29 +95,6 @@
 
 [data-minke-session-log-action]:disabled {
   cursor: wait;
-}
-
-:has(
-    > [data-shell-overlay] [data-minke-tabs-layout-actions]
-  )
-  [data-minke-session-log-action] {
-  margin-right: 64px;
-}
-
-[data-minke-tabs-right-open]:has(
-    > [data-shell-overlay] [data-minke-tabs-layout-actions]
-  )
-  [data-minke-session-log-action] {
-  margin-right: 0;
-}
-
-[data-minke-new-session-tabs-action] {
-  pointer-events: none !important;
-}
-
-[data-minke-new-session-tabs-action]
-  > [data-minke-tabs-layout-actions] {
-  pointer-events: auto;
 }
 
 [data-minke-session-log-action] > svg,

@@ -58,6 +58,12 @@
   display: inline !important;
 }
 
+[data-sidebar-collapsed]
+  [data-dsh-desktop-sidebar-toggle]
+  > span[aria-hidden="true"] {
+  display: none !important;
+}
+
 [data-sidebar-collapsed] [data-dsh-desktop-sidebar-toggle] {
   animation: none !important;
   transform: none !important;
