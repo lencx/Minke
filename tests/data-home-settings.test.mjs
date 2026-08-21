@@ -30,6 +30,9 @@ import {
   planDataHomeMerge,
 } from "@minke/desktop/main/data-home-migration.ts";
 import {
+  PluginInstallationRuntime,
+} from "@minke/desktop/main/plugin-installation.ts";
+import {
   MinkeConfigStore,
 } from "@minke/desktop/main/minke-config.ts";
 import {
@@ -215,6 +218,256 @@ test("data-home merge copies unique files, deduplicates equals, and preserves co
   assert.equal(repeated.copiedFiles, 0);
   assert.equal(repeated.identicalFiles, 4);
   assert.equal(repeated.conflictFiles, 2);
+});
+
+test("data-home merge reconciles profile and storage metadata", async () => {
+  const root = await temporaryRoot("minke-data-home-structured-");
+  const source = join(root, "source");
+  const target = join(root, "target");
+  const sharedWorkspacePath = join(root, "workspace-shared");
+  const sourceWorkspacePath = join(root, "workspace-source");
+  const targetWorkspacePath = join(root, "workspace-target");
+  await Promise.all([
+    mkdir(join(source, "profiles", "web"), { recursive: true }),
+    mkdir(join(source, "storages"), { recursive: true }),
+    mkdir(join(target, "profiles", "web"), { recursive: true }),
+    mkdir(
+      join(
+        target,
+        "profiles",
+        "web",
+        "node_modules",
+        "dsh-example-plugin",
+      ),
+      { recursive: true },
+    ),
+    mkdir(join(target, "storages"), { recursive: true }),
+    mkdir(sharedWorkspacePath),
+    mkdir(sourceWorkspacePath),
+    mkdir(targetWorkspacePath),
+  ]);
+
+  const profile = (dependencies, bundles) => ({
+    name: "dsh-profile-web",
+    private: true,
+    dependencies,
+    dsh: { profile: { bundles } },
+  });
+  const projectionCache = (sessions) => ({
+    unit: { name: "session_projcache", version: 3 },
+    global: null,
+    tables: { sessions },
+  });
+  const workspaceStorage = ({
+    workspaceIds,
+    archivedSessionIds,
+    workspaces,
+  }) => ({
+    unit: { name: "workspace", version: 2 },
+    global: {
+      initialized: true,
+      workspaceIds,
+      archivedSessionIds,
+    },
+    tables: { workspaces },
+  });
+  const workspace = (path, title, sessionIds, updatedAt) => ({
+    path,
+    title,
+    sessionIds,
+    createdAt: "2026-08-19T00:00:00.000Z",
+    updatedAt,
+  });
+
+  await Promise.all([
+    writeFile(
+      join(source, "profiles", "web", "package.json"),
+      `${JSON.stringify(
+        profile(
+          { "dsh-example-plugin": "^1.0.0" },
+          ["@deepseek-ai/dsh-base", "dsh-example-plugin"],
+        ),
+        null,
+        2,
+      )}\n`,
+    ),
+    writeFile(
+      join(target, "profiles", "web", "package.json"),
+      `${JSON.stringify(
+        profile({}, ["@deepseek-ai/dsh-base"]),
+        null,
+        2,
+      )}\n`,
+    ),
+    writeFile(
+      join(
+        target,
+        "profiles",
+        "web",
+        "node_modules",
+        "dsh-example-plugin",
+        "package.json",
+      ),
+      `${JSON.stringify({
+        name: "dsh-example-plugin",
+        version: "1.0.0",
+      })}\n`,
+    ),
+    writeFile(
+      join(source, "storages", "session_projcache.json"),
+      `${JSON.stringify(
+        projectionCache({
+          "session-source": {
+            identity: { createdAt: 1, cwd: sourceWorkspacePath },
+            rows: {},
+          },
+        }),
+        null,
+        2,
+      )}\n`,
+    ),
+    writeFile(
+      join(target, "storages", "session_projcache.json"),
+      `${JSON.stringify(
+        projectionCache({
+          "session-target": {
+            identity: { createdAt: 2, cwd: targetWorkspacePath },
+            rows: {},
+          },
+        }),
+        null,
+        2,
+      )}\n`,
+    ),
+    writeFile(
+      join(source, "storages", "workspace.json"),
+      `${JSON.stringify(
+        workspaceStorage({
+          workspaceIds: ["source-shared", "source-only"],
+          archivedSessionIds: ["archived-source"],
+          workspaces: {
+            "source-shared": workspace(
+              sharedWorkspacePath,
+              "Source shared",
+              ["session-source"],
+              "2026-08-20T01:00:00.000Z",
+            ),
+            "source-only": workspace(
+              sourceWorkspacePath,
+              "Source only",
+              [],
+              "2026-08-20T02:00:00.000Z",
+            ),
+          },
+        }),
+        null,
+        2,
+      )}\n`,
+    ),
+    writeFile(
+      join(target, "storages", "workspace.json"),
+      `${JSON.stringify(
+        workspaceStorage({
+          workspaceIds: ["target-shared", "target-only"],
+          archivedSessionIds: ["archived-target"],
+          workspaces: {
+            "target-shared": workspace(
+              sharedWorkspacePath,
+              "Target shared",
+              ["session-target"],
+              "2026-08-20T03:00:00.000Z",
+            ),
+            "target-only": workspace(
+              targetWorkspacePath,
+              "Target only",
+              [],
+              "2026-08-20T04:00:00.000Z",
+            ),
+          },
+        }),
+        null,
+        2,
+      )}\n`,
+    ),
+  ]);
+
+  const plan = await planDataHomeMerge([source], target);
+  assert.equal(plan.copyFiles, 3);
+  assert.equal(plan.conflictFiles, 0);
+
+  const report = await mergeDataHomes([source], target);
+  assert.equal(report.copiedFiles, 3);
+  assert.equal(report.conflictFiles, 0);
+
+  const mergedProfile = JSON.parse(
+    await readFile(
+      join(target, "profiles", "web", "package.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(mergedProfile.dependencies, {
+    "dsh-example-plugin": "^1.0.0",
+  });
+  assert.deepEqual(mergedProfile.dsh.profile.bundles, [
+    "@deepseek-ai/dsh-base",
+    "dsh-example-plugin",
+  ]);
+  const installed = await new PluginInstallationRuntime({
+    runtimeRoot: join(root, "unused-runtime"),
+    dshHome: target,
+    electronExecutable: process.execPath,
+  }).listInstalled();
+  assert.deepEqual(
+    installed.plugins.map(({ name, state }) => ({ name, state })),
+    [{ name: "dsh-example-plugin", state: "ready" }],
+  );
+
+  const mergedCache = JSON.parse(
+    await readFile(
+      join(target, "storages", "session_projcache.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(
+    Object.keys(mergedCache.tables.sessions).sort(),
+    ["session-source", "session-target"],
+  );
+
+  const mergedWorkspace = JSON.parse(
+    await readFile(
+      join(target, "storages", "workspace.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(mergedWorkspace.global.workspaceIds, [
+    "target-shared",
+    "target-only",
+    "source-only",
+  ]);
+  assert.deepEqual(mergedWorkspace.global.archivedSessionIds, [
+    "archived-target",
+    "archived-source",
+  ]);
+  assert.deepEqual(
+    mergedWorkspace.tables.workspaces["target-shared"].sessionIds,
+    ["session-target", "session-source"],
+  );
+  assert.equal(
+    mergedWorkspace.tables.workspaces["target-shared"].title,
+    "Target shared",
+  );
+  assert.equal(
+    mergedWorkspace.tables.workspaces["source-only"].path,
+    sourceWorkspacePath,
+  );
+  assert.equal(
+    mergedWorkspace.tables.workspaces["source-shared"],
+    undefined,
+  );
+
+  const repeated = await mergeDataHomes([source], target);
+  assert.equal(repeated.copiedFiles, 0);
+  assert.equal(repeated.conflictFiles, 0);
 });
 
 test(

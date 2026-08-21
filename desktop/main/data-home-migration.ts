@@ -34,6 +34,9 @@ import {
   type DataHomeMigrationMode,
   type DataHomeMigrationState,
 } from "@minke/harness-overlay/data-home-contract.ts";
+import {
+  mergeStructuredDataHomeFile,
+} from "./data-home-structured-merge.ts";
 
 const MIGRATION_JOURNAL_VERSION = 2;
 const LEGACY_MIGRATION_JOURNAL_VERSION = 1;
@@ -48,7 +51,8 @@ const HARD_LINK_UNSUPPORTED = new Set([
 type EntryKind = "directory" | "file" | "symlink";
 
 interface TreeEntry {
-  absolutePath: string;
+  absolutePath?: string;
+  content?: Buffer;
   kind: EntryKind;
   mode: number;
   size: number;
@@ -56,13 +60,23 @@ interface TreeEntry {
   hash?: Promise<string>;
 }
 
-interface CopyAction {
+interface CreateAction {
+  kind: "create";
   entry: TreeEntry;
   relativePath: string;
 }
 
+interface ReplaceAction {
+  kind: "replace";
+  entry: TreeEntry;
+  original: TreeEntry;
+  relativePath: string;
+}
+
+type MergeAction = CreateAction | ReplaceAction;
+
 interface PreparedMerge {
-  actions: CopyAction[];
+  actions: MergeAction[];
   plan: DataHomeMigrationPlan;
 }
 
@@ -160,12 +174,30 @@ async function readTreeEntry(path: string): Promise<TreeEntry> {
 async function entryHash(entry: TreeEntry): Promise<string> {
   entry.hash ??= (async () => {
     const hash = createHash("sha256");
-    for await (const chunk of createReadStream(entry.absolutePath)) {
-      hash.update(chunk);
+    if (entry.content !== undefined) {
+      hash.update(entry.content);
+    } else {
+      if (entry.absolutePath === undefined) {
+        throw new TypeError("data-home file entry has no content");
+      }
+      for await (const chunk of createReadStream(entry.absolutePath)) {
+        hash.update(chunk);
+      }
     }
     return hash.digest("hex");
   })();
   return await entry.hash;
+}
+
+async function entryContent(entry: TreeEntry): Promise<Buffer> {
+  if (entry.kind !== "file") {
+    throw new TypeError("data-home entry is not a file");
+  }
+  if (entry.content !== undefined) return entry.content;
+  if (entry.absolutePath === undefined) {
+    throw new TypeError("data-home file entry has no source");
+  }
+  return await readFile(entry.absolutePath);
 }
 
 async function sameEntry(
@@ -205,6 +237,67 @@ async function publishStagedFile(
   await rename(stagedPath, destination);
 }
 
+async function stageFile(
+  entry: TreeEntry,
+  stagedPath: string,
+): Promise<void> {
+  if (entry.kind !== "file") {
+    throw new TypeError("only files can be staged");
+  }
+  if (entry.content !== undefined) {
+    await writeFile(stagedPath, entry.content, {
+      flag: "wx",
+      mode: entry.mode & 0o777,
+    });
+  } else {
+    if (entry.absolutePath === undefined) {
+      throw new TypeError("data-home file entry has no source");
+    }
+    await copyFile(
+      entry.absolutePath,
+      stagedPath,
+      fsConstants.COPYFILE_EXCL,
+    );
+  }
+  await chmod(stagedPath, entry.mode & 0o777);
+}
+
+async function replaceStagedFile(
+  stagedPath: string,
+  destination: string,
+  backupPath: string,
+  original: TreeEntry,
+): Promise<void> {
+  let current: TreeEntry;
+  try {
+    current = await readTreeEntry(destination);
+  } catch (error) {
+    throw new Error(
+      `data-home migration target changed during merge: ${destination}`,
+      { cause: error },
+    );
+  }
+  if (!(await sameEntry(original, current))) {
+    throw new Error(
+      `data-home migration target changed during merge: ${destination}`,
+    );
+  }
+  await rename(destination, backupPath);
+  try {
+    await rename(stagedPath, destination);
+  } catch (error) {
+    try {
+      await rename(backupPath, destination);
+    } catch (restoreError) {
+      throw new AggregateError(
+        [error, restoreError],
+        `data-home migration could not restore target: ${destination}`,
+      );
+    }
+    throw error;
+  }
+}
+
 async function sortedChildren(path: string): Promise<string[]> {
   return (await readdir(path))
     .sort((left, right) => left.localeCompare(right));
@@ -239,10 +332,7 @@ async function addSourceTree(
   sourceRoot: string,
   directory: string,
   manifest: Map<string, TreeEntry>,
-  actions: CopyAction[],
   totals: {
-    copyFiles: number;
-    copyBytes: number;
     identicalFiles: number;
     conflictFiles: number;
     conflicts: string[];
@@ -257,7 +347,6 @@ async function addSourceTree(
     if (entry.kind === "directory") {
       if (existing === undefined) {
         manifest.set(relativePath, entry);
-        actions.push({ entry, relativePath });
       } else if (existing.kind !== "directory") {
         totals.conflictFiles += 1;
         recordConflict(totals.conflicts, absolutePath);
@@ -267,7 +356,6 @@ async function addSourceTree(
         sourceRoot,
         absolutePath,
         manifest,
-        actions,
         totals,
       );
       continue;
@@ -275,18 +363,97 @@ async function addSourceTree(
 
     if (existing === undefined) {
       manifest.set(relativePath, entry);
-      actions.push({ entry, relativePath });
-      totals.copyFiles += 1;
-      totals.copyBytes += entry.size;
       continue;
     }
     if (await sameEntry(existing, entry)) {
       totals.identicalFiles += 1;
       continue;
     }
+    if (existing.kind === "file" && entry.kind === "file") {
+      const content = await mergeStructuredDataHomeFile(
+        relativePath,
+        await entryContent(existing),
+        await entryContent(entry),
+      );
+      if (content !== undefined) {
+        const merged: TreeEntry = {
+          content,
+          kind: "file",
+          mode: existing.mode,
+          size: content.byteLength,
+        };
+        if (await sameEntry(existing, merged)) {
+          totals.identicalFiles += 1;
+        } else {
+          manifest.set(relativePath, merged);
+        }
+        continue;
+      }
+    }
     totals.conflictFiles += 1;
     recordConflict(totals.conflicts, absolutePath);
   }
+}
+
+async function buildMergeActions(
+  targetManifest: ReadonlyMap<string, TreeEntry>,
+  manifest: ReadonlyMap<string, TreeEntry>,
+): Promise<{
+  actions: MergeAction[];
+  copyFiles: number;
+  copyBytes: number;
+}> {
+  const actions: MergeAction[] = [];
+  let copyFiles = 0;
+  let copyBytes = 0;
+  for (const [relativePath, entry] of manifest) {
+    const original = targetManifest.get(relativePath);
+    if (original === undefined) {
+      actions.push({
+        kind: "create",
+        entry,
+        relativePath,
+      });
+      if (entry.kind !== "directory") {
+        copyFiles += 1;
+        copyBytes += entry.size;
+      }
+      continue;
+    }
+    if (await sameEntry(original, entry)) continue;
+    if (entry.kind !== "file" || entry.content === undefined) {
+      throw new TypeError(
+        `unsupported data-home replacement: ${relativePath}`,
+      );
+    }
+    actions.push({
+      kind: "replace",
+      entry,
+      original,
+      relativePath,
+    });
+    copyFiles += 1;
+    copyBytes += entry.size;
+  }
+  actions.sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === "create" ? -1 : 1;
+    }
+    if (
+      left.entry.kind === "directory" &&
+      right.entry.kind !== "directory"
+    ) {
+      return -1;
+    }
+    if (
+      left.entry.kind !== "directory" &&
+      right.entry.kind === "directory"
+    ) {
+      return 1;
+    }
+    return left.relativePath.localeCompare(right.relativePath);
+  });
+  return { actions, copyFiles, copyBytes };
 }
 
 async function canonicalizePath(path: string): Promise<string> {
@@ -356,11 +523,9 @@ async function prepareMerge(
   } catch (error) {
     if (!isMissing(error)) throw error;
   }
+  const targetManifest = new Map(manifest);
 
-  const actions: CopyAction[] = [];
   const totals = {
-    copyFiles: 0,
-    copyBytes: 0,
     identicalFiles: 0,
     conflictFiles: 0,
     conflicts: [] as string[],
@@ -376,20 +541,25 @@ async function prepareMerge(
         sourcePath,
         sourcePath,
         manifest,
-        actions,
         totals,
       );
     } catch (error) {
       if (!isMissing(error)) throw error;
     }
   }
+  const actionPlan = await buildMergeActions(
+    targetManifest,
+    manifest,
+  );
 
   return {
-    actions,
+    actions: actionPlan.actions,
     plan: {
       mode: "merge",
       targetPath,
       sourcePaths,
+      copyFiles: actionPlan.copyFiles,
+      copyBytes: actionPlan.copyBytes,
       ...totals,
     },
   };
@@ -514,14 +684,26 @@ export async function mergeDataHomes(
             stagingRoot,
             String(++stagedFileSequence),
           );
-          await copyFile(
-            action.entry.absolutePath,
-            stagedPath,
-            fsConstants.COPYFILE_EXCL,
-          );
-          await chmod(stagedPath, action.entry.mode & 0o777);
-          await publishStagedFile(stagedPath, destination);
+          await stageFile(action.entry, stagedPath);
+          if (action.kind === "create") {
+            await publishStagedFile(stagedPath, destination);
+          } else {
+            await replaceStagedFile(
+              stagedPath,
+              destination,
+              join(
+                stagingRoot,
+                `backup-${String(stagedFileSequence)}`,
+              ),
+              action.original,
+            );
+          }
         } else {
+          if (action.kind !== "create") {
+            throw new TypeError(
+              `unsupported data-home replacement: ${destination}`,
+            );
+          }
           await symlink(
             action.entry.linkTarget as string,
             destination,
