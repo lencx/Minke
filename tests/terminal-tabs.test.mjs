@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { delimiter } from "node:path";
+import { delimiter, join } from "node:path";
 import test from "node:test";
 import {
   TerminalSessionRuntime,
@@ -207,6 +207,7 @@ test("Host terminal runtime streams output and tears down an abandoned poll", as
 });
 
 test("desktop terminal runtime owns PTY data, resize, and teardown", async () => {
+  const runtimeRoot = "/runtime";
   const writes = [];
   const resizes = [];
   const events = [];
@@ -242,7 +243,7 @@ test("desktop terminal runtime owns PTY data, resize, and teardown", async () =>
       },
     },
     shell: "/bin/zsh",
-    runtimeRoot: "/runtime",
+    runtimeRoot,
     electronExecutable: "/Applications/Minke.app/Contents/MacOS/Minke",
     defaultCwd: "/Users/test",
     environment: {
@@ -274,12 +275,12 @@ test("desktop terminal runtime owns PTY data, resize, and teardown", async () =>
   );
   assert.equal(
     spawn.options.env.MINKE_PNPM_ENTRY,
-    "/runtime/node_modules/pnpm/bin/pnpm.cjs",
+    join(runtimeRoot, "node_modules", "pnpm", "bin", "pnpm.cjs"),
   );
   assert.equal(spawn.options.env.ELECTRON_RUN_AS_NODE, "1");
   assert.equal(
     spawn.options.env.PATH,
-    ["/runtime/bin", "/usr/bin"].join(delimiter),
+    [join(runtimeRoot, "bin"), "/usr/bin"].join(delimiter),
   );
 
   runtime.write({

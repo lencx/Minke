@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import {
   chmod,
-  copyFile,
   lstat,
   mkdir,
   mkdtemp,
@@ -13,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, parse } from "node:path";
+import { join, parse, resolve } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { createElement } from "react";
@@ -431,14 +430,18 @@ test("Harness Details portal patch preserves the native plugin slot chain", asyn
   );
   try {
     await mkdir(parse(target).dir, { recursive: true });
-    await copyFile(
+    const fixtureSource = await readFile(
       join(
         projectRoot,
         "tests",
         "fixtures",
         "details-client-preimage.js",
       ),
+      "utf8",
+    );
+    await writeFile(
       target,
+      fixtureSource.replaceAll("\r\n", "\n"),
     );
     const patches = await resolveHarnessRuntimePatches(
       projectRoot,
@@ -836,6 +839,8 @@ test("Files writes atomically through symlinks and preserves permissions", async
 test("Files watcher batches changes and releases host watchers", () => {
   const hostWatchers = new Map();
   const events = [];
+  const workspacePath = resolve("/workspace");
+  const sourcePath = join(workspacePath, "main.ts");
   let scheduled;
   const runtime = new FileWatchRuntime({
     send(event) {
@@ -864,26 +869,22 @@ test("Files watcher batches changes and releases host watchers", () => {
 
   runtime.watch({
     id: "files:test",
-    paths: ["/workspace", "/workspace"],
+    paths: [workspacePath, workspacePath],
   });
-  assert.deepEqual([...hostWatchers.keys()], ["/workspace"]);
-  hostWatchers.get("/workspace").onChange(
-    "/workspace/main.ts",
-  );
-  hostWatchers.get("/workspace").onChange(
-    "/workspace/main.ts",
-  );
+  assert.deepEqual([...hostWatchers.keys()], [workspacePath]);
+  hostWatchers.get(workspacePath).onChange(sourcePath);
+  hostWatchers.get(workspacePath).onChange(sourcePath);
   assert.deepEqual(events, []);
   scheduled();
   assert.deepEqual(events, [
     {
       id: "files:test",
-      paths: ["/workspace/main.ts"],
+      paths: [sourcePath],
     },
   ]);
 
   runtime.unwatch({ id: "files:test" });
-  assert.equal(hostWatchers.get("/workspace").closed, true);
+  assert.equal(hostWatchers.get(workspacePath).closed, true);
   assert.throws(
     () =>
       runtime.watch({
