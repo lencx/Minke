@@ -242,7 +242,7 @@ test("the final package gate rejects a missing dsh adapter", async () => {
         outputRoot,
         verificationOptions("darwin"),
       ),
-      /missing required file.*bin\/dsh/u,
+      /missing required file.*bin[\\/]dsh/u,
     );
   });
 });

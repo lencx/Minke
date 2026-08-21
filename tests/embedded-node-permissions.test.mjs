@@ -205,7 +205,9 @@ test("every staged adapter delegates to Minke and reasserts Node mode", () => {
   assert.match(sources["dsh.cmd"], /--expose-internals/u);
 });
 
-test("the POSIX dsh adapter launches the staged CLI through embedded Node", async () => {
+test("the POSIX dsh adapter launches the staged CLI through embedded Node", {
+  skip: process.platform === "win32",
+}, async () => {
   await withTemporaryDirectory(async (root) => {
     const binRoot = join(root, "bin");
     await mkdir(binRoot, { recursive: true });
@@ -246,7 +248,9 @@ test("the POSIX dsh adapter launches the staged CLI through embedded Node", asyn
   });
 });
 
-test("the POSIX node adapter launches the configured executable in Node mode", async () => {
+test("the POSIX node adapter launches the configured executable in Node mode", {
+  skip: process.platform === "win32",
+}, async () => {
   await withTemporaryDirectory(async (root) => {
     const adapter = join(root, "node");
     await writeFile(adapter, runtimeAdapterSources().node);
