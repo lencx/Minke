@@ -26,19 +26,40 @@ Minke brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 ## Highlights
 
-- **A complete workspace for agentic work** — Minke turns DeepSeek Harness into more than a conversation window. Files, terminals, web tools, and plugin discovery live in independent right and bottom workspaces, keeping the tools for understanding, changing, and validating a project beside the active conversation.
-- **Local-first by design** — DeepSeek Harness runs locally, while Minke keeps its application state and browser session data on your machine. Desktop preferences live under `~/.minke`, giving the app one clear and predictable data boundary.
-- **A native desktop experience** — Native menus, configurable shortcuts, Session log export, synchronized themes, and English and Chinese UI make Minke comfortable for daily use. macOS receives native window polish, Windows and Linux retain platform-appropriate defaults, and automated releases target all three desktop platforms.
+- **More than a chat window** — Independent right and bottom Tabs keep Files, Terminal, Browser, Plugins, and Session details beside the active conversation. The Plugins workspace supports GitHub discovery, installation, status checks, repair, and removal. Files supports navigation, syntax-highlighted previews, editing, and diffs, while Terminal connects to a real PTY on the Minke host.
+- **A real remote workspace, not screen sharing** — Minke Host projects supported desktop capabilities into a responsive Web UI. From a phone or tablet you can continue conversations, start agent tasks, work with project files, and use the host terminal without streaming pixels from the Electron window.
+- **Installable as a PWA** — Open Minke through a secure HTTPS address and install it to the home screen for a standalone, app-like experience. The PWA provides branded launch surfaces and early connection feedback, while deliberately avoiding caches of authenticated workspace traffic.
+- **Private remote access** — Minke can expose its responsive workspace through an application-managed remote route. The currently validated path is Tailscale Serve over HTTPS; Tailscale Direct IP and Cloudflare Access integrations remain experimental until they complete release testing.
+- **Local model integrations** — Minke can discover and connect to LM Studio, Ollama, and other loopback OpenAI-compatible services. Optional lifecycle management can start supported local runtimes when needed without taking ownership of services that were already running.
+- **Fast keyboard-driven control** — The global Command Palette (`Mod+K`), configurable shortcuts, native menus, Session history navigation, log export, synchronized themes, and English and Chinese UI keep common actions close at hand.
+- **Safe, recoverable data migration** — Choose where Minke stores its data, then preview and merge existing Sessions, plugins, and settings. Minke deduplicates identical files, preserves conflicts and source directories, and switches only after the restart-time migration succeeds; starting with a clean data home remains an option.
+- **Local-first and cross-platform** — Application state and browser session data stay on your machine under the Minke data boundary. Automated releases target macOS, Windows, and Linux, including a portable AppImage.
 
 ![Minke 01](./assets/01.png)
 
 ![Minke 02](./assets/02.png)
 
+![Minke code workspace with Files diff and Terminal](./assets/code.png)
+
 ## Mobile access with Tailscale
 
-Minke can expose its responsive Web UI privately through
+Minke remote access is a responsive Web client backed by Minke Host—not a
+video stream or touch-controlled projection of the Electron window. From a
+phone you can continue conversations, start agent tasks, manage project files,
+and use a terminal that runs on the Minke computer.
+
+![Minke remote workspace on mobile and desktop](./assets/minke-remote.gif)
+
+> [!NOTE]
+> The only remote route currently tested end to end is **Tailscale Serve over
+> HTTPS**. Tailscale Direct IP and Cloudflare Access are available as advanced
+> integrations, but have not yet completed release validation and should be
+> treated as experimental.
+
+Minke can expose its Web UI privately through
 [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve).
-It does not bind DSH to the LAN or enable the public Tailscale Funnel.
+It keeps Harness on the local loopback address, does not bind it to the LAN,
+and does not enable the public Tailscale Funnel.
 
 1. Install Tailscale on the Minke computer and the phone, sign both into the
    same tailnet, and confirm the computer is connected.
@@ -46,6 +67,14 @@ It does not bind DSH to the LAN or enable the public Tailscale Funnel.
    **Access through Tailscale**, then choose **Restart Minke** when prompted.
 3. Return to **Remote access**, then copy or open the displayed
    `https://…ts.net` address on the phone.
+
+### Install as a PWA
+
+Open the Tailscale HTTPS address, choose **Install Minke** in the sidebar,
+and accept the browser install prompt. On iPhone or iPad, use
+**Share → Add to Home Screen**. The installed app launches in standalone mode;
+when connectivity is poor it shows connection or offline feedback instead of
+silently presenting cached workspace content.
 
 Minke owns a foreground Serve session and stops it when the app exits. The
 remote page can start agent tasks and use local tools already authorized in
