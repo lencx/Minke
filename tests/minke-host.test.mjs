@@ -162,6 +162,11 @@ test("Minke Host mounts Files RPC on the trusted DSH connection", async (t) => {
   assert.equal(escaped.ok, false);
   assert.equal(escaped.error.code, "bad-request");
   assert.match(escaped.error.message, /outside its root/u);
+
+  const unknown = await call("files.watch", {});
+  assert.equal(unknown.ok, false);
+  assert.equal(unknown.error.code, "bad-request");
+  assert.match(unknown.error.message, /unknown Minke Host endpoint/u);
 });
 
 test("browser workspace adapters project Host Files without Electron", async () => {
@@ -197,6 +202,7 @@ test("browser workspace adapters project Host Files without Electron", async () 
   const files = browserFilesPort(connection, storage);
   assert.equal(files.available, true);
   assert.equal(files.nativeOpenAvailable, false);
+  assert.equal(files.watchAvailable, false);
   assert.deepEqual(await files.list({}), {
     path: "/host/home",
     entries: [
@@ -237,6 +243,28 @@ test("browser workspace adapters project Host Files without Electron", async () 
     rightWidth: 420,
     bottomHeight: 260,
   });
+
+  const incompatibleFiles = browserFilesPort({
+    rpc: {
+      async call(_channel, endpoint) {
+        assert.equal(endpoint, "capabilities");
+        return {
+          ok: true,
+          value: {
+            ...hostCapabilities(),
+            files: {
+              ...hostCapabilities().files,
+              watch: true,
+            },
+          },
+        };
+      },
+    },
+  });
+  await assert.rejects(
+    incompatibleFiles.list({}),
+    /capabilities are incompatible/u,
+  );
 });
 
 test("browser Terminal port long-polls Host output and closes settled sessions", async () => {

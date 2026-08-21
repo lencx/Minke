@@ -351,15 +351,10 @@ test("optional remote access stays outside the local startup path", async () => 
       bootstrapSource.indexOf("await remoteAccess.prepare()"),
     "the local bootstrap window must appear before Tailscale preparation",
   );
-  assert.ok(
-    startHarnessSource.indexOf("await window.loadURL(harnessUrl)") <
-      startHarnessSource.indexOf("activeRemote.start(harnessUrl)"),
-    "the local Harness page must load before Tailscale Serve starts",
-  );
-  assert.doesNotMatch(
+  assert.match(
     startHarnessSource,
-    /await\s+activeRemote\.start\(harnessUrl\)/u,
-    "Tailscale Serve readiness must not block the local Harness page",
+    /harnessLifecycle\?\.start\(mainWindow\)/u,
+    "Harness startup must delegate window-independent lifecycle ordering",
   );
 });
 

@@ -1296,7 +1296,12 @@ export class FilesTabsController {
   }
 
   #syncWatches(): void {
-    if (this.#disposed) return;
+    if (
+      this.#disposed ||
+      this.#desktop.watchAvailable === false
+    ) {
+      return;
+    }
     for (const tab of this.#tabs.getSnapshot().tabs) {
       if (!isFilesTab(tab)) continue;
       const paths = this.#watchDirectories(tab.id);

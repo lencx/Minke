@@ -11,8 +11,8 @@ part of the runtime fingerprint and metadata; validation also reverse-checks
 that every declared patch is present before publishing or fast refresh.
 
 `win32-directory-picker.patch` is pinned to Harness
-`dsh-v0.1.0-rc.8`
-(`141eb6fef83422698aef7a981029e843e8161534`). It:
+`dsh-v0.1.1-rc.1`
+(`528c682e061696f5a160f363f236ecbf53cbd006`). It:
 
 - routes the directory dialog worker and Windows ACL sandbox runner through
   `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the
@@ -30,10 +30,13 @@ that every declared patch is present before publishing or fast refresh.
 - raises the stored-width guard for Minke's wider overlay continuation. Minke
   still owns the final viewport clamp and leaves a 20px conversation remainder.
 
-`profile-plugin-location.patch` is pinned to the same Harness commit. After
-every successful `dsh plugin` command, it prints the resolved profile directory
-where pnpm manages plugins. The path therefore follows `DSH_HOME`, including a
-Data Home selected by the user.
+`details-tab-portal.patch` is pinned to the same Harness commit. It:
+
+- publishes the selected Harness details state so Minke can keep its native tab
+  title and open state synchronized;
+- renders the upstream details panel into Minke's details portal when present,
+  while retaining the upstream in-place panel as the fallback;
+- adds stable details-panel anchors used by Minke's structural adapter.
 
 After changing the upstream pin or a patch, run:
 

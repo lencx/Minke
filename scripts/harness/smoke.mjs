@@ -21,6 +21,7 @@ import {
   isCommandUnavailableResult,
   resolveCommandInvocation,
 } from "./command-invocation.mjs";
+import { parseBootManifest } from "./boot-manifest.mjs";
 import { verifyHarnessContract } from "./contract.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -146,25 +147,12 @@ async function runSuccessful(command, args, options = {}) {
   return result;
 }
 
-function parseManifest(html) {
-  const match =
-    /<script>window\.__DSH_BOOT__ = (?<manifest>.*?)<\/script>/su.exec(html);
-  if (match?.groups?.manifest === undefined) {
-    throw new Error("served page has no window.__DSH_BOOT__ manifest");
-  }
-  const manifest = JSON.parse(match.groups.manifest);
-  if (!Array.isArray(manifest.entries)) {
-    throw new Error("served window.__DSH_BOOT__ manifest has no entries array");
-  }
-  return manifest;
-}
-
 async function fetchManifest(baseUrl) {
   const response = await fetch(`${baseUrl}/?smoke=${Date.now()}`);
   if (!response.ok) {
     throw new Error(`GET / failed with HTTP ${String(response.status)}`);
   }
-  return parseManifest(await response.text());
+  return parseBootManifest(await response.text());
 }
 
 let minkeHostRpcSequence = 0;
@@ -567,7 +555,7 @@ async function main() {
       );
     }
 
-    const pluginInstall = await runSuccessful(
+    await runSuccessful(
       executable("dsh"),
       [
         "plugin",
@@ -578,20 +566,23 @@ async function main() {
       ],
       { cwd: projectRoot, env },
     );
-    const expectedPluginLocation =
-      `dsh: profile web plugins are installed at ${
-        join(harnessHome, "profiles", "web")
-      }`;
+    const webProfileManifestPath = join(
+      harnessHome,
+      "profiles",
+      "web",
+      "package.json",
+    );
+    const webProfileManifest = JSON.parse(
+      await readFile(webProfileManifestPath, "utf8"),
+    );
+    const installedPluginSpec =
+      webProfileManifest.dependencies?.[pluginId];
     if (
-      !formatOutput(
-        pluginInstall.stdout,
-        pluginInstall.stderr,
-      ).includes(expectedPluginLocation)
+      typeof installedPluginSpec !== "string" ||
+      installedPluginSpec === ""
     ) {
       throw new Error(
-        `plugin install did not report its profile directory: ${
-          formatOutput(pluginInstall.stdout, pluginInstall.stderr)
-        }`,
+        `plugin install did not persist ${pluginId} in ${webProfileManifestPath}`,
       );
     }
 

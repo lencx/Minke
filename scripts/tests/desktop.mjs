@@ -20,6 +20,7 @@ const taskFiles = Object.freeze({
     "electron-locales.test.mjs",
     "embedded-node-permissions.test.mjs",
     "github-actions-package.test.mjs",
+    "harness-session.test.mjs",
     "main-window-devtools.test.mjs",
     "macos-tray.test.mjs",
     "minke-config.test.mjs",
@@ -28,6 +29,7 @@ const taskFiles = Object.freeze({
     "sys-native-module.test.mjs",
   ]),
   harness: Object.freeze([
+    "harness-boot-manifest.test.mjs",
     "harness-contract.test.mjs",
     "harness-launch.test.mjs",
     "harness-overlay.test.mjs",

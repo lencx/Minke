@@ -307,7 +307,7 @@ export function parseDataHomeMigrationScheduleResult(
   };
 }
 
-/** Validate one durable migration status projected into Settings. */
+/** Validate one restart-recoverable migration status projected into Settings. */
 export function parseDataHomeMigrationState(
   value: unknown,
 ): DataHomeMigrationState {

@@ -1,22 +1,25 @@
 /** Transport-neutral contract shared by the Minke Host and browser adapter. */
+import type {
+  FileManagerDiffRequest,
+  FileManagerDiffResult,
+  FileManagerListRequest,
+  FileManagerListResult,
+  FileManagerPreviewRequest,
+  FileManagerPreviewResult,
+  FileManagerWriteRequest,
+  FileManagerWriteResult,
+} from "./tabs/files-contract.ts";
+import type {
+  TerminalCreateRequest,
+  TerminalCreateResult,
+  TerminalReadRequest,
+  TerminalReadResult,
+  TerminalResizeRequest,
+  TerminalWriteRequest,
+} from "./tabs/terminal-contract.ts";
+
 export const MINKE_HOST_RPC_CHANNEL = "/minke";
 export const MINKE_HOST_PROTOCOL_VERSION = 2;
-
-export const MINKE_HOST_RPC_ENDPOINTS = [
-  "capabilities",
-  "files.diff",
-  "files.list",
-  "files.preview",
-  "files.write",
-  "terminal.close",
-  "terminal.create",
-  "terminal.read",
-  "terminal.resize",
-  "terminal.write",
-] as const;
-
-export type MinkeHostRpcEndpoint =
-  (typeof MINKE_HOST_RPC_ENDPOINTS)[number];
 
 export interface MinkeHostCapabilities {
   readonly protocolVersion: typeof MINKE_HOST_PROTOCOL_VERSION;
@@ -37,6 +40,77 @@ export interface MinkeHostCapabilities {
     readonly resize: true;
     readonly transport: "long-poll";
   };
+}
+
+/** One source of truth for every Host request and successful response. */
+export type MinkeHostRpcMap = {
+  readonly capabilities: {
+    readonly request: Record<string, never>;
+    readonly response: MinkeHostCapabilities;
+  };
+  readonly "files.diff": {
+    readonly request: FileManagerDiffRequest;
+    readonly response: FileManagerDiffResult;
+  };
+  readonly "files.list": {
+    readonly request: FileManagerListRequest;
+    readonly response: FileManagerListResult;
+  };
+  readonly "files.preview": {
+    readonly request: FileManagerPreviewRequest;
+    readonly response: FileManagerPreviewResult;
+  };
+  readonly "files.write": {
+    readonly request: FileManagerWriteRequest;
+    readonly response: FileManagerWriteResult;
+  };
+  readonly "terminal.close": {
+    readonly request: string;
+    readonly response: null;
+  };
+  readonly "terminal.create": {
+    readonly request: TerminalCreateRequest;
+    readonly response: TerminalCreateResult;
+  };
+  readonly "terminal.read": {
+    readonly request: TerminalReadRequest;
+    readonly response: TerminalReadResult;
+  };
+  readonly "terminal.resize": {
+    readonly request: TerminalResizeRequest;
+    readonly response: null;
+  };
+  readonly "terminal.write": {
+    readonly request: TerminalWriteRequest;
+    readonly response: null;
+  };
+}
+
+export type MinkeHostRpcEndpoint = keyof MinkeHostRpcMap;
+export type MinkeHostRpcRequest<
+  Endpoint extends MinkeHostRpcEndpoint,
+> = MinkeHostRpcMap[Endpoint]["request"];
+export type MinkeHostRpcResponse<
+  Endpoint extends MinkeHostRpcEndpoint,
+> = MinkeHostRpcMap[Endpoint]["response"];
+
+export const MINKE_HOST_RPC_ENDPOINTS = Object.freeze({
+  capabilities: true,
+  "files.diff": true,
+  "files.list": true,
+  "files.preview": true,
+  "files.write": true,
+  "terminal.close": true,
+  "terminal.create": true,
+  "terminal.read": true,
+  "terminal.resize": true,
+  "terminal.write": true,
+} satisfies Readonly<Record<MinkeHostRpcEndpoint, true>>);
+
+export function isMinkeHostRpcEndpoint(
+  value: string,
+): value is MinkeHostRpcEndpoint {
+  return Object.hasOwn(MINKE_HOST_RPC_ENDPOINTS, value);
 }
 
 function record(

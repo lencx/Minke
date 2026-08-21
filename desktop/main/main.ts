@@ -46,6 +46,10 @@ import {
   HarnessRuntime,
   type HarnessRuntimeExit,
 } from "./harness-runtime";
+import { HarnessLifecycle } from "./harness-lifecycle";
+import {
+  installHarnessPermissionPolicy,
+} from "./harness-permission-policy";
 import { createStatefulMainWindow } from "./main-window-state";
 import {
   minkeConfigFilePath,
@@ -116,7 +120,7 @@ const BACKGROUND_COLOR = "#0b1220";
 
 let mainWindow: BrowserWindow | undefined;
 let runtime: HarnessRuntime | undefined;
-let harnessUrl: string | undefined;
+let harnessLifecycle: HarnessLifecycle | undefined;
 let quitting = false;
 let shutdownStarted = false;
 let recovering = false;
@@ -239,6 +243,7 @@ async function invokeShortcutAction(
   id: ProductShortcutActionId,
 ): Promise<void> {
   const window = mainWindow ?? await createWindow();
+  const harnessUrl = activeHarnessUrl();
   if (window.isDestroyed() || window.webContents.isDestroyed()) return;
   if (
     harnessUrl !== undefined &&
@@ -288,13 +293,30 @@ async function loadBootstrap(window: BrowserWindow): Promise<void> {
   );
 }
 
+function activeHarnessUrl(): string | undefined {
+  return harnessLifecycle?.url;
+}
+
 function isHarnessUrl(value: string): boolean {
+  const harnessUrl = activeHarnessUrl();
   if (harnessUrl === undefined) return false;
   try {
-    return new URL(value).origin === harnessUrl;
+    return new URL(value).origin === new URL(harnessUrl).origin;
   } catch {
     return false;
   }
+}
+
+function isAuthorizedHarnessRenderer(
+  candidate: Pick<IpcMainEvent, "sender" | "senderFrame">,
+  window: BrowserWindow | undefined = mainWindow,
+): boolean {
+  return (
+    window !== undefined &&
+    candidate.sender === window.webContents &&
+    candidate.senderFrame !== null &&
+    isHarnessUrl(candidate.senderFrame.url)
+  );
 }
 
 function canOpenExternally(value: string): boolean {
@@ -310,7 +332,7 @@ function protectNavigation(webContents: WebContents): void {
     if (
       isInternalNavigation(
         details.url,
-        [bootstrapUrl(), harnessUrl],
+        [bootstrapUrl(), activeHarnessUrl()],
       )
     ) {
       return;
@@ -378,14 +400,11 @@ async function createWindow(): Promise<BrowserWindow> {
   const windowLocale = bindWindowLocale(
     window,
     localeRuntime,
-    (candidate) => {
-      const event = candidate as IpcMainEvent;
-      return (
-        event.sender === window.webContents &&
-        event.senderFrame !== null &&
-        isHarnessUrl(event.senderFrame.url)
-      );
-    },
+    (candidate) =>
+      isAuthorizedHarnessRenderer(
+        candidate as IpcMainEvent,
+        window,
+      ),
   );
   mainWindow = window;
   shortcutMenuBinding?.refreshBaseMenu();
@@ -394,11 +413,8 @@ async function createWindow(): Promise<BrowserWindow> {
     ipcMain,
     window.webContents,
     shell,
-    (candidate) => (
-      candidate.sender === window.webContents &&
-      candidate.senderFrame !== null &&
-      isHarnessUrl(candidate.senderFrame.url)
-    ),
+    (candidate) =>
+      isAuthorizedHarnessRenderer(candidate, window),
     {
       runtimeRoot: runtimeRoot(),
       electronExecutable: process.execPath,
@@ -416,12 +432,9 @@ async function createWindow(): Promise<BrowserWindow> {
     window.webContents,
     shell,
     {
-      authorize: (candidate) => (
-        candidate.sender === window.webContents &&
-        candidate.senderFrame !== null &&
-        isHarnessUrl(candidate.senderFrame.url)
-      ),
-      harnessUrl: () => harnessUrl,
+      authorize: (candidate) =>
+        isAuthorizedHarnessRenderer(candidate, window),
+      harnessUrl: activeHarnessUrl,
       async chooseDestination(suggestedFilename) {
         const result = await dialog.showSaveDialog(
           window,
@@ -465,22 +478,15 @@ async function createWindow(): Promise<BrowserWindow> {
   });
 
   await loadBootstrap(window);
-  if (harnessUrl !== undefined) await window.loadURL(harnessUrl);
+  await harnessLifecycle?.attach(window);
   return window;
 }
 
 function installPermissionPolicy(): void {
-  const allows = (value: string | undefined) =>
-    value !== undefined && isHarnessUrl(value);
-
-  session.defaultSession.setPermissionCheckHandler(
-    (_webContents, _permission, requestingOrigin, details) =>
-      allows(details.requestingUrl ?? requestingOrigin),
-  );
-  session.defaultSession.setPermissionRequestHandler(
-    (_webContents, _permission, callback, details) =>
-      callback(allows(details.requestingUrl)),
-  );
+  installHarnessPermissionPolicy(session.defaultSession, {
+    harnessUrl: activeHarnessUrl,
+    activeWebContents: () => mainWindow?.webContents,
+  });
 
   const tabsWebSession = session.fromPartition(
     TABS_WEB_PARTITION,
@@ -504,30 +510,13 @@ function installPermissionPolicy(): void {
 }
 
 async function startHarness(): Promise<void> {
-  const activeRuntime = runtime;
-  const activeRemote = remoteAccess;
-  const window = mainWindow;
-  if (activeRuntime === undefined || window === undefined) return;
-  if (activeRemote !== undefined) {
-    try {
-      await activeRemote.stop();
-    } catch (error) {
-      console.error("Remote access failed to stop:", error);
-    }
-  }
-  harnessUrl = await activeRuntime.start();
-  await window.loadURL(harnessUrl);
-  if (activeRemote?.read().state === "ready") {
-    void activeRemote.start(harnessUrl).catch((error: unknown) => {
-      console.error("Remote access failed to start:", error);
-    });
-  }
+  await harnessLifecycle?.start(mainWindow);
 }
 
 async function handleUnexpectedExit(exit: HarnessRuntimeExit): Promise<void> {
   if (quitting || recovering) return;
   recovering = true;
-  harnessUrl = undefined;
+  harnessLifecycle?.clear();
   console.error("Harness runtime exited unexpectedly:", exit);
 
   try {
@@ -617,9 +606,11 @@ async function bootstrap(): Promise<void> {
   });
   const migrationState =
     await dataHomeManager.completePendingMigration();
-  if (migrationState?.status === "failed") {
+  if (migrationState?.error !== undefined) {
     console.error(
-      "DSH data-directory migration failed:",
+      migrationState.status === "failed"
+        ? "DSH data-directory migration failed:"
+        : "DSH data-directory activation remains pending:",
       migrationState.error,
     );
   }
@@ -713,43 +704,28 @@ async function bootstrap(): Promise<void> {
   shortcutSettingsBinding = bindShortcutSettingsIpc(
     ipcMain,
     shortcutStore,
-    (candidate) => {
-      const event = candidate as IpcMainInvokeEvent;
-      return (
-        mainWindow !== undefined &&
-        event.sender === mainWindow.webContents &&
-        event.senderFrame !== null &&
-        isHarnessUrl(event.senderFrame.url)
-      );
-    },
+    (candidate) =>
+      isAuthorizedHarnessRenderer(
+        candidate as IpcMainInvokeEvent,
+      ),
     (bindings) => shortcutMenuBinding?.updateBindings(bindings),
   );
   terminalSettingsBinding = bindTerminalSettingsIpc(
     ipcMain,
     terminalSettingsStore,
-    (candidate) => {
-      const event = candidate as IpcMainInvokeEvent;
-      return (
-        mainWindow !== undefined &&
-        event.sender === mainWindow.webContents &&
-        event.senderFrame !== null &&
-        isHarnessUrl(event.senderFrame.url)
-      );
-    },
+    (candidate) =>
+      isAuthorizedHarnessRenderer(
+        candidate as IpcMainInvokeEvent,
+      ),
   );
   modelRuntimeSettingsBinding = bindModelRuntimeSettingsIpc(
     ipcMain,
     modelRuntimeSettingsStore,
     modelRuntimeAvailability,
-    (candidate) => {
-      const event = candidate as IpcMainInvokeEvent;
-      return (
-        mainWindow !== undefined &&
-        event.sender === mainWindow.webContents &&
-        event.senderFrame !== null &&
-        isHarnessUrl(event.senderFrame.url)
-      );
-    },
+    (candidate) =>
+      isAuthorizedHarnessRenderer(
+        candidate as IpcMainInvokeEvent,
+      ),
   );
   remoteSettingsBinding = bindRemoteSettingsIpc(
     ipcMain,
@@ -766,44 +742,29 @@ async function bootstrap(): Promise<void> {
             ? "access"
             : remoteSettings.tailscale.transport,
         state: "unavailable",
-      },
-    scheduleDesktopRestart,
-    (candidate) => {
-      const event = candidate as IpcMainInvokeEvent;
-      return (
-        mainWindow !== undefined &&
-        event.sender === mainWindow.webContents &&
-        event.senderFrame !== null &&
-        isHarnessUrl(event.senderFrame.url)
-      );
     },
+    scheduleDesktopRestart,
+    (candidate) =>
+      isAuthorizedHarnessRenderer(
+        candidate as IpcMainInvokeEvent,
+      ),
   );
   pluginInstallBinding = bindPluginInstallIpc(
     ipcMain,
     pluginInstallation,
-    (candidate) => {
-      const event = candidate as IpcMainInvokeEvent;
-      return (
-        mainWindow !== undefined &&
-        event.sender === mainWindow.webContents &&
-        event.senderFrame !== null &&
-        isHarnessUrl(event.senderFrame.url)
-      );
-    },
+    (candidate) =>
+      isAuthorizedHarnessRenderer(
+        candidate as IpcMainInvokeEvent,
+      ),
     scheduleDesktopRestart,
   );
   dataHomeSettingsBinding = bindDataHomeSettingsIpc(
     ipcMain,
     dataHomeManager,
-    (candidate) => {
-      const event = candidate as IpcMainInvokeEvent;
-      return (
-        mainWindow !== undefined &&
-        event.sender === mainWindow.webContents &&
-        event.senderFrame !== null &&
-        isHarnessUrl(event.senderFrame.url)
-      );
-    },
+    (candidate) =>
+      isAuthorizedHarnessRenderer(
+        candidate as IpcMainInvokeEvent,
+      ),
   );
 
   runtime = new HarnessRuntime({
@@ -830,6 +791,10 @@ async function bootstrap(): Promise<void> {
     },
     trustedHosts: remoteTrustedHosts,
     onUnexpectedExit: (exit) => void handleUnexpectedExit(exit),
+  });
+  harnessLifecycle = new HarnessLifecycle({
+    runtime,
+    remote: remoteAccess,
   });
   await startHarness();
 

@@ -26,6 +26,7 @@ import {
   bindDataHomeSettingsIpc,
 } from "@minke/desktop/main/data-home-settings.ts";
 import {
+  DataHomeMigrationJournal,
   mergeDataHomes,
   planDataHomeMerge,
 } from "@minke/desktop/main/data-home-migration.ts";
@@ -220,7 +221,7 @@ test("data-home merge copies unique files, deduplicates equals, and preserves co
   assert.equal(repeated.conflictFiles, 2);
 });
 
-test("data-home merge reconciles profile and storage metadata", async () => {
+test("data-home merge reconciles authoritative metadata and preserves derived cache conflicts", async () => {
   const root = await temporaryRoot("minke-data-home-structured-");
   const source = join(root, "source");
   const target = join(root, "target");
@@ -392,12 +393,15 @@ test("data-home merge reconciles profile and storage metadata", async () => {
   ]);
 
   const plan = await planDataHomeMerge([source], target);
-  assert.equal(plan.copyFiles, 3);
-  assert.equal(plan.conflictFiles, 0);
+  assert.equal(plan.copyFiles, 2);
+  assert.equal(plan.conflictFiles, 1);
+  assert.deepEqual(plan.conflicts, [
+    join(source, "storages", "session_projcache.json"),
+  ]);
 
   const report = await mergeDataHomes([source], target);
-  assert.equal(report.copiedFiles, 3);
-  assert.equal(report.conflictFiles, 0);
+  assert.equal(report.copiedFiles, 2);
+  assert.equal(report.conflictFiles, 1);
 
   const mergedProfile = JSON.parse(
     await readFile(
@@ -422,15 +426,25 @@ test("data-home merge reconciles profile and storage metadata", async () => {
     [{ name: "dsh-example-plugin", state: "ready" }],
   );
 
-  const mergedCache = JSON.parse(
+  const targetCache = JSON.parse(
     await readFile(
       join(target, "storages", "session_projcache.json"),
       "utf8",
     ),
   );
   assert.deepEqual(
-    Object.keys(mergedCache.tables.sessions).sort(),
-    ["session-source", "session-target"],
+    Object.keys(targetCache.tables.sessions),
+    ["session-target"],
+  );
+  const sourceCache = JSON.parse(
+    await readFile(
+      join(source, "storages", "session_projcache.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(
+    Object.keys(sourceCache.tables.sessions),
+    ["session-source"],
   );
 
   const mergedWorkspace = JSON.parse(
@@ -467,7 +481,80 @@ test("data-home merge reconciles profile and storage metadata", async () => {
 
   const repeated = await mergeDataHomes([source], target);
   assert.equal(repeated.copiedFiles, 0);
-  assert.equal(repeated.conflictFiles, 0);
+  assert.equal(repeated.conflictFiles, 1);
+});
+
+test("structured data-home replacements publish with one atomic rename", async () => {
+  const migrationSource = await readFile(
+    new URL(
+      "../desktop/main/data-home-migration.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const replaceSource = migrationSource.match(
+    /async function replaceStagedFile\([\s\S]*?\n\}\n\nasync function sortedChildren/u,
+  )?.[0];
+  assert.ok(replaceSource);
+  assert.doesNotMatch(replaceSource, /\bbackupPath\b/u);
+  assert.doesNotMatch(
+    replaceSource,
+    /rename\(destination,/u,
+  );
+  assert.deepEqual(
+    replaceSource.match(/await rename\(/gu),
+    ["await rename("],
+  );
+  assert.match(
+    replaceSource,
+    /await rename\(stagedPath, destination\);/u,
+  );
+});
+
+test("data-home merge preserves colliding credentials as opaque target-owned data", async () => {
+  const root = await temporaryRoot(
+    "minke-data-home-credentials-",
+  );
+  const source = join(root, "source");
+  const target = join(root, "target");
+  const sourceCredentials =
+    "version: 1\nrefs:\n  DEEPSEEK_API_KEY: source-secret\n";
+  const targetCredentials =
+    "version: 1\nrefs:\n  DEEPSEEK_API_KEY: target-secret\n";
+  await Promise.all([
+    mkdir(source, { recursive: true }),
+    mkdir(target, { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(
+      join(source, ".credentials.yaml"),
+      sourceCredentials,
+      { mode: 0o600 },
+    ),
+    writeFile(
+      join(target, ".credentials.yaml"),
+      targetCredentials,
+      { mode: 0o600 },
+    ),
+  ]);
+
+  const plan = await planDataHomeMerge([source], target);
+  assert.equal(plan.copyFiles, 0);
+  assert.equal(plan.conflictFiles, 1);
+  assert.deepEqual(plan.conflicts, [
+    join(source, ".credentials.yaml"),
+  ]);
+
+  const report = await mergeDataHomes([source], target);
+  assert.equal(report.conflictFiles, 1);
+  assert.equal(
+    await readFile(join(target, ".credentials.yaml"), "utf8"),
+    targetCredentials,
+  );
+  assert.equal(
+    await readFile(join(source, ".credentials.yaml"), "utf8"),
+    sourceCredentials,
+  );
 });
 
 test(
@@ -700,6 +787,63 @@ test("legacy pending data-home journals resume as merge migrations", async () =>
     await readFile(join(target, "session.jsonl"), "utf8"),
     "legacy\n",
   );
+});
+
+test("copied data-home journals reconcile activation before finalizing", async () => {
+  const home = await temporaryRoot("minke-data-home-cutover-");
+
+  for (const alreadyConfigured of [false, true]) {
+    const suffix = alreadyConfigured ? "activated" : "copied";
+    const userData = join(home, `.minke-${suffix}`);
+    const target = join(home, `target-${suffix}`);
+    const sentinel = join(target, "created-after-copy.txt");
+    const config = new MinkeConfigStore(userData);
+    const journal = new DataHomeMigrationJournal(userData);
+    const report = {
+      mode: "fresh",
+      targetPath: target,
+      sourcePaths: [],
+      copiedFiles: 0,
+      copiedBytes: 0,
+      identicalFiles: 0,
+      conflictFiles: 0,
+      conflicts: [],
+    };
+    await mkdir(target, { recursive: true });
+    await journal.schedule({
+      mode: "fresh",
+      targetPath: target,
+      sourcePaths: [],
+      copyFiles: 0,
+      copyBytes: 0,
+      identicalFiles: 0,
+      conflictFiles: 0,
+      conflicts: [],
+    });
+    await journal.markCopied(report);
+    await writeFile(sentinel, "must survive recovery\n");
+    if (alreadyConfigured) {
+      await config.dshHome.write(target);
+    }
+
+    const before = await journal.read();
+    assert.equal(before?.version, 3);
+    assert.equal(before?.phase, "copied");
+    assert.equal(before?.state.status, "pending");
+
+    const manager = new DataHomeManager({
+      userDataPath: userData,
+      homeDirectory: home,
+      environment: {},
+      configuration: config.dshHome,
+    });
+    const completed = await manager.completePendingMigration();
+
+    assert.equal(completed?.status, "completed");
+    assert.equal(await config.dshHome.read(), target);
+    assert.equal(await readFile(sentinel, "utf8"), "must survive recovery\n");
+    assert.equal((await journal.read())?.phase, "completed");
+  }
 });
 
 test("failed restart-time migration preserves the previous active configuration", async () => {

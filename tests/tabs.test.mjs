@@ -2433,6 +2433,43 @@ test("Files keeps editor state after its own save event", async () => {
   tabs.dispose();
 });
 
+test("Files skips disk subscriptions when the port cannot watch", async () => {
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  let watchCalls = 0;
+  const files = new FilesTabsController(tabs, {
+    available: true,
+    nativeOpenAvailable: false,
+    watchAvailable: false,
+    async list(request) {
+      return {
+        path: request.path ?? "/",
+        entries: [],
+        truncated: false,
+      };
+    },
+    async open() {},
+    async preview() {
+      throw new Error("not used");
+    },
+    async write() {
+      throw new Error("not used");
+    },
+    watch() {
+      watchCalls += 1;
+      throw new Error("watch must remain capability-gated");
+    },
+  });
+
+  assert.ok(files.create("/workspace", "Files"));
+  await settleAsyncWork();
+  assert.equal(watchCalls, 0);
+  files.dispose();
+  tabs.dispose();
+});
+
 test("Files refreshes the directory and clean preview after disk changes", async () => {
   const tabs = new TabsRuntime({
     showPanel() {},

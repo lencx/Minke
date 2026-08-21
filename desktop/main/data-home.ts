@@ -81,6 +81,20 @@ function failedMigrationState(
   };
 }
 
+function migrationStateWithError(
+  state: DataHomeMigrationState,
+  error: unknown,
+): DataHomeMigrationState {
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).slice(0, 4_096) || "Unknown migration failure";
+  return {
+    ...state,
+    updatedAt: new Date().toISOString(),
+    error: message,
+  };
+}
+
 function expandHomePath(
   path: string,
   homeDirectory: string,
@@ -255,40 +269,97 @@ export class DataHomeManager {
     if (journal === undefined || journal.state.status !== "pending") {
       return journal?.state;
     }
+
+    if (journal.phase === "pending") {
+      try {
+        const report =
+          journal.request.mode === "fresh"
+            ? await activateFreshDataHome(
+                journal.request.targetPath,
+              )
+            : await mergeDataHomes(
+                journal.request.sourcePaths,
+                journal.request.targetPath,
+              );
+        await this.#journal.markCopied(report);
+        const copied = await this.#journal.read();
+        if (copied === undefined || copied.phase !== "copied") {
+          throw new Error(
+            "data-home migration copy receipt was not persisted",
+          );
+        }
+        journal = copied;
+      } catch (error) {
+        try {
+          await this.#journal.fail(error);
+        } catch (journalError) {
+          return failedMigrationState(
+            journal.request.targetPath,
+            new AggregateError(
+              [error, journalError],
+              "data-home migration and status recording failed",
+            ),
+            journal.request.mode,
+          );
+        }
+        try {
+          return (await this.#journal.read())?.state;
+        } catch (readError) {
+          return failedMigrationState(
+            journal.request.targetPath,
+            readError,
+            journal.request.mode,
+          );
+        }
+      }
+    }
+
+    if (journal.phase !== "copied") return journal.state;
+
     try {
-      const report =
-        journal.request.mode === "fresh"
-          ? await activateFreshDataHome(
-              journal.request.targetPath,
-            )
-          : await mergeDataHomes(
-              journal.request.sourcePaths,
-              journal.request.targetPath,
-            );
-      await this.#configuration.write(report.targetPath);
-      await this.#journal.complete(report);
+      const configured = await this.#configuration.read();
+      const targetIsConfigured =
+        configured !== undefined &&
+        pathKey(
+          resolveDshHomePath(
+            configured,
+            this.#environment,
+            this.#homeDirectory,
+          ),
+        ) === pathKey(journal.request.targetPath);
+      if (!targetIsConfigured) {
+        await this.#configuration.write(
+          journal.request.targetPath,
+        );
+      }
+      await this.#journal.complete();
     } catch (error) {
       try {
-        await this.#journal.fail(error);
+        await this.#journal.defer(error);
+        return (await this.#journal.read())?.state ??
+          migrationStateWithError(journal.state, error);
       } catch (journalError) {
-        return failedMigrationState(
-          journal.request.targetPath,
+        return migrationStateWithError(
+          journal.state,
           new AggregateError(
             [error, journalError],
-            "data-home migration and status recording failed",
+            "data-home activation remains pending",
           ),
-          journal.request.mode,
         );
       }
     }
     try {
-      return (await this.#journal.read())?.state;
-    } catch (error) {
-      return failedMigrationState(
-        journal.request.targetPath,
-        error,
-        journal.request.mode,
-      );
+      return (await this.#journal.read())?.state ?? {
+        ...journal.state,
+        status: "completed",
+        updatedAt: new Date().toISOString(),
+      };
+    } catch {
+      return {
+        ...journal.state,
+        status: "completed",
+        updatedAt: new Date().toISOString(),
+      };
     }
   }
 

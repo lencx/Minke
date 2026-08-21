@@ -1,9 +1,9 @@
 {
   "repository": "deepseek-ai/deepseek-harness",
   "submodulePath": "vendor/deepseek-harness",
-  "commit": "141eb6fef83422698aef7a981029e843e8161534",
+  "commit": "528c682e061696f5a160f363f236ecbf53cbd006",
   "packageName": "@deepseek-ai/dsh",
-  "packageVersion": "0.1.0-rc.8",
+  "packageVersion": "0.1.1-rc.1",
   "frontendPackageName": "@deepseek-ai/dsh-web-frontend",
   "pnpmVersion": "11.7.0",
   "runtimeSizeBudgetBytes": {
@@ -15,8 +15,7 @@
   "patches": [
     "patches/deepseek-harness/win32-directory-picker.patch",
     "patches/deepseek-harness/tabs-details-layout.patch",
-    "patches/deepseek-harness/details-tab-portal.patch",
-    "patches/deepseek-harness/profile-plugin-location.patch"
+    "patches/deepseek-harness/details-tab-portal.patch"
   ],
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",

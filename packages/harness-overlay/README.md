@@ -23,8 +23,9 @@ The host composition mounts the separate
   configured loopback servers; it does not gain command discovery or process
   management.
 
-Product subagents follow the upstream rc.8 Profile Bundle contract and are not
-embedded in Minke's base runtime. Install one into the `web` Profile:
+Product subagents follow the Profile Bundle contract in the pinned
+`dsh-v0.1.1-rc.1` runtime and are not embedded in Minke's base runtime.
+Install one into the `web` Profile:
 
 - Codex: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-codex`
 - Claude Code: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-claude-code`
@@ -80,6 +81,13 @@ and post-boot desktop surface adaptation. It uses:
   translucent surfaces; the adapter is capability-gated by the isolated
   preload and removes its observer, markers, and stylesheet on disposal;
 - the isolated Minke preload bridge for durable desktop-owned preferences.
+
+Third-party Profile plugins cross the trusted extension boundary. Their package
+manager hooks may execute during installation, and their Host and Client code
+is composed into the `web` Profile on every later launch. Such code can reach
+DSH data, workspaces, credentials through DSH services, and any service the
+user authorizes. Minke therefore treats the plugin source—not only its install
+command—as a persistent trust decision.
 
 The Remote access section is backed by the separate
 `@lencx/minke-remote-access` package. It persists a default-off Tailscale opt-in,

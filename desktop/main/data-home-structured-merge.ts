@@ -6,19 +6,34 @@ import {
   resolve,
 } from "node:path";
 
-const WEB_PROFILE_MANIFEST = join(
-  "profiles",
-  "web",
-  "package.json",
-);
-const SESSION_PROJECTION_CACHE = join(
-  "storages",
-  "session_projcache.json",
-);
-const WORKSPACE_STORAGE = join(
-  "storages",
-  "workspace.json",
-);
+export const DSH_DATA_HOME_COMPATIBILITY = Object.freeze({
+  webProfileManifest: {
+    relativePath: join("profiles", "web", "package.json"),
+  },
+  workspaceStorage: {
+    relativePath: join("storages", "workspace.json"),
+    unitName: "workspace",
+    unitVersion: 2,
+  },
+  credentials: {
+    relativePath: ".credentials.yaml",
+    documentVersion: 1,
+    collisionPolicy: "preserve-target" as const,
+  },
+});
+
+export type StructuredDataHomeMergeDecision =
+  | {
+    kind: "merged";
+    content: Buffer;
+  }
+  | {
+    kind: "preserve-conflict";
+    reason: "incompatible" | "opaque-credentials";
+  }
+  | {
+    kind: "unmanaged";
+  };
 
 interface WorkspaceRecord {
   path: string;
@@ -95,16 +110,6 @@ function parseStringRecord(
     throw new TypeError(`${label} values must be strings`);
   }
   return record as Record<string, string>;
-}
-
-function mergeRecords(
-  source: Record<string, unknown>,
-  target: Record<string, unknown>,
-): Record<string, unknown> {
-  return Object.fromEntries([
-    ...Object.entries(source),
-    ...Object.entries(target),
-  ]);
 }
 
 function mergeStringRecords(
@@ -211,60 +216,6 @@ function compatibleUnit(
   return unit;
 }
 
-function mergeProjectionCache(
-  targetContent: Buffer,
-  sourceContent: Buffer,
-): Buffer {
-  const target = parseJsonRecord(
-    targetContent,
-    "target session projection cache",
-  );
-  const source = parseJsonRecord(
-    sourceContent,
-    "source session projection cache",
-  );
-  const targetUnit = compatibleUnit(
-    target.unit,
-    "session_projcache",
-    3,
-    "target session projection cache unit",
-  );
-  compatibleUnit(
-    source.unit,
-    "session_projcache",
-    3,
-    "source session projection cache unit",
-  );
-  const targetTables = parseRecord(
-    target.tables,
-    "target session projection cache tables",
-  );
-  const sourceTables = parseRecord(
-    source.tables,
-    "source session projection cache tables",
-  );
-  const targetSessions = parseRecord(
-    targetTables.sessions,
-    "target session projection cache sessions",
-  );
-  const sourceSessions = parseRecord(
-    sourceTables.sessions,
-    "source session projection cache sessions",
-  );
-
-  return formatJson({
-    ...source,
-    ...target,
-    unit: targetUnit,
-    global: target.global,
-    tables: {
-      ...sourceTables,
-      ...targetTables,
-      sessions: mergeRecords(sourceSessions, targetSessions),
-    },
-  });
-}
-
 function parseWorkspaceRecord(
   value: unknown,
   label: string,
@@ -299,8 +250,8 @@ function parseWorkspaceDocument(
   const document = parseJsonRecord(content, label);
   const unit = compatibleUnit(
     document.unit,
-    "workspace",
-    2,
+    DSH_DATA_HOME_COMPATIBILITY.workspaceStorage.unitName,
+    DSH_DATA_HOME_COMPATIBILITY.workspaceStorage.unitVersion,
     `${label} unit`,
   );
   const global = parseRecord(
@@ -510,22 +461,43 @@ export async function mergeStructuredDataHomeFile(
   relativePath: string,
   targetContent: Buffer,
   sourceContent: Buffer,
-): Promise<Buffer | undefined> {
-  try {
-    if (relativePath === WEB_PROFILE_MANIFEST) {
-      return mergeWebProfileManifest(targetContent, sourceContent);
-    }
-    if (relativePath === SESSION_PROJECTION_CACHE) {
-      return mergeProjectionCache(targetContent, sourceContent);
-    }
-    if (relativePath === WORKSPACE_STORAGE) {
-      return await mergeWorkspaceStorage(
-        targetContent,
-        sourceContent,
-      );
-    }
-  } catch {
-    return undefined;
+): Promise<StructuredDataHomeMergeDecision> {
+  if (
+    relativePath ===
+      DSH_DATA_HOME_COMPATIBILITY.credentials.relativePath
+  ) {
+    return {
+      kind: "preserve-conflict",
+      reason: "opaque-credentials",
+    };
   }
-  return undefined;
+  let merge:
+    | (() => Buffer | Promise<Buffer>)
+    | undefined;
+  if (
+    relativePath ===
+      DSH_DATA_HOME_COMPATIBILITY.webProfileManifest.relativePath
+  ) {
+    merge = () =>
+      mergeWebProfileManifest(targetContent, sourceContent);
+  } else if (
+    relativePath ===
+      DSH_DATA_HOME_COMPATIBILITY.workspaceStorage.relativePath
+  ) {
+    merge = () =>
+      mergeWorkspaceStorage(targetContent, sourceContent);
+  }
+  if (merge === undefined) return { kind: "unmanaged" };
+
+  try {
+    return {
+      kind: "merged",
+      content: await merge(),
+    };
+  } catch {
+    return {
+      kind: "preserve-conflict",
+      reason: "incompatible",
+    };
+  }
 }

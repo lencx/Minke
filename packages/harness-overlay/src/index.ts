@@ -1,9 +1,12 @@
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import {
+  isMinkeHostRpcEndpoint,
   MINKE_HOST_PROTOCOL_VERSION,
   MINKE_HOST_RPC_CHANNEL,
   type MinkeHostCapabilities,
+  type MinkeHostRpcEndpoint,
+  type MinkeHostRpcResponse,
 } from "./minke-host-contract.ts";
 import {
   FileManagerRuntime,
@@ -50,6 +53,15 @@ interface HostRpcError {
 type HostRpcResult =
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: HostRpcError };
+
+type HostRpcHandlers = {
+  readonly [Endpoint in MinkeHostRpcEndpoint]: (
+    payload: unknown,
+    signal: AbortSignal,
+  ) =>
+    | MinkeHostRpcResponse<Endpoint>
+    | Promise<MinkeHostRpcResponse<Endpoint>>;
+};
 
 interface MinkeHostContext {
   effect(
@@ -157,78 +169,55 @@ export function apply(
       transport: "long-poll",
     },
   };
+  const handlers: HostRpcHandlers = {
+    capabilities: () => capabilities,
+    "files.diff": (payload) =>
+      files.diff(parseFileManagerDiffRequest(payload)),
+    "files.list": (payload) =>
+      files.list(parseFileManagerListRequest(payload)),
+    "files.preview": (payload) =>
+      files.preview(parseFileManagerPreviewRequest(payload)),
+    "files.write": (payload) =>
+      files.write(parseFileManagerWriteRequest(payload)),
+    "terminal.close": (payload) => {
+      terminal.close(parseTerminalSessionId(payload));
+      return null;
+    },
+    "terminal.create": (payload) =>
+      terminal.create(parseTerminalCreateRequest(payload)),
+    "terminal.read": (payload, signal) =>
+      terminal.read(
+        parseTerminalReadRequest(payload),
+        signal,
+      ),
+    "terminal.resize": (payload) => {
+      terminal.resize(parseTerminalResizeRequest(payload));
+      return null;
+    },
+    "terminal.write": (payload) => {
+      terminal.write(parseTerminalWriteRequest(payload));
+      return null;
+    },
+  };
 
   ctx.connection.rpc.handle(
     MINKE_HOST_RPC_CHANNEL,
     async (endpoint, payload, signal) => {
+      if (!isMinkeHostRpcEndpoint(endpoint)) {
+        return {
+          ok: false,
+          error: {
+            code: "bad-request",
+            message: `unknown Minke Host endpoint: ${endpoint}`,
+            details: { issues: [] },
+          },
+        };
+      }
       try {
-        switch (endpoint) {
-          case "capabilities":
-            return { ok: true, value: capabilities };
-          case "files.diff":
-            return {
-              ok: true,
-              value: await files.diff(
-                parseFileManagerDiffRequest(payload),
-              ),
-            };
-          case "files.list":
-            return {
-              ok: true,
-              value: await files.list(
-                parseFileManagerListRequest(payload),
-              ),
-            };
-          case "files.preview":
-            return {
-              ok: true,
-              value: await files.preview(
-                parseFileManagerPreviewRequest(payload),
-              ),
-            };
-          case "files.write":
-            return {
-              ok: true,
-              value: await files.write(
-                parseFileManagerWriteRequest(payload),
-              ),
-            };
-          case "terminal.close":
-            terminal.close(parseTerminalSessionId(payload));
-            return { ok: true, value: null };
-          case "terminal.create":
-            return {
-              ok: true,
-              value: await terminal.create(
-                parseTerminalCreateRequest(payload),
-              ),
-            };
-          case "terminal.read":
-            return {
-              ok: true,
-              value: await terminal.read(
-                parseTerminalReadRequest(payload),
-                signal,
-              ),
-            };
-          case "terminal.resize":
-            terminal.resize(
-              parseTerminalResizeRequest(payload),
-            );
-            return { ok: true, value: null };
-          case "terminal.write":
-            terminal.write(parseTerminalWriteRequest(payload));
-            return { ok: true, value: null };
-          default:
-            return {
-              ok: false,
-              error: {
-                code: "bad-request",
-                message: `unknown Minke Host endpoint: ${endpoint}`,
-                details: { issues: [] },
-              },
-            };
-        }
+        return {
+          ok: true,
+          value: await handlers[endpoint](payload, signal),
+        };
       } catch (error) {
         return failure(error);
       }

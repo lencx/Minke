@@ -899,6 +899,14 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
     /catalog\.refresh|cancelRefresh|GitHub Token|minke-plugins-card/u,
   );
   assert.equal(pluginsEn["plugins.install.action"], "Install");
+  assert.match(
+    pluginsEn["plugins.install.trust"],
+    /trusted Host\/Client code on every launch/u,
+  );
+  assert.match(
+    pluginsZh["plugins.install.trust"],
+    /受信任的 Host\/Client 代码运行/u,
+  );
   assert.equal(
     pluginsZh["plugins.view.installed"],
     "已安装",

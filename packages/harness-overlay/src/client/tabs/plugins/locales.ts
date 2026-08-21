@@ -11,7 +11,8 @@ export const pluginsZh = {
   "plugins.install.installing": "正在安装",
   "plugins.install.invalid":
     "仅支持 dsh plugin --profile web add <包名或 github:仓库>。",
-  "plugins.install.trust": "第三方插件可能执行安装脚本，请只安装你信任的来源。",
+  "plugins.install.trust":
+    "第三方插件可在安装时运行脚本，并在每次启动时以受信任的 Host/Client 代码运行；它可访问 DSH 数据、工作区与已授权服务。请只安装并保留你完全信任的来源。",
   "plugins.install.success": "安装完成。重启 Minke 后插件生效。",
   "plugins.install.failed": "安装失败：{message}",
   "plugins.view.label": "插件管理视图",
@@ -80,7 +81,7 @@ export const pluginsEn: Record<PluginsLocaleKey, string> = {
   "plugins.install.invalid":
     "Use dsh plugin --profile web add <package or github:repository>.",
   "plugins.install.trust":
-    "Third-party plugins may run install scripts. Install only from sources you trust.",
+    "Third-party plugins may run install scripts and execute as trusted Host/Client code on every launch; they can access DSH data, workspaces, and authorized services. Install and keep only sources you fully trust.",
   "plugins.install.success": "Installed. Restart Minke to activate the plugin.",
   "plugins.install.failed": "Installation failed: {message}",
   "plugins.view.label": "Plugin management view",

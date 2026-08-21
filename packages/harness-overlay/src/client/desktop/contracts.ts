@@ -131,6 +131,8 @@ export interface DesktopFilesPort {
   readonly available: boolean;
   /** Whether paths can be handed to the host operating system. */
   readonly nativeOpenAvailable: boolean;
+  /** Whether the port can publish external filesystem changes. */
+  readonly watchAvailable: boolean;
   diff(
     request: FileManagerDiffRequest,
   ): Promise<FileManagerDiffResult>;

@@ -101,6 +101,13 @@ function fixture(options = {}) {
   );
   write(
     harnessRoot,
+    "packages/client/modules/src/index.ts",
+    options.bootManifestGlobalName === false
+      ? "{ kind: 'global', name: '__DSH_START__', value: graph }\n"
+      : "{ kind: 'global', name: '__DSH_BOOT__', value: graph }\n",
+  );
+  write(
+    harnessRoot,
     "packages/client/ui-settings-plugins/src/client/slot-contract.ts",
     `'settings.plugin.item': { kind: '${
       options.settingsPluginItemKind ?? "keyed"
@@ -124,6 +131,27 @@ function fixture(options = {}) {
           ]),
       "",
     ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/host/webserver/src/injections.ts",
+    options.structuredBootGlobal === false
+      ? "return { placement: 'head', markup: `<script>window.__DSH_BOOT__ = ${value}</script>` }\n"
+      : "return { placement: 'head', markup: `<script>globalThis[${name}] = ${value}</script>` }\n",
+  );
+  write(
+    harnessRoot,
+    "packages/host/webserver/src/index.ts",
+    options.structuredIndexPipeline === false
+      ? "return renderIndexInjections(this.applyIndexTaps(html), this.collectIndexInjections())\n"
+      : "return this.applyIndexTaps(renderIndexInjections(html, this.collectIndexInjections()))\n",
+  );
+  write(
+    harnessRoot,
+    "packages/host/frontend-static/src/index.ts",
+    options.frontendRenderIndex === false
+      ? "await readFile(distIndex, 'utf8')\n"
+      : "ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))\n",
   );
   write(
     harnessRoot,
@@ -200,6 +228,28 @@ function fixture(options = {}) {
     harnessRoot,
     "packages/client/ui-layout/src/client/AppFrame.tsx",
     "<div data-shell-overlay />\n",
+  );
+  write(
+    harnessRoot,
+    "packages/workspace/workspace/src/spec.ts",
+    [
+      "export const workspaceDomainSpec = defineDomain({",
+      "  name: 'workspace',",
+      `  version: ${String(options.workspaceVersion ?? 2)},`,
+      "})",
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/credentials/credentials-local/src/index.ts",
+    [
+      "export const CREDENTIALS_FILENAME = '.credentials.yaml'",
+      `export const DOCUMENT_VERSION = ${String(
+        options.credentialsDocumentVersion ?? 1
+      )}`,
+      "",
+    ].join("\n"),
   );
   git(harnessRoot, "add", ".");
   git(
@@ -416,6 +466,42 @@ test("the Harness contract rejects the retired settings-not-exposed error", asyn
   );
 });
 
+test("the Harness contract rejects a changed structured boot-global serializer", async () => {
+  const { projectRoot } = fixture({ structuredBootGlobal: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /structured boot-global serializer changed/u,
+  );
+});
+
+test("the Harness contract rejects a renamed boot-manifest global", async () => {
+  const { projectRoot } = fixture({ bootManifestGlobalName: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /boot-manifest global changed/u,
+  );
+});
+
+test("the Harness contract rejects reversed structured-index and raw-tap ordering", async () => {
+  const { projectRoot } = fixture({ structuredIndexPipeline: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /structured index pipeline changed/u,
+  );
+});
+
+test("the Harness contract requires frontend-static to use the shared index renderer", async () => {
+  const { projectRoot } = fixture({ frontendRenderIndex: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /frontend index rendering changed/u,
+  );
+});
+
 test("the Harness contract rejects the pre-rc.7 replay-state API", async () => {
   const { projectRoot } = fixture({ replayEnvelope: false });
 
@@ -441,6 +527,28 @@ test("the Harness contract requires DeepSeek low reasoning effort", async () => 
     verifyHarnessContract(projectRoot),
     /DeepSeek low reasoning-effort API changed/u,
   );
+});
+
+test("the Harness contract gates authoritative Data Home formats", async () => {
+  for (const [
+    options,
+    expected,
+  ] of [
+    [
+      { workspaceVersion: 3 },
+      /workspace storage format changed/u,
+    ],
+    [
+      { credentialsDocumentVersion: 2 },
+      /credentials document version changed/u,
+    ],
+  ]) {
+    const { projectRoot } = fixture(options);
+    await assert.rejects(
+      verifyHarnessContract(projectRoot),
+      expected,
+    );
+  }
 });
 
 test("the product extension contract enforces the @lencx scope", async () => {

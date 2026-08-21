@@ -307,6 +307,10 @@ export async function verifyHarnessContract(projectRoot) {
     argsSource,
     profileBootSource,
     webStartupSource,
+    bootManifestSource,
+    indexInjectionSource,
+    webServerSource,
+    frontendStaticSource,
     settingsPluginSlotSource,
     settingsApiProxySource,
     llmTypesSource,
@@ -320,6 +324,8 @@ export async function verifyHarnessContract(projectRoot) {
     themeRuntimeSource,
     themePresenterSource,
     appFrameSource,
+    workspaceStorageSource,
+    credentialsLocalSource,
   ] = await Promise.all([
     readFile(join(cliRoot, "src", "plugin.ts"), "utf8"),
     readFile(join(cliRoot, "src", "args.ts"), "utf8"),
@@ -332,6 +338,50 @@ export async function verifyHarnessContract(projectRoot) {
         "web-app",
         "src",
         "startup.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "client",
+        "modules",
+        "src",
+        "index.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "host",
+        "webserver",
+        "src",
+        "injections.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "host",
+        "webserver",
+        "src",
+        "index.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "host",
+        "frontend-static",
+        "src",
+        "index.ts",
       ),
       "utf8",
     ),
@@ -488,6 +538,28 @@ export async function verifyHarnessContract(projectRoot) {
       ),
       "utf8",
     ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "workspace",
+        "workspace",
+        "src",
+        "spec.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "credentials",
+        "credentials-local",
+        "src",
+        "index.ts",
+      ),
+      "utf8",
+    ),
   ]);
 
   requireSourceSeam(
@@ -509,6 +581,26 @@ export async function verifyHarnessContract(projectRoot) {
     webStartupSource,
     "pass 0 to let the OS pick a free one",
     "Harness loopback-port contract changed; review desktop startup.",
+  );
+  requireSourceSeam(
+    bootManifestSource,
+    "{ kind: 'global', name: '__DSH_BOOT__', value: graph }",
+    "Harness boot-manifest global changed; review the desktop smoke parser.",
+  );
+  requireSourceSeam(
+    indexInjectionSource,
+    "markup: `<script>globalThis[${name}] = ${value}</script>`",
+    "Harness structured boot-global serializer changed; review the desktop smoke parser.",
+  );
+  requireSourceSeam(
+    webServerSource,
+    "return this.applyIndexTaps(renderIndexInjections(html, this.collectIndexInjections()))",
+    "Harness structured index pipeline changed; review Minke PWA injection ordering.",
+  );
+  requireSourceSeam(
+    frontendStaticSource,
+    "ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))",
+    "Harness frontend index rendering changed; review boot and PWA injection delivery.",
   );
   requireSourceSeam(
     settingsSlotsSource,
@@ -614,6 +706,21 @@ export async function verifyHarnessContract(projectRoot) {
     appFrameSource,
     "data-shell-overlay",
     "Harness shell DOM anchor changed; review the desktop structural adapter.",
+  );
+  requireSourceSeam(
+    workspaceStorageSource,
+    "name: 'workspace',\n  version: 2,",
+    "Harness workspace storage format changed; review the Data Home compatibility adapter.",
+  );
+  requireSourceSeam(
+    credentialsLocalSource,
+    "export const CREDENTIALS_FILENAME = '.credentials.yaml'",
+    "Harness credentials filename changed; review the Data Home opaque-conflict policy.",
+  );
+  requireSourceSeam(
+    credentialsLocalSource,
+    "export const DOCUMENT_VERSION = 1",
+    "Harness credentials document version changed; review the Data Home opaque-conflict policy.",
   );
 
   const productBundle = await verifyProductBundle(

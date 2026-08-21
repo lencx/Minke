@@ -152,6 +152,7 @@ export function desktopFilesPort(
     return {
       available: false,
       nativeOpenAvailable: false,
+      watchAvailable: false,
       async diff() {
         throw new Error(
           "Minke desktop Files bridge is unavailable",
@@ -185,6 +186,7 @@ export function desktopFilesPort(
   return {
     available: true,
     nativeOpenAvailable: true,
+    watchAvailable: bridge.watch !== undefined,
     async diff(request) {
       return parseFileManagerDiffResult(
         await bridge.diff(

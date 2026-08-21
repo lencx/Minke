@@ -38,8 +38,8 @@ import {
   mergeStructuredDataHomeFile,
 } from "./data-home-structured-merge.ts";
 
-const MIGRATION_JOURNAL_VERSION = 2;
-const LEGACY_MIGRATION_JOURNAL_VERSION = 1;
+const MIGRATION_JOURNAL_VERSION = 3;
+const LEGACY_MIGRATION_JOURNAL_VERSIONS = new Set([1, 2]);
 const HARD_LINK_UNSUPPORTED = new Set([
   "EACCES",
   "ENOSYS",
@@ -86,8 +86,15 @@ interface MigrationRequest {
   sourcePaths: string[];
 }
 
+export type DataHomeMigrationPhase =
+  | "pending"
+  | "copied"
+  | "completed"
+  | "failed";
+
 interface MigrationJournalDocument {
   version: typeof MIGRATION_JOURNAL_VERSION;
+  phase: DataHomeMigrationPhase;
   request: MigrationRequest;
   state: DataHomeMigrationState;
 }
@@ -265,7 +272,6 @@ async function stageFile(
 async function replaceStagedFile(
   stagedPath: string,
   destination: string,
-  backupPath: string,
   original: TreeEntry,
 ): Promise<void> {
   let current: TreeEntry;
@@ -282,20 +288,7 @@ async function replaceStagedFile(
       `data-home migration target changed during merge: ${destination}`,
     );
   }
-  await rename(destination, backupPath);
-  try {
-    await rename(stagedPath, destination);
-  } catch (error) {
-    try {
-      await rename(backupPath, destination);
-    } catch (restoreError) {
-      throw new AggregateError(
-        [error, restoreError],
-        `data-home migration could not restore target: ${destination}`,
-      );
-    }
-    throw error;
-  }
+  await rename(stagedPath, destination);
 }
 
 async function sortedChildren(path: string): Promise<string[]> {
@@ -370,12 +363,13 @@ async function addSourceTree(
       continue;
     }
     if (existing.kind === "file" && entry.kind === "file") {
-      const content = await mergeStructuredDataHomeFile(
+      const decision = await mergeStructuredDataHomeFile(
         relativePath,
         await entryContent(existing),
         await entryContent(entry),
       );
-      if (content !== undefined) {
+      if (decision.kind === "merged") {
+        const { content } = decision;
         const merged: TreeEntry = {
           content,
           kind: "file",
@@ -691,10 +685,6 @@ export async function mergeDataHomes(
             await replaceStagedFile(
               stagedPath,
               destination,
-              join(
-                stagingRoot,
-                `backup-${String(stagedFileSequence)}`,
-              ),
               action.original,
             );
           }
@@ -802,28 +792,66 @@ function parseJournal(value: unknown): MigrationJournalDocument {
     throw new TypeError("data-home migration journal must be an object");
   }
   const record = value as Record<string, unknown>;
+  const version = record.version;
   if (
     Object.keys(record).some(
       (key) =>
         key !== "version" &&
+        key !== "phase" &&
         key !== "request" &&
         key !== "state",
     ) ||
     (
-      record.version !== MIGRATION_JOURNAL_VERSION &&
-      record.version !== LEGACY_MIGRATION_JOURNAL_VERSION
+      version !== MIGRATION_JOURNAL_VERSION &&
+      !LEGACY_MIGRATION_JOURNAL_VERSIONS.has(
+        version as number,
+      )
+    ) ||
+    (
+      version !== MIGRATION_JOURNAL_VERSION &&
+      record.phase !== undefined
     )
   ) {
     throw new TypeError("unsupported data-home migration journal");
   }
+  const state = parseDataHomeMigrationState(record.state);
+  const request = parseMigrationRequest(record.request);
+  const phase = version === MIGRATION_JOURNAL_VERSION
+    ? record.phase
+    : state.status;
+  if (
+    (
+      phase !== "pending" &&
+      phase !== "copied" &&
+      phase !== "completed" &&
+      phase !== "failed"
+    ) ||
+    (
+      (phase === "pending" || phase === "copied") &&
+      state.status !== "pending"
+    ) ||
+    (
+      (phase === "completed" || phase === "failed") &&
+      state.status !== phase
+    )
+  ) {
+    throw new TypeError("invalid data-home migration journal phase");
+  }
+  if (
+    request.mode !== state.mode ||
+    pathKey(request.targetPath) !== pathKey(state.targetPath)
+  ) {
+    throw new TypeError("inconsistent data-home migration journal");
+  }
   return {
     version: MIGRATION_JOURNAL_VERSION,
-    request: parseMigrationRequest(record.request),
-    state: parseDataHomeMigrationState(record.state),
+    phase,
+    request,
+    state,
   };
 }
 
-/** Durable restart boundary for one resumable data-home migration. */
+/** Process-restart boundary for one resumable data-home migration. */
 export class DataHomeMigrationJournal {
   readonly path: string;
   #writeSequence = 0;
@@ -846,6 +874,7 @@ export class DataHomeMigrationJournal {
   async schedule(plan: DataHomeMigrationPlan): Promise<void> {
     await this.#write({
       version: MIGRATION_JOURNAL_VERSION,
+      phase: "pending",
       request: {
         mode: plan.mode,
         targetPath: plan.targetPath,
@@ -865,9 +894,12 @@ export class DataHomeMigrationJournal {
     });
   }
 
-  async complete(report: DataHomeMigrationReport): Promise<void> {
+  async markCopied(
+    report: DataHomeMigrationReport,
+  ): Promise<void> {
     await this.#write({
       version: MIGRATION_JOURNAL_VERSION,
+      phase: "copied",
       request: {
         mode: report.mode,
         targetPath: report.targetPath,
@@ -875,7 +907,7 @@ export class DataHomeMigrationJournal {
       },
       state: {
         mode: report.mode,
-        status: "completed",
+        status: "pending",
         targetPath: report.targetPath,
         copiedFiles: report.copiedFiles,
         copiedBytes: report.copiedBytes,
@@ -887,14 +919,61 @@ export class DataHomeMigrationJournal {
     });
   }
 
-  async fail(error: unknown): Promise<void> {
+  async complete(): Promise<void> {
     const current = await this.read();
-    if (current === undefined) return;
+    if (current === undefined) {
+      throw new Error("data-home migration journal is missing");
+    }
+    if (current.phase === "completed") return;
+    if (current.phase !== "copied") {
+      throw new Error(
+        `data-home migration cannot complete from ${current.phase}`,
+      );
+    }
+    await this.#write({
+      ...current,
+      phase: "completed",
+      state: {
+        ...current.state,
+        status: "completed",
+        error: undefined,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  async defer(error: unknown): Promise<void> {
+    const current = await this.read();
+    if (current === undefined || current.phase !== "copied") {
+      return;
+    }
     const message = (
       error instanceof Error ? error.message : String(error)
     ).slice(0, 4_096) || "Unknown migration failure";
     await this.#write({
       ...current,
+      state: {
+        ...current.state,
+        status: "pending",
+        error: message,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  async fail(error: unknown): Promise<void> {
+    const current = await this.read();
+    if (current === undefined) return;
+    if (current.phase === "copied") {
+      await this.defer(error);
+      return;
+    }
+    const message = (
+      error instanceof Error ? error.message : String(error)
+    ).slice(0, 4_096) || "Unknown migration failure";
+    await this.#write({
+      ...current,
+      phase: "failed",
       state: {
         ...current.state,
         status: "failed",

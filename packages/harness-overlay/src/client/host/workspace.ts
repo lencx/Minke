@@ -1,6 +1,9 @@
 import {
   MINKE_HOST_RPC_CHANNEL,
   parseMinkeHostCapabilities,
+  type MinkeHostRpcEndpoint,
+  type MinkeHostRpcRequest,
+  type MinkeHostRpcResponse,
 } from "@minke/harness-overlay/minke-host-contract.ts";
 import {
   parseTabsLayoutState,
@@ -52,6 +55,11 @@ interface BrowserStorage {
 }
 
 type Connection = HarnessClientContext["connection"];
+type HostCaller = <Endpoint extends MinkeHostRpcEndpoint>(
+  endpoint: Endpoint,
+  payload: MinkeHostRpcRequest<Endpoint>,
+  signal?: AbortSignal,
+) => Promise<MinkeHostRpcResponse<Endpoint>>;
 
 function browserStorage(): BrowserStorage | undefined {
   try {
@@ -97,7 +105,7 @@ function writeStored(
   }
 }
 
-function createHostCaller(connection: Connection) {
+function createHostCaller(connection: Connection): HostCaller {
   let ready:
     | ReturnType<typeof parseMinkeHostCapabilities>
     | Promise<ReturnType<typeof parseMinkeHostCapabilities>>
@@ -111,11 +119,11 @@ function createHostCaller(connection: Connection) {
         ));
     return Promise.resolve(ready);
   };
-  return async (
-    endpoint: string,
-    payload: unknown,
+  return async <Endpoint extends MinkeHostRpcEndpoint>(
+    endpoint: Endpoint,
+    payload: MinkeHostRpcRequest<Endpoint>,
     signal?: AbortSignal,
-  ): Promise<unknown> => {
+  ): Promise<MinkeHostRpcResponse<Endpoint>> => {
     await ensureReady();
     return rpcValue(
       await connection.rpc.call(
@@ -125,7 +133,7 @@ function createHostCaller(connection: Connection) {
         signal,
       ),
       endpoint,
-    );
+    ) as MinkeHostRpcResponse<Endpoint>;
   };
 }
 
@@ -174,6 +182,7 @@ export function browserFilesPort(
   return {
     available: true,
     nativeOpenAvailable: false,
+    watchAvailable: false,
     async diff(request) {
       return parseFileManagerDiffResult(
         await call(
