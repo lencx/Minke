@@ -15,6 +15,7 @@
   "patches": [
     "patches/deepseek-harness/win32-directory-picker.patch",
     "patches/deepseek-harness/tabs-details-layout.patch",
+    "patches/deepseek-harness/details-tab-portal.patch",
     "patches/deepseek-harness/profile-plugin-location.patch"
   ],
   "productBundle": {

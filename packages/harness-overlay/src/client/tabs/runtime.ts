@@ -225,6 +225,14 @@ export class TabsRuntime {
   }
 
   dispose(): void {
+    if (this.#snapshot.visible) {
+      this.#snapshot = frozenSnapshot(
+        this.#snapshot.tabs,
+        this.#snapshot.activeId,
+        false,
+      );
+      this.#host.hidePanel();
+    }
     this.#disposed = true;
     this.#listeners.clear();
   }

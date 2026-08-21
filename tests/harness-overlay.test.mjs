@@ -552,7 +552,7 @@ test("About stays hidden when desktop metadata is unavailable", () => {
 test("Tabs stays generic while content types register as adapters", () => {
   assert.match(
     tabsInstallSource,
-    /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new WebTabsController[\s\S]*new FilesTabsController[\s\S]*new TerminalTabsController/u,
+    /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new WebTabsController[\s\S]*new FilesTabsController[\s\S]*new TerminalTabsController[\s\S]*new DetailsTabsController/u,
   );
   assert.match(
     tabsInstallSource,
@@ -572,7 +572,8 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     tabsInstallSource,
-    /name:\s*"shell\.overlay"[\s\S]*id:\s*"minke-tabs-right"[\s\S]*id:\s*"minke-tabs-bottom"/u,
+    /rightWorkspace\.renderers\.register\(\s*createDetailsTabRenderer\(\),?\s*\)[\s\S]*installDetailsTabsBridge\(detailsTabs\)/u,
+    "the native Details adapter belongs only to the managed right workspace",
   );
   assert.match(
     tabsInstallSource,
@@ -590,6 +591,7 @@ test("Tabs stays generic while content types register as adapters", () => {
   assert.match(tabsInstallSource, /installTerminalTabStyles\(\)/u);
   assert.match(tabsInstallSource, /installFilesTabStyles\(\)/u);
   assert.match(tabsInstallSource, /installWebTabStyles\(\)/u);
+  assert.match(tabsInstallSource, /installDetailsTabStyles\(\)/u);
   assert.match(tabsInstallSource, /FILES_TABS_NAMESPACE/u);
   assert.match(tabsInstallSource, /TERMINAL_TABS_NAMESPACE/u);
   assert.match(tabsInstallSource, /WEB_TABS_NAMESPACE/u);

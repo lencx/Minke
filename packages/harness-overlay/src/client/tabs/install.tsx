@@ -11,6 +11,13 @@ import {
   desktopTerminalSettingsStore,
 } from "../desktop/index.ts";
 import {
+  createDetailsTabRenderer,
+  DetailsTabsController,
+  installDetailsLayoutOpenBridge,
+  installDetailsTabsBridge,
+  installDetailsTabStyles,
+} from "./details/index.ts";
+import {
   createFilesTabRenderer,
   filesTabsEn,
   filesTabsZh,
@@ -232,6 +239,10 @@ export function installTabs(
     () => installWebTabStyles(),
     "minke-overlay: Web tab styles",
   );
+  ctx.effect(
+    () => installDetailsTabStyles(),
+    "minke-overlay: Details tab styles",
+  );
   if (filesPort.available) {
     ctx.effect(
       () => installFilesTabStyles(),
@@ -245,9 +256,11 @@ export function installTabs(
     );
   }
 
+  const openRightHost = ctx.layout.openDetails.bind(ctx.layout);
+  const closeRightHost = ctx.layout.closeDetails.bind(ctx.layout);
   const rightTabs = new TabsRuntime({
-    showPanel: () => ctx.layout.openDetails(),
-    hidePanel: () => ctx.layout.closeDetails(),
+    showPanel: openRightHost,
+    hidePanel: closeRightHost,
   });
   const bottomTabs = new TabsRuntime({
     showPanel() {},
@@ -348,6 +361,28 @@ export function installTabs(
   const rightWorkspace = createTabsWorkspace(
     rightTabs,
     "right",
+  );
+  ctx.effect(
+    () =>
+      rightWorkspace.renderers.register(
+        createDetailsTabRenderer(),
+      ),
+    "minke-overlay: right Details renderer",
+  );
+  const detailsTabs = new DetailsTabsController(rightTabs, {
+    releaseHost: closeRightHost,
+  });
+  ctx.effect(
+    () =>
+      installDetailsLayoutOpenBridge(
+        ctx.layout,
+        detailsTabs,
+      ),
+    "minke-overlay: Details layout.openDetails bridge",
+  );
+  ctx.effect(
+    () => installDetailsTabsBridge(detailsTabs),
+    "minke-overlay: Details tab lifecycle bridge",
   );
   const bottomWorkspace = createTabsWorkspace(
     bottomTabs,

@@ -1,0 +1,117 @@
+diff --git a/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
+--- a/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
++++ b/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
+@@ -9,6 +9,7 @@ window.__ModuleLoader__.load({
+ 		let _deepseek_ai_cordis = require("@deepseek-ai/cordis");
+ 		let react_jsx_runtime = require("react/jsx-runtime");
+ 		let react = require("react");
++		let react_dom = require("react-dom");
+ 		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+ 		//#region lib/types/client/stores.js
+ 		/**
+@@ -7374,18 +7375,79 @@ window.__ModuleLoader__.load({
+ 			if (parts.length === 0 && block.error !== void 0) parts.push(`${block.error.name}: ${block.error.code}`);
+ 			return parts.join("\n");
+ 		}
++		const DSH_DETAILS_STATE_EVENT = "minke:dsh-details-state";
++		const MINKE_DETAILS_PORTAL_EVENT = "minke:details-portal-change";
++		const MINKE_DETAILS_PORTAL_SELECTOR = "[data-minke-details-portal]";
++		const DSH_DETAILS_STATE_KEY = "__minkeDshDetailsState";
++		function publishDetailsState(state) {
++			globalThis[DSH_DETAILS_STATE_KEY] = Object.freeze(state);
++			if (typeof CustomEvent !== "undefined" && typeof globalThis.dispatchEvent === "function") {
++				globalThis.dispatchEvent(new CustomEvent(DSH_DETAILS_STATE_EVENT, { detail: state }));
++			}
++		}
++		function detailsPortalTarget(event) {
++			const isPortalEvent = typeof CustomEvent !== "undefined" && event instanceof CustomEvent;
++			const candidate = isPortalEvent && typeof event.detail === "object" && event.detail !== null ? event.detail.target : void 0;
++			const isElement = typeof HTMLElement !== "undefined" && candidate instanceof HTMLElement;
++			if (candidate === null || isElement) return candidate;
++			return document.querySelector(MINKE_DETAILS_PORTAL_SELECTOR);
++		}
+ 		function DetailsPanel({ useSession, useSessions, sessionId, useStore, renderSlot, closeDetails, t }) {
+ 			const selection = useStore((s) => s.selection);
+ 			const sessionCwd = useSessions((list) => list.byId[sessionId]?.cwd);
+ 			const callId = selection?.callId;
+ 			const material = useSession((s) => callId === void 0 ? null : materialFor(s, callId), (a, b) => (0, _deepseek_ai_dsh_client_runtime_client.shallowEqual)(a, b));
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			const label = t("details.title");
++			const title = selection === null ? label : material?.name ?? selection.toolName ?? label;
++			const open = selection !== null && callId !== void 0;
++			const owner = react.useRef(Symbol("dsh-details")).current;
++			const [portalTarget, setPortalTarget] = react.useState(() => document.querySelector(MINKE_DETAILS_PORTAL_SELECTOR));
++			react.useLayoutEffect(() => {
++				const sync = (event) => {
++					setPortalTarget(detailsPortalTarget(event));
++				};
++				globalThis.addEventListener(MINKE_DETAILS_PORTAL_EVENT, sync);
++				sync();
++				return () => {
++					globalThis.removeEventListener(MINKE_DETAILS_PORTAL_EVENT, sync);
++				};
++			}, []);
++			react.useEffect(() => {
++				const state = {
++					open,
++					sessionId,
++					callId,
++					label,
++					title,
++					owner
++				};
++				publishDetailsState(state);
++				return () => {
++					const current = globalThis[DSH_DETAILS_STATE_KEY];
++					if (current?.owner === owner && current.callId === callId) {
++						publishDetailsState({
++							...state,
++							open: false
++						});
++					}
++				};
++			}, [
++				callId,
++				label,
++				open,
++				owner,
++				sessionId,
++				title
++			]);
++			const panel = (0, react_jsx_runtime.jsxs)("div", {
+ 				className: DetailsPanel_module_css_default.root,
++				"data-dsh-details-panel": "",
+ 				children: [(0, react_jsx_runtime.jsxs)("div", {
+ 					className: DetailsPanel_module_css_default.header,
++					"data-dsh-details-header": "",
+ 					children: [(0, react_jsx_runtime.jsx)("div", {
+ 						className: DetailsPanel_module_css_default.title,
+-						children: selection === null ? t("details.title") : material?.name ?? selection.toolName ?? t("details.title")
++						children: title
+ 					}), (0, react_jsx_runtime.jsx)("button", {
+ 						type: "button",
+ 						className: DetailsPanel_module_css_default.close,
+@@ -7408,6 +7470,7 @@ window.__ModuleLoader__.load({
+ 					})]
+ 				}), (0, react_jsx_runtime.jsx)("div", {
+ 					className: DetailsPanel_module_css_default.body,
++					"data-dsh-details-body": "",
+ 					children: selection === null || callId === void 0 ? (0, react_jsx_runtime.jsx)("div", {
+ 						className: DetailsPanel_module_css_default.empty,
+ 						children: t("details.empty")
+@@ -7427,6 +7490,7 @@ window.__ModuleLoader__.load({
+ 						})]
+ 					}), (0, react_jsx_runtime.jsxs)("section", {
+ 						className: DetailsPanel_module_css_default.section,
++						"data-dsh-details-tool": "",
+ 						children: [(0, react_jsx_runtime.jsx)("div", {
+ 							className: DetailsPanel_module_css_default.sectionLabel,
+ 							children: t("details.output")
+@@ -7444,6 +7508,7 @@ window.__ModuleLoader__.load({
+ 					})] })
+ 				})]
+ 			});
++			return portalTarget === null ? panel : react_dom.createPortal(panel, portalTarget);
+ 		}
+ 		//#endregion
+ 		//#region lib/types/client/conversation-nodes/common.js

@@ -1,0 +1,28 @@
+.minke-details-tab,
+.minke-details-tab__portal {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+
+.minke-details-tab__portal {
+  display: flex;
+  overflow: hidden;
+}
+
+.minke-details-tab__portal > [data-dsh-details-panel] {
+  width: 100%;
+  border-left: none;
+}
+
+.minke-details-tab__portal
+  > [data-dsh-details-panel]
+  > [data-dsh-details-header] {
+  display: none;
+}
+
+.minke-details-tab__portal
+  > [data-dsh-details-panel]
+  > [data-dsh-details-body] {
+  padding-top: 16px;
+}

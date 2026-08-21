@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import {
   chmod,
+  copyFile,
   lstat,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -17,6 +19,10 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EditorState } from "@codemirror/state";
+import {
+  applyHarnessRuntimePatches,
+  resolveHarnessRuntimePatches,
+} from "../scripts/harness/runtime-patches.mjs";
 import {
   normalizeWebTabUrl,
   parseTabsLayoutState,
@@ -63,6 +69,20 @@ import {
 import {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
+import {
+  DetailsTabsController,
+  installDetailsLayoutOpenBridge,
+  installDetailsTabsBridge,
+} from "@minke/harness-overlay/client/tabs/details/controller.ts";
+import {
+  DSH_DETAILS_STATE_EVENT,
+  DSH_DETAILS_STATE_KEY,
+  MINKE_DETAILS_PORTAL_EVENT,
+  parseDshDetailsState,
+} from "@minke/harness-overlay/client/tabs/details/contract.ts";
+import {
+  DETAILS_TAB_STYLES,
+} from "@minke/harness-overlay/client/tabs/details/styles.ts";
 import {
   TABS_STYLES,
 } from "@minke/harness-overlay/client/tabs/styles.ts";
@@ -296,6 +316,98 @@ test("Harness details track reflows before the Tabs overlay takes over", () => {
     patch,
     /^\+\s*const d0 = .*520/mu,
   );
+});
+
+test("Harness Details portal patch preserves the native plugin slot chain", async () => {
+  const patch = readFileSync(
+    new URL(
+      "../patches/deepseek-harness/details-tab-portal.patch",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(patch, /require\("react-dom"\)/u);
+  assert.match(patch, /createPortal\(panel,\s*portalTarget\)/u);
+  assert.match(patch, /minke:dsh-details-state/u);
+  assert.match(patch, /minke:details-portal-change/u);
+  assert.match(patch, /data-dsh-details-panel/u);
+  assert.match(patch, /data-dsh-details-tool/u);
+  const upstreamSource = readFileSync(
+    new URL(
+      "../vendor/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/DetailsPanel.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    upstreamSource,
+    /renderSlot\('conversation\.details\.tool'/u,
+  );
+  const removals = patch
+    .split("\n")
+    .filter((line) => line.startsWith("-") && !line.startsWith("---"))
+    .join("\n");
+  assert.doesNotMatch(
+    removals,
+    /renderSlot\("conversation\.details\.tool"/u,
+    "the patch must portal the native Details tree without replacing plugin rendering",
+  );
+
+  const projectRoot = realpathSync(
+    new URL("..", import.meta.url),
+  );
+  const runtimeRoot = await mkdtemp(
+    join(tmpdir(), "minke-details-portal-"),
+  );
+  const target = join(
+    runtimeRoot,
+    "node_modules",
+    "@deepseek-ai",
+    "dsh-client-ui-conversation",
+    "lib",
+    "client.js",
+  );
+  try {
+    await mkdir(parse(target).dir, { recursive: true });
+    await copyFile(
+      join(
+        projectRoot,
+        "vendor",
+        "deepseek-harness",
+        "packages",
+        "client",
+        "ui-conversation",
+        "lib",
+        "client.js",
+      ),
+      target,
+    );
+    const patches = await resolveHarnessRuntimePatches(
+      projectRoot,
+      ["patches/deepseek-harness/details-tab-portal.patch"],
+    );
+    await applyHarnessRuntimePatches(runtimeRoot, patches);
+    const patched = await readFile(target, "utf8");
+    assert.match(
+      patched,
+      /react_dom\.createPortal\(panel,\s*portalTarget\)/u,
+    );
+    assert.match(
+      patched,
+      /renderSlot\("conversation\.details\.tool"/u,
+    );
+    assert.equal(
+      (
+        patched.match(
+          /renderSlot\("conversation\.details\.tool"/gu,
+        ) ?? []
+      ).length,
+      1,
+    );
+    assert.doesNotThrow(() => new Function(patched));
+  } finally {
+    await rm(runtimeRoot, { recursive: true, force: true });
+  }
 });
 
 test("Web tab URLs accept only credential-free HTTP(S)", () => {
@@ -2450,7 +2562,402 @@ test("Tabs is content-agnostic and preserves hidden tab state", () => {
   tabs.dispose();
 });
 
-test("Session Header groups compact actions for both Tabs placements", () => {
+test("Tabs disposal releases an open host panel", () => {
+  const hostEvents = [];
+  const tabs = new TabsRuntime({
+    showPanel: () => hostEvents.push("show"),
+    hidePanel: () => hostEvents.push("hide"),
+  });
+
+  tabs.show();
+  assert.equal(tabs.getSnapshot().visible, true);
+  tabs.dispose();
+
+  assert.equal(tabs.getSnapshot().visible, false);
+  assert.deepEqual(hostEvents, ["show", "hide"]);
+});
+
+test("Details state contract rejects incomplete plugin bridge payloads", () => {
+  assert.equal(parseDshDetailsState(null), undefined);
+  assert.equal(
+    parseDshDetailsState({
+      open: true,
+      sessionId: "session-1",
+      label: "Details",
+      title: "Read",
+    }),
+    undefined,
+  );
+  assert.deepEqual(
+    parseDshDetailsState({
+      open: true,
+      sessionId: " session-1 ",
+      callId: " call-1 ",
+      label: " Details ",
+      title: " Read ",
+      ownerId: "ignored-upstream-owner",
+    }),
+    {
+      open: true,
+      sessionId: "session-1",
+      callId: "call-1",
+      label: "Details",
+      title: "Read",
+    },
+  );
+});
+
+test("Details follows one managed tab across create, update, and close", () => {
+  const hostEvents = [];
+  const tasks = [];
+  const tabs = new TabsRuntime({
+    showPanel: () => hostEvents.push("show"),
+    hidePanel: () => hostEvents.push("hide"),
+  });
+  const controller = new DetailsTabsController(tabs, {
+    releaseHost: () => hostEvents.push("release"),
+    schedule: (task) => tasks.push(task),
+  });
+  const flush = () => {
+    const task = tasks.shift();
+    assert.ok(task);
+    task();
+  };
+
+  controller.accept({
+    open: true,
+    sessionId: "session-1",
+    callId: "call-1",
+    label: "Details",
+    title: "Read",
+  });
+  flush();
+  const first = tabs.getSnapshot();
+  assert.equal(first.tabs.length, 1);
+  assert.equal(first.visible, true);
+  assert.equal(first.tabs[0].kind, "details");
+  assert.equal(first.tabs[0].key, "dsh-details");
+  assert.equal(first.tabs[0].title, "Details · Read");
+  assert.deepEqual(first.tabs[0].payload, {
+    sessionId: "session-1",
+    callId: "call-1",
+    label: "Details",
+    title: "Read",
+  });
+
+  controller.accept({
+    open: false,
+    sessionId: "session-1",
+    callId: "call-1",
+    label: "Details",
+    title: "Read",
+  });
+  controller.accept({
+    open: true,
+    sessionId: "session-2",
+    callId: "call-2",
+    label: "Details",
+    title: "Terminal",
+  });
+  assert.equal(tasks.length, 1, "React cleanup/setup must coalesce");
+  flush();
+  const updated = tabs.getSnapshot();
+  assert.equal(updated.tabs.length, 1);
+  assert.equal(updated.tabs[0].id, first.tabs[0].id);
+  assert.equal(updated.tabs[0].title, "Details · Terminal");
+  assert.equal(updated.tabs[0].payload.sessionId, "session-2");
+  assert.equal(updated.tabs[0].payload.callId, "call-2");
+
+  controller.accept({
+    open: false,
+    sessionId: "session-2",
+    callId: "call-2",
+    label: "Details",
+    title: "Terminal",
+  });
+  flush();
+  assert.equal(tabs.getSnapshot().tabs.length, 0);
+  assert.equal(tabs.getSnapshot().visible, false);
+  assert.deepEqual(hostEvents, ["show", "show", "hide"]);
+  controller.dispose();
+  tabs.dispose();
+});
+
+test("Details invokes browser scheduler callbacks without a receiver", () => {
+  const tasks = [];
+  const receivers = [];
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const controller = new DetailsTabsController(tabs, {
+    releaseHost() {},
+    schedule: function schedule(task) {
+      receivers.push(this);
+      tasks.push(task);
+    },
+  });
+
+  controller.accept({
+    open: true,
+    sessionId: "session-1",
+    callId: "call-1",
+    label: "Details",
+    title: "Read",
+  });
+
+  assert.deepEqual(
+    receivers,
+    [undefined],
+    "browser host schedulers reject an arbitrary class receiver",
+  );
+  tasks.shift()();
+  controller.dispose();
+  tabs.dispose();
+});
+
+test("Details bridge restores current state and releases an orphan host track", () => {
+  const tasks = [];
+  let releases = 0;
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const controller = new DetailsTabsController(tabs, {
+    releaseHost: () => {
+      releases += 1;
+    },
+    schedule: (task) => tasks.push(task),
+  });
+  const host = new EventTarget();
+  host[DSH_DETAILS_STATE_KEY] = {
+    open: false,
+    sessionId: "session-1",
+    label: "Details",
+    title: "Details",
+  };
+  const dispose = installDetailsTabsBridge(controller, host);
+  assert.equal(tasks.length, 1, "the bridge must reconcile after refresh");
+  tasks.shift()();
+  assert.equal(releases, 1);
+
+  host[DSH_DETAILS_STATE_KEY] = {
+    open: true,
+    sessionId: "session-1",
+    callId: "call-1",
+    label: "Details",
+    title: "Read",
+  };
+  host.dispatchEvent(new Event(DSH_DETAILS_STATE_EVENT));
+  tasks.shift()();
+  assert.equal(tabs.getSnapshot().tabs.length, 1);
+  dispose();
+  tabs.dispose();
+});
+
+test("Details intercepts legacy layout opens and suppresses empty plugin surfaces", () => {
+  const tasks = [];
+  let nativeOpens = 0;
+  const layout = {
+    openDetails() {
+      nativeOpens += 1;
+    },
+  };
+  const openRightHost = layout.openDetails.bind(layout);
+  const tabs = new TabsRuntime({
+    showPanel: openRightHost,
+    hidePanel() {},
+  });
+  const controller = new DetailsTabsController(tabs, {
+    releaseHost() {},
+    schedule: (task) => tasks.push(task),
+  });
+  const host = new EventTarget();
+  host[DSH_DETAILS_STATE_KEY] = {
+    open: false,
+    sessionId: "session-1",
+    label: "Details",
+    title: "Details",
+  };
+  const dispose = installDetailsLayoutOpenBridge(
+    layout,
+    controller,
+    host,
+  );
+
+  layout.openDetails();
+  assert.equal(
+    nativeOpens,
+    0,
+    "a plugin cannot expose the empty native Details track",
+  );
+  tasks.shift()();
+  assert.equal(tabs.getSnapshot().tabs.length, 0);
+
+  host[DSH_DETAILS_STATE_KEY] = {
+    open: true,
+    sessionId: "session-1",
+    callId: "plugin-call",
+    label: "Details",
+    title: "Custom Plugin Tool",
+  };
+  layout.openDetails();
+  tasks.shift()();
+  assert.equal(tabs.getSnapshot().tabs.length, 1);
+  assert.equal(tabs.getSnapshot().tabs[0].kind, "details");
+  assert.equal(nativeOpens, 1, "the managed tab opens the captured host seam");
+
+  dispose();
+  layout.openDetails();
+  assert.equal(nativeOpens, 2, "cleanup restores the public layout service");
+  controller.dispose();
+  tabs.dispose();
+});
+
+test("Details layout bridge preserves unpatched DSH fallback behavior", () => {
+  let nativeOpens = 0;
+  const layout = {
+    openDetails() {
+      nativeOpens += 1;
+    },
+  };
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const controller = new DetailsTabsController(tabs, {
+    releaseHost() {},
+  });
+  const dispose = installDetailsLayoutOpenBridge(
+    layout,
+    controller,
+    new EventTarget(),
+  );
+  layout.openDetails();
+  assert.equal(nativeOpens, 1);
+  dispose();
+  controller.dispose();
+  tabs.dispose();
+});
+
+test("Closing Details preserves sibling tabs and a later call reopens it", () => {
+  const tasks = [];
+  const hostEvents = [];
+  const tabs = new TabsRuntime({
+    showPanel: () => hostEvents.push("show"),
+    hidePanel: () => hostEvents.push("hide"),
+  });
+  const controller = new DetailsTabsController(tabs, {
+    releaseHost: () => hostEvents.push("release"),
+    schedule: (task) => tasks.push(task),
+  });
+  tabs.open({
+    kind: "web",
+    key: "docs",
+    title: "Docs",
+    payload: { url: "https://example.com" },
+  });
+  controller.accept({
+    open: true,
+    sessionId: "session-1",
+    callId: "running-call",
+    label: "Details",
+    title: "Terminal",
+  });
+  tasks.shift()();
+  const opened = tabs.getSnapshot();
+  const details = opened.tabs.find((tab) => tab.kind === "details");
+  assert.ok(details);
+  assert.equal(opened.tabs.length, 2);
+  assert.equal(opened.activeId, details.id);
+
+  tabs.close(details.id);
+  const afterManualClose = tabs.getSnapshot();
+  assert.equal(afterManualClose.tabs.length, 1);
+  assert.equal(afterManualClose.tabs[0].kind, "web");
+  assert.equal(afterManualClose.visible, true);
+  assert.doesNotMatch(hostEvents.join(","), /hide|release/u);
+
+  controller.accept({
+    open: true,
+    sessionId: "session-1",
+    callId: "settled-call",
+    label: "Details",
+    title: "Read",
+  });
+  tasks.shift()();
+  const reopened = tabs.getSnapshot();
+  assert.equal(reopened.tabs.length, 2);
+  assert.equal(reopened.tabs.at(-1).kind, "details");
+  assert.notEqual(reopened.tabs.at(-1).id, details.id);
+  controller.dispose();
+  tabs.dispose();
+});
+
+test("Details bridge refresh reuses an existing tab without duplication", () => {
+  const tasks = [];
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const state = {
+    open: true,
+    sessionId: "session-1",
+    callId: "call-1",
+    label: "Details",
+    title: "Custom Plugin Tool",
+  };
+  const first = new DetailsTabsController(tabs, {
+    releaseHost() {},
+    schedule: (task) => tasks.push(task),
+  });
+  first.accept(state);
+  tasks.shift()();
+  const originalId = tabs.getSnapshot().tabs[0].id;
+  first.dispose();
+
+  const host = new EventTarget();
+  host[DSH_DETAILS_STATE_KEY] = state;
+  const refreshed = new DetailsTabsController(tabs, {
+    releaseHost() {},
+    schedule: (task) => tasks.push(task),
+  });
+  const dispose = installDetailsTabsBridge(refreshed, host);
+  tasks.shift()();
+  assert.equal(tabs.getSnapshot().tabs.length, 1);
+  assert.equal(tabs.getSnapshot().tabs[0].id, originalId);
+  assert.equal(
+    tabs.getSnapshot().tabs[0].title,
+    "Details · Custom Plugin Tool",
+  );
+  dispose();
+  tabs.dispose();
+});
+
+test("Details renderer exposes one portal target and no user create option", () => {
+  const rendererSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/details/renderer.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(rendererSource, /data-minke-details-portal=""/u);
+  assert.match(rendererSource, /role="tabpanel"/u);
+  assert.doesNotMatch(rendererSource, /createOptions/u);
+  assert.match(DETAILS_TAB_STYLES, /data-dsh-details-panel/u);
+  assert.match(DETAILS_TAB_STYLES, /data-dsh-details-header/u);
+  assert.equal(
+    DSH_DETAILS_STATE_EVENT,
+    "minke:dsh-details-state",
+  );
+  assert.equal(
+    MINKE_DETAILS_PORTAL_EVENT,
+    "minke:details-portal-change",
+  );
+});
+
+test("Session export and window layout actions stay semantically separate", () => {
   const sharedActionRule = SESSION_HEADER_ACTION_STYLES.match(
     /\[data-minke-session-log-action\],[\s\S]*?\{([\s\S]*?)\n\}/u,
   )?.[1];
