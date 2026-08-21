@@ -2,6 +2,7 @@ import {
   useEffect,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -15,35 +16,280 @@ import {
   type TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import type {
-  TerminalTabsTranslate,
-} from "@minke/harness-overlay/client/tabs/terminal/locales.ts";
-import type {
   TerminalSettingsRuntime,
-} from "./runtime.ts";
+} from "../tabs/terminal/settings/runtime.ts";
 import {
   stageDraftChange,
   type SettingField,
   type TerminalSettingDrafts,
-} from "./drafts.ts";
+} from "../tabs/terminal/settings/drafts.ts";
+import {
+  CODE_THEME_GROUPS,
+  CODE_THEMES,
+  codeThemeCssVariables,
+  codeThemePalette,
+} from "../tabs/files/code-themes.ts";
+import type {
+  CodeThemeSettingsRuntime,
+} from "../tabs/files/code-theme-runtime.ts";
+import type {
+  FileManagerCodeTheme,
+  FileManagerCodeThemeMode,
+} from "@minke/harness-overlay/tabs/files-contract.ts";
+import type {
+  PreferencesTranslate,
+} from "./locales.ts";
 
-export interface TerminalSettingsSectionProps {
-  runtime?: TerminalSettingsRuntime;
-  t?: TerminalTabsTranslate;
+export interface PreferencesSectionProps {
+  terminalSettings?: TerminalSettingsRuntime;
+  codeThemes?: CodeThemeSettingsRuntime;
+  t?: PreferencesTranslate;
 }
 
-/** Settings section for the small set of xterm rendering preferences. */
-export function TerminalSettingsSection({
-  runtime,
+/** One settings section for personal editor and Terminal preferences. */
+export function PreferencesSection({
+  terminalSettings,
+  codeThemes,
   t,
-}: TerminalSettingsSectionProps): ReactNode {
-  if (runtime === undefined || t === undefined) return null;
-  return <LoadedTerminalSettings runtime={runtime} t={t} />;
+}: PreferencesSectionProps): ReactNode {
+  if (
+    t === undefined ||
+    (terminalSettings === undefined && codeThemes === undefined)
+  ) {
+    return null;
+  }
+  return (
+    <section
+      className="minke-preferences"
+      aria-labelledby="minke-preferences-title"
+      data-minke-preferences
+    >
+      <div className="minke-preferences__intro">
+        <h2
+          id="minke-preferences-title"
+          className="minke-preferences__title"
+        >
+          {t("preferences.title")}
+        </h2>
+        <p className="minke-preferences__description">
+          {t("preferences.description")}
+        </p>
+      </div>
+      {codeThemes !== undefined && (
+        <CodeThemePreferences runtime={codeThemes} t={t} />
+      )}
+      {terminalSettings !== undefined && codeThemes !== undefined && (
+        <ThemedTerminalPreferences
+          runtime={terminalSettings}
+          codeThemes={codeThemes}
+          t={t}
+        />
+      )}
+      {terminalSettings !== undefined && codeThemes === undefined && (
+        <TerminalPreferences
+          runtime={terminalSettings}
+          codeTheme="github-light-default"
+          t={t}
+        />
+      )}
+    </section>
+  );
 }
 
-function LoadedTerminalSettings({
+function CodeThemePreferences({
   runtime,
   t,
-}: Required<TerminalSettingsSectionProps>): ReactNode {
+}: {
+  readonly runtime: CodeThemeSettingsRuntime;
+  readonly t: PreferencesTranslate;
+}): ReactNode {
+  const snapshot = useSyncExternalStore(
+    runtime.subscribe,
+    runtime.getSnapshot,
+    runtime.getSnapshot,
+  );
+
+  return (
+    <section
+      className="minke-preferences__group"
+      aria-labelledby="minke-preferences-code-title"
+    >
+      <div className="minke-preferences__group-heading">
+        <h3 id="minke-preferences-code-title">
+          {t("preferences.code.title")}
+        </h3>
+        <p>{t("preferences.code.description")}</p>
+        {snapshot.error !== undefined && (
+          <p className="minke-preferences__error" role="alert">
+            {t(`preferences.code.error.${snapshot.error}`)}
+          </p>
+        )}
+      </div>
+      <div className="minke-preferences__fields">
+        {CODE_THEME_MODES.map((colorScheme) => (
+          <CodeThemePreferenceRow
+            key={colorScheme}
+            colorScheme={colorScheme}
+            theme={snapshot.themes[colorScheme]}
+            editable={snapshot.editable}
+            runtime={runtime}
+            t={t}
+          />
+        ))}
+      </div>
+      <div className="minke-preferences__code-previews">
+        {CODE_THEME_MODES.map((colorScheme) => (
+          <CodeThemePreview
+            key={colorScheme}
+            colorScheme={colorScheme}
+            theme={snapshot.themes[colorScheme]}
+            active={snapshot.colorScheme === colorScheme}
+            t={t}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const CODE_THEME_MODES = ["light", "dark"] as const;
+
+function CodeThemePreferenceRow({
+  colorScheme,
+  theme,
+  editable,
+  runtime,
+  t,
+}: {
+  readonly colorScheme: FileManagerCodeThemeMode;
+  readonly theme: FileManagerCodeTheme;
+  readonly editable: boolean;
+  readonly runtime: CodeThemeSettingsRuntime;
+  readonly t: PreferencesTranslate;
+}): ReactNode {
+  const helpId = `minke-preferences-code-theme-${colorScheme}-help`;
+  const labelKey =
+    colorScheme === "light"
+      ? "preferences.codeTheme.light.label"
+      : "preferences.codeTheme.dark.label";
+  const helpKey =
+    colorScheme === "light"
+      ? "preferences.codeTheme.light.help"
+      : "preferences.codeTheme.dark.help";
+
+  return (
+    <label
+      className="minke-preferences__row"
+      data-code-theme-slot={colorScheme}
+    >
+      <span className="minke-preferences__copy">
+        <span className="minke-preferences__label">
+          {t(labelKey)}
+        </span>
+        <span
+          id={helpId}
+          className="minke-preferences__help"
+        >
+          {t(helpKey)}
+        </span>
+      </span>
+      <span className="minke-preferences__control">
+        <select
+          className="minke-preferences__input minke-preferences__select"
+          value={theme}
+          disabled={!editable}
+          aria-describedby={helpId}
+          onChange={(event) => {
+            const selectedTheme = CODE_THEMES.find(
+              ({ id }) => id === event.currentTarget.value,
+            )?.id;
+            if (selectedTheme !== undefined) {
+              runtime.update(colorScheme, selectedTheme);
+            }
+          }}
+        >
+          {CODE_THEME_GROUPS.map((group) => (
+            <optgroup key={group.name} label={group.name}>
+              {group.themes.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.variantName}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </span>
+    </label>
+  );
+}
+
+function CodeThemePreview({
+  colorScheme,
+  theme,
+  active,
+  t,
+}: {
+  readonly colorScheme: FileManagerCodeThemeMode;
+  readonly theme: FileManagerCodeTheme;
+  readonly active: boolean;
+  readonly t: PreferencesTranslate;
+}): ReactNode {
+  const palette = codeThemePalette(theme);
+  const selectedTheme =
+    CODE_THEMES.find(({ id }) => id === theme) ?? CODE_THEMES[0];
+  const mode =
+    colorScheme === "light"
+      ? t("preferences.codeTheme.light.label")
+      : t("preferences.codeTheme.dark.label");
+  const previewStyle = {
+    ...codeThemeCssVariables(theme),
+    colorScheme: palette.colorScheme,
+  } as CSSProperties;
+
+  return (
+    <div
+      className="minke-preferences__code-preview"
+      data-appearance={colorScheme}
+      data-code-theme={theme}
+      data-color-scheme={palette.colorScheme}
+      data-active={active}
+      style={previewStyle}
+    >
+      <div className="minke-preferences__preview-heading">
+        <span className="minke-preferences__preview-label">
+          {t("preferences.codeTheme.preview", {
+            mode,
+            theme: selectedTheme.name,
+          })}
+        </span>
+        {active && (
+          <span className="minke-preferences__active-badge">
+            {t("preferences.codeTheme.active")}
+          </span>
+        )}
+      </div>
+      <code>
+        <span style={{ color: palette.keyword }}>const</span>
+        {" theme = "}
+        <span style={{ color: palette.string }}>
+          &quot;{theme}&quot;
+        </span>
+        {"; "}
+        <span style={{ color: palette.comment }}>// Minke</span>
+      </code>
+    </div>
+  );
+}
+
+function TerminalPreferences({
+  runtime,
+  codeTheme,
+  t,
+}: {
+  readonly runtime: TerminalSettingsRuntime;
+  readonly codeTheme: FileManagerCodeTheme;
+  readonly t: PreferencesTranslate;
+}): ReactNode {
   const snapshot = useSyncExternalStore(
     runtime.subscribe,
     runtime.getSnapshot,
@@ -118,29 +364,25 @@ function LoadedTerminalSettings({
     snapshot.settings,
     DEFAULT_TERMINAL_SETTINGS,
   );
+  const codePalette = codeThemePalette(codeTheme);
 
   return (
     <section
-      className="minke-terminal-settings"
+      className="minke-preferences__group minke-terminal-settings"
       aria-labelledby="minke-terminal-settings-title"
       data-minke-terminal-settings
     >
-      <div className="minke-terminal-settings__intro">
-        <h2
-          id="minke-terminal-settings-title"
-          className="minke-terminal-settings__title"
-        >
-          {t("terminal.settings.title")}
-        </h2>
-        <p className="minke-terminal-settings__description">
-          {t("terminal.settings.description")}
-        </p>
+      <div className="minke-preferences__group-heading">
+        <h3 id="minke-terminal-settings-title">
+          {t("preferences.terminal.title")}
+        </h3>
+        <p>{t("preferences.terminal.description")}</p>
         {snapshot.error !== undefined && (
           <p
-            className="minke-terminal-settings__error"
+            className="minke-preferences__error"
             role="alert"
           >
-            {t(`terminal.settings.error.${snapshot.error}`)}
+            {t(`preferences.terminal.error.${snapshot.error}`)}
           </p>
         )}
       </div>
@@ -149,13 +391,13 @@ function LoadedTerminalSettings({
         <label className="minke-terminal-settings__row">
           <span className="minke-terminal-settings__copy">
             <span className="minke-terminal-settings__label">
-              {t("terminal.settings.fontFamily.label")}
+              {t("preferences.terminal.fontFamily.label")}
             </span>
             <span
               id="minke-terminal-settings-font-family-help"
               className="minke-terminal-settings__help"
             >
-              {t("terminal.settings.fontFamily.help")}
+              {t("preferences.terminal.fontFamily.help")}
             </span>
           </span>
           <span className="minke-terminal-settings__control">
@@ -166,7 +408,7 @@ function LoadedTerminalSettings({
               spellCheck={false}
               value={drafts.fontFamily}
               placeholder={t(
-                "terminal.settings.fontFamily.placeholder",
+                "preferences.terminal.fontFamily.placeholder",
               )}
               disabled={!snapshot.editable}
               aria-describedby={[
@@ -192,7 +434,7 @@ function LoadedTerminalSettings({
                 className="minke-terminal-settings__validation"
                 role="alert"
               >
-                {t("terminal.settings.validation.fontFamily")}
+                {t("preferences.terminal.validation.fontFamily")}
               </span>
             )}
           </span>
@@ -201,13 +443,13 @@ function LoadedTerminalSettings({
         <label className="minke-terminal-settings__row">
           <span className="minke-terminal-settings__copy">
             <span className="minke-terminal-settings__label">
-              {t("terminal.settings.fontSize.label")}
+              {t("preferences.terminal.fontSize.label")}
             </span>
             <span
               id="minke-terminal-settings-font-size-help"
               className="minke-terminal-settings__help"
             >
-              {t("terminal.settings.fontSize.help", {
+              {t("preferences.terminal.fontSize.help", {
                 min: TERMINAL_FONT_SIZE_MIN,
                 max: TERMINAL_FONT_SIZE_MAX,
               })}
@@ -246,7 +488,7 @@ function LoadedTerminalSettings({
                 className="minke-terminal-settings__validation"
                 role="alert"
               >
-                {t("terminal.settings.validation.fontSize", {
+                {t("preferences.terminal.validation.fontSize", {
                   min: TERMINAL_FONT_SIZE_MIN,
                   max: TERMINAL_FONT_SIZE_MAX,
                 })}
@@ -258,13 +500,13 @@ function LoadedTerminalSettings({
         <label className="minke-terminal-settings__row">
           <span className="minke-terminal-settings__copy">
             <span className="minke-terminal-settings__label">
-              {t("terminal.settings.lineHeight.label")}
+              {t("preferences.terminal.lineHeight.label")}
             </span>
             <span
               id="minke-terminal-settings-line-height-help"
               className="minke-terminal-settings__help"
             >
-              {t("terminal.settings.lineHeight.help", {
+              {t("preferences.terminal.lineHeight.help", {
                 min: TERMINAL_LINE_HEIGHT_MIN.toFixed(2),
                 max: TERMINAL_LINE_HEIGHT_MAX.toFixed(2),
               })}
@@ -303,7 +545,7 @@ function LoadedTerminalSettings({
                 className="minke-terminal-settings__validation"
                 role="alert"
               >
-                {t("terminal.settings.validation.lineHeight", {
+                {t("preferences.terminal.validation.lineHeight", {
                   min: TERMINAL_LINE_HEIGHT_MIN.toFixed(2),
                   max: TERMINAL_LINE_HEIGHT_MAX.toFixed(2),
                 })}
@@ -313,9 +555,17 @@ function LoadedTerminalSettings({
         </label>
       </div>
 
-      <div className="minke-terminal-settings__preview">
+      <div
+        className="minke-terminal-settings__preview"
+        data-code-theme={codeTheme}
+        data-color-scheme={codePalette.colorScheme}
+        style={{
+          ...codeThemeCssVariables(codeTheme),
+          colorScheme: codePalette.colorScheme,
+        } as CSSProperties}
+      >
         <span className="minke-terminal-settings__preview-label">
-          {t("terminal.settings.preview")}
+          {t("preferences.terminal.preview")}
         </span>
         <code
           className="minke-terminal-settings__preview-code"
@@ -328,8 +578,18 @@ function LoadedTerminalSettings({
             lineHeight: preview.lineHeight,
           }}
         >
-          <span>$ echo "Hello, Minke"</span>
-          <span>Hello, Minke</span>
+          <span>
+            <span className="minke-terminal-settings__preview-prompt">
+              $
+            </span>
+            {" echo "}
+            <span className="minke-terminal-settings__preview-string">
+              &quot;Hello, Minke&quot;
+            </span>
+          </span>
+          <span className="minke-terminal-settings__preview-output">
+            Hello, Minke
+          </span>
         </code>
       </div>
 
@@ -343,10 +603,33 @@ function LoadedTerminalSettings({
             runtime.reset();
           }}
         >
-          {t("terminal.settings.reset")}
+          {t("preferences.terminal.reset")}
         </button>
       </div>
     </section>
+  );
+}
+
+function ThemedTerminalPreferences({
+  runtime,
+  codeThemes,
+  t,
+}: {
+  readonly runtime: TerminalSettingsRuntime;
+  readonly codeThemes: CodeThemeSettingsRuntime;
+  readonly t: PreferencesTranslate;
+}): ReactNode {
+  const codeThemeSnapshot = useSyncExternalStore(
+    codeThemes.subscribe,
+    codeThemes.getSnapshot,
+    codeThemes.getSnapshot,
+  );
+  return (
+    <TerminalPreferences
+      runtime={runtime}
+      codeTheme={codeThemeSnapshot.theme}
+      t={t}
+    />
   );
 }
 

@@ -8,7 +8,14 @@ import type {
   LanguageRegistration,
   ThemedToken,
 } from "shiki/types";
-import githubDarkDefault from "@shikijs/themes/github-dark-default";
+import type {
+  FileManagerCodeTheme,
+} from "@minke/harness-overlay/tabs/files-contract.ts";
+import {
+  codeThemePalette,
+  loadCodeTheme as loadCodeThemeRegistration,
+  type ShikiCodeTheme,
+} from "./code-themes.ts";
 
 export const SYNTAX_HIGHLIGHT_MAX_CHARACTERS = 256 * 1_024;
 const SYNTAX_HIGHLIGHT_MAX_LINE_CHARACTERS = 4 * 1_024;
@@ -379,6 +386,9 @@ export interface HighlightedFileCode {
   readonly lines: readonly (readonly HighlightedToken[])[];
   readonly lineStarts: readonly number[];
   readonly language: SyntaxLanguage;
+  readonly theme: ShikiCodeTheme;
+  readonly background: string;
+  readonly foreground: string;
   readonly partiallyHighlighted: boolean;
   readonly remainder: string;
 }
@@ -397,20 +407,42 @@ function lineStartOffsets(content: string): readonly number[] {
   return starts;
 }
 
-const SHIKI_THEME = "github-dark-default";
 let highlighterPromise:
   | ReturnType<typeof createHighlighterCore>
   | undefined;
 const languagePromises = new Map<SyntaxLanguage, Promise<void>>();
+const themePromises = new Map<ShikiCodeTheme, Promise<void>>();
 
 function highlighter() {
   highlighterPromise ??= createHighlighterCore({
-    themes: [githubDarkDefault],
+    themes: [],
     langs: [],
     engine: createJavaScriptRegexEngine(),
     warnings: false,
   });
   return highlighterPromise;
+}
+
+async function loadTheme(theme: ShikiCodeTheme): Promise<void> {
+  const pending = themePromises.get(theme);
+  if (pending !== undefined) {
+    await pending;
+    return;
+  }
+  const next = (async () => {
+    const [instance, registration] = await Promise.all([
+      highlighter(),
+      loadCodeThemeRegistration(theme),
+    ]);
+    await instance.loadTheme(registration);
+  })();
+  themePromises.set(theme, next);
+  try {
+    await next;
+  } catch (error) {
+    themePromises.delete(theme);
+    throw error;
+  }
 }
 
 async function loadLanguage(language: SyntaxLanguage): Promise<void> {
@@ -451,6 +483,7 @@ function highlightedToken(token: ThemedToken): HighlightedToken {
 export async function highlightFileCode(
   path: string,
   content: string,
+  theme: FileManagerCodeTheme = "github-light-default",
 ): Promise<HighlightedFileCode | undefined> {
   const language = resolveSyntaxLanguage(path);
   if (language === undefined) return undefined;
@@ -477,17 +510,24 @@ export async function highlightFileCode(
   const highlightedPrefix = content.slice(0, prefixLength);
   const remainder = content.slice(prefixLength);
   try {
-    await loadLanguage(language);
+    await Promise.all([
+      loadLanguage(language),
+      loadTheme(theme),
+    ]);
     const instance = await highlighter();
     const result = instance.codeToTokens(highlightedPrefix, {
       lang: language,
-      theme: SHIKI_THEME,
+      theme,
     });
+    const palette = codeThemePalette(theme);
     return {
       lines: result.tokens.map((line) =>
         line.map(highlightedToken)),
       lineStarts: lineStartOffsets(highlightedPrefix),
       language,
+      theme,
+      background: result.bg ?? palette.background,
+      foreground: result.fg ?? palette.foreground,
       partiallyHighlighted: remainder.length > 0,
       remainder,
     };

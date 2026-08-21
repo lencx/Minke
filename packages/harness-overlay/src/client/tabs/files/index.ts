@@ -2,6 +2,13 @@ export {
   FilesTabsController,
 } from "./controller.ts";
 export {
+  CodeThemeSettingsRuntime,
+} from "./code-theme-runtime.ts";
+export type {
+  CodeThemeSettingsErrorKind,
+  CodeThemeSettingsSnapshot,
+} from "./code-theme-runtime.ts";
+export {
   createFilesTabRenderer,
 } from "./renderer.tsx";
 export {

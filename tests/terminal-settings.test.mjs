@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   mkdtemp,
   readFile,
@@ -24,13 +25,21 @@ import {
   TerminalSettingsRuntime,
 } from "@minke/harness-overlay/client/tabs/terminal/settings/runtime.ts";
 import {
-  installTerminalSettingsNavigationIcon,
-  reconcileTerminalSettingsNavigationIcon,
-  TERMINAL_SETTINGS_STYLES,
-} from "@minke/harness-overlay/client/tabs/terminal/settings/styles.ts";
+  installPreferencesNavigationIcon,
+  PREFERENCES_SETTINGS_STYLES,
+  reconcilePreferencesNavigationIcon,
+} from "@minke/harness-overlay/client/preferences/styles.ts";
+import {
+  preferencesEn,
+  preferencesZh,
+} from "@minke/harness-overlay/client/preferences/locales.ts";
 import {
   applyTerminalRenderingSettings,
 } from "@minke/harness-overlay/client/tabs/terminal/settings/rendering.ts";
+import {
+  loadTerminalCodeTheme,
+  terminalCodeThemeFallback,
+} from "@minke/harness-overlay/client/tabs/files/code-themes.ts";
 import {
   stageDraftChange,
 } from "@minke/harness-overlay/client/tabs/terminal/settings/drafts.ts";
@@ -38,6 +47,9 @@ import {
   terminalTabsEn,
   terminalTabsZh,
 } from "@minke/harness-overlay/client/tabs/terminal/locales.ts";
+import {
+  TERMINAL_TAB_STYLES,
+} from "@minke/harness-overlay/client/tabs/terminal/styles.ts";
 
 const roots = [];
 
@@ -126,16 +138,36 @@ test("Terminal settings validate a small, exact rendering contract", () => {
   );
 });
 
-test("Terminal settings copy stays complete in English and Chinese", () => {
+test("Personal preferences copy stays complete in English and Chinese", () => {
+  assert.deepEqual(
+    Object.keys(preferencesEn).sort(),
+    Object.keys(preferencesZh).sort(),
+  );
+  assert.equal(preferencesZh["preferences.nav"], "个人偏好");
+  assert.equal(preferencesEn["preferences.nav"], "Preferences");
+  assert.equal(
+    preferencesZh["preferences.codeTheme.light.label"],
+    "浅色外观",
+  );
+  assert.equal(
+    preferencesZh["preferences.codeTheme.dark.label"],
+    "深色外观",
+  );
+  assert.equal(
+    preferencesEn["preferences.terminal.title"],
+    "Terminal",
+  );
+  assert.equal(
+    preferencesZh["preferences.code.title"],
+    "代码与终端主题",
+  );
   assert.deepEqual(
     Object.keys(terminalTabsEn).sort(),
     Object.keys(terminalTabsZh).sort(),
   );
-  assert.equal(terminalTabsZh["terminal.settings.nav"], "终端");
-  assert.equal(terminalTabsEn["terminal.settings.nav"], "Terminal");
 });
 
-test("Terminal settings navigation uses the Terminal icon", () => {
+test("Personal preferences navigation uses the palette icon", () => {
   const createButton = (label) => {
     const attributes = new Set();
     const declarations = new Map();
@@ -155,7 +187,7 @@ test("Terminal settings navigation uses the Terminal icon", () => {
     };
   };
   const general = createButton("General");
-  const terminal = createButton("Terminal");
+  const preferences = createButton("Preferences");
   let reconcile;
   const root = {
     defaultView: {
@@ -170,36 +202,36 @@ test("Terminal settings navigation uses the Terminal icon", () => {
       cancelAnimationFrame() {},
     },
     documentElement: {},
-    querySelectorAll: () => [general, terminal],
+    querySelectorAll: () => [general, preferences],
   };
 
-  reconcileTerminalSettingsNavigationIcon(root, "Terminal");
+  reconcilePreferencesNavigationIcon(root, "Preferences");
 
   assert.equal(
-    general.attributes.has("data-minke-terminal-settings-nav"),
+    general.attributes.has("data-minke-preferences-nav"),
     false,
   );
   assert.equal(
-    terminal.attributes.has("data-minke-terminal-settings-nav"),
+    preferences.attributes.has("data-minke-preferences-nav"),
     true,
   );
   assert.match(
-    TERMINAL_SETTINGS_STYLES,
-    /mask:\s*var\(--minke-terminal-settings-nav-icon\)/u,
+    PREFERENCES_SETTINGS_STYLES,
+    /mask:\s*var\(--minke-preferences-nav-icon\)/u,
   );
-  const dispose = installTerminalSettingsNavigationIcon(
-    () => "Terminal",
+  const dispose = installPreferencesNavigationIcon(
+    () => "Preferences",
     root,
   );
   reconcile();
-  const iconDataUrl = terminal.style
-    .getPropertyValue("--minke-terminal-settings-nav-icon")
+  const iconDataUrl = preferences.style
+    .getPropertyValue("--minke-preferences-nav-icon")
     .match(
       /^url\("(data:image\/svg\+xml;base64,[^"]+)"\)$/u,
     )?.[1];
   assert.equal(
     general.style.getPropertyValue(
-      "--minke-terminal-settings-nav-icon",
+      "--minke-preferences-nav-icon",
     ),
     "",
   );
@@ -210,14 +242,119 @@ test("Terminal settings navigation uses the Terminal icon", () => {
   ).toString("utf8");
   assert.match(
     iconSvg,
-    /class="lucide lucide-square-terminal(?:\s|")/u,
+    /class="lucide lucide-palette(?:\s|")/u,
   );
   dispose();
   assert.equal(
-    terminal.style.getPropertyValue(
-      "--minke-terminal-settings-nav-icon",
+    preferences.style.getPropertyValue(
+      "--minke-preferences-nav-icon",
     ),
     "",
+  );
+});
+
+test("Personal preferences groups code theme and Terminal controls", () => {
+  const source = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/preferences/PreferencesSection.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(source, /data-minke-preferences/u);
+  assert.match(source, /data-minke-terminal-settings/u);
+  assert.match(source, /data-appearance=\{colorScheme\}/u);
+  assert.match(
+    source,
+    /data-code-theme=\{codeTheme\}/u,
+    "the Terminal preview must expose the shared active theme",
+  );
+  assert.match(
+    source,
+    /className="minke-preferences__input minke-preferences__select"/u,
+  );
+  assert.match(
+    source,
+    /CODE_THEME_GROUPS\.map\(\(group\)\s*=>\s*\(/u,
+  );
+  assert.match(source, /<optgroup/u);
+  assert.match(source, /<CodeThemePreferences/u);
+  assert.match(source, /<TerminalPreferences/u);
+});
+
+test("Terminal reuses the selected editor theme including ANSI colors", async () => {
+  assert.deepEqual(
+    terminalCodeThemeFallback("catppuccin-mocha"),
+    {
+      background: "#1e1e2e",
+      foreground: "#cdd6f4",
+      cursor: "#f5e0dc",
+      cursorAccent: "#1e1e2e",
+      selectionBackground: "#9399b240",
+    },
+  );
+
+  const mocha = await loadTerminalCodeTheme(
+    "catppuccin-mocha",
+  );
+  assert.deepEqual(
+    {
+      background: mocha.background,
+      foreground: mocha.foreground,
+      cursor: mocha.cursor,
+      selectionBackground: mocha.selectionBackground,
+      red: mocha.red,
+      green: mocha.green,
+      yellow: mocha.yellow,
+      blue: mocha.blue,
+      magenta: mocha.magenta,
+      cyan: mocha.cyan,
+    },
+    {
+      background: "#1e1e2e",
+      foreground: "#cdd6f4",
+      cursor: "#f5e0dc",
+      selectionBackground: "#585b70",
+      red: "#f38ba8",
+      green: "#a6e3a1",
+      yellow: "#f9e2af",
+      blue: "#89b4fa",
+      magenta: "#f5c2e7",
+      cyan: "#94e2d5",
+    },
+  );
+
+  const solarizedLight = await loadTerminalCodeTheme(
+    "solarized-light",
+  );
+  assert.equal(solarizedLight.background, "#FDF6E3");
+  assert.equal(solarizedLight.foreground, "#657b83");
+  assert.equal(solarizedLight.red, "#dc322f");
+  assert.equal(solarizedLight.blue, "#268bd2");
+
+  const terminalViewSource = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/terminal/TerminalView.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(terminalViewSource, /props\.codeThemes\.subscribe/u);
+  assert.match(
+    terminalViewSource,
+    /loadTerminalCodeTheme\(codeThemeSnapshot\.theme\)/u,
+  );
+  assert.match(
+    terminalViewSource,
+    /data-code-theme=\{codeThemeSnapshot\.theme\}/u,
+  );
+});
+
+test("Terminal viewport covers the FitAddon row remainder with the active theme", () => {
+  assert.match(
+    TERMINAL_TAB_STYLES,
+    /\.minke-terminal-host\s+\.xterm-viewport\s*\{[^}]*background(?:-color)?:\s*var\(--minke-code-background\)/u,
   );
 });
 

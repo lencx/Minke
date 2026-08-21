@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useSyncExternalStore,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import type {
@@ -18,6 +19,15 @@ import type {
 import type {
   TerminalSettingsRuntime,
 } from "./settings/runtime.ts";
+import type {
+  CodeThemeSettingsRuntime,
+} from "../files/code-theme-runtime.ts";
+import {
+  codeThemeCssVariables,
+  codeThemePalette,
+  loadTerminalCodeTheme,
+  terminalCodeThemeFallback,
+} from "../files/code-themes.ts";
 import {
   applyTerminalRenderingSettings,
   terminalRenderingOptions,
@@ -29,24 +39,6 @@ function themeFontFamilyFrom(host: HTMLElement): string {
       ?.getComputedStyle(host)
       .getPropertyValue("--ds-font-family-code") ?? ""
   );
-}
-
-function themeFrom(host: HTMLElement) {
-  const styles = host.ownerDocument.defaultView?.getComputedStyle(host);
-  const token = (name: string, fallback: string): string => {
-    const value = styles?.getPropertyValue(name).trim();
-    return value === undefined || value === "" ? fallback : value;
-  };
-  return {
-    background: token("--dsw-alias-bg-base", "#0f1115"),
-    foreground: token("--dsw-alias-label-primary", "#f4f4f5"),
-    cursor: token("--dsw-alias-brand-primary", "#7c8cff"),
-    cursorAccent: token("--dsw-alias-bg-base", "#0f1115"),
-    selectionBackground: token(
-      "--dsw-alias-interactive-bg-hover",
-      "#303440",
-    ),
-  };
 }
 
 function exitLabel(
@@ -63,6 +55,7 @@ export function TerminalView(props: {
   active: boolean;
   controller: TerminalTabsController;
   settings: TerminalSettingsRuntime;
+  codeThemes: CodeThemeSettingsRuntime;
   t: TerminalTabsTranslate;
 }): ReactNode {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +65,11 @@ export function TerminalView(props: {
     props.settings.subscribe,
     props.settings.getSnapshot,
     props.settings.getSnapshot,
+  );
+  const codeThemeSnapshot = useSyncExternalStore(
+    props.codeThemes.subscribe,
+    props.codeThemes.getSnapshot,
+    props.codeThemes.getSnapshot,
   );
 
   useEffect(() => {
@@ -90,7 +88,9 @@ export function TerminalView(props: {
       ...rendering,
       scrollback: 5_000,
       screenReaderMode: true,
-      theme: themeFrom(host),
+      theme: terminalCodeThemeFallback(
+        props.codeThemes.getSnapshot().theme,
+      ),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -126,8 +126,7 @@ export function TerminalView(props: {
     };
     const resize = new view.ResizeObserver(scheduleFit);
     resize.observe(host);
-    const theme = new view.MutationObserver(() => {
-      terminal.options.theme = themeFrom(host);
+    const appearance = new view.MutationObserver(() => {
       applyTerminalRenderingSettings(
         terminal,
         props.settings.getSnapshot().settings,
@@ -135,7 +134,7 @@ export function TerminalView(props: {
       );
       scheduleFit();
     });
-    theme.observe(host.ownerDocument.documentElement, {
+    appearance.observe(host.ownerDocument.documentElement, {
       attributes: true,
       attributeFilter: ["class", "data-theme", "style"],
     });
@@ -156,13 +155,45 @@ export function TerminalView(props: {
       if (frame !== undefined) view.cancelAnimationFrame(frame);
       unsubscribe();
       input.dispose();
-      theme.disconnect();
+      appearance.disconnect();
       resize.disconnect();
       terminal.dispose();
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [props.controller, props.settings, props.tab.id, props.t]);
+  }, [
+    props.codeThemes,
+    props.controller,
+    props.settings,
+    props.tab.id,
+    props.t,
+  ]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (terminal === null) return;
+    let cancelled = false;
+    terminal.options.theme = terminalCodeThemeFallback(
+      codeThemeSnapshot.theme,
+    );
+    void loadTerminalCodeTheme(codeThemeSnapshot.theme).then(
+      (theme) => {
+        if (
+          cancelled ||
+          terminalRef.current !== terminal
+        ) {
+          return;
+        }
+        terminal.options.theme = theme;
+      },
+      () => {
+        // The synchronous palette remains usable if a local module fails.
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [codeThemeSnapshot.theme]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -228,13 +259,21 @@ export function TerminalView(props: {
     });
   }, [props.active, props.controller, props.tab.id]);
 
+  const palette = codeThemePalette(codeThemeSnapshot.theme);
+
   return (
     <div
       id={`minke-tab-view-${props.tab.id}`}
       className="minke-tabs-view minke-terminal-view"
       role="tabpanel"
       aria-labelledby={`minke-tab-${props.tab.id}`}
+      data-code-theme={codeThemeSnapshot.theme}
+      data-color-scheme={palette.colorScheme}
       hidden={!props.active}
+      style={{
+        ...codeThemeCssVariables(codeThemeSnapshot.theme),
+        colorScheme: palette.colorScheme,
+      } as CSSProperties}
     >
       <div
         ref={hostRef}

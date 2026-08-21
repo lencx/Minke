@@ -13,10 +13,7 @@ export {
   createTerminalTabRenderer,
 } from "./renderer.tsx";
 export {
-  installTerminalSettingsNavigationIcon,
-  installTerminalSettingsStyles,
   TerminalSettingsRuntime,
-  TerminalSettingsSection,
 } from "./settings/index.ts";
 export {
   installTerminalTabStyles,

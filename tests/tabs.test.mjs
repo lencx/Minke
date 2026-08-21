@@ -115,6 +115,14 @@ import {
   FILES_TAB_STYLES,
 } from "@minke/harness-overlay/client/tabs/files/styles.ts";
 import {
+  CODE_THEME_GROUPS,
+  CODE_THEMES,
+  codeThemePalette,
+} from "@minke/harness-overlay/client/tabs/files/code-themes.ts";
+import {
+  CodeThemeSettingsRuntime,
+} from "@minke/harness-overlay/client/tabs/files/code-theme-runtime.ts";
+import {
   highlightFileCode,
   resolveSyntaxLanguage,
   SYNTAX_HIGHLIGHT_MAX_CHARACTERS,
@@ -165,21 +173,33 @@ test("Files view state contract keeps panel settings isolated", () => {
   );
   assert.deepEqual(
     parseFileManagerViewState({
+      codeThemes: {
+        light: "catppuccin-mocha",
+        dark: "rose-pine-moon",
+      },
       right: {
+        explorerPosition: "right",
         previewWidth: 420,
         viewMode: "tree",
       },
       bottom: {
+        explorerPosition: "left",
         previewWidth: 680,
         viewMode: "list",
       },
     }),
     {
+      codeThemes: {
+        light: "catppuccin-mocha",
+        dark: "rose-pine-moon",
+      },
       right: {
+        explorerPosition: "right",
         previewWidth: 420,
         viewMode: "tree",
       },
       bottom: {
+        explorerPosition: "left",
         previewWidth: 680,
         viewMode: "list",
       },
@@ -187,10 +207,12 @@ test("Files view state contract keeps panel settings isolated", () => {
   );
   assert.deepEqual(
     parseFileManagerViewStateUpdate({
+      explorerPosition: "right",
       placement: "right",
       viewMode: "tree",
     }),
     {
+      explorerPosition: "right",
       placement: "right",
       viewMode: "tree",
     },
@@ -213,10 +235,43 @@ test("Files view state contract keeps panel settings isolated", () => {
   assert.throws(
     () =>
       parseFileManagerViewStateUpdate({
+        explorerPosition: "top",
+        placement: "right",
+      }),
+    /explorer position/u,
+  );
+  assert.throws(
+    () =>
+      parseFileManagerViewStateUpdate({
         placement: "right",
         viewMode: "grid",
       }),
     /view mode/u,
+  );
+  assert.throws(
+    () =>
+      parseFileManagerViewStateUpdate({
+        colorScheme: "dark",
+        codeTheme: "unknown",
+      }),
+    /code theme/u,
+  );
+  assert.deepEqual(
+    parseFileManagerViewStateUpdate({
+      colorScheme: "light",
+      codeTheme: "rose-pine-dawn",
+    }),
+    {
+      colorScheme: "light",
+      codeTheme: "rose-pine-dawn",
+    },
+  );
+  assert.throws(
+    () =>
+      parseFileManagerViewStateUpdate({
+        codeTheme: "rose-pine-dawn",
+      }),
+    /color scheme/u,
   );
   assert.throws(
     () =>
@@ -1094,6 +1149,156 @@ test("Files code previews use Shiki across mainstream formats", async () => {
   );
 });
 
+test("Files code themes expose independent light and dark palettes", async () => {
+  assert.deepEqual(
+    CODE_THEME_GROUPS.map(({ name, themes }) => ({
+      name,
+      themes: themes.map(({ id, variantName }) => ({
+        id,
+        variantName,
+      })),
+    })),
+    [
+      {
+        name: "GitHub",
+        themes: [
+          {
+            id: "github-light-default",
+            variantName: "Light Default",
+          },
+          {
+            id: "github-dark-default",
+            variantName: "Dark Default",
+          },
+        ],
+      },
+      {
+        name: "Catppuccin",
+        themes: [
+          { id: "catppuccin-latte", variantName: "Latte" },
+          { id: "catppuccin-mocha", variantName: "Mocha" },
+        ],
+      },
+      {
+        name: "Gruvbox",
+        themes: [
+          {
+            id: "gruvbox-light-medium",
+            variantName: "Light Medium",
+          },
+          {
+            id: "gruvbox-dark-medium",
+            variantName: "Dark Medium",
+          },
+        ],
+      },
+      {
+        name: "Solarized",
+        themes: [
+          { id: "solarized-light", variantName: "Light" },
+          { id: "solarized-dark", variantName: "Dark" },
+        ],
+      },
+      {
+        name: "Rosé Pine",
+        themes: [
+          { id: "rose-pine-dawn", variantName: "Dawn" },
+          { id: "rose-pine-moon", variantName: "Moon" },
+        ],
+      },
+    ],
+  );
+  assert.deepEqual(
+    CODE_THEMES.map(({ id, name }) => ({
+      id,
+      name,
+    })),
+    [
+      {
+        id: "github-light-default",
+        name: "GitHub Light Default",
+      },
+      {
+        id: "github-dark-default",
+        name: "GitHub Dark Default",
+      },
+      {
+        id: "catppuccin-latte",
+        name: "Catppuccin Latte",
+      },
+      {
+        id: "catppuccin-mocha",
+        name: "Catppuccin Mocha",
+      },
+      {
+        id: "gruvbox-light-medium",
+        name: "Gruvbox Light Medium",
+      },
+      {
+        id: "gruvbox-dark-medium",
+        name: "Gruvbox Dark Medium",
+      },
+      {
+        id: "solarized-light",
+        name: "Solarized Light",
+      },
+      {
+        id: "solarized-dark",
+        name: "Solarized Dark",
+      },
+      {
+        id: "rose-pine-dawn",
+        name: "Rosé Pine Dawn",
+      },
+      {
+        id: "rose-pine-moon",
+        name: "Rosé Pine Moon",
+      },
+    ],
+  );
+
+  for (const theme of CODE_THEMES) {
+    const palette = codeThemePalette(theme.id);
+    assert.equal(palette.colorScheme, theme.colorScheme);
+    assert.match(palette.background, /^#[a-f0-9]{6,8}$/iu);
+    assert.match(palette.foreground, /^#[a-f0-9]{6,8}$/iu);
+    const highlighted = await highlightFileCode(
+      "catalog.ts",
+      "const catalog = 'ready';",
+      theme.id,
+    );
+    assert.ok(highlighted);
+    assert.equal(highlighted.theme, theme.id);
+    assert.equal(
+      highlighted.background.toLowerCase(),
+      palette.background,
+    );
+    assert.equal(
+      highlighted.foreground.toLowerCase(),
+      palette.foreground,
+    );
+  }
+
+  const source = "const greeting = 'hello';";
+  const light = await highlightFileCode(
+    "theme.ts",
+    source,
+    "github-light-default",
+  );
+  const dark = await highlightFileCode(
+    "theme.ts",
+    source,
+    "github-dark-default",
+  );
+  assert.ok(light);
+  assert.ok(dark);
+  assert.equal(light.theme, "github-light-default");
+  assert.equal(light.background, "#ffffff");
+  assert.equal(dark.theme, "github-dark-default");
+  assert.equal(dark.background, "#0d1117");
+  assert.notDeepEqual(light.lines, dark.lines);
+});
+
 test("Files preview divider preserves usable explorer and preview widths", () => {
   assert.equal(defaultFilesPreviewWidth(500), 280);
   assert.equal(clampFilesPreviewWidth(500, 20), 180);
@@ -1590,10 +1795,24 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   assert.ok(modeSelectIndex < backActionIndex);
   assert.match(
     rendererSource,
-    /<select[\s\S]*?value=\{tab\.payload\.viewMode\}[\s\S]*?controller\.setViewMode\(/u,
+    /<select[\s\S]*?tab\.payload\.viewMode[\s\S]*?tab\.payload\.explorerPosition[\s\S]*?controller\.setViewLayout\(/u,
   );
-  assert.match(rendererSource, /files\.mode\.list/u);
-  assert.match(rendererSource, /files\.mode\.tree/u);
+  assert.equal(
+    (rendererSource.match(/<select/gu) ?? []).length,
+    1,
+  );
+  for (const layout of [
+    "list-left",
+    "list-right",
+    "tree-left",
+    "tree-right",
+  ]) {
+    assert.match(rendererSource, new RegExp(`value="${layout}"`, "u"));
+  }
+  assert.doesNotMatch(
+    rendererSource,
+    /minke-files-position-select/u,
+  );
   assert.doesNotMatch(
     rendererSource,
     /className="minke-files-mode"/u,
@@ -1649,6 +1868,14 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   assert.match(viewSource, /ResizeObserver/u);
   assert.match(viewSource, /ArrowLeft/u);
   assert.match(
+    viewSource,
+    /data-explorer-position=\{tab\.payload\.explorerPosition\}/u,
+  );
+  assert.match(
+    viewSource,
+    /tab\.payload\.explorerPosition === "right"/u,
+  );
+  assert.match(
     previewPaneSource,
     /className="minke-files-preview__actions"/u,
   );
@@ -1663,6 +1890,10 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     FILES_TAB_STYLES,
     /\.minke-files-mode-select\s*\{[\s\S]*height:\s*var\(--minke-tabs-control-height\)/u,
   );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-browser\[data-explorer-position="right"\]\s*\{[\s\S]*?flex-direction:\s*row-reverse/u,
+  );
   assert.match(FILES_TAB_STYLES, /\.minke-files-preview__editor/u);
   assert.match(editorSource, /new EditorView/u);
   assert.match(editorSource, /basicSetup/u);
@@ -1676,6 +1907,7 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   assert.match(editorSource, /indentationFolding/u);
   assert.match(editorSource, /key:\s*"Mod-s"/u);
   assert.match(editorSource, /data-highlighter="shiki"/u);
+  assert.match(editorSource, /data-code-theme=/u);
   assert.match(editorSource, /data-line-numbers="true"/u);
   assert.match(editorSource, /data-code-folding="true"/u);
   assert.match(
@@ -1697,6 +1929,10 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   assert.match(
     FILES_TAB_STYLES,
     /\.minke-files-preview__mode\s*\{[^}]*gap:\s*2px/u,
+  );
+  assert.match(
+    FILES_TAB_STYLES,
+    /\.minke-files-preview__editor\s*\{[\s\S]*?background:\s*var\(--minke-code-background\)/u,
   );
   assert.match(FILES_TAB_STYLES, /\.cm-deletedChunk/u);
   assert.match(FILES_TAB_STYLES, /\.cm-changedText/u);
@@ -1735,7 +1971,7 @@ test("Files tabs start at the project cwd and retain navigation history", async 
   tabs.dispose();
 });
 
-test("Files view mode and width persist across new tabs", async () => {
+test("Files view preferences persist across new tabs", async () => {
   const tabs = new TabsRuntime({
     showPanel() {},
     hidePanel() {},
@@ -1748,10 +1984,12 @@ test("Files view mode and width persist across new tabs", async () => {
       async readViewState() {
         return {
           right: {
+            explorerPosition: "right",
             previewWidth: 412,
             viewMode: "tree",
           },
           bottom: {
+            explorerPosition: "left",
             previewWidth: 688,
             viewMode: "list",
           },
@@ -1790,6 +2028,10 @@ test("Files view mode and width persist across new tabs", async () => {
     412,
   );
   assert.equal(tabs.tab(firstTab).payload.viewMode, "tree");
+  assert.equal(
+    tabs.tab(firstTab).payload.explorerPosition,
+    "right",
+  );
   const siblingTab = files.create(
     "/workspace/sibling",
     "Files",
@@ -1801,10 +2043,22 @@ test("Files view mode and width persist across new tabs", async () => {
     412,
   );
   assert.equal(tabs.tab(siblingTab).payload.viewMode, "tree");
+  assert.equal(
+    tabs.tab(siblingTab).payload.explorerPosition,
+    "right",
+  );
 
-  files.setViewMode(firstTab, "list");
+  files.setViewLayout(firstTab, "list", "left");
   assert.equal(tabs.tab(firstTab).payload.viewMode, "list");
   assert.equal(tabs.tab(siblingTab).payload.viewMode, "list");
+  assert.equal(
+    tabs.tab(firstTab).payload.explorerPosition,
+    "left",
+  );
+  assert.equal(
+    tabs.tab(siblingTab).payload.explorerPosition,
+    "left",
+  );
   files.setPreviewWidth(firstTab, 468);
   assert.equal(
     tabs.tab(siblingTab).payload.previewWidth,
@@ -1814,6 +2068,7 @@ test("Files view mode and width persist across new tabs", async () => {
   await settleAsyncWork();
   assert.deepEqual(stateWrites, [
     {
+      explorerPosition: "left",
       placement: "right",
       viewMode: "list",
     },
@@ -1831,9 +2086,77 @@ test("Files view mode and width persist across new tabs", async () => {
     468,
   );
   assert.equal(tabs.tab(secondTab).payload.viewMode, "list");
+  assert.equal(
+    tabs.tab(secondTab).payload.explorerPosition,
+    "left",
+  );
 
   files.dispose();
   tabs.dispose();
+});
+
+test("Code theme preferences persist one arbitrary theme per app appearance", async () => {
+  const writes = [];
+  const runtime = new CodeThemeSettingsRuntime(
+    {
+      available: true,
+      async readViewState() {
+        return {
+          codeThemes: {
+            light: "catppuccin-mocha",
+            dark: "rose-pine-moon",
+          },
+        };
+      },
+      async writeViewState(update) {
+        writes.push(update);
+      },
+    },
+    "light",
+  );
+  await runtime.initialize();
+  assert.deepEqual(
+    {
+      theme: runtime.getSnapshot().theme,
+      themes: runtime.getSnapshot().themes,
+      colorScheme: runtime.getSnapshot().colorScheme,
+      editable: runtime.getSnapshot().editable,
+    },
+    {
+      theme: "catppuccin-mocha",
+      themes: {
+        light: "catppuccin-mocha",
+        dark: "rose-pine-moon",
+      },
+      colorScheme: "light",
+      editable: true,
+    },
+  );
+
+  let notifications = 0;
+  const unsubscribe = runtime.subscribe(() => {
+    notifications += 1;
+  });
+  runtime.update("dark", "solarized-light");
+  await runtime.flush();
+  assert.deepEqual(writes, [
+    {
+      colorScheme: "dark",
+      codeTheme: "solarized-light",
+    },
+  ]);
+  assert.equal(runtime.getSnapshot().theme, "catppuccin-mocha");
+  assert.deepEqual(runtime.getSnapshot().themes, {
+    light: "catppuccin-mocha",
+    dark: "solarized-light",
+  });
+
+  runtime.setColorScheme("dark");
+  assert.equal(runtime.getSnapshot().colorScheme, "dark");
+  assert.equal(runtime.getSnapshot().theme, "solarized-light");
+  assert.equal(notifications, 2);
+  unsubscribe();
+  runtime.dispose();
 });
 
 test("Files keeps the settled directory visible while navigating", async () => {

@@ -1,6 +1,7 @@
-import type {
-  CSSProperties,
-  ReactNode,
+import {
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
 } from "react";
 import type {
   FileManagerDiffResult,
@@ -9,6 +10,10 @@ import type {
 import {
   CodeMirrorEditor,
 } from "./CodeMirrorEditor.tsx";
+import type {
+  CodeThemeSettingsRuntime,
+  CodeThemeSettingsSnapshot,
+} from "./code-theme-runtime.ts";
 import type {
   FilesTabsController,
 } from "./controller.ts";
@@ -53,6 +58,7 @@ function TextPreview(props: {
   readonly controller: FilesTabsController;
   readonly t: FilesTabsTranslate;
   readonly active: boolean;
+  readonly codeTheme: CodeThemeSettingsSnapshot;
 }): ReactNode {
   const {
     tabId,
@@ -61,6 +67,7 @@ function TextPreview(props: {
     controller,
     t,
     active,
+    codeTheme,
   } = props;
   const content = preview.draft ?? result.content;
   const comparison = preview.comparison;
@@ -76,6 +83,7 @@ function TextPreview(props: {
         })}
         readOnly={result.truncated}
         active={active}
+        codeTheme={codeTheme.theme}
         onChange={(next) =>
           controller.updatePreviewDraft(
             tabId,
@@ -128,6 +136,7 @@ function TextPreview(props: {
         })}
         readOnly
         active={active}
+        codeTheme={codeTheme.theme}
         onChange={() => {}}
         onSave={() => {}}
       />
@@ -196,6 +205,7 @@ function previewBody(
   controller: FilesTabsController,
   t: FilesTabsTranslate,
   active: boolean,
+  codeTheme: CodeThemeSettingsSnapshot,
 ): ReactNode {
   if (preview.loading) {
     return (
@@ -219,6 +229,7 @@ function previewBody(
         controller={controller}
         t={t}
         active={active}
+        codeTheme={codeTheme}
       />
     );
   }
@@ -255,6 +266,7 @@ export function FilePreviewPane(props: {
   readonly tabId: string;
   readonly preview: FilesPreviewState;
   readonly controller: FilesTabsController;
+  readonly codeThemes: CodeThemeSettingsRuntime;
   readonly t: FilesTabsTranslate;
   readonly active: boolean;
   readonly id?: string;
@@ -264,9 +276,15 @@ export function FilePreviewPane(props: {
     tabId,
     preview,
     controller,
+    codeThemes,
     t,
     active,
   } = props;
+  const codeTheme = useSyncExternalStore(
+    codeThemes.subscribe,
+    codeThemes.getSnapshot,
+    codeThemes.getSnapshot,
+  );
   const canDiff =
     preview.result?.kind === "text" &&
     !preview.result.truncated;
@@ -385,6 +403,7 @@ export function FilePreviewPane(props: {
           controller,
           t,
           active,
+          codeTheme,
         )
       )}
     </aside>

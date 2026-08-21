@@ -11,6 +11,9 @@ import type {
 import type {
   FilesTabsController,
 } from "./controller.ts";
+import type {
+  CodeThemeSettingsRuntime,
+} from "./code-theme-runtime.ts";
 import {
   BackIcon,
   FilesIcon,
@@ -46,7 +49,7 @@ function leadingActions(
     <>
       <label
         className="minke-files-mode-select"
-        title={t("files.mode.group")}
+        title={t("files.layout.group")}
       >
         <span aria-hidden="true">
           {tab.payload.viewMode === "tree" ? (
@@ -56,17 +59,38 @@ function leadingActions(
           )}
         </span>
         <select
-          aria-label={t("files.mode.group")}
-          value={tab.payload.viewMode}
+          aria-label={t("files.layout.group")}
+          value={`${tab.payload.viewMode}-${tab.payload.explorerPosition}`}
           onChange={(event) => {
-            const viewMode = event.currentTarget.value;
-            if (viewMode === "list" || viewMode === "tree") {
-              controller.setViewMode(tab.id, viewMode);
+            const [viewMode, explorerPosition] =
+              event.currentTarget.value.split("-");
+            if (
+              (viewMode === "list" || viewMode === "tree") &&
+              (
+                explorerPosition === "left" ||
+                explorerPosition === "right"
+              )
+            ) {
+              controller.setViewLayout(
+                tab.id,
+                viewMode,
+                explorerPosition,
+              );
             }
           }}
         >
-          <option value="list">{t("files.mode.list")}</option>
-          <option value="tree">{t("files.mode.tree")}</option>
+          <option value="list-left">
+            {t("files.layout.listLeft")}
+          </option>
+          <option value="list-right">
+            {t("files.layout.listRight")}
+          </option>
+          <option value="tree-left">
+            {t("files.layout.treeLeft")}
+          </option>
+          <option value="tree-right">
+            {t("files.layout.treeRight")}
+          </option>
         </select>
       </label>
       <ToolbarButton
@@ -97,6 +121,7 @@ function leadingActions(
 /** Host-backed Files renderer registered beside Web and Terminal. */
 export function createFilesTabRenderer(
   controller: FilesTabsController,
+  codeThemes: CodeThemeSettingsRuntime,
   t: FilesTabsTranslate,
 ): TabRenderer {
   return {
@@ -165,6 +190,7 @@ export function createFilesTabRenderer(
             tab={tab}
             active={active}
             controller={controller}
+            codeThemes={codeThemes}
             t={t}
           />
         )

@@ -23,10 +23,14 @@ import {
 import type {
   TerminalSettingsRuntime,
 } from "./settings/runtime.ts";
+import type {
+  CodeThemeSettingsRuntime,
+} from "../files/code-theme-runtime.ts";
 
 export function createTerminalTabRenderer(
   controller: TerminalTabsController,
   settings: TerminalSettingsRuntime,
+  codeThemes: CodeThemeSettingsRuntime,
   t: TerminalTabsTranslate,
 ): TabRenderer {
   const createTerminal = (context: {
@@ -58,6 +62,7 @@ export function createTerminalTabRenderer(
             active={active}
             controller={controller}
             settings={settings}
+            codeThemes={codeThemes}
             t={t}
           />
         )

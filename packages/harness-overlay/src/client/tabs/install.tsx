@@ -11,6 +11,15 @@ import {
   desktopTerminalSettingsStore,
 } from "../desktop/index.ts";
 import {
+  PreferencesSection,
+  preferencesEn,
+  preferencesZh,
+  installPreferencesNavigationIcon,
+  installPreferencesSettingsStyles,
+  type PreferencesLocaleKey,
+  type PreferencesTranslate,
+} from "../preferences/index.ts";
+import {
   createDetailsTabRenderer,
   DetailsTabsController,
   installDetailsLayoutOpenBridge,
@@ -18,6 +27,7 @@ import {
   installDetailsTabStyles,
 } from "./details/index.ts";
 import {
+  CodeThemeSettingsRuntime,
   createFilesTabRenderer,
   filesTabsEn,
   filesTabsZh,
@@ -50,13 +60,10 @@ import {
 } from "./index.ts";
 import {
   createTerminalTabRenderer,
-  installTerminalSettingsNavigationIcon,
-  installTerminalSettingsStyles,
   installTerminalTabStyles,
   terminalTabsEn,
   terminalTabsZh,
   TerminalSettingsRuntime,
-  TerminalSettingsSection,
   TerminalTabsController,
   type TerminalTabsLocaleKey,
   type TerminalTabsTranslate,
@@ -77,6 +84,7 @@ const FILES_TABS_NAMESPACE = "minke.tabs.files";
 const WEB_TABS_NAMESPACE = "minke.tabs.web";
 const PLUGINS_NAMESPACE = "minke.tabs.plugins";
 const TERMINAL_TABS_NAMESPACE = "minke.tabs.terminal";
+const PREFERENCES_NAMESPACE = "minke.preferences";
 
 export type TabsRuntimes = Readonly<{
   bottom: TabsRuntime;
@@ -99,6 +107,13 @@ export function installTabs(
   const terminalSettings = new TerminalSettingsRuntime(
     terminalSettingsStore,
   );
+  const codeThemes = new CodeThemeSettingsRuntime(
+    filesPort,
+    ctx.theme.getTheme().active.colorScheme,
+  );
+  ctx.on("theme/change", (snapshot) =>
+    codeThemes.setColorScheme(snapshot.active.colorScheme)
+  );
 
   const filesT = ctx.locale.bind<FilesTabsLocaleKey>(
     FILES_TABS_NAMESPACE,
@@ -116,15 +131,17 @@ export function installTabs(
 
   ctx.effect(
     () => () => {
+      codeThemes.dispose();
       terminalSettings.dispose();
     },
-    "minke-overlay: Terminal settings runtime",
+    "minke-overlay: Personal preferences runtimes",
   );
+  void codeThemes.initialize();
   void terminalSettings.initialize();
   const terminalT = ctx.locale.bind<TerminalTabsLocaleKey>(
     TERMINAL_TABS_NAMESPACE,
   ) as TerminalTabsTranslate;
-  if (terminalPort.available || terminalSettingsStore.available) {
+  if (terminalPort.available) {
     ctx.effect(
       () =>
         ctx.locale.register(TERMINAL_TABS_NAMESPACE, {
@@ -134,35 +151,48 @@ export function installTabs(
       "minke-overlay: Terminal dictionaries",
     );
   }
-  if (terminalSettingsStore.available) {
+  const preferencesT = ctx.locale.bind<PreferencesLocaleKey>(
+    PREFERENCES_NAMESPACE,
+  ) as PreferencesTranslate;
+  if (terminalSettingsStore.available || filesPort.available) {
     ctx.effect(
-      () => installTerminalSettingsStyles(),
-      "minke-overlay: Terminal settings styles",
+      () =>
+        ctx.locale.register(PREFERENCES_NAMESPACE, {
+          zh: preferencesZh,
+          en: preferencesEn,
+        }),
+      "minke-overlay: Personal preferences dictionaries",
+    );
+    ctx.effect(
+      () => installPreferencesSettingsStyles(),
+      "minke-overlay: Personal preferences styles",
     );
     ctx.effect(
       () =>
-        installTerminalSettingsNavigationIcon(() =>
-          terminalT("terminal.settings.nav")
+        installPreferencesNavigationIcon(() =>
+          preferencesT("preferences.nav")
         ),
-      "minke-overlay: Terminal settings navigation icon",
+      "minke-overlay: Personal preferences navigation icon",
     );
     ctx.slots.inject("settings.section", () =>
       ctx.slots.register(
         {
           name: "settings.section",
-          id: "minke-terminal",
+          id: "minke-preferences",
           order: 6,
-          label: () => terminalT("terminal.settings.nav"),
-          locale: TERMINAL_TABS_NAMESPACE,
+          label: () => preferencesT("preferences.nav"),
+          locale: PREFERENCES_NAMESPACE,
           inject: () => ({
-            runtime: terminalSettings,
+            ...(terminalSettingsStore.available
+              ? { terminalSettings }
+              : {}),
+            ...(filesPort.available ? { codeThemes } : {}),
           }),
         },
-        TerminalSettingsSection as ComponentType<never>,
+        PreferencesSection as ComponentType<never>,
       ),
     );
   }
-
   if (tabsPort.available || sessionLogsPort.available) {
     ctx.effect(
       () =>
@@ -316,7 +346,11 @@ export function installTabs(
       ctx.effect(
         () =>
           renderers.register(
-            createFilesTabRenderer(filesTabs, filesT),
+            createFilesTabRenderer(
+              filesTabs,
+              codeThemes,
+              filesT,
+            ),
           ),
         `minke-overlay: ${placement} Files tab renderer`,
       );
@@ -328,6 +362,7 @@ export function installTabs(
             createTerminalTabRenderer(
               terminalTabs,
               terminalSettings,
+              codeThemes,
               terminalT,
             ),
           ),

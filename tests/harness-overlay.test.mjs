@@ -347,7 +347,10 @@ test("the built client half is a Harness module-loader bundle", () => {
     bundle,
     /minke-overlay: \$\{placement\} Terminal tab renderer/u,
   );
-  assert.match(bundle, /minke-overlay: Terminal settings runtime/u);
+  assert.match(
+    bundle,
+    /minke-overlay: Personal preferences runtimes/u,
+  );
   assert.match(bundle, /minke-overlay: data-home runtime/u);
   assert.match(bundle, /data-minke-data-home-nav/u);
   assert.match(bundle, /data-minke-data-home/u);
@@ -556,7 +559,7 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     tabsInstallSource,
-    /createFilesTabRenderer\(filesTabs,\s*filesT\)/u,
+    /createFilesTabRenderer\(\s*filesTabs,\s*codeThemes,\s*filesT,\s*\)/u,
   );
   assert.match(
     tabsInstallSource,
@@ -564,7 +567,7 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     tabsInstallSource,
-    /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,\s*terminalT,\s*\)/u,
+    /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,\s*codeThemes,\s*terminalT,\s*\)/u,
   );
   assert.match(
     tabsInstallSource,
@@ -597,16 +600,32 @@ test("Tabs stays generic while content types register as adapters", () => {
   assert.match(tabsInstallSource, /WEB_TABS_NAMESPACE/u);
 });
 
-test("Terminal settings register as a separate settings section", () => {
+test("Code and Terminal settings share one Personal Preferences section", () => {
   assert.match(
     tabsInstallSource,
-    /name:\s*"settings\.section"[\s\S]*id:\s*"minke-terminal"[\s\S]*order:\s*6[\s\S]*TerminalSettingsSection as ComponentType<never>/u,
+    /name:\s*"settings\.section"[\s\S]*id:\s*"minke-preferences"[\s\S]*order:\s*6[\s\S]*PreferencesSection as ComponentType<never>/u,
   );
   assert.match(tabsInstallSource, /new TerminalSettingsRuntime/u);
-  assert.match(tabsInstallSource, /installTerminalSettingsStyles\(\)/u);
+  assert.match(tabsInstallSource, /new CodeThemeSettingsRuntime/u);
+  assert.match(tabsInstallSource, /installPreferencesSettingsStyles\(\)/u);
+  assert.equal(
+    (tabsInstallSource.match(/name:\s*"settings\.section"/gu) ?? [])
+      .length,
+    1,
+  );
+  assert.doesNotMatch(tabsInstallSource, /id:\s*"minke-terminal"/u);
   assert.match(
     tabsInstallSource,
-    /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,/u,
+    /new CodeThemeSettingsRuntime\(\s*filesPort,\s*ctx\.theme\.getTheme\(\)\.active\.colorScheme,\s*\)/u,
+  );
+  assert.match(
+    tabsInstallSource,
+    /ctx\.on\(\s*["']theme\/change["'],\s*\(snapshot\)\s*=>\s*codeThemes\.setColorScheme\(snapshot\.active\.colorScheme\)/u,
+    "app appearance changes must activate the matching saved theme slot",
+  );
+  assert.match(
+    tabsInstallSource,
+    /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,\s*codeThemes,/u,
   );
 });
 

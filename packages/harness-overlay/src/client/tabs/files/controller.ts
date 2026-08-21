@@ -15,6 +15,7 @@ import type {
 import {
   isDirectoryEntry,
   isFilesTab,
+  type FilesExplorerPosition,
   type FilesTabPayload,
   type FilesPreviewMode,
   type FilesTreeDirectoryState,
@@ -95,8 +96,10 @@ export class FilesTabsController {
   readonly #unsubscribeTabs: () => void;
   readonly #placement: FileManagerPanelPlacement;
   #nextId = 0;
+  #defaultExplorerPosition: FilesExplorerPosition = "left";
   #defaultPreviewWidth: number | undefined;
   #defaultViewMode: FilesViewMode = "list";
+  #explorerPositionStateRevision = 0;
   #previewWidthStateRevision = 0;
   #viewModeStateRevision = 0;
   #disposed = false;
@@ -127,6 +130,7 @@ export class FilesTabsController {
       payload: {
         ...(path === undefined ? {} : { path }),
         entries: [],
+        explorerPosition: this.#defaultExplorerPosition,
         viewMode: this.#defaultViewMode,
         tree: {},
         ...(this.#defaultPreviewWidth === undefined
@@ -282,6 +286,78 @@ export class FilesTabsController {
       });
     }
     if (changed) this.#writeViewState({ viewMode });
+  }
+
+  setViewLayout(
+    tabId: string,
+    viewMode: FilesViewMode,
+    explorerPosition: FilesExplorerPosition,
+  ): void {
+    const tab = this.#tabs.tab(tabId);
+    if (tab === undefined || !isFilesTab(tab)) return;
+    let changed = false;
+    if (this.#defaultViewMode !== viewMode) {
+      this.#defaultViewMode = viewMode;
+      this.#viewModeStateRevision += 1;
+      changed = true;
+    }
+    if (this.#defaultExplorerPosition !== explorerPosition) {
+      this.#defaultExplorerPosition = explorerPosition;
+      this.#explorerPositionStateRevision += 1;
+      changed = true;
+    }
+    for (const candidate of this.#tabs.getSnapshot().tabs) {
+      if (
+        !isFilesTab(candidate) ||
+        (
+          candidate.payload.viewMode === viewMode &&
+          candidate.payload.explorerPosition === explorerPosition
+        )
+      ) {
+        continue;
+      }
+      changed = true;
+      this.#tabs.update<FilesTabPayload>(candidate.id, {
+        payload: {
+          ...candidate.payload,
+          explorerPosition,
+          viewMode,
+        },
+      });
+    }
+    if (changed) {
+      this.#writeViewState({ explorerPosition, viewMode });
+    }
+  }
+
+  setExplorerPosition(
+    tabId: string,
+    explorerPosition: FilesExplorerPosition,
+  ): void {
+    const tab = this.#tabs.tab(tabId);
+    if (tab === undefined || !isFilesTab(tab)) return;
+    let changed = false;
+    if (this.#defaultExplorerPosition !== explorerPosition) {
+      this.#defaultExplorerPosition = explorerPosition;
+      this.#explorerPositionStateRevision += 1;
+      changed = true;
+    }
+    for (const candidate of this.#tabs.getSnapshot().tabs) {
+      if (
+        !isFilesTab(candidate) ||
+        candidate.payload.explorerPosition === explorerPosition
+      ) {
+        continue;
+      }
+      changed = true;
+      this.#tabs.update<FilesTabPayload>(candidate.id, {
+        payload: {
+          ...candidate.payload,
+          explorerPosition,
+        },
+      });
+    }
+    if (changed) this.#writeViewState({ explorerPosition });
   }
 
   setPreviewWidth(tabId: string, previewWidth: number): void {
@@ -637,6 +713,8 @@ export class FilesTabsController {
   #hydrateViewState(): void {
     const readViewState = this.#desktop.readViewState;
     if (readViewState === undefined) return;
+    const explorerPositionRevision =
+      this.#explorerPositionStateRevision;
     const previewWidthRevision =
       this.#previewWidthStateRevision;
     const viewModeRevision = this.#viewModeStateRevision;
@@ -644,6 +722,11 @@ export class FilesTabsController {
       .then((state) => {
         if (this.#disposed) return;
         const placementState = state[this.#placement];
+        const explorerPosition =
+          this.#explorerPositionStateRevision ===
+            explorerPositionRevision
+            ? placementState?.explorerPosition
+            : undefined;
         const previewWidth =
           this.#previewWidthStateRevision ===
             previewWidthRevision
@@ -654,10 +737,14 @@ export class FilesTabsController {
             ? placementState?.viewMode
             : undefined;
         if (
+          explorerPosition === undefined &&
           previewWidth === undefined &&
           viewMode === undefined
         ) {
           return;
+        }
+        if (explorerPosition !== undefined) {
+          this.#defaultExplorerPosition = explorerPosition;
         }
         if (previewWidth !== undefined) {
           this.#defaultPreviewWidth = previewWidth;
@@ -667,6 +754,8 @@ export class FilesTabsController {
         }
         for (const tab of this.#tabs.getSnapshot().tabs) {
           if (!isFilesTab(tab)) continue;
+          const nextExplorerPosition =
+            explorerPosition ?? tab.payload.explorerPosition;
           const nextPreviewWidth =
             previewWidth !== undefined &&
               tab.payload.previewWidth === undefined
@@ -675,6 +764,8 @@ export class FilesTabsController {
           const nextViewMode =
             viewMode ?? tab.payload.viewMode;
           if (
+            nextExplorerPosition ===
+              tab.payload.explorerPosition &&
             nextPreviewWidth === tab.payload.previewWidth &&
             nextViewMode === tab.payload.viewMode
           ) {
@@ -683,6 +774,7 @@ export class FilesTabsController {
           this.#tabs.update<FilesTabPayload>(tab.id, {
             payload: {
               ...tab.payload,
+              explorerPosition: nextExplorerPosition,
               ...(nextPreviewWidth === undefined
                 ? {}
                 : { previewWidth: nextPreviewWidth }),
@@ -1010,6 +1102,7 @@ export class FilesTabsController {
             ? {}
             : { parent: result.parent }),
           entries: result.entries,
+          explorerPosition: current.payload.explorerPosition,
           viewMode: current.payload.viewMode,
           tree: {},
           ...(current.payload.previewWidth === undefined

@@ -2,6 +2,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
@@ -32,6 +33,13 @@ import {
 import {
   indentationFolding,
 } from "./code-folding.ts";
+import type {
+  FileManagerCodeTheme,
+} from "@minke/harness-overlay/tabs/files-contract.ts";
+import {
+  codeThemeCssVariables,
+  codeThemePalette,
+} from "./code-themes.ts";
 
 const setShikiDecorations =
   StateEffect.define<DecorationSet>();
@@ -74,6 +82,7 @@ export function CodeMirrorEditor(props: {
   readonly readOnly: boolean;
   readonly diffOriginal?: string;
   readonly active: boolean;
+  readonly codeTheme: FileManagerCodeTheme;
   readonly onChange: (content: string) => void;
   readonly onSave: () => void;
 }): ReactNode {
@@ -82,8 +91,13 @@ export function CodeMirrorEditor(props: {
   const synchronizingRef = useRef(false);
   const onChangeRef = useRef(props.onChange);
   const onSaveRef = useRef(props.onSave);
+  const codeThemeRef = useRef(props.codeTheme);
+  const scheduleHighlightRef = useRef<
+    ((delay: number) => void) | undefined
+  >(undefined);
   onChangeRef.current = props.onChange;
   onSaveRef.current = props.onSave;
+  codeThemeRef.current = props.codeTheme;
 
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -95,12 +109,14 @@ export function CodeMirrorEditor(props: {
       | undefined;
     let view: EditorView;
 
-    const highlight = async (): Promise<void> => {
-      const generation = ++highlightGeneration;
+    const highlight = async (
+      generation: number,
+    ): Promise<void> => {
       const content = view.state.doc.toString();
       const highlighted = await highlightFileCode(
         props.path,
         content,
+        codeThemeRef.current,
       );
       if (
         disposed ||
@@ -119,14 +135,16 @@ export function CodeMirrorEditor(props: {
       });
     };
     const scheduleHighlight = (delay: number): void => {
+      const generation = ++highlightGeneration;
       if (highlightTimer !== undefined) {
         clearTimeout(highlightTimer);
       }
       highlightTimer = setTimeout(() => {
         highlightTimer = undefined;
-        void highlight();
+        void highlight(generation);
       }, delay);
     };
+    scheduleHighlightRef.current = scheduleHighlight;
 
     view = new EditorView({
       parent: host,
@@ -187,6 +205,7 @@ export function CodeMirrorEditor(props: {
       }
       view.destroy();
       viewRef.current = null;
+      scheduleHighlightRef.current = undefined;
     };
   }, [
     props.diffOriginal,
@@ -218,21 +237,34 @@ export function CodeMirrorEditor(props: {
   }, [props.value]);
 
   useEffect(() => {
+    scheduleHighlightRef.current?.(0);
+  }, [props.codeTheme]);
+
+  useEffect(() => {
     if (props.active) {
       viewRef.current?.requestMeasure();
     }
   }, [props.active]);
 
+  const palette = codeThemePalette(props.codeTheme);
   return (
     <div
       ref={hostRef}
       className="minke-files-preview__editor"
       data-editor="codemirror"
       data-highlighter="shiki"
+      data-code-theme={props.codeTheme}
+      data-color-scheme={palette.colorScheme}
       data-line-numbers="true"
       data-code-folding="true"
       data-mode={
         props.diffOriginal === undefined ? "source" : "diff"
+      }
+      style={
+        {
+          ...codeThemeCssVariables(props.codeTheme),
+          colorScheme: palette.colorScheme,
+        } as CSSProperties
       }
     />
   );

@@ -1,7 +1,7 @@
 .minke-terminal-view {
   position: relative;
   overflow: hidden;
-  background: var(--dsw-alias-bg-base);
+  background: var(--minke-code-background);
 }
 
 .minke-terminal-host {
@@ -18,8 +18,9 @@
 }
 
 .minke-terminal-host .xterm-viewport {
+  background: var(--minke-code-background);
   scrollbar-color:
-    var(--dsw-alias-border-l3)
+    var(--minke-code-border)
     transparent;
   scrollbar-width: thin;
 }
@@ -31,8 +32,8 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: var(--dsw-alias-bg-base);
-  color: var(--dsw-alias-label-secondary);
+  background: var(--minke-code-background);
+  color: var(--minke-code-gutter);
   font-size: 12px;
   line-height: 18px;
   text-align: center;
@@ -45,7 +46,7 @@
 .minke-terminal-state strong {
   display: block;
   margin-bottom: 6px;
-  color: var(--dsw-alias-label-primary);
+  color: var(--minke-code-foreground);
   font-size: 13px;
   font-weight: 600;
 }

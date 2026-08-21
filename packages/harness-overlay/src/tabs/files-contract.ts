@@ -78,23 +78,52 @@ export interface FileManagerChangeEvent {
 }
 
 export type FileManagerPanelPlacement = "right" | "bottom";
+export type FileManagerExplorerPosition = "left" | "right";
 export type FileManagerViewMode = "list" | "tree";
+export const FILE_MANAGER_CODE_THEMES = [
+  "github-light-default",
+  "github-dark-default",
+  "catppuccin-latte",
+  "catppuccin-mocha",
+  "gruvbox-light-medium",
+  "gruvbox-dark-medium",
+  "solarized-light",
+  "solarized-dark",
+  "rose-pine-dawn",
+  "rose-pine-moon",
+] as const;
+export type FileManagerCodeTheme =
+  (typeof FILE_MANAGER_CODE_THEMES)[number];
+export type FileManagerCodeThemeMode = "light" | "dark";
+
+export interface FileManagerCodeThemePreferences {
+  readonly light?: FileManagerCodeTheme;
+  readonly dark?: FileManagerCodeTheme;
+}
 
 export interface FileManagerPanelViewState {
+  readonly explorerPosition?: FileManagerExplorerPosition;
   readonly previewWidth?: number;
   readonly viewMode?: FileManagerViewMode;
 }
 
 export interface FileManagerViewState {
+  readonly codeThemes?: FileManagerCodeThemePreferences;
   readonly right?: FileManagerPanelViewState;
   readonly bottom?: FileManagerPanelViewState;
 }
 
-export interface FileManagerViewStateUpdate {
-  readonly placement: FileManagerPanelPlacement;
-  readonly previewWidth?: number;
-  readonly viewMode?: FileManagerViewMode;
-}
+export type FileManagerViewStateUpdate =
+  | {
+    readonly placement: FileManagerPanelPlacement;
+    readonly explorerPosition?: FileManagerExplorerPosition;
+    readonly previewWidth?: number;
+    readonly viewMode?: FileManagerViewMode;
+  }
+  | {
+    readonly colorScheme: FileManagerCodeThemeMode;
+    readonly codeTheme: FileManagerCodeTheme;
+  };
 
 export type FileManagerDiffResult =
   | {
@@ -273,6 +302,16 @@ function panelPlacement(
   return value;
 }
 
+function explorerPosition(
+  value: unknown,
+  label: string,
+): FileManagerExplorerPosition {
+  if (value !== "left" && value !== "right") {
+    throw new TypeError(`${label} must be left or right`);
+  }
+  return value;
+}
+
 function viewMode(
   value: unknown,
   label: string,
@@ -283,6 +322,62 @@ function viewMode(
   return value;
 }
 
+function codeTheme(
+  value: unknown,
+  label: string,
+): FileManagerCodeTheme {
+  if (
+    typeof value !== "string" ||
+    !FILE_MANAGER_CODE_THEMES.some(
+      (candidate) => candidate === value,
+    )
+  ) {
+    throw new TypeError(`${label} must be a supported code theme`);
+  }
+  return value as FileManagerCodeTheme;
+}
+
+function codeThemeMode(
+  value: unknown,
+  label: string,
+): FileManagerCodeThemeMode {
+  if (value === "light" || value === "dark") return value;
+  throw new TypeError(`${label} must be a supported color scheme`);
+}
+
+function parseCodeThemePreferences(
+  value: unknown,
+): FileManagerCodeThemePreferences {
+  const candidate = record(value, "file code theme preferences");
+  if (
+    Object.keys(candidate).some(
+      (key) => key !== "light" && key !== "dark",
+    )
+  ) {
+    throw new TypeError(
+      "file code theme preferences contain unsupported fields",
+    );
+  }
+  return {
+    ...(candidate.light === undefined
+      ? {}
+      : {
+          light: codeTheme(
+            candidate.light,
+            "light appearance code theme",
+          ),
+        }),
+    ...(candidate.dark === undefined
+      ? {}
+      : {
+          dark: codeTheme(
+            candidate.dark,
+            "dark appearance code theme",
+          ),
+        }),
+  };
+}
+
 function parsePanelViewState(
   value: unknown,
   label: string,
@@ -290,12 +385,23 @@ function parsePanelViewState(
   const candidate = record(value, label);
   if (
     Object.keys(candidate).some(
-      (key) => key !== "previewWidth" && key !== "viewMode",
+      (key) =>
+        key !== "explorerPosition" &&
+        key !== "previewWidth" &&
+        key !== "viewMode",
     )
   ) {
     throw new TypeError(`${label} contains unsupported fields`);
   }
   return {
+    ...(candidate.explorerPosition === undefined
+      ? {}
+      : {
+          explorerPosition: explorerPosition(
+            candidate.explorerPosition,
+            `${label} explorer position`,
+          ),
+        }),
     ...(candidate.previewWidth === undefined
       ? {}
       : {
@@ -321,7 +427,10 @@ export function parseFileManagerViewState(
   const candidate = record(value, "file view state");
   if (
     Object.keys(candidate).some(
-      (key) => key !== "right" && key !== "bottom",
+      (key) =>
+        key !== "codeThemes" &&
+        key !== "right" &&
+        key !== "bottom",
     )
   ) {
     throw new TypeError(
@@ -329,6 +438,13 @@ export function parseFileManagerViewState(
     );
   }
   return {
+    ...(candidate.codeThemes === undefined
+      ? {}
+      : {
+          codeThemes: parseCodeThemePreferences(
+            candidate.codeThemes,
+          ),
+        }),
     ...(candidate.right === undefined
       ? {}
       : {
@@ -356,8 +472,11 @@ export function parseFileManagerViewStateUpdate(
     Object.keys(candidate).some(
       (key) =>
         key !== "placement" &&
+        key !== "explorerPosition" &&
         key !== "previewWidth" &&
-        key !== "viewMode",
+        key !== "viewMode" &&
+        key !== "colorScheme" &&
+        key !== "codeTheme",
     )
   ) {
     throw new TypeError(
@@ -365,6 +484,42 @@ export function parseFileManagerViewStateUpdate(
     );
   }
   if (
+    candidate.codeTheme !== undefined ||
+    candidate.colorScheme !== undefined
+  ) {
+    if (
+      candidate.placement !== undefined ||
+      candidate.explorerPosition !== undefined ||
+      candidate.previewWidth !== undefined ||
+      candidate.viewMode !== undefined
+    ) {
+      throw new TypeError(
+        "file code theme update cannot contain panel settings",
+      );
+    }
+    if (candidate.colorScheme === undefined) {
+      throw new TypeError(
+        "file code theme update must contain a color scheme",
+      );
+    }
+    if (candidate.codeTheme === undefined) {
+      throw new TypeError(
+        "file code theme update must contain a code theme",
+      );
+    }
+    return {
+      colorScheme: codeThemeMode(
+        candidate.colorScheme,
+        "file view state update color scheme",
+      ),
+      codeTheme: codeTheme(
+        candidate.codeTheme,
+        "file view state update code theme",
+      ),
+    };
+  }
+  if (
+    candidate.explorerPosition === undefined &&
     candidate.previewWidth === undefined &&
     candidate.viewMode === undefined
   ) {
@@ -374,6 +529,14 @@ export function parseFileManagerViewStateUpdate(
   }
   return {
     placement: panelPlacement(candidate.placement),
+    ...(candidate.explorerPosition === undefined
+      ? {}
+      : {
+          explorerPosition: explorerPosition(
+            candidate.explorerPosition,
+            "file view state update explorer position",
+          ),
+        }),
     ...(candidate.previewWidth === undefined
       ? {}
       : {

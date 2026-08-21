@@ -11,6 +11,9 @@ import type {
 import type {
   FilesTabsController,
 } from "./controller.ts";
+import type {
+  CodeThemeSettingsRuntime,
+} from "./code-theme-runtime.ts";
 import {
   FilePreviewPane,
 } from "./FilePreviewPane.tsx";
@@ -59,9 +62,10 @@ export function FileManagerView(props: {
   readonly tab: FilesTab;
   readonly active: boolean;
   readonly controller: FilesTabsController;
+  readonly codeThemes: CodeThemeSettingsRuntime;
   readonly t: FilesTabsTranslate;
 }): ReactNode {
-  const { tab, active, controller, t } = props;
+  const { tab, active, controller, codeThemes, t } = props;
   const { entries, error, loading, truncated } = tab.payload;
   const preview = tab.payload.preview;
   const hasPreview = preview !== undefined;
@@ -113,12 +117,18 @@ export function FileManagerView(props: {
   const resizePreviewAt = (clientX: number): void => {
     const bounds = browserRef.current?.getBoundingClientRect();
     if (bounds === undefined) return;
+    const width =
+      tab.payload.explorerPosition === "right"
+        ? clientX -
+          bounds.left -
+          FILES_PREVIEW_RESIZE_HANDLE_WIDTH / 2
+        : bounds.right -
+          clientX -
+          FILES_PREVIEW_RESIZE_HANDLE_WIDTH / 2;
     commitPreviewWidth(
       clampFilesPreviewWidth(
         bounds.width,
-        bounds.right -
-          clientX -
-          FILES_PREVIEW_RESIZE_HANDLE_WIDTH / 2,
+        width,
       ),
     );
   };
@@ -162,6 +172,7 @@ export function FileManagerView(props: {
     <div
       id={`minke-tab-view-${tab.id}`}
       className="minke-tabs-view minke-files-view"
+      data-explorer-position={tab.payload.explorerPosition}
       data-mode={tab.payload.viewMode}
       data-preview={preview === undefined ? undefined : ""}
       role="tabpanel"
@@ -171,6 +182,7 @@ export function FileManagerView(props: {
       <div
         ref={browserRef}
         className="minke-files-browser"
+        data-explorer-position={tab.payload.explorerPosition}
         data-resizing={resizingPreview || undefined}
       >
         <section
@@ -378,13 +390,16 @@ export function FileManagerView(props: {
                   previewWidth ??
                   defaultFilesPreviewWidth(bounds.width);
                 const step = event.shiftKey ? 48 : 16;
+                const direction =
+                  event.key === "ArrowLeft" ? -1 : 1;
+                const previewDirection =
+                  tab.payload.explorerPosition === "right"
+                    ? direction
+                    : -direction;
                 commitPreviewWidth(
                   clampFilesPreviewWidth(
                     bounds.width,
-                    current +
-                      (event.key === "ArrowLeft"
-                        ? step
-                        : -step),
+                    current + previewDirection * step,
                   ),
                   true,
                 );
@@ -395,6 +410,7 @@ export function FileManagerView(props: {
               tabId={tab.id}
               preview={preview}
               controller={controller}
+              codeThemes={codeThemes}
               t={t}
               active={active}
               style={

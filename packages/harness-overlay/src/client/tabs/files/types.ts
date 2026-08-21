@@ -4,12 +4,14 @@ import type {
 import type {
   FileManagerDiffResult,
   FileManagerEntry,
+  FileManagerExplorerPosition,
   FileManagerPreviewResult,
   FileManagerRepository,
   FileManagerViewMode,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 
 export type FilesViewMode = FileManagerViewMode;
+export type FilesExplorerPosition = FileManagerExplorerPosition;
 export type FilesPreviewMode = "source" | "diff";
 
 export interface FilesTreeDirectoryState {
@@ -42,6 +44,7 @@ export interface FilesTabPayload {
   readonly path?: string;
   readonly parent?: string;
   readonly entries: readonly FileManagerEntry[];
+  readonly explorerPosition: FilesExplorerPosition;
   readonly viewMode: FilesViewMode;
   readonly tree: Readonly<
     Record<string, FilesTreeDirectoryState | undefined>

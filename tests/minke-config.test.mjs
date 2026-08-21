@@ -136,6 +136,18 @@ test("Files view state persists beside minke.config.json", async () => {
         viewMode: "tree",
       }),
       viewState.write({
+        explorerPosition: "right",
+        placement: "right",
+      }),
+      viewState.write({
+        colorScheme: "light",
+        codeTheme: "catppuccin-mocha",
+      }),
+      viewState.write({
+        colorScheme: "dark",
+        codeTheme: "rose-pine-moon",
+      }),
+      viewState.write({
         placement: "bottom",
         previewWidth: 672,
       }),
@@ -143,16 +155,26 @@ test("Files view state persists beside minke.config.json", async () => {
         placement: "bottom",
         viewMode: "list",
       }),
+      viewState.write({
+        explorerPosition: "left",
+        placement: "bottom",
+      }),
     ]);
 
     assert.deepEqual(
       await new FilesViewStateStore(store.path).read(),
       {
+        codeThemes: {
+          light: "catppuccin-mocha",
+          dark: "rose-pine-moon",
+        },
         right: {
+          explorerPosition: "right",
           previewWidth: 468,
           viewMode: "tree",
         },
         bottom: {
+          explorerPosition: "left",
           previewWidth: 672,
           viewMode: "list",
         },
@@ -162,11 +184,17 @@ test("Files view state persists beside minke.config.json", async () => {
       JSON.parse(await readFile(viewState.path, "utf8")),
       {
         version: FILES_VIEW_STATE_VERSION,
+        codeThemes: {
+          light: "catppuccin-mocha",
+          dark: "rose-pine-moon",
+        },
         right: {
+          explorerPosition: "right",
           previewWidth: 468,
           viewMode: "tree",
         },
         bottom: {
+          explorerPosition: "left",
           previewWidth: 672,
           viewMode: "list",
         },
@@ -175,6 +203,43 @@ test("Files view state persists beside minke.config.json", async () => {
     if (process.platform !== "win32") {
       assert.equal((await stat(viewState.path)).mode & 0o077, 0);
     }
+  });
+});
+
+test("Files view state migrates one legacy code theme into both appearance slots", async () => {
+  await withStore(async ({ store }) => {
+    const viewState = new FilesViewStateStore(store.path);
+    await mkdir(dirname(viewState.path), { recursive: true });
+    await writeFile(
+      viewState.path,
+      `${JSON.stringify({
+        version: FILES_VIEW_STATE_VERSION,
+        codeTheme: "catppuccin-mocha",
+      })}\n`,
+      "utf8",
+    );
+
+    assert.deepEqual(await viewState.read(), {
+      codeThemes: {
+        light: "catppuccin-mocha",
+        dark: "catppuccin-mocha",
+      },
+    });
+
+    await viewState.write({
+      colorScheme: "dark",
+      codeTheme: "rose-pine-moon",
+    });
+    assert.deepEqual(
+      JSON.parse(await readFile(viewState.path, "utf8")),
+      {
+        version: FILES_VIEW_STATE_VERSION,
+        codeThemes: {
+          light: "catppuccin-mocha",
+          dark: "rose-pine-moon",
+        },
+      },
+    );
   });
 });
 

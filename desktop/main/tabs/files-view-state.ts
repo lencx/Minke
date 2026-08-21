@@ -29,6 +29,17 @@ function defaultDocument(): FilesViewStateDocument {
   return { version: FILES_VIEW_STATE_VERSION };
 }
 
+function parseLegacyCodeTheme(value: unknown) {
+  const update = parseFileManagerViewStateUpdate({
+    colorScheme: "light",
+    codeTheme: value,
+  });
+  if (!("codeTheme" in update)) {
+    throw new TypeError("legacy code theme is invalid");
+  }
+  return update.codeTheme;
+}
+
 function parseDocument(value: unknown): FilesViewStateDocument {
   if (
     typeof value !== "object" ||
@@ -43,13 +54,38 @@ function parseDocument(value: unknown): FilesViewStateDocument {
     Object.keys(candidate).some(
       (key) =>
         key !== "version" &&
+        key !== "codeTheme" &&
+        key !== "codeThemes" &&
         key !== "right" &&
         key !== "bottom",
     )
   ) {
     throw new TypeError("unsupported Files view state document");
   }
+  if (
+    candidate.codeTheme !== undefined &&
+    candidate.codeThemes !== undefined
+  ) {
+    throw new TypeError(
+      "Files view state document contains ambiguous code themes",
+    );
+  }
+  const legacyTheme =
+    candidate.codeTheme === undefined
+      ? undefined
+      : parseLegacyCodeTheme(candidate.codeTheme);
   const state = parseFileManagerViewState({
+    ...(candidate.codeThemes === undefined &&
+    legacyTheme === undefined
+      ? {}
+      : {
+          codeThemes:
+            candidate.codeThemes ??
+            {
+              light: legacyTheme,
+              dark: legacyTheme,
+            },
+        }),
     ...(candidate.right === undefined
       ? {}
       : { right: candidate.right }),
@@ -67,6 +103,9 @@ function stateSnapshot(
   document: FilesViewStateDocument,
 ): FileManagerViewState {
   return {
+    ...(document.codeThemes === undefined
+      ? {}
+      : { codeThemes: { ...document.codeThemes } }),
     ...(document.right === undefined
       ? {}
       : { right: { ...document.right } }),
@@ -110,18 +149,33 @@ export class FilesViewStateStore {
     return this.#runExclusive(async () => {
       const update = parseFileManagerViewStateUpdate(value);
       const current = await this.#load();
-      const next: FilesViewStateDocument = {
-        ...current,
-        [update.placement]: {
-          ...current[update.placement],
-          ...(update.previewWidth === undefined
-            ? {}
-            : { previewWidth: update.previewWidth }),
-          ...(update.viewMode === undefined
-            ? {}
-            : { viewMode: update.viewMode }),
-        },
-      };
+      const next: FilesViewStateDocument =
+        "codeTheme" in update
+          ? {
+              ...current,
+              codeThemes: {
+                ...current.codeThemes,
+                [update.colorScheme]: update.codeTheme,
+              },
+            }
+          : {
+              ...current,
+              [update.placement]: {
+                ...current[update.placement],
+                ...(update.explorerPosition === undefined
+                  ? {}
+                  : {
+                      explorerPosition:
+                        update.explorerPosition,
+                    }),
+                ...(update.previewWidth === undefined
+                  ? {}
+                  : { previewWidth: update.previewWidth }),
+                ...(update.viewMode === undefined
+                  ? {}
+                  : { viewMode: update.viewMode }),
+              },
+            };
       await this.#persist(next);
       this.#document = next;
     });

@@ -13,6 +13,10 @@
   overflow: hidden;
 }
 
+.minke-files-browser[data-explorer-position="right"] {
+  flex-direction: row-reverse;
+}
+
 .minke-files-explorer {
   display: flex;
   min-width: 0;
@@ -594,13 +598,13 @@
   min-height: 0;
   flex: 1;
   overflow: hidden;
-  background: var(--dsw-alias-bg-base);
+  background: var(--minke-code-background);
 }
 
 .minke-files-preview__editor .cm-editor {
   height: 100%;
-  background: var(--dsw-alias-bg-base);
-  color: var(--dsw-alias-label-primary);
+  background: var(--minke-code-background);
+  color: var(--minke-code-foreground);
   font-family: var(--ds-font-family-code);
   font-size: 11px;
   line-height: 18px;
@@ -615,7 +619,11 @@
   font-family: var(--ds-font-family-code);
   tab-size: 2;
   scrollbar-color:
-    var(--dsw-alias-border-l3)
+    color-mix(
+      in srgb,
+      var(--minke-code-foreground) 26%,
+      transparent
+    )
     transparent;
   scrollbar-width: thin;
 }
@@ -623,7 +631,7 @@
 .minke-files-preview__editor .cm-content {
   min-width: max-content;
   padding: 10px 0 24px;
-  caret-color: var(--dsw-alias-label-primary);
+  caret-color: var(--minke-code-cursor);
 }
 
 .minke-files-preview__editor .cm-line {
@@ -631,9 +639,9 @@
 }
 
 .minke-files-preview__editor .cm-gutters {
-  border-right: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-base);
-  color: var(--dsw-alias-label-tertiary);
+  border-right: 1px solid var(--minke-code-border);
+  background: var(--minke-code-background);
+  color: var(--minke-code-gutter);
 }
 
 .minke-files-preview__editor .cm-gutterElement {
@@ -645,7 +653,7 @@
   .cm-gutterElement {
   min-width: 3ch;
   box-sizing: content-box;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--minke-code-gutter);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -655,7 +663,7 @@
   .cm-gutterElement {
   width: 12px;
   padding: 0 3px 0 5px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--minke-code-gutter);
   cursor: pointer;
   text-align: center;
 }
@@ -663,26 +671,26 @@
 .minke-files-preview__editor
   .cm-foldGutter
   .cm-gutterElement:hover {
-  color: var(--dsw-alias-label-primary);
+  color: var(--minke-code-gutter-active);
 }
 
 .minke-files-preview__editor .cm-activeLine,
 .minke-files-preview__editor .cm-activeLineGutter {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--minke-code-active-line);
+}
+
+.minke-files-preview__editor .cm-activeLineGutter {
+  color: var(--minke-code-gutter-active);
 }
 
 .minke-files-preview__editor .cm-selectionBackground,
 .minke-files-preview__editor.cm-focused
   .cm-selectionBackground {
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-state-business-primary) 28%,
-    transparent
-  );
+  background: var(--minke-code-selection);
 }
 
 .minke-files-preview__editor .cm-cursor {
-  border-left-color: var(--dsw-alias-label-primary);
+  border-left-color: var(--minke-code-cursor);
 }
 
 .minke-files-preview__editor[data-mode="diff"]
@@ -692,8 +700,8 @@
   .cm-inlineChangedLine {
   background: color-mix(
     in srgb,
-    var(--dsw-alias-state-success-primary) 11%,
-    transparent
+    var(--minke-code-added) 13%,
+    var(--minke-code-background)
   );
 }
 
@@ -701,8 +709,8 @@
   .cm-changedText {
   background: color-mix(
     in srgb,
-    var(--dsw-alias-state-success-primary) 22%,
-    transparent
+    var(--minke-code-added) 25%,
+    var(--minke-code-background)
   );
 }
 
@@ -710,8 +718,8 @@
   .cm-deletedChunk {
   background: color-mix(
     in srgb,
-    var(--dsw-alias-state-error-primary) 10%,
-    transparent
+    var(--minke-code-deleted) 12%,
+    var(--minke-code-background)
   );
 }
 
@@ -719,8 +727,8 @@
   .cm-deletedText {
   background: color-mix(
     in srgb,
-    var(--dsw-alias-state-error-primary) 20%,
-    transparent
+    var(--minke-code-deleted) 24%,
+    var(--minke-code-background)
   );
 }
 
@@ -728,27 +736,27 @@
   .cm-changedLineGutter,
 .minke-files-preview__editor[data-mode="diff"]
   .cm-inlineChangedLineGutter {
-  background: var(--dsw-alias-state-success-primary);
+  background: var(--minke-code-added);
 }
 
 .minke-files-preview__editor[data-mode="diff"]
   .cm-deletedLineGutter {
-  background: var(--dsw-alias-state-error-primary);
+  background: var(--minke-code-deleted);
 }
 
 .minke-files-preview__editor[data-mode="diff"]
   .cm-collapsedLines {
-  border-color: var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-button-floating-fill);
-  color: var(--dsw-alias-label-tertiary);
+  border-color: var(--minke-code-border);
+  background: var(--minke-code-active-line);
+  color: var(--minke-code-gutter);
 }
 
 .minke-files-preview__editor
   .cm-tooltip-autocomplete
   > ul
   > li[aria-selected] {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
+  background: var(--minke-code-selection);
+  color: var(--minke-code-foreground);
 }
 
 .minke-files-preview__image {
