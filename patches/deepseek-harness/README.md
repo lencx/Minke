@@ -38,6 +38,16 @@ that every declared patch is present before publishing or fast refresh.
   while retaining the upstream in-place panel as the fallback;
 - adds stable details-panel anchors used by Minke's structural adapter.
 
+`optional-plugin-isolation.patch` is pinned to the same Harness commit. It:
+
+- marks entries inserted by profile bundles listed in the profile's
+  `dependencies` as isolated, while installation-owned bundles and launcher
+  overlays remain fail-fast;
+- retains a failed external entry as Loader health state, logs its original
+  activation error, and lets unrelated entries finish booting;
+- exposes isolated activation failures as `failed` through the existing
+  plugin inventory so Settings can report the degraded plugin.
+
 After changing the upstream pin or a patch, run:
 
 ```sh

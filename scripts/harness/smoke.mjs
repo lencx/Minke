@@ -37,6 +37,12 @@ const runtimeRoot = packaged
   ? join(packagedLayout.resourcesRoot, "host")
   : join(projectRoot, "runtime", "host");
 const fixtureSource = join(projectRoot, "tests", "fixtures", "web-plugin");
+const failingFixtureSource = join(
+  projectRoot,
+  "tests",
+  "fixtures",
+  "failing-web-plugin",
+);
 const ptyProbePath = join(
   projectRoot,
   "scripts",
@@ -454,7 +460,15 @@ async function main() {
   const harnessHome = join(temporaryRoot, "home");
   const negativeHome = join(temporaryRoot, "negative-home");
   const fixtureCopy = join(temporaryRoot, "web-plugin");
+  const failingFixtureCopy = join(temporaryRoot, "failing-web-plugin");
+  const criticalFailurePatch = join(
+    temporaryRoot,
+    "critical-failure.patch.yml",
+  );
   const pluginId = "@dsh-desktop/smoke-web-plugin";
+  const failingPluginId = "@dsh-desktop/smoke-failing-web-plugin";
+  const failingEntryId = "dsh-desktop-failing-web-plugin";
+  const criticalEntryName = "dsh-desktop-critical-plugin-that-does-not-exist";
   const baseEnv = {
     ...process.env,
     [embeddedNodeEnvironment.executable]: electronExecutable,
@@ -471,7 +485,20 @@ async function main() {
   let server;
 
   try {
-    await cp(fixtureSource, fixtureCopy, { recursive: true });
+    await Promise.all([
+      cp(fixtureSource, fixtureCopy, { recursive: true }),
+      cp(failingFixtureSource, failingFixtureCopy, { recursive: true }),
+      writeFile(
+        criticalFailurePatch,
+        [
+          "- insert:",
+          "    - id: dsh-desktop-critical-failure",
+          `      name: ${criticalEntryName}`,
+          "",
+        ].join("\n"),
+        "utf8",
+      ),
+    ]);
 
     // Sensitivity check: the stock upstream installer must fail when our pnpm
     // adapter is removed from PATH. This proves the positive check exercises
@@ -566,6 +593,17 @@ async function main() {
       ],
       { cwd: projectRoot, env },
     );
+    await runSuccessful(
+      executable("dsh"),
+      [
+        "plugin",
+        "--profile",
+        "web",
+        "add",
+        failingFixtureCopy,
+      ],
+      { cwd: projectRoot, env },
+    );
     const webProfileManifestPath = join(
       harnessHome,
       "profiles",
@@ -577,12 +615,44 @@ async function main() {
     );
     const installedPluginSpec =
       webProfileManifest.dependencies?.[pluginId];
+    const installedFailingPluginSpec =
+      webProfileManifest.dependencies?.[failingPluginId];
     if (
       typeof installedPluginSpec !== "string" ||
-      installedPluginSpec === ""
+      installedPluginSpec === "" ||
+      typeof installedFailingPluginSpec !== "string" ||
+      installedFailingPluginSpec === ""
     ) {
       throw new Error(
-        `plugin install did not persist ${pluginId} in ${webProfileManifestPath}`,
+        `plugin install did not persist both smoke plugins in ${webProfileManifestPath}`,
+      );
+    }
+
+    // Critical launcher overlays stay fail-fast even when profile-installed
+    // plugin bundles are isolated.
+    const criticalFailure = await run(
+      executable("dsh"),
+      [
+        "web",
+        "--patch",
+        criticalFailurePatch,
+        "--no-open",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "0",
+      ],
+      { cwd: projectRoot, env },
+    );
+    if (
+      criticalFailure.code === 0 ||
+      !formatOutput(
+        criticalFailure.stdout,
+        criticalFailure.stderr,
+      ).includes(criticalEntryName)
+    ) {
+      throw new Error(
+        `critical plugin negative control did not fail loud\n${formatOutput(criticalFailure.stdout, criticalFailure.stderr)}`,
       );
     }
 
@@ -600,6 +670,31 @@ async function main() {
       ],
       env,
     );
+    const isolatedFailureMarker =
+      `isolated optional loader entry ${failingEntryId}`;
+    if (!server.output().includes(isolatedFailureMarker)) {
+      throw new Error(
+        `failing profile plugin was not reported as isolated\n${server.output()}`,
+      );
+    }
+    const inventoryResponse = await fetch(
+      `${server.baseUrl}/smoke/plugin-inventory`,
+    );
+    const inventory = inventoryResponse.ok
+      ? await inventoryResponse.json()
+      : undefined;
+    const failedInventoryEntry = inventory?.entries?.find(
+      (entry) => entry.moduleName === failingPluginId,
+    );
+    if (
+      !inventoryResponse.ok ||
+      failedInventoryEntry?.enabled !== true ||
+      failedInventoryEntry?.fiberPhase !== "failed"
+    ) {
+      throw new Error(
+        `isolated plugin failure is absent from plugin inventory: ${JSON.stringify(inventory)}`,
+      );
+    }
     const manifest = await fetchManifest(server.baseUrl);
     const minkeCapabilities = await fetchMinkeHostCapabilities(server.baseUrl);
     await smokeMinkePwa(server.baseUrl);
@@ -668,6 +763,7 @@ async function main() {
         `  bundled esbuild: ${esbuildVersion.stdout.trim()}`,
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,
+        `  isolated plugin failure: ${failingPluginId}`,
         `  Minke Host RPC: files=${String(minkeCapabilities.files.available)}, tabs=${String(minkeCapabilities.tabs.available)}, terminal=${String(minkeCapabilities.terminal.available)}`,
         "  Minke PWA: standalone manifest/icons/service worker",
         `  external plugin install/load/HMR: ${server.baseUrl}`,

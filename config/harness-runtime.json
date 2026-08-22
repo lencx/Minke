@@ -15,7 +15,8 @@
   "patches": [
     "patches/deepseek-harness/win32-directory-picker.patch",
     "patches/deepseek-harness/tabs-details-layout.patch",
-    "patches/deepseek-harness/details-tab-portal.patch"
+    "patches/deepseek-harness/details-tab-portal.patch",
+    "patches/deepseek-harness/optional-plugin-isolation.patch"
   ],
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",

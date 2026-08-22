@@ -1,0 +1,140 @@
+diff --git a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
+--- a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
++++ b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
+@@ -1,6 +1,15 @@
+ import { createRequire } from "node:module";
+ import { Context, Inject, Service, composeError } from "@deepseek-ai/cordis";
+ import { deepEqual, defineProperty, isNonNullable, isNullable, valueMap } from "@deepseek-ai/cosmokit";
++function reportIsolatedEntryFailure(context, entry, error) {
++	try {
++		const detail = error instanceof Error ? error.stack ?? error.message : String(error);
++		process.stderr.write(`isolated optional loader entry ${entry.options.id} (${entry.options.name})\n${detail}\n`);
++	} catch {}
++	try {
++		context.logger.error(error);
++	} catch {}
++}
+ //#region lib/types/internal.js
+ /** Helpers for locating the current Node internal module loader. */
+ var ModuleLoader;
+@@ -53,8 +62,9 @@ var EntryGroup = class {
+ 		entry.parent = this;
+ 		try {
+ 			await entry.update(options, true, true);
++			entry.failure = entry.lastFailure = void 0;
+ 		} catch (error) {
+ 			if (existing) entry.parent = previousParent;
+ 			else delete this.tree.store[id];
+ 			throw error;
+ 		}
+@@ -86,11 +96,33 @@ var EntryGroup = class {
+ 		try {
+ 			const outcomes = await Promise.allSettled(config.map((options) => this.create(options)));
+ 			if (this.ctx.fiber.uid === null) return;
+-			const failures = outcomes.filter((outcome) => outcome.status === "rejected").map((outcome) => outcome.reason);
++			const failures = [];
++			const effectiveConfig = [];
++			for (const [index, outcome] of outcomes.entries()) {
++				const options = config[index];
++				const entry = this.tree.store[options.id];
++				if (outcome.status === "fulfilled") {
++					effectiveConfig.push(entry?.options ?? options);
++					continue;
++				}
++				if (options.failurePolicy !== "isolate") {
++					failures.push(outcome.reason);
++					continue;
++				}
++				const failedEntry = entry ?? (this.tree.store[options.id] = new Entry(this.ctx.loader));
++				if (!failedEntry.fiber?.uid) {
++					failedEntry.parent = this;
++					failedEntry.options = options;
++					failedEntry.failure = outcome.reason;
++				}
++				failedEntry.lastFailure = outcome.reason;
++				effectiveConfig.push(failedEntry.options);
++				reportIsolatedEntryFailure(this.context, failedEntry, outcome.reason);
++			}
+ 			if (failures.length === 1) throw failures[0];
+ 			if (failures.length > 1) throw new AggregateError(failures, "loader entries failed to apply");
+ 			for (const id of Object.keys(oldMap)) if (!newMap[id]) await this.remove(id, true);
+-			this.data = config;
++			this.data = effectiveConfig;
+ 		} catch (error) {
+ 			const rollbackErrors = [];
+ 			for (const id of Object.keys(newMap).reverse()) {
+diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
+@@ -522,6 +522,20 @@ function resolveBundleDir(binName, packageName, installAnchor, profileDir) {
+ 	}
+ 	throw new Error(`${binName}: cannot resolve profile bundle ${JSON.stringify(packageName)} from the dsh installation or ${profileDir}; run 'dsh plugin --profile ${basename(profileDir)} install' if its dependency is not installed`);
+ }
++function isolateExternalBundleEntry(entry) {
++	const isolated = {
++		...entry,
++		failurePolicy: "isolate"
++	};
++	if (isolated.group && Array.isArray(isolated.config)) isolated.config = isolated.config.map(isolateExternalBundleEntry);
++	return isolated;
++}
++function isolateExternalBundlePatches(patches) {
++	return patches.map((patch) => Array.isArray(patch.insert) ? {
++		...patch,
++		insert: patch.insert.map(isolateExternalBundleEntry)
++	} : patch);
++}
+ /**
+ * Load a profile: resolve every `dsh.profile.bundles` entry to its patch
+ * layer and parse the profile's own patch file. A listed bundle without a
+@@ -543,16 +557,19 @@ function loadProfile(binName, name, installAnchor, home = resolveDshHome(), opti
+ 		if (template === void 0) throw new Error(`${binName}: profile ${JSON.stringify(name)} does not exist; create it with 'dsh plugin --profile ${name} add <package>'`);
+ 		initProfile(dir, template);
+ 	}
+-	const layers = (normalizeShippedProfile(name, dir, readProfileManifest(binName, dir)).dsh?.profile?.bundles ?? []).map((packageName) => {
++	const manifest = normalizeShippedProfile(name, dir, readProfileManifest(binName, dir));
++	const externalBundles = new Set(Object.keys(manifest.dependencies ?? {}));
++	const layers = (manifest.dsh?.profile?.bundles ?? []).map((packageName) => {
+ 		const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir);
+ 		const declared = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")).dsh?.bundle?.patch;
+ 		if (declared === void 0) throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`);
+ 		const patchPath = join(packageDir, declared);
++		const patches = loadOverlayPatches(binName, patchPath);
+ 		return {
+ 			packageName,
+ 			packageDir,
+ 			patchPath,
+-			patches: loadOverlayPatches(binName, patchPath)
++			patches: externalBundles.has(packageName) ? isolateExternalBundlePatches(patches) : patches
+ 		};
+ 	});
+ 	const patchPath = join(dir, PROFILE_PATCH_FILENAME);
+@@ -1074,7 +1091,7 @@ function installFailLoud(binName, proc = process, release) {
+ * @param binName - the diagnostic prefix on the thrown error.
+ */
+ function assertEntriesLoaded(ctx, binName) {
+-	const failed = [...ctx.loader.entries()].filter((entry) => entry.fiber === void 0 && !entry.disabled);
++	const failed = [...ctx.loader.entries()].filter((entry) => entry.fiber === void 0 && !entry.disabled && !(entry.options.failurePolicy === "isolate" && entry.failure !== void 0));
+ 	if (failed.length > 0) {
+ 		const names = failed.map((entry) => entry.options.name).join(", ");
+ 		throw new Error(`${binName}: plugin(s) failed to load: ${names}; Cordis startup failed because these plugin(s) could not be resolved (see the error(s) logged above)`);
+@@ -1113,6 +1130,7 @@ async function assertEntriesActivated(ctx, binName) {
+ 		if (fiber === void 0 || entry.disabled) continue;
+ 		const state = fiber.state;
+ 		if (state === FIBER_ACTIVE) continue;
++		if (entry.options.failurePolicy === "isolate") continue;
+ 		if (state === FIBER_FAILED) {
+ 			try {
+ 				await fiber.await();
+diff --git a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
+@@ -107,7 +107,7 @@ let PluginInventoryGateway = (() => {
+ 					entryId: pluginEntryId(entry.id),
+ 					moduleName: entry.options.name,
+ 					enabled: !entry.disabled,
+-					fiberPhase: entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state]
++					fiberPhase: entry.failure === void 0 ? entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state] : "failed"
+ 				});
+ 			}
+ 			return { entries };
