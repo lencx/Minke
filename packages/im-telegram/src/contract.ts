@@ -365,10 +365,14 @@ export interface TelegramTransportOptions {
   readonly allowedUpdates?: readonly string[];
   readonly apiBaseUrl?: string;
   /**
-   * Delete any legacy webhook before opening long polling. Defaults to true
-   * for Minke's single-owner desktop runtime.
+   * Delete any legacy webhook before opening long polling. `true` performs
+   * cleanup during `start()`, while `"on-receive"` defers ownership takeover
+   * until the first receive after the Host has committed local state.
+   * Defaults to true for standalone single-owner callers.
    */
-  readonly clearWebhookBeforePolling?: boolean;
+  readonly clearWebhookBeforePolling?:
+    | boolean
+    | "on-receive";
   readonly credential: TelegramCredential;
   readonly fetch?: typeof globalThis.fetch;
   readonly getUpdatesLimit?: number;

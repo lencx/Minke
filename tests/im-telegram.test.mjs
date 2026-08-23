@@ -125,6 +125,40 @@ test("start clears a legacy webhook once without dropping queued updates", async
   await transport.close();
 });
 
+test("transactional startup defers webhook ownership until first receive", async () => {
+  const requests = [];
+  const transport = createTelegramTransport({
+    clearWebhookBeforePolling: "on-receive",
+    credential: { token: TOKEN },
+    fetch: sequenceFetch(
+      [
+        success(botIdentity()),
+        success(true),
+        success([]),
+      ],
+      requests,
+    ),
+    longPollTimeoutMs: 2_000,
+    requestTimeoutMs: 5_000,
+  });
+
+  await transport.start();
+  assert.deepEqual(
+    requests.map(({ url }) => url.slice(url.lastIndexOf("/") + 1)),
+    ["getMe"],
+  );
+
+  await transport.receive(null);
+  assert.deepEqual(
+    requests.map(({ url }) => url.slice(url.lastIndexOf("/") + 1)),
+    ["getMe", "deleteWebhook", "getUpdates"],
+  );
+  assert.deepEqual(requests[1].body, {
+    drop_pending_updates: false,
+  });
+  await transport.close();
+});
+
 test("webhook cleanup is cancellable, redacted, and never repeated after an uncertain attempt", async () => {
   const requests = [];
   let cleanupStarted;

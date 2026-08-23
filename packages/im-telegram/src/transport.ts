@@ -64,21 +64,6 @@ function positiveInteger(
   return resolved;
 }
 
-function optionalBoolean(
-  value: boolean | undefined,
-  fallback: boolean,
-  label: string,
-): boolean {
-  const resolved = value ?? fallback;
-  if (typeof resolved !== "boolean") {
-    throw new TelegramTransportError(
-      "invalid-config",
-      `${label} must be a boolean`,
-    );
-  }
-  return resolved;
-}
-
 function normalizeAllowedUpdates(
   values: readonly string[] | undefined,
 ): readonly string[] {
@@ -386,7 +371,9 @@ class TelegramTransportImplementation
   implements TelegramTransport
 {
   readonly #allowedUpdates: readonly string[];
-  readonly #clearWebhookBeforePolling: boolean;
+  readonly #clearWebhookBeforePolling:
+    | boolean
+    | "on-receive";
   readonly #getUpdatesLimit: number;
   readonly #lifecycle = new AbortController();
   readonly #longPollTimeoutMs: number;
@@ -411,11 +398,19 @@ class TelegramTransportImplementation
     this.#allowedUpdates = normalizeAllowedUpdates(
       options.allowedUpdates,
     );
-    this.#clearWebhookBeforePolling = optionalBoolean(
-      options.clearWebhookBeforePolling,
-      true,
-      "clearWebhookBeforePolling",
-    );
+    const clearWebhookBeforePolling =
+      options.clearWebhookBeforePolling ?? true;
+    if (
+      typeof clearWebhookBeforePolling !== "boolean" &&
+      clearWebhookBeforePolling !== "on-receive"
+    ) {
+      throw new TelegramTransportError(
+        "invalid-config",
+        "clearWebhookBeforePolling must be boolean or on-receive",
+      );
+    }
+    this.#clearWebhookBeforePolling =
+      clearWebhookBeforePolling;
     this.#getUpdatesLimit = positiveInteger(
       options.getUpdatesLimit,
       DEFAULT_GET_UPDATES_LIMIT,
@@ -523,8 +518,17 @@ class TelegramTransportImplementation
 
   async #clearWebhook(
     signal: AbortSignal | undefined,
+    phase: "receive" | "start",
   ): Promise<void> {
-    if (!this.#clearWebhookBeforePolling) return;
+    if (
+      this.#clearWebhookBeforePolling === false ||
+      (
+        this.#clearWebhookBeforePolling === "on-receive" &&
+        phase === "start"
+      )
+    ) {
+      return;
+    }
     if (this.#webhookCleanupPromise === undefined) {
       const cleanup = this.#withSignal(
         signal,
@@ -576,7 +580,7 @@ class TelegramTransportImplementation
     this.#startPromise = (async () => {
       try {
         await this.getMe(options);
-        await this.#clearWebhook(options.signal);
+        await this.#clearWebhook(options.signal, "start");
         if (
           this.#state !== "closing" &&
           this.#state !== "closed"
@@ -613,6 +617,7 @@ class TelegramTransportImplementation
     const offset = checkpointOffset(checkpoint);
     this.#polling = true;
     try {
+      await this.#clearWebhook(options.signal, "receive");
       return await this.#withSignal(
         options.signal,
         async (signal) => {
