@@ -17,6 +17,8 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  BotHubIssue,
+  BotHubSnapshot,
   WeixinHubIssue,
   WeixinHubSnapshot,
 } from "@minke/harness-overlay/remote-hub-contract.ts";
@@ -73,9 +75,14 @@ function hubState(
 ): "idle" | "working" | "active" | "attention" {
   const remoteState = snapshot.remote.data.runtime.state;
   const weixin = snapshot.channels.channels.weixin;
+  const botChannels = [
+    snapshot.channels.channels.telegram,
+    snapshot.channels.channels.discord,
+  ];
   if (
     weixin.state === "error" ||
     weixin.state === "session-stale" ||
+    botChannels.some((channel) => channel.state === "error") ||
     snapshot.error !== undefined ||
     snapshot.remote.error === "read" ||
     snapshot.remote.error === "write" ||
@@ -90,11 +97,25 @@ function hubState(
     return "attention";
   }
   if (
+    botChannels.some(
+      (channel) =>
+        channel.state === "degraded" &&
+        channel.issue === "receive",
+    )
+  ) {
+    return "attention";
+  }
+  if (
     snapshot.operation !== "idle" ||
     snapshot.remote.operation.kind !== "idle" ||
     weixin.state === "loading" ||
     weixin.state === "linking" ||
     weixin.state === "connecting" ||
+    botChannels.some(
+      (channel) =>
+        channel.state === "loading" ||
+        channel.state === "connecting",
+    ) ||
     remoteState === "starting" ||
     remoteState === "stopping" ||
     remoteState === "retrying"
@@ -103,6 +124,9 @@ function hubState(
   }
   if (
     weixin.state === "degraded" ||
+    botChannels.some(
+      (channel) => channel.state === "degraded",
+    ) ||
     remoteState === "active" ||
     remoteState === "ready"
   ) {
@@ -530,16 +554,6 @@ function WeixinChannel({
         </p>
       )}
 
-      {snapshot.error !== undefined && (
-        <p className="minke-remote-hub__issue" role="alert">
-          {t(
-            snapshot.error === "read"
-              ? "readError"
-              : "commandError",
-          )}
-        </p>
-      )}
-
       <div className="minke-remote-hub__channel-actions">
         {canStart && (
           <button
@@ -655,26 +669,381 @@ function WeixinChannel({
   );
 }
 
-function PlannedChannels({
+function botStatusLabel(
+  value: BotHubSnapshot,
+  t: RemoteHubTranslate,
+): string {
+  switch (value.state) {
+    case "loading":
+      return t("loading");
+    case "unavailable":
+      return t("unavailable");
+    case "unlinked":
+      return t("unlinked");
+    case "connecting":
+      return t("connecting");
+    case "degraded":
+      return t("linkedLimited");
+    case "error":
+      return t("attention");
+  }
+}
+
+function botIssueText(
+  issue: BotHubIssue,
+  providerLabel: string,
+  t: RemoteHubTranslate,
+): string {
+  const replaceProvider = (value: string): string =>
+    value.replace("{provider}", providerLabel);
+  switch (issue) {
+    case "agent-route-pending":
+      return t("agentRoutePending");
+    case "receive":
+      return replaceProvider(t("botReceiveIssue"));
+    case "vault-unavailable":
+      return replaceProvider(t("botVaultUnavailable"));
+    case "credential-invalid":
+      return replaceProvider(t("botCredentialInvalid"));
+    case "credential-read":
+      return replaceProvider(t("botCredentialRead"));
+    case "credential-store":
+      return replaceProvider(t("botCredentialStore"));
+    case "gateway-store":
+      return t("gatewayStore");
+    case "network":
+      return replaceProvider(t("botNetwork"));
+    case "polling-conflict":
+      return t("botPollingConflict");
+    case "privileged-intent":
+      return t("botPrivilegedIntent");
+    case "transport-fatal":
+      return replaceProvider(t("botTransportFatal"));
+    case "transport-start":
+      return replaceProvider(t("botTransportStart"));
+  }
+}
+
+function BotChannel({
+  provider,
+  runtime,
+  snapshot,
   t,
 }: {
+  readonly provider: "telegram" | "discord";
+  readonly runtime: RemoteHubRuntime;
+  readonly snapshot: ReturnType<RemoteHubRuntime["getSnapshot"]>;
   readonly t: RemoteHubTranslate;
 }): ReactNode {
+  const channel = snapshot.channels.channels[provider];
+  const providerLabel = t(
+    provider === "telegram"
+      ? "telegramTitle"
+      : "discordTitle",
+  );
+  const description = t(
+    provider === "telegram"
+      ? "telegramDescription"
+      : "discordDescription",
+  );
+  const [token, setToken] = useState("");
+  const [confirmReset, setConfirmReset] = useState(false);
+  const previousConfirmResetRef = useRef(false);
+  const channelRef = useRef<HTMLElement>(null);
+  const resetTriggerRef = useRef<HTMLButtonElement>(null);
+  const tokenId = useId();
+  const tokenHelpId = useId();
+  const titleId = useId();
+  const resetConfirmRef = useRef<HTMLButtonElement>(null);
+  const busy = snapshot.operation !== "idle";
+  const tokenValid =
+    token.length >= 20 &&
+    token.length <= 4_096 &&
+    !/\s/u.test(token);
+  const canConfigure =
+    channel.state === "unlinked" ||
+    (
+      channel.state === "error" &&
+      channel.issue !== "credential-read" &&
+      channel.issue !== "gateway-store"
+    );
+  const canReconnect =
+    channel.state === "degraded" ||
+    (
+      channel.state === "error" &&
+      (
+        channel.issue === "network" ||
+        channel.issue === "polling-conflict" ||
+        channel.issue === "privileged-intent" ||
+        channel.issue === "transport-fatal" ||
+        channel.issue === "transport-start"
+      )
+    );
+  const canUnlink =
+    channel.state === "connecting" ||
+    channel.state === "degraded" ||
+    channel.state === "error";
+  const canReset =
+    channel.state === "error" &&
+    (
+      channel.issue === "credential-read" ||
+      channel.issue === "credential-store" ||
+      channel.issue === "gateway-store" ||
+      channel.issue === "transport-start"
+    );
+  const resetGateway =
+    channel.state === "error" &&
+    channel.issue === "gateway-store";
+
+  useEffect(() => {
+    setConfirmReset(false);
+  }, [
+    channel.state,
+    channel.state === "error" ? channel.issue : undefined,
+  ]);
+
+  useEffect(() => {
+    const previous = previousConfirmResetRef.current;
+    previousConfirmResetRef.current = confirmReset;
+    if (confirmReset && !previous) {
+      resetConfirmRef.current?.focus();
+    } else if (!confirmReset && previous) {
+      const resetTrigger = resetTriggerRef.current;
+      if (resetTrigger !== null) {
+        resetTrigger.focus();
+      } else {
+        channelRef.current
+          ?.closest<HTMLElement>(
+            "[data-minke-remote-hub-dialog]",
+          )
+          ?.querySelector<HTMLElement>(
+            ".minke-remote-hub__close",
+          )
+          ?.focus();
+      }
+    }
+  }, [confirmReset]);
+
+  const submitToken = (
+    event: FormEvent<HTMLFormElement>,
+  ): void => {
+    event.preventDefault();
+    if (!tokenValid || busy) return;
+    const operation =
+      provider === "telegram"
+        ? runtime.dispatch({
+            kind: "telegram/connect",
+            token,
+          })
+        : runtime.dispatch({
+            kind: "discord/connect",
+            token,
+          });
+    void operation.finally(() => setToken(""));
+  };
+
+  const reconnect = (): void => {
+    void runtime.dispatch(
+      provider === "telegram"
+        ? { kind: "telegram/reconnect" }
+        : { kind: "discord/reconnect" },
+    );
+  };
+
+  const unlink = (): void => {
+    void runtime.dispatch(
+      provider === "telegram"
+        ? { kind: "telegram/unlink" }
+        : { kind: "discord/unlink" },
+    );
+  };
+
+  const reset = (): void => {
+    void runtime.dispatch(
+      resetGateway
+        ? { kind: "gateway/reset-local" }
+        : provider === "telegram"
+          ? { kind: "telegram/reset-local" }
+          : { kind: "discord/reset-local" },
+    );
+  };
+
   return (
-    <div className="minke-remote-hub__planned">
-      {[
-        t("telegramTitle"),
-        t("discordTitle"),
-      ].map((name) => (
-        <div key={name} className="minke-remote-hub__planned-row">
-          <span className="minke-remote-hub__channel-icon">
-            <LucideIcon icon={MessageCircle} size={16} />
-          </span>
-          <strong>{name}</strong>
-          <span>{t("planned")}</span>
+    <section
+      ref={channelRef}
+      className="minke-remote-hub__weixin minke-remote-hub__bot"
+      data-provider={provider}
+      data-state={channel.state}
+      aria-labelledby={titleId}
+    >
+      <div className="minke-remote-hub__channel-heading">
+        <span className="minke-remote-hub__channel-icon">
+          <LucideIcon icon={MessageCircle} size={18} />
+        </span>
+        <span className="minke-remote-hub__channel-copy">
+          <strong id={titleId}>{providerLabel}</strong>
+          <span>{description}</span>
+        </span>
+        <span
+          className="minke-remote-hub__channel-status"
+          data-state={channel.state}
+          role="status"
+          aria-live="polite"
+        >
+          {botStatusLabel(channel, t)}
+        </span>
+      </div>
+
+      {(channel.state === "connecting" ||
+        channel.state === "degraded") && (
+        <div className="minke-remote-hub__channel-detail">
+          <strong>
+            {t("account").replace(
+              "{label}",
+              channel.accountLabel,
+            )}
+          </strong>
+          {channel.state === "degraded" && (
+            <p>
+              {botIssueText(
+                channel.issue,
+                providerLabel,
+                t,
+              )}
+            </p>
+          )}
         </div>
-      ))}
-    </div>
+      )}
+
+      {(channel.state === "unavailable" ||
+        channel.state === "error") && (
+        <p className="minke-remote-hub__issue" role="alert">
+          {botIssueText(channel.issue, providerLabel, t)}
+        </p>
+      )}
+
+      {canConfigure && (
+        <form
+          className="minke-remote-hub__bot-token"
+          onSubmit={submitToken}
+        >
+          <label htmlFor={tokenId}>
+            {t("botTokenLabel").replace(
+              "{provider}",
+              providerLabel,
+            )}
+          </label>
+          <div>
+            <input
+              id={tokenId}
+              type="password"
+              value={token}
+              minLength={20}
+              maxLength={4_096}
+              autoComplete="off"
+              autoCapitalize="none"
+              aria-describedby={tokenHelpId}
+              spellCheck={false}
+              placeholder={t("botTokenPlaceholder")}
+              disabled={busy}
+              onChange={(event) =>
+                setToken(event.currentTarget.value)}
+            />
+            <button
+              type="submit"
+              disabled={busy || !tokenValid}
+            >
+              {busy
+                ? t("busy")
+                : t("connectBot").replace(
+                    "{provider}",
+                    providerLabel,
+                  )}
+            </button>
+          </div>
+          <small id={tokenHelpId}>
+            {t(
+              provider === "telegram"
+                ? "telegramTokenHelp"
+                : "discordTokenHelp",
+            )}
+          </small>
+        </form>
+      )}
+
+      <div className="minke-remote-hub__channel-actions">
+        {canReconnect && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={reconnect}
+          >
+            {busy ? t("busy") : t("reconnectBot")}
+          </button>
+        )}
+        {canUnlink && (
+          <button
+            type="button"
+            className="minke-remote-hub__button--quiet"
+            disabled={busy}
+            onClick={unlink}
+          >
+            {t("unlinkBot")}
+          </button>
+        )}
+        {canReset && !confirmReset && (
+          <button
+            ref={resetTriggerRef}
+            type="button"
+            className="minke-remote-hub__button--quiet"
+            disabled={busy}
+            onClick={() => setConfirmReset(true)}
+          >
+            {t(resetGateway ? "resetGateway" : "resetLocal")}
+          </button>
+        )}
+      </div>
+
+      {confirmReset && (
+        <div
+          className="minke-remote-hub__reset-confirmation"
+          role="alert"
+        >
+          <p>
+            {resetGateway
+              ? t("resetGatewayWarning")
+              : t("resetBotLocalWarning").replace(
+                  "{provider}",
+                  providerLabel,
+                )}
+          </p>
+          <div className="minke-remote-hub__channel-actions">
+            <button
+              ref={resetConfirmRef}
+              type="button"
+              disabled={busy}
+              onClick={reset}
+            >
+              {busy
+                ? t("busy")
+                : t(
+                    resetGateway
+                      ? "confirmResetGateway"
+                      : "confirmResetLocal",
+                  )}
+            </button>
+            <button
+              type="button"
+              className="minke-remote-hub__button--quiet"
+              disabled={busy}
+              onClick={() => setConfirmReset(false)}
+            >
+              {t("keepLocalData")}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -822,12 +1191,35 @@ function RemoteHubDialog({
         <div className="minke-remote-hub__body">
           <div className="minke-remote-hub__channels">
             <h2>{t("channelsTitle")}</h2>
+            {snapshot.error !== undefined && (
+              <p
+                className="minke-remote-hub__global-issue"
+                role="alert"
+              >
+                {t(
+                  snapshot.error === "read"
+                    ? "readError"
+                    : "commandError",
+                )}
+              </p>
+            )}
             <WeixinChannel
               runtime={runtime}
               snapshot={snapshot}
               t={t}
             />
-            <PlannedChannels t={t} />
+            <BotChannel
+              provider="telegram"
+              runtime={runtime}
+              snapshot={snapshot}
+              t={t}
+            />
+            <BotChannel
+              provider="discord"
+              runtime={runtime}
+              snapshot={snapshot}
+              t={t}
+            />
           </div>
           <div
             className="minke-remote-hub__access"

@@ -54,6 +54,10 @@ import type {
   RemoteSettingsSnapshot,
 } from "@lencx/minke-remote-access/contract";
 import type {
+  RemoteHubCommand,
+  RemoteHubSnapshot,
+} from "@minke/harness-overlay/remote-hub-contract.ts";
+import type {
   HarnessColorScheme,
   HarnessLocale,
   HarnessThemePreference,
@@ -100,6 +104,15 @@ export interface RemoteSettingsStore {
     listener: (snapshot: RemoteRuntimeSnapshot) => void,
   ): () => void;
   write(settings: RemoteSettings): Promise<void>;
+}
+
+export interface DesktopRemoteHubPort {
+  readonly available: boolean;
+  read(): Promise<RemoteHubSnapshot>;
+  dispatch(command: RemoteHubCommand): Promise<RemoteHubSnapshot>;
+  subscribe(
+    listener: (snapshot: RemoteHubSnapshot) => void,
+  ): () => void;
 }
 
 export interface DataHomeSettingsPort {
@@ -271,6 +284,14 @@ export interface DesktopRemoteBridge {
   write(settings: RemoteSettings): Promise<void>;
 }
 
+export interface DesktopRemoteHubBridge {
+  read(): Promise<unknown>;
+  dispatch(command: RemoteHubCommand): Promise<unknown>;
+  subscribe(
+    listener: (snapshot: RemoteHubSnapshot) => void,
+  ): () => void;
+}
+
 export interface DesktopPluginInstallerBridge {
   install(command: string): Promise<void>;
   restart(): Promise<void>;
@@ -315,6 +336,7 @@ export interface DesktopBridgeWindow {
     modelRuntime?: DesktopModelRuntimeBridge;
     pluginInstaller?: DesktopPluginInstallerBridge;
     remote?: DesktopRemoteBridge;
+    remoteHub?: DesktopRemoteHubBridge;
     sessionLogs?: DesktopSessionLogsBridge;
     tabs?: DesktopTabsBridge;
     terminal?: DesktopTerminalBridge;

@@ -25,6 +25,7 @@ import type {
   AppUpdateSettingsStore,
   DataHomeSettingsPort,
   DesktopBridgeWindow,
+  DesktopRemoteHubPort,
   ModelRuntimeSettingsStore,
   RemoteSettingsStore,
   TerminalSettingsStore,
@@ -35,6 +36,10 @@ import {
   parseRemoteSettings,
   parseRemoteSettingsSnapshot,
 } from "@lencx/minke-remote-access/contract";
+import {
+  parseRemoteHubCommand,
+  parseRemoteHubSnapshot,
+} from "@minke/harness-overlay/remote-hub-contract.ts";
 
 /** Adapt the isolated preload bridge for update checks and preferences. */
 export function desktopAppUpdatePort(
@@ -246,6 +251,67 @@ export function desktopRemoteSettingsStore(
         }),
     async write(settings) {
       await bridge.write(parseRemoteSettings(settings));
+    },
+  };
+}
+
+/** Adapt the local-only, secret-free Remote Hub preload projection. */
+export function desktopRemoteHubPort(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): DesktopRemoteHubPort {
+  const bridge = source.minkeDesktop?.remoteHub;
+  if (bridge === undefined) {
+    const unavailable = parseRemoteHubSnapshot({
+      revision: 0,
+      dependencies: {
+        credentialVault: "unavailable",
+        agentRoute: "pending",
+      },
+      channels: {
+        weixin: {
+          state: "unavailable",
+          issue: "vault-unavailable",
+        },
+        telegram: {
+          state: "unavailable",
+          issue: "vault-unavailable",
+        },
+        discord: {
+          state: "unavailable",
+          issue: "vault-unavailable",
+        },
+      },
+    });
+    return {
+      available: false,
+      async read() {
+        return unavailable;
+      },
+      async dispatch() {
+        throw new Error(
+          "Minke desktop Remote Hub bridge is unavailable",
+        );
+      },
+      subscribe() {
+        return () => {};
+      },
+    };
+  }
+  return {
+    available: true,
+    async read() {
+      return parseRemoteHubSnapshot(await bridge.read());
+    },
+    async dispatch(command) {
+      return parseRemoteHubSnapshot(
+        await bridge.dispatch(parseRemoteHubCommand(command)),
+      );
+    },
+    subscribe(listener) {
+      return bridge.subscribe((snapshot) => {
+        listener(parseRemoteHubSnapshot(snapshot));
+      });
     },
   };
 }

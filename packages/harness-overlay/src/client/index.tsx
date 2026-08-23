@@ -9,6 +9,7 @@ import { installLocalModel } from "./local-model/install.ts";
 import { installOnboarding } from "./onboarding/install.tsx";
 import { installPwa } from "./pwa/install.tsx";
 import { installRemote } from "./remote/install.tsx";
+import { installRemoteHub } from "./remote-hub/install.tsx";
 import { installShortcuts } from "./shortcuts/install.tsx";
 import { installTabs } from "./tabs/install.tsx";
 
@@ -31,7 +32,8 @@ export function apply(ctx: HarnessClientContext): void {
   installWebBrand(ctx);
   installPwa(ctx);
   installLocalModel(ctx);
-  installRemote(ctx);
+  const remote = installRemote(ctx);
+  installRemoteHub(ctx, remote);
   const tabsRuntimes = installTabs(ctx);
   installShortcuts(ctx, tabsRuntimes);
   installOnboarding(ctx);

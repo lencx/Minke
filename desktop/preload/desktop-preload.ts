@@ -142,6 +142,15 @@ import {
   type RemoteSettings,
   type RemoteRuntimeSnapshot,
 } from "@lencx/minke-remote-access/contract";
+import {
+  parseRemoteHubCommand,
+  parseRemoteHubSnapshot,
+  REMOTE_HUB_CHANGED_CHANNEL,
+  REMOTE_HUB_COMMAND_CHANNEL,
+  REMOTE_HUB_READ_CHANNEL,
+  type RemoteHubCommand,
+  type RemoteHubSnapshot,
+} from "@minke/harness-overlay/remote-hub-contract.ts";
 
 let observer: MutationObserver | undefined;
 let lastMessage: WindowThemeMessage | undefined;
@@ -150,6 +159,7 @@ const shortcutUnsubscribers = new Set<() => void>();
 const fileWatchUnsubscribers = new Set<() => void>();
 const terminalUnsubscribers = new Set<() => void>();
 const remoteRuntimeUnsubscribers = new Set<() => void>();
+const remoteHubUnsubscribers = new Set<() => void>();
 let nextFileWatchId = 0;
 
 function currentColorScheme(): WindowColorScheme | undefined {
@@ -487,6 +497,43 @@ const remote = Object.freeze({
   },
 });
 
+const remoteHub = Object.freeze({
+  async read(): Promise<unknown> {
+    return parseRemoteHubSnapshot(
+      await ipcRenderer.invoke(REMOTE_HUB_READ_CHANNEL),
+    );
+  },
+  async dispatch(command: RemoteHubCommand): Promise<unknown> {
+    return parseRemoteHubSnapshot(
+      await ipcRenderer.invoke(
+        REMOTE_HUB_COMMAND_CHANNEL,
+        parseRemoteHubCommand(command),
+      ),
+    );
+  },
+  subscribe(
+    listener: (snapshot: RemoteHubSnapshot) => void,
+  ): () => void {
+    const wrapped = (_event: unknown, value: unknown): void => {
+      try {
+        listener(parseRemoteHubSnapshot(value));
+      } catch {
+        // Only validated, secret-free main-process projections are delivered.
+      }
+    };
+    ipcRenderer.on(REMOTE_HUB_CHANGED_CHANNEL, wrapped);
+    let active = true;
+    const unsubscribe = (): void => {
+      if (!active) return;
+      active = false;
+      remoteHubUnsubscribers.delete(unsubscribe);
+      ipcRenderer.off(REMOTE_HUB_CHANGED_CHANNEL, wrapped);
+    };
+    remoteHubUnsubscribers.add(unsubscribe);
+    return unsubscribe;
+  },
+});
+
 const pluginInstaller = Object.freeze({
   async install(command: string): Promise<void> {
     await ipcRenderer.invoke(
@@ -596,6 +643,7 @@ contextBridge.exposeInMainWorld(
     modelRuntime,
     pluginInstaller,
     remote,
+    remoteHub,
     sessionLogs,
     tabs,
     terminal,
@@ -621,6 +669,9 @@ window.addEventListener(
       unsubscribe();
     }
     for (const unsubscribe of [...remoteRuntimeUnsubscribers]) {
+      unsubscribe();
+    }
+    for (const unsubscribe of [...remoteHubUnsubscribers]) {
       unsubscribe();
     }
     observer?.disconnect();

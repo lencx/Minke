@@ -14,6 +14,7 @@ import type {
 export type RemoteHubClientOperation =
   | "idle"
   | "starting-link"
+  | "connecting-channel"
   | "verifying"
   | "cancelling"
   | "reconnecting"
@@ -44,8 +45,18 @@ function initialChannels(
             state: "unavailable",
             issue: "vault-unavailable",
           },
-      telegram: { state: "planned" },
-      discord: { state: "planned" },
+      telegram: available
+        ? { state: "loading" }
+        : {
+            state: "unavailable",
+            issue: "vault-unavailable",
+          },
+      discord: available
+        ? { state: "loading" }
+        : {
+            state: "unavailable",
+            issue: "vault-unavailable",
+          },
     },
   });
 }
@@ -55,18 +66,26 @@ function operationFor(
 ): RemoteHubClientOperation {
   switch (command.kind) {
     case "refresh":
+    case "telegram/reconnect":
+    case "discord/reconnect":
     case "weixin/reconnect":
       return "reconnecting";
     case "gateway/reset-local":
+    case "telegram/reset-local":
+    case "discord/reset-local":
+    case "weixin/reset-local":
       return "resetting";
+    case "telegram/connect":
+    case "discord/connect":
+      return "connecting-channel";
     case "weixin/link/start":
       return "starting-link";
     case "weixin/link/verify":
       return "verifying";
     case "weixin/link/cancel":
       return "cancelling";
-    case "weixin/reset-local":
-      return "resetting";
+    case "telegram/unlink":
+    case "discord/unlink":
     case "weixin/unlink":
       return "unlinking";
   }

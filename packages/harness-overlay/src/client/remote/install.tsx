@@ -24,10 +24,16 @@ import {
 
 const REMOTE_NAMESPACE = "minke.remote";
 
+export interface InstalledRemoteFeature {
+  readonly runtime: RemoteSettingsRuntime;
+  readonly t: RemoteTranslate;
+}
+
 /** Register desktop-managed private remote access settings. */
-export function installRemote(ctx: HarnessClientContext): void {
+export function installRemote(
+  ctx: HarnessClientContext,
+): InstalledRemoteFeature {
   const store = desktopRemoteSettingsStore();
-  if (!store.available) return;
 
   ctx.effect(
     () =>
@@ -54,24 +60,30 @@ export function installRemote(ctx: HarnessClientContext): void {
     () => installRemoteStyles(),
     "minke-overlay: remote settings styles",
   );
-  ctx.effect(
-    () => installRemoteNavigationIcon(() => remoteT("nav")),
-    "minke-overlay: remote navigation icon",
-  );
-  ctx.slots.inject("settings.section", () =>
-    ctx.slots.register(
-      {
-        name: "settings.section",
-        id: "minke-remote",
-        order: 5,
-        label: () => remoteT("nav"),
-        locale: REMOTE_NAMESPACE,
-        inject: () => ({
-          runtime,
-          t: remoteT,
-        }),
-      },
-      RemoteSettingsSection as ComponentType<never>,
-    ),
-  );
+  if (store.available) {
+    ctx.effect(
+      () => installRemoteNavigationIcon(() => remoteT("nav")),
+      "minke-overlay: remote navigation icon",
+    );
+    ctx.slots.inject("settings.section", () =>
+      ctx.slots.register(
+        {
+          name: "settings.section",
+          id: "minke-remote",
+          order: 5,
+          label: () => remoteT("nav"),
+          locale: REMOTE_NAMESPACE,
+          inject: () => ({
+            runtime,
+            t: remoteT,
+          }),
+        },
+        RemoteSettingsSection as ComponentType<never>,
+      ),
+    );
+  }
+  return Object.freeze({
+    runtime,
+    t: remoteT,
+  });
 }

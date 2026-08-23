@@ -3,6 +3,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  safeStorage,
   type IpcMainInvokeEvent,
   type OpenDialogOptions,
 } from "electron";
@@ -82,6 +83,15 @@ import {
   type RemoteSettingsBinding,
 } from "./remote-settings";
 import {
+  bindRemoteHubIpc,
+  type RemoteHubBinding,
+  RemoteHubCapabilityRuntime,
+  RemoteHubCredentialVault,
+} from "./remote-hub";
+import {
+  REMOTE_HUB_CHANGED_CHANNEL,
+} from "@minke/harness-overlay/remote-hub-contract.ts";
+import {
   bindShortcutMenu,
   type ShortcutMenuBinding,
 } from "./shortcut-menu";
@@ -117,6 +127,8 @@ class DesktopApplication {
     | ModelRuntimeSettingsBinding
     | undefined;
   #remoteSettingsBinding: RemoteSettingsBinding | undefined;
+  #remoteHubBinding: RemoteHubBinding | undefined;
+  #remoteHub: RemoteHubCapabilityRuntime | undefined;
   #pluginInstallBinding: PluginInstallBinding | undefined;
   #dataHomeSettingsBinding: DataHomeSettingsBinding | undefined;
   #requestedExitCode: number | undefined;
@@ -426,6 +438,37 @@ class DesktopApplication {
           candidate as IpcMainInvokeEvent,
         ),
     );
+    const remoteHub = new RemoteHubCapabilityRuntime({
+      dataHome: activeDshHome,
+      vault: new RemoteHubCredentialVault(
+        app.getPath("userData"),
+        safeStorage,
+      ),
+    });
+    this.#remoteHub = remoteHub;
+    this.#remoteHubBinding = bindRemoteHubIpc(
+      ipcMain,
+      remoteHub,
+      (snapshot) => {
+        const window = windows.current;
+        if (
+          window === undefined ||
+          window.isDestroyed() ||
+          window.webContents.isDestroyed()
+        ) {
+          return;
+        }
+        window.webContents.send(
+          REMOTE_HUB_CHANGED_CHANNEL,
+          snapshot,
+        );
+      },
+      (candidate) =>
+        windows.authorize(
+          candidate as IpcMainInvokeEvent,
+        ),
+    );
+    void remoteHub.initialize();
     this.#harnessLifecycle = new HarnessLifecycle({
       runtime,
       remote: remoteAccess,
@@ -467,7 +510,8 @@ class DesktopApplication {
     if (this.#shutdownStarted) return;
     if (
       this.#runtime === undefined &&
-      this.#remoteAccess === undefined
+      this.#remoteAccess === undefined &&
+      this.#remoteHub === undefined
     ) {
       if (this.#requestedExitCode !== undefined) {
         event.preventDefault();
@@ -479,11 +523,17 @@ class DesktopApplication {
     this.#shutdownStarted = true;
     const activeRuntime = this.#runtime;
     const activeRemote = this.#remoteAccess;
+    const activeRemoteHub = this.#remoteHub;
+    this.#remoteHub = undefined;
     void (async () => {
       try {
-        await activeRemote?.stop();
+        await activeRemoteHub?.dispose();
       } finally {
-        await activeRuntime?.stop();
+        try {
+          await activeRemote?.stop();
+        } finally {
+          await activeRuntime?.stop();
+        }
       }
     })().finally(() => {
       if (this.#requestedExitCode === undefined) {
@@ -645,6 +695,8 @@ class DesktopApplication {
     this.#modelRuntimeSettingsBinding = undefined;
     this.#remoteSettingsBinding?.dispose();
     this.#remoteSettingsBinding = undefined;
+    this.#remoteHubBinding?.dispose();
+    this.#remoteHubBinding = undefined;
     this.#pluginInstallBinding?.dispose();
     this.#pluginInstallBinding = undefined;
     this.#dataHomeSettingsBinding?.dispose();

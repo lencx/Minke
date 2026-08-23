@@ -11,10 +11,23 @@ export const remoteHubZh = {
   channelsTitle: "消息通道",
   accessTitle: "远程连接",
   weixinTitle: "微信",
-  weixinDescription: "扫码连接微信，将消息可靠写入 Minke Gateway。",
+  weixinDescription:
+    "扫码连接微信；Agent 授权接通前，外部消息不会写入 Gateway。",
   telegramTitle: "Telegram",
+  telegramDescription:
+    "使用 Bot Token 连接 Telegram Bot API；Agent 授权接通前仅验证传输，不保存外部消息。",
   discordTitle: "Discord",
-  planned: "待接入",
+  discordDescription:
+    "使用 Bot Token 连接 Discord Gateway；Agent 授权接通前仅验证传输，不保存外部消息。",
+  botTokenLabel: "{provider} Bot Token",
+  botTokenPlaceholder: "粘贴 Bot Token",
+  telegramTokenHelp:
+    "Token 由 BotFather 提供，仅加密保存在本机。连接后 Minke 会保留待处理更新并接管 long polling，请勿让另一个实例同时使用该 Token 接收。",
+  discordTokenHelp:
+    "Token 来自 Discord Developer Portal；Bot 还需启用 Message Content Intent。",
+  connectBot: "连接 {provider}",
+  reconnectBot: "重新连接",
+  unlinkBot: "解除连接",
   loading: "正在读取",
   unavailable: "不可用",
   unlinked: "未连接",
@@ -22,7 +35,7 @@ export const remoteHubZh = {
   scanned: "已扫码",
   verificationRequired: "需要验证码",
   connecting: "正在连接",
-  linkedLimited: "已连接 · 路由待接入",
+  linkedLimited: "已连接 · 消息入口关闭",
   attention: "需要处理",
   connectWeixin: "连接微信",
   reconnectWeixin: "重新连接",
@@ -31,10 +44,12 @@ export const remoteHubZh = {
   resetLocal: "重置本地数据",
   resetLocalWarning:
     "这会删除本机保存的微信凭据、收件箱和待发送消息，且无法撤销。",
+  resetBotLocalWarning:
+    "这会删除本机保存的 {provider} 凭据、收件箱和待发送消息，且无法撤销。",
   confirmResetLocal: "确认重置",
   resetGateway: "重建 IM Gateway",
   resetGatewayWarning:
-    "共享 IM Gateway 无法打开。重建会删除本机所有消息通道的收件箱、待发送消息与投递记录，并解除微信连接，且无法撤销。",
+    "共享 IM Gateway 无法打开。重建会删除本机所有消息通道的凭据、收件箱、待发送消息与投递记录，且无法撤销。",
   confirmResetGateway: "确认重建 Gateway",
   keepLocalData: "保留数据",
   verifyCode: "提交验证码",
@@ -50,11 +65,30 @@ export const remoteHubZh = {
   qrExpires: "二维码有效至 {time}",
   account: "账号 {label}",
   agentRoutePending:
-    "Gateway 正在接收消息；Agent 路由尚未接通，因此暂时不会自动回复。",
+    "传输已连接；Agent 授权与路由尚未接通，外部消息会被默认拒绝且不会写入本机。",
   receiveIssue:
     "Gateway 已保留连接，但最近一次收取失败，正在后台重试。",
+  botReceiveIssue:
+    "{provider} 连接仍在运行，但最近一次收取失败，正在后台重试。",
   vaultUnavailable:
     "当前系统无法提供受保护的凭据存储，微信连接保持关闭。",
+  botVaultUnavailable:
+    "当前系统无法提供受保护的凭据存储，{provider} 连接保持关闭。",
+  botCredentialInvalid:
+    "{provider} Token 无效或已撤销，请粘贴新的 Token。",
+  botCredentialRead: "无法读取本机保存的 {provider} 凭据。",
+  botCredentialStore:
+    "{provider} Token 已验证，但未能安全保存，请重试。",
+  botNetwork:
+    "{provider} 服务暂时不可达，请检查网络后重试。",
+  botPollingConflict:
+    "另一个实例正在使用此 Telegram Token 接收消息。请先停止该实例，再重新连接。",
+  botPrivilegedIntent:
+    "Discord 拒绝了 Message Content Intent。请在 Developer Portal 启用它，再重新连接。",
+  botTransportFatal:
+    "{provider} 接收连接因协议错误或本地队列超限而停止。请检查消息流量与 Bot 配置后重新连接。",
+  botTransportStart:
+    "{provider} 凭据已保存，但接收连接启动失败。请检查 Bot 权限与 Intent 配置。",
   alreadyBound:
     "该微信账号已在服务端绑定，但本机没有收到可用凭据。请重新发起连接。",
   credentialRead: "无法读取本机保存的微信凭据。",
@@ -72,7 +106,7 @@ export const remoteHubZh = {
   vaultReady: "系统凭据保护",
   vaultChecking: "正在检查凭据保护",
   vaultMissing: "凭据保护不可用",
-  agentRoutePendingShort: "Agent 路由待接入",
+  agentRoutePendingShort: "Agent 路由待接入 · 消息入口关闭",
 } as const;
 
 export type RemoteHubLocaleKey = keyof typeof remoteHubZh;
@@ -91,10 +125,22 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   accessTitle: "Remote connection",
   weixinTitle: "Weixin",
   weixinDescription:
-    "Scan to connect Weixin and durably admit messages into Minke Gateway.",
+    "Connect Weixin. External messages stay out of Gateway until Agent authorization is available.",
   telegramTitle: "Telegram",
+  telegramDescription:
+    "Connect a Bot API token. Transport is verified, but external messages are not stored until Agent authorization is available.",
   discordTitle: "Discord",
-  planned: "Planned",
+  discordDescription:
+    "Connect a bot token to Discord Gateway. External messages are not stored until Agent authorization is available.",
+  botTokenLabel: "{provider} Bot Token",
+  botTokenPlaceholder: "Paste Bot Token",
+  telegramTokenHelp:
+    "BotFather provides this token and Minke encrypts it locally. Connecting preserves queued updates and takes long-poll ownership; do not receive with the same token elsewhere.",
+  discordTokenHelp:
+    "Get this token from the Discord Developer Portal and enable Message Content Intent for the bot.",
+  connectBot: "Connect {provider}",
+  reconnectBot: "Reconnect",
+  unlinkBot: "Disconnect",
   loading: "Reading",
   unavailable: "Unavailable",
   unlinked: "Not connected",
@@ -102,7 +148,7 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   scanned: "Scanned",
   verificationRequired: "Code required",
   connecting: "Connecting",
-  linkedLimited: "Connected · route pending",
+  linkedLimited: "Connected · ingress disabled",
   attention: "Needs attention",
   connectWeixin: "Connect Weixin",
   reconnectWeixin: "Reconnect",
@@ -111,10 +157,12 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   resetLocal: "Reset local data",
   resetLocalWarning:
     "This permanently deletes the saved Weixin credential, inbox, and pending deliveries on this device.",
+  resetBotLocalWarning:
+    "This permanently deletes the saved {provider} credential, inbox, and pending deliveries on this device.",
   confirmResetLocal: "Reset now",
   resetGateway: "Recreate IM Gateway",
   resetGatewayWarning:
-    "The shared IM Gateway cannot be opened. Recreating it permanently deletes every messaging channel's local inbox, pending deliveries, and delivery records, and disconnects Weixin.",
+    "The shared IM Gateway cannot be opened. Recreating it permanently deletes every messaging channel's local credentials, inbox, pending deliveries, and delivery records.",
   confirmResetGateway: "Recreate Gateway",
   keepLocalData: "Keep data",
   verifyCode: "Submit code",
@@ -131,11 +179,31 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   qrExpires: "QR code valid until {time}",
   account: "Account {label}",
   agentRoutePending:
-    "Gateway is receiving messages. Agent routing is not connected yet, so automatic replies remain off.",
+    "Transport is connected. Until Agent authorization and routing are available, external messages are denied by default and never stored locally.",
   receiveIssue:
     "Gateway kept the connection, but the latest receive failed and is retrying.",
+  botReceiveIssue:
+    "{provider} remains connected, but the latest receive failed and is retrying.",
   vaultUnavailable:
     "Protected credential storage is unavailable on this system, so Weixin stays off.",
+  botVaultUnavailable:
+    "Protected credential storage is unavailable on this system, so {provider} stays off.",
+  botCredentialInvalid:
+    "The {provider} token is invalid or revoked. Paste a new token.",
+  botCredentialRead:
+    "Minke could not read the saved {provider} credential.",
+  botCredentialStore:
+    "The {provider} token was verified but could not be saved securely. Try again.",
+  botNetwork:
+    "{provider} is temporarily unreachable. Check the network and retry.",
+  botPollingConflict:
+    "Another instance is receiving with this Telegram token. Stop it, then reconnect.",
+  botPrivilegedIntent:
+    "Discord rejected Message Content Intent. Enable it in the Developer Portal, then reconnect.",
+  botTransportFatal:
+    "{provider} receiving stopped after a protocol or local queue failure. Review bot traffic and configuration, then reconnect.",
+  botTransportStart:
+    "The {provider} credential is saved, but its receive connection could not start. Check the bot permissions and intents.",
   alreadyBound:
     "This Weixin account is already bound remotely, but this device received no usable credential. Start linking again.",
   credentialRead: "Minke could not read the saved Weixin credential.",
@@ -157,7 +225,7 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   vaultReady: "System credential protection",
   vaultChecking: "Checking credential protection",
   vaultMissing: "Credential protection unavailable",
-  agentRoutePendingShort: "Agent route pending",
+  agentRoutePendingShort: "Agent route pending · ingress disabled",
 };
 
 export type RemoteHubTranslate = (
