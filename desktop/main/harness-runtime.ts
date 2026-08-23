@@ -17,6 +17,9 @@ import {
   readHarnessRuntimeLayout,
   type HarnessRuntimeLayout,
 } from "./harness-launch.ts";
+import {
+  HarnessControlChannel,
+} from "./harness-control.ts";
 
 const READY_PATTERN = /dsh web:\s+(http:\/\/127\.0\.0\.1:\d+)/u;
 const MAX_CAPTURED_OUTPUT = 64 * 1024;
@@ -39,6 +42,7 @@ export interface HarnessRuntimeOptions {
   onUnexpectedExit(exit: HarnessRuntimeExit): void;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
+  controlTimeoutMs?: number;
 }
 
 export type LocalModelRuntimeLaunchOptions = Record<
@@ -120,6 +124,7 @@ export function harnessRuntimeEnvironment(
 export class HarnessRuntime {
   readonly #options: HarnessRuntimeOptions;
   #child: ChildProcess | undefined;
+  #control: HarnessControlChannel | undefined;
   #output = "";
   #stopping = false;
   #ready = false;
@@ -153,11 +158,15 @@ export class HarnessRuntime {
         cwd: this.#options.dshHome,
         detached: process.platform !== "win32",
         env: harnessRuntimeEnvironment(layout, this.#options),
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
         windowsHide: true,
       },
     );
     this.#child = child;
+    this.#control = new HarnessControlChannel(
+      child,
+      this.#options.controlTimeoutMs,
+    );
 
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
@@ -167,6 +176,8 @@ export class HarnessRuntime {
     child.once("exit", (code, signal) => {
       if (this.#child !== child) return;
       this.#child = undefined;
+      this.#control?.dispose();
+      this.#control = undefined;
       const exit = { code, signal, output: this.#output };
       if (this.#ready && !this.#stopping) {
         this.#options.onUnexpectedExit(exit);
@@ -176,6 +187,19 @@ export class HarnessRuntime {
     const url = await this.#waitUntilReady(child);
     this.#ready = true;
     return url;
+  }
+
+  /** Replace trusted remote authorities without restarting Harness. */
+  replaceTrustedHosts(
+    trustedHosts: readonly string[],
+  ): Promise<void> {
+    const control = this.#control;
+    if (control === undefined || !this.#ready) {
+      return Promise.reject(
+        new Error("Harness runtime is not ready"),
+      );
+    }
+    return control.replaceTrustedHosts(trustedHosts);
   }
 
   async stop(): Promise<void> {
@@ -193,6 +217,8 @@ export class HarnessRuntime {
       await this.#waitForExit(child, 1_000);
     }
     if (this.#child === child) this.#child = undefined;
+    this.#control?.dispose();
+    this.#control = undefined;
     this.#ready = false;
   }
 

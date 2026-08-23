@@ -21,6 +21,9 @@ import {
   type PwaWebServer,
 } from "./host/pwa.ts";
 import {
+  installTrustedHostControl,
+} from "./host/trusted-host-control.ts";
+import {
   parseFileManagerDiffRequest,
   parseFileManagerListRequest,
   parseFileManagerPreviewRequest,
@@ -69,6 +72,9 @@ interface MinkeHostContext {
     label: string,
   ): unknown;
   readonly connection: {
+    replaceTrustedHosts(
+      trustedHosts: readonly string[],
+    ): void;
     readonly rpc: {
       handle(
         channel: string,
@@ -127,6 +133,7 @@ export function apply(
   ctx: MinkeHostContext,
   config?: Config,
 ): void {
+  installTrustedHostControl(ctx);
   const rootPath = configuredRoot(config);
   const files = new FileManagerRuntime({
     rootPath,

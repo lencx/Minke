@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import {
   mkdtemp,
   readFile,
@@ -24,6 +25,12 @@ import {
   browserTerminalPort,
   browserTabsPort,
 } from "@minke/harness-overlay/client/host/workspace.ts";
+import {
+  installTrustedHostControl,
+} from "@minke/harness-overlay/host/trusted-host-control.ts";
+import {
+  createReplaceTrustedHostsRequest,
+} from "@minke/harness-overlay/trusted-host-control-contract.ts";
 
 function memoryStorage() {
   const values = new Map();
@@ -59,6 +66,51 @@ function hostCapabilities(root = "/host/home") {
     },
   };
 }
+
+test("Minke Host applies trusted-host replacements over its private process channel", () => {
+  const port = new EventEmitter();
+  const responses = [];
+  const replacements = [];
+  let dispose;
+  port.send = (message, callback) => {
+    responses.push(message);
+    callback?.(null);
+    return true;
+  };
+  installTrustedHostControl(
+    {
+      effect(callback) {
+        dispose = callback();
+      },
+      connection: {
+        replaceTrustedHosts(trustedHosts) {
+          replacements.push([...trustedHosts]);
+        },
+      },
+    },
+    port,
+  );
+
+  port.emit(
+    "message",
+    createReplaceTrustedHostsRequest(
+      7,
+      ["minke.example-tailnet.ts.net"],
+    ),
+  );
+
+  assert.deepEqual(replacements, [
+    ["minke.example-tailnet.ts.net"],
+  ]);
+  assert.deepEqual(responses, [{
+    channel: "minke:harness-control",
+    protocolVersion: 1,
+    requestId: 7,
+    type: "trusted-hosts/replaced",
+  }]);
+  dispose();
+  assert.equal(port.listenerCount("message"), 0);
+});
 
 test("Minke Host mounts Files RPC on the trusted DSH connection", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "minke-host-root-"));

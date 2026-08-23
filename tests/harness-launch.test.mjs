@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,12 @@ import {
 import {
   harnessRuntimeEnvironment,
 } from "@minke/desktop/main/harness-runtime.ts";
+import {
+  HarnessControlChannel,
+} from "@minke/desktop/main/harness-control.ts";
+import {
+  replacedTrustedHostsResponse,
+} from "@minke/harness-overlay/trusted-host-control-contract.ts";
 
 async function withRuntime(metadata, callback) {
   const runtimeRoot = await mkdtemp(join(tmpdir(), "minke-harness-launch-"));
@@ -236,4 +243,42 @@ test("the desktop runtime passes both explicit local-model opt-ins", () => {
     ).MINKE_OLLAMA_COMMAND,
     undefined,
   );
+});
+
+test("Harness control waits for an acknowledged trusted-host replacement", async () => {
+  const child = new EventEmitter();
+  child.connected = true;
+  const requests = [];
+  child.send = (message, callback) => {
+    requests.push(message);
+    callback?.(null);
+    queueMicrotask(() => {
+      child.emit(
+        "message",
+        replacedTrustedHostsResponse(message.requestId),
+      );
+    });
+    return true;
+  };
+  const control = new HarnessControlChannel(child, 50);
+
+  assert.throws(
+    () =>
+      control.replaceTrustedHosts([
+        "minke.example-tailnet.ts.net/path",
+      ]),
+    /invalid Harness trusted-host authority/u,
+  );
+  await control.replaceTrustedHosts([
+    "minke.example-tailnet.ts.net",
+  ]);
+
+  assert.deepEqual(requests, [{
+    channel: "minke:harness-control",
+    protocolVersion: 1,
+    requestId: 1,
+    type: "trusted-hosts/replace",
+    trustedHosts: ["minke.example-tailnet.ts.net"],
+  }]);
+  control.dispose();
 });

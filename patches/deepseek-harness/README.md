@@ -42,6 +42,12 @@ then rejects any direct or restricted launch site that remains visible.
 - retains a failed external entry as Loader health state, logs its original activation error, and lets unrelated entries finish booting;
 - exposes isolated activation failures as `failed` through the existing plugin inventory so Settings can report the degraded plugin.
 
+`dynamic-trusted-hosts.patch` is pinned to the same Harness commit. It:
+
+- keeps one mutable trusted-host policy behind the existing Connection service so registered HTTP, WebSocket, and RPC routes observe an atomic replacement;
+- validates every replacement before changing the live policy and retains the loopback-only fence for privileged methods;
+- lets Minke apply an exact authority through its private parent-child process channel without restarting Harness.
+
 After changing the upstream pin or a patch, run:
 
 ```sh
