@@ -84,6 +84,19 @@ export interface BotCapabilityRuntimeOptions<Identity> {
 
 const DEFAULT_RETRY_DELAY_MS = 1_000;
 
+function isTerminalReceiveIssue(
+  issue: BotHubIssue,
+): issue is
+  | "credential-invalid"
+  | "polling-conflict"
+  | "privileged-intent" {
+  return (
+    issue === "credential-invalid" ||
+    issue === "polling-conflict" ||
+    issue === "privileged-intent"
+  );
+}
+
 function waitBeforeRetry(signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<void>((resolvePromise, reject) => {
@@ -594,13 +607,11 @@ export class BotCapabilityRuntime<Identity> {
         if (this.#driver.isAborted(error, controller.signal)) {
           return;
         }
-        if (
-          this.#driver.issue(error, "receive") ===
-          "credential-invalid"
-        ) {
+        const issue = this.#driver.issue(error, "receive");
+        if (isTerminalReceiveIssue(issue)) {
           this.#publish({
             state: "error",
-            issue: "credential-invalid",
+            issue,
           });
           controller.abort();
           if (this.#provider === provider) {
@@ -608,7 +619,11 @@ export class BotCapabilityRuntime<Identity> {
             this.#mailbox = undefined;
             this.#providerController = undefined;
             await provider.close().catch(() => {});
-            mailbox.close();
+            try {
+              mailbox.close();
+            } catch {
+              // Preserve the provider issue as the actionable state.
+            }
           }
           return;
         }

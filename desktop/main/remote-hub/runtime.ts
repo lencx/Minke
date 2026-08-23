@@ -242,7 +242,7 @@ function isGatewayStoreFailure(
 
 /**
  * Compose independently recoverable IM capabilities behind one renderer-safe
- * snapshot and one serialized command surface.
+ * snapshot and one operation-fenced command surface.
  */
 export class RemoteHubCapabilityRuntime {
   readonly #listeners = new Set<() => void>();
@@ -252,9 +252,9 @@ export class RemoteHubCapabilityRuntime {
   readonly #unsubscribeWeixin: () => void;
   #snapshot = initialSnapshot();
   #initializePromise: Promise<void> | undefined;
-  #commandTail: Promise<RemoteHubSnapshot> = Promise.resolve(
-    initialSnapshot(),
-  );
+  readonly #activeCommands = new Set<
+    Promise<RemoteHubSnapshot>
+  >();
   #disposed = false;
 
   constructor(options: RemoteHubCapabilityRuntimeOptions) {
@@ -305,13 +305,11 @@ export class RemoteHubCapabilityRuntime {
 
   initialize(): Promise<void> {
     this.#assertActive();
-    this.#initializePromise ??= Promise.all([
+    this.#initializePromise ??= Promise.allSettled([
       this.#weixin.initialize(),
       this.#telegram.initialize(),
       this.#discord.initialize(),
-    ]).then(() => {
-      this.#publish();
-    });
+    ]).then(() => this.#publish());
     return this.#initializePromise;
   }
 
@@ -321,16 +319,19 @@ export class RemoteHubCapabilityRuntime {
     if (command.kind === "gateway/reset-local") {
       this.#assertGatewayResetAllowed();
     }
-    const run = async (): Promise<RemoteHubSnapshot> => {
-      await this.initialize();
+    void this.initialize();
+    const operation = (async (): Promise<RemoteHubSnapshot> => {
       if (this.#disposed) return this.#snapshot;
       await this.#dispatch(command);
       this.#publish();
       return this.#snapshot;
-    };
-    const operation = this.#commandTail.then(run, run);
-    this.#commandTail = operation.catch(() => this.#snapshot);
-    return await operation;
+    })();
+    this.#activeCommands.add(operation);
+    try {
+      return await operation;
+    } finally {
+      this.#activeCommands.delete(operation);
+    }
   }
 
   async dispose(): Promise<void> {
@@ -339,7 +340,7 @@ export class RemoteHubCapabilityRuntime {
     this.#unsubscribeWeixin();
     await Promise.allSettled([
       this.#initializePromise ?? Promise.resolve(),
-      this.#commandTail,
+      ...this.#activeCommands,
       this.#weixin.dispose(),
       this.#telegram.dispose(),
       this.#discord.dispose(),

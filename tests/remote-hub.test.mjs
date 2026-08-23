@@ -649,6 +649,143 @@ test("an invalid replacement token leaves the active bot provider running", asyn
   assert.equal(closes, 1);
 });
 
+async function assertTerminalBotReceiveIssue(issue) {
+  const stored = {
+    accountId: "bot-id",
+    accountLabel: "@active_bot",
+    generation: 1,
+    token: "private-bot-token-value-123456789",
+  };
+  let closes = 0;
+  let mailboxCloses = 0;
+  let polls = 0;
+  let retries = 0;
+  let resolveSurfaced;
+  const surfaced = new Promise((resolvePromise) => {
+    resolveSurfaced = resolvePromise;
+  });
+  const runtime = new BotCapabilityRuntime({
+    mailboxPath: "/tmp/minke-terminal-bot-runtime-test.sqlite",
+    vault: {
+      available: true,
+      async readBot() {
+        return stored;
+      },
+      async writeBot() {},
+      async deleteBot() {},
+      gatewayCipher() {
+        return {
+          open(value) {
+            return value;
+          },
+          seal(value) {
+            return value;
+          },
+        };
+      },
+    },
+    driver: {
+      provider:
+        issue === "polling-conflict"
+          ? "telegram"
+          : "discord",
+      async validate() {
+        return {
+          id: stored.accountId,
+          label: stored.accountLabel,
+        };
+      },
+      identityId(identity) {
+        return identity.id;
+      },
+      identityLabel(identity) {
+        return identity.label;
+      },
+      isAborted(_error, signal) {
+        return signal.aborted;
+      },
+      issue(error) {
+        return error.code;
+      },
+      async createProvider(input) {
+        return {
+          account: {
+            accountKey: input.accountKey,
+            generation: input.generation,
+            provider:
+              issue === "polling-conflict"
+                ? "telegram"
+                : "discord",
+            providerAccountId: input.identity.id,
+            requiresDeliveryContext: false,
+          },
+          async start() {},
+          async close() {
+            closes += 1;
+          },
+          async receive() {
+            throw new Error("injected poll owns receive");
+          },
+          async prepare() {
+            throw new Error("not exercised");
+          },
+          async deliver() {
+            throw new Error("not exercised");
+          },
+        };
+      },
+    },
+    createMailbox() {
+      return {
+        close() {
+          mailboxCloses += 1;
+        },
+        getAccountGeneration() {
+          return 1;
+        },
+        recover() {},
+        registerAccount() {},
+        removeProviderAccounts() {
+          return 1;
+        },
+      };
+    },
+    async pollProviderOnce() {
+      polls += 1;
+      throw { code: issue };
+    },
+    async waitBeforeRetry() {
+      retries += 1;
+    },
+    onSnapshot(value) {
+      if (
+        value.state === "error" &&
+        value.issue === issue
+      ) {
+        resolveSurfaced();
+      }
+    },
+  });
+
+  await runtime.initialize();
+  await surfaced;
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue,
+  });
+  assert.equal(polls, 1);
+  assert.equal(retries, 0);
+  assert.equal(closes, 1);
+  assert.equal(mailboxCloses, 1);
+  await runtime.dispose();
+  assert.equal(closes, 1);
+}
+
+test("terminal bot receive failures stop instead of entering the generic retry loop", async () => {
+  await assertTerminalBotReceiveIssue("polling-conflict");
+  await assertTerminalBotReceiveIssue("privileged-intent");
+});
+
 function botRuntimeStub(initial) {
   let current = initial;
   const calls = [];
@@ -778,6 +915,59 @@ test("Remote Hub composes bot lifecycles and gates whole-Gateway recovery", asyn
     runtime.dispatch({ kind: "gateway/reset-local" }),
     /only available after a Gateway store failure/u,
   );
+  await runtime.dispose();
+});
+
+test("one stalled bot cannot block another channel or its own unlink", async () => {
+  const telegram = botRuntimeStub({ state: "unlinked" });
+  const discord = botRuntimeStub({ state: "unlinked" });
+  const weixin = weixinRuntimeStub({ state: "unlinked" });
+  let resolveDiscordInitialization;
+  const discordInitialization = new Promise(
+    (resolvePromise) => {
+      resolveDiscordInitialization = resolvePromise;
+    },
+  );
+  let resolveDiscordConnect;
+  let resolveConnectStarted;
+  const connectStarted = new Promise((resolvePromise) => {
+    resolveConnectStarted = resolvePromise;
+  });
+  const pendingConnect = new Promise((resolvePromise) => {
+    resolveDiscordConnect = resolvePromise;
+  });
+  discord.initialize = async () => {
+    discord.calls.push("initialize");
+    await discordInitialization;
+  };
+  discord.connect = async (token) => {
+    discord.calls.push(["connect", token]);
+    resolveConnectStarted();
+    await pendingConnect;
+  };
+  const runtime = new RemoteHubCapabilityRuntime({
+    dataHome: "/tmp/minke-independent-remote-hub-test",
+    vault: {},
+    weixin,
+    telegram,
+    discord,
+  });
+
+  const initialization = runtime.initialize();
+  const token = "discord-private-token-value-123456789";
+  const connecting = runtime.dispatch({
+    kind: "discord/connect",
+    token,
+  });
+  await connectStarted;
+  await runtime.dispatch({ kind: "telegram/unlink" });
+  await runtime.dispatch({ kind: "discord/unlink" });
+
+  assert.equal(telegram.calls.includes("unlink"), true);
+  assert.equal(discord.calls.includes("unlink"), true);
+  resolveDiscordConnect();
+  resolveDiscordInitialization();
+  await Promise.all([connecting, initialization]);
   await runtime.dispose();
 });
 
