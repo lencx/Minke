@@ -235,6 +235,32 @@ test("patched Forge skips bin cleanup when the packaged app has no node_modules"
   );
 });
 
+test("patched Forge preload config uses the Vite 8 code-splitting contract", () => {
+  const { getConfig } = require(
+    join(
+      dirname(require.resolve("@electron-forge/plugin-vite")),
+      "config",
+      "vite.preload.config.js",
+    ),
+  );
+  const config = getConfig(
+    {
+      command: "serve",
+      forgeConfig: { renderer: [] },
+      forgeConfigSelf: {
+        entry: "desktop/preload/desktop-preload.ts",
+      },
+      mode: "development",
+      root: process.cwd(),
+    },
+    {},
+  );
+  const output = config.build?.rollupOptions?.output;
+
+  assert.equal(output?.codeSplitting, false);
+  assert.equal(Object.hasOwn(output ?? {}, "inlineDynamicImports"), false);
+});
+
 test("Forge logs the boundaries around slow packaging stages", async () => {
   const forgeConfig = await readFile(
     new URL("../forge.config.ts", import.meta.url),
