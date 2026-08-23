@@ -1027,7 +1027,12 @@ test("the Plugins tab reports command installation outcomes", async () => {
   assert.deepEqual(internalUrls, [
     "https://github.com/minke/example-plugin",
   ]);
-  await controller.restart(tabId);
+  const failedRestart = controller.restart(tabId);
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.uninstallError,
+    undefined,
+  );
+  await failedRestart;
   assert.equal(restarts, 1);
   assert.equal(
     tabs.getSnapshot().tabs[0].payload.restarting,
@@ -1037,12 +1042,21 @@ test("the Plugins tab reports command installation outcomes", async () => {
     tabs.getSnapshot().tabs[0].payload.restartError,
     /restart unavailable/u,
   );
+  await controller.uninstall(tabId, "example-plugin");
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.restartError,
+    undefined,
+  );
   restartFails = false;
   await controller.restart(tabId);
   assert.equal(restarts, 2);
   assert.equal(
     tabs.getSnapshot().tabs[0].payload.restarting,
     true,
+  );
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.uninstalledPlugin,
+    undefined,
   );
   controller.dispose();
   tabs.dispose();

@@ -39,7 +39,10 @@ import type {
   PluginLifecyclePlugin,
   PluginLifecycleState,
 } from "./lifecycle.ts";
-import type { PluginsTranslate } from "./locales.ts";
+import type {
+  PluginsLocaleKey,
+  PluginsTranslate,
+} from "./locales.ts";
 import {
   PLUGIN_DISCOVERY_TOPIC_URL,
   createPluginSearchUrl,
@@ -62,6 +65,27 @@ interface BrowserState {
   readonly canGoForward: boolean;
   readonly error?: string;
 }
+
+const PLUGIN_STATE_LABEL_KEYS = Object.freeze({
+  active: "plugins.installed.active",
+  disabled: "plugins.installed.disabled",
+  failed: "plugins.installed.failed",
+  pending: "plugins.installed.pending",
+  unobserved: "plugins.installed.unobserved",
+  missing: "plugins.installed.missing",
+  unknown: "plugins.installed.unknown",
+}) satisfies Record<PluginLifecycleState, PluginsLocaleKey>;
+
+const PLUGIN_STATE_BODY_KEYS: Readonly<
+  Partial<Record<PluginLifecycleState, PluginsLocaleKey>>
+> = Object.freeze({
+  disabled: "plugins.installed.disabledBody",
+  failed: "plugins.installed.failedBody",
+  pending: "plugins.installed.pendingBody",
+  unobserved: "plugins.installed.unobservedBody",
+  missing: "plugins.installed.missingBody",
+  unknown: "plugins.installed.unknownBody",
+});
 
 function externalUrl(candidate: string): string {
   try {
@@ -148,32 +172,7 @@ function InstalledPluginCard(props: {
     t,
   } = props;
   const repositoryUrl = plugin.repositoryUrl;
-  const stateLabels: Record<
-    PluginLifecycleState,
-    Parameters<PluginsTranslate>[0]
-  > = {
-    active: "plugins.installed.active",
-    disabled: "plugins.installed.disabled",
-    failed: "plugins.installed.failed",
-    pending: "plugins.installed.pending",
-    unobserved: "plugins.installed.unobserved",
-    missing: "plugins.installed.missing",
-    unknown: "plugins.installed.unknown",
-  };
-  const stateBodies: Partial<
-    Record<
-      PluginLifecycleState,
-      Parameters<PluginsTranslate>[0]
-    >
-  > = {
-    disabled: "plugins.installed.disabledBody",
-    failed: "plugins.installed.failedBody",
-    pending: "plugins.installed.pendingBody",
-    unobserved: "plugins.installed.unobservedBody",
-    missing: "plugins.installed.missingBody",
-    unknown: "plugins.installed.unknownBody",
-  };
-  const stateBody = stateBodies[plugin.state];
+  const stateBody = PLUGIN_STATE_BODY_KEYS[plugin.state];
   const uninstallLabel = t(
     uninstalling
       ? "plugins.installed.uninstalling"
@@ -206,7 +205,7 @@ function InstalledPluginCard(props: {
           <strong title={plugin.name}>{plugin.name}</strong>
           <span>
             <span data-state={plugin.state}>
-              {t(stateLabels[plugin.state])}
+              {t(PLUGIN_STATE_LABEL_KEYS[plugin.state])}
             </span>
             {plugin.version !== undefined && <small>v{plugin.version}</small>}
           </span>

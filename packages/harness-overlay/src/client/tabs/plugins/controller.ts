@@ -27,6 +27,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const CLEAR_RECOVERY_FEEDBACK = Object.freeze({
+  uninstalledPlugin: undefined,
+  uninstallError: undefined,
+  restartError: undefined,
+}) satisfies Partial<PluginTabPayload>;
+
 /** Command installation state layered over the generic Tabs runtime. */
 export class PluginTabsController {
   readonly #tabs: TabsRuntime;
@@ -136,9 +142,7 @@ export class PluginTabsController {
       installing: true,
       attemptedCommand: command,
       error: undefined,
-      uninstalledPlugin: undefined,
-      uninstallError: undefined,
-      restartError: undefined,
+      ...CLEAR_RECOVERY_FEEDBACK,
     });
     try {
       await this.#lifecycle.install(command);
@@ -190,8 +194,7 @@ export class PluginTabsController {
     this.#uninstallRevisions.set(tabId, revision);
     this.#update(tabId, {
       uninstallingPlugin: name,
-      uninstalledPlugin: undefined,
-      uninstallError: undefined,
+      ...CLEAR_RECOVERY_FEEDBACK,
     });
     try {
       await this.#lifecycle.uninstall(name);
@@ -231,7 +234,7 @@ export class PluginTabsController {
     }
     this.#update(tabId, {
       restarting: true,
-      restartError: undefined,
+      ...CLEAR_RECOVERY_FEEDBACK,
     });
     try {
       await this.#lifecycle.restart();
