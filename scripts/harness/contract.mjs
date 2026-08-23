@@ -45,6 +45,37 @@ function forbidSourceSeam(source, fragment, message) {
   if (source.includes(fragment)) throw new Error(message);
 }
 
+function requireStringOrNullUnion(
+  source,
+  typeName,
+  expected,
+  message,
+) {
+  const declaration = new RegExp(
+    `export\\s+type\\s+${typeName}\\s*=\\s*([\\s\\S]*?)(?=\\n\\s*(?:\\/\\*\\*|export\\s)|$)`,
+    "u",
+  ).exec(source);
+  if (declaration === null) throw new Error(message);
+  const members = declaration[1]
+    .split("|")
+    .map((member) => member.trim())
+    .filter((member) => member !== "");
+  const values = members.map((member) => {
+    if (member === "null") return null;
+    const literal = /^(['"])([^'"]+)\1$/u.exec(member);
+    if (literal === null) throw new Error(message);
+    return literal[2];
+  });
+  const actual = new Set(values);
+  if (
+    values.length !== expected.length ||
+    actual.size !== expected.length ||
+    expected.some((value) => !actual.has(value))
+  ) {
+    throw new Error(message);
+  }
+}
+
 export function runtimeSizeBudgetForPlatform(
   contract,
   platform = process.platform,
@@ -327,6 +358,7 @@ export async function verifyHarnessContract(projectRoot) {
     workspaceStorageSource,
     credentialsLocalSource,
     pluginInventorySource,
+    pluginInventoryTypesSource,
     webAppBundlePatchSource,
   ] = await Promise.all([
     readFile(join(cliRoot, "src", "plugin.ts"), "utf8"),
@@ -577,6 +609,17 @@ export async function verifyHarnessContract(projectRoot) {
       join(
         harnessRoot,
         "packages",
+        "host",
+        "plugin-inventory",
+        "src",
+        "types.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
         "bundle",
         "web-app",
         "cordis.patch.yml",
@@ -769,6 +812,19 @@ export async function verifyHarnessContract(projectRoot) {
     pluginInventorySource,
     "fiberPhase:",
     "Harness Loader inventory fiber phase changed; review plugin lifecycle states.",
+  );
+  requireStringOrNullUnion(
+    pluginInventoryTypesSource,
+    "PluginFiberPhase",
+    [
+      "pending",
+      "loading",
+      "active",
+      "failed",
+      "unloading",
+      null,
+    ],
+    "Harness Loader inventory phases changed; review the Minke plugin lifecycle adapter.",
   );
   requireSourceSeam(
     webAppBundlePatchSource,

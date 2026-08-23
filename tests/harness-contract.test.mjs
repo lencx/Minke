@@ -267,6 +267,23 @@ function fixture(options = {}) {
   );
   write(
     harnessRoot,
+    "packages/host/plugin-inventory/src/types.ts",
+    [
+      "export type PluginFiberPhase =",
+      "  | 'pending'",
+      "  | 'loading'",
+      "  | 'active'",
+      "  | 'failed'",
+      "  | 'unloading'",
+      ...(options.pluginInventoryExtraPhase === true
+        ? ["  | 'suspended'"]
+        : []),
+      "  | null",
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
     "packages/bundle/web-app/cordis.patch.yml",
     [
       "- id: plugin-inventory",
@@ -551,6 +568,17 @@ test("the Harness contract requires the Loader inventory Remote", async () => {
   await assert.rejects(
     verifyHarnessContract(projectRoot),
     /Loader inventory Remote changed/u,
+  );
+});
+
+test("the Harness contract rejects unknown Loader inventory phases", async () => {
+  const { projectRoot } = fixture({
+    pluginInventoryExtraPhase: true,
+  });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /Loader inventory phases changed/u,
   );
 });
 
