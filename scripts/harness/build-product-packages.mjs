@@ -16,8 +16,20 @@ const modelRuntimePackageRoot = join(
   "packages",
   "model-runtime",
 );
+const imGatewayPackageRoot = join(
+  projectRoot,
+  "packages",
+  "im-gateway",
+);
+const weixinPackageRoot = join(
+  projectRoot,
+  "packages",
+  "im-weixin",
+);
 const overlayOutputRoot = join(overlayPackageRoot, "lib");
 const modelRuntimeOutputRoot = join(modelRuntimePackageRoot, "lib");
+const imGatewayOutputRoot = join(imGatewayPackageRoot, "lib");
+const weixinOutputRoot = join(weixinPackageRoot, "lib");
 const tsconfigPath = join(projectRoot, "tsconfig.json");
 
 async function readManifest(packageRoot) {
@@ -26,9 +38,16 @@ async function readManifest(packageRoot) {
   );
 }
 
-const [overlayManifest, modelRuntimeManifest] = await Promise.all([
+const [
+  overlayManifest,
+  modelRuntimeManifest,
+  imGatewayManifest,
+  weixinManifest,
+] = await Promise.all([
   readManifest(overlayPackageRoot),
   readManifest(modelRuntimePackageRoot),
+  readManifest(imGatewayPackageRoot),
+  readManifest(weixinPackageRoot),
 ]);
 const overlayPackageId = overlayManifest.name;
 const modelRuntimePackageId = modelRuntimeManifest.name;
@@ -42,15 +61,46 @@ if (modelRuntimePackageId !== "@lencx/minke-model-runtime") {
     "Minke model runtime package name must be @lencx/minke-model-runtime",
   );
 }
+const imGatewayPackageId = imGatewayManifest.name;
+if (imGatewayPackageId !== "@lencx/minke-im-gateway") {
+  throw new Error(
+    "Minke IM Gateway package name must be @lencx/minke-im-gateway",
+  );
+}
+const weixinPackageId = weixinManifest.name;
+if (weixinPackageId !== "@lencx/minke-im-weixin") {
+  throw new Error(
+    "Minke Weixin package name must be @lencx/minke-im-weixin",
+  );
+}
+
+await Promise.all([
+  rm(imGatewayOutputRoot, { force: true, recursive: true }),
+  rm(weixinOutputRoot, { force: true, recursive: true }),
+]);
 
 await Promise.all([
   mkdir(overlayOutputRoot, { recursive: true }),
   mkdir(modelRuntimeOutputRoot, { recursive: true }),
+  mkdir(imGatewayOutputRoot, { recursive: true }),
+  mkdir(weixinOutputRoot, { recursive: true }),
   rm(join(overlayOutputRoot, "model-runtime.js"), { force: true }),
   rm(join(overlayOutputRoot, "model-runtime.js.map"), { force: true }),
 ]);
 
 await Promise.all([
+  build({
+    entryPoints: [
+      join(weixinPackageRoot, "src", "index.ts"),
+    ],
+    outfile: join(weixinOutputRoot, "index.js"),
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "es2022",
+    tsconfig: tsconfigPath,
+    sourcemap: true,
+  }),
   build({
     entryPoints: [
       join(modelRuntimePackageRoot, "src", "core.ts"),
@@ -80,6 +130,48 @@ await Promise.all([
       join(modelRuntimePackageRoot, "src", "dsh.ts"),
     ],
     outfile: join(modelRuntimeOutputRoot, "dsh.js"),
+    bundle: true,
+    packages: "external",
+    format: "esm",
+    platform: "node",
+    target: "es2022",
+    tsconfig: tsconfigPath,
+    sourcemap: true,
+  }),
+]);
+
+await Promise.all([
+  build({
+    entryPoints: [
+      join(imGatewayPackageRoot, "src", "index.ts"),
+    ],
+    outfile: join(imGatewayOutputRoot, "index.js"),
+    bundle: true,
+    packages: "external",
+    format: "esm",
+    platform: "node",
+    target: "es2022",
+    tsconfig: tsconfigPath,
+    sourcemap: true,
+  }),
+  build({
+    entryPoints: [
+      join(imGatewayPackageRoot, "src", "weixin.ts"),
+    ],
+    outfile: join(imGatewayOutputRoot, "weixin.js"),
+    bundle: true,
+    packages: "external",
+    format: "esm",
+    platform: "node",
+    target: "es2022",
+    tsconfig: tsconfigPath,
+    sourcemap: true,
+  }),
+  build({
+    entryPoints: [
+      join(imGatewayPackageRoot, "src", "sqlite.ts"),
+    ],
+    outfile: join(imGatewayOutputRoot, "sqlite.js"),
     bundle: true,
     packages: "external",
     format: "esm",
@@ -152,4 +244,8 @@ if (/require\(["']@deepseek-ai\//u.test(clientBundle)) {
 console.log(
   `Built ${modelRuntimePackageId} in ${modelRuntimeOutputRoot}`,
 );
+console.log(
+  `Built ${imGatewayPackageId} in ${imGatewayOutputRoot}`,
+);
+console.log(`Built ${weixinPackageId} in ${weixinOutputRoot}`);
 console.log(`Built ${overlayPackageId} in ${overlayOutputRoot}`);

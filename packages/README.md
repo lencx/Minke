@@ -4,6 +4,8 @@ Product capability modules use one naming rule:
 
 | Directory         | Package                        |
 | ----------------- | ------------------------------ |
+| `im-gateway`      | `@lencx/minke-im-gateway`      |
+| `im-weixin`       | `@lencx/minke-im-weixin`       |
 | `remote-access`   | `@lencx/minke-remote-access`   |
 | `model-runtime`   | `@lencx/minke-model-runtime`   |
 | `harness-overlay` | `@lencx/minke-harness-overlay` |

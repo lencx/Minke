@@ -19,7 +19,7 @@
   "main": ".vite/build/main.js",
   "scripts": {
     "icons:generate": "node scripts/forge/generate-icons.mjs",
-    "typecheck": "tsc --noEmit && pnpm --filter @lencx/minke-remote-access typecheck && pnpm --filter @lencx/minke-model-runtime typecheck && pnpm --filter @lencx/minke-harness-overlay typecheck",
+    "typecheck": "tsc --noEmit && pnpm --filter @lencx/minke-remote-access typecheck && pnpm --filter @lencx/minke-model-runtime typecheck && pnpm --filter @lencx/minke-im-weixin typecheck && pnpm --filter @lencx/minke-im-gateway typecheck && pnpm --filter @lencx/minke-harness-overlay typecheck",
     "build:product-packages": "node scripts/harness/build-product-packages.mjs",
     "build:preload": "vite build --config vite.preload.config.mts",
     "test:assertions": "node --test tests/assertion-policy.test.mjs",
@@ -45,6 +45,8 @@
     "make:macos": "pnpm run harness:stage && node scripts/forge/run.mjs make --platform=darwin"
   },
   "dependencies": {
+    "@lencx/minke-im-gateway": "workspace:*",
+    "@lencx/minke-im-weixin": "workspace:*",
     "@lencx/minke-model-runtime": "workspace:*",
     "@lencx/minke-remote-access": "workspace:*",
     "electron-squirrel-startup": "1.0.1",

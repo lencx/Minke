@@ -68,6 +68,8 @@ const taskFiles = Object.freeze({
     "window-theme.test.mjs",
   ]),
   host: Object.freeze([
+    "im-gateway.test.mjs",
+    "im-weixin.test.mjs",
     "local-model-settings.test.mjs",
     "minke-host.test.mjs",
     "model-runtime.test.mjs",

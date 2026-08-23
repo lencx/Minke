@@ -1,0 +1,28 @@
+{
+  "name": "@lencx/minke-im-weixin",
+  "description": "Minke-owned Weixin IM transport without an OpenClaw runtime dependency",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24"
+  }
+}

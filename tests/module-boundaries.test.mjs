@@ -19,6 +19,8 @@ const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sourceRoots = [
   "desktop",
   "packages/harness-overlay/src",
+  "packages/im-gateway/src",
+  "packages/im-weixin/src",
   "packages/model-runtime/src",
   "packages/remote-access/src",
   "src",
@@ -225,6 +227,78 @@ test("the remote-access package stays independent of desktop transports", () => 
       relative(projectRoot, path),
       specifier,
     ]),
+    [],
+  );
+});
+
+test("the Weixin transport stays independent of host runtimes", () => {
+  const weixinRoot = resolve(
+    projectRoot,
+    "packages/im-weixin/src",
+  );
+  const violations = productionImports.filter(
+    ({ path, specifier }) =>
+      path.startsWith(`${weixinRoot}${sep}`) &&
+      (
+        specifier === "electron" ||
+        specifier === "openclaw" ||
+        specifier.startsWith("openclaw/") ||
+        specifier.startsWith("@deepseek-ai/") ||
+        specifier.startsWith("@minke/desktop/") ||
+        specifier.startsWith("@minke/harness-overlay/")
+      ),
+  );
+  assert.deepEqual(
+    violations.map(({ path, specifier }) => [
+      relative(projectRoot, path),
+      specifier,
+    ]),
+    [],
+  );
+});
+
+test("the IM Gateway core stays independent of desktop and Host runtimes", () => {
+  const gatewayRoot = resolve(
+    projectRoot,
+    "packages/im-gateway/src",
+  );
+  const weixinAdapter = resolve(gatewayRoot, "weixin.ts");
+  const violations = productionImports.filter(
+    ({ path, specifier }) =>
+      path.startsWith(`${gatewayRoot}${sep}`) &&
+      (
+        specifier === "electron" ||
+        specifier === "openclaw" ||
+        specifier.startsWith("openclaw/") ||
+        specifier.startsWith("@deepseek-ai/") ||
+        specifier.startsWith("@minke/desktop/") ||
+        specifier.startsWith("@minke/harness-overlay/") ||
+        (
+          specifier === "@lencx/minke-im-weixin" &&
+          path !== weixinAdapter
+        )
+      ),
+  );
+  assert.deepEqual(
+    violations.map(({ path, specifier }) => [
+      relative(projectRoot, path),
+      specifier,
+    ]),
+    [],
+  );
+});
+
+test("the IM Gateway root entry does not re-export provider adapters", () => {
+  const gatewayEntry = resolve(
+    projectRoot,
+    "packages/im-gateway/src/index.ts",
+  );
+  assert.deepEqual(
+    importSpecifiers(gatewayEntry).filter((specifier) =>
+      /(?:^|\/)(?:weixin|telegram|discord)(?:\.ts)?$/u.test(
+        specifier,
+      ),
+    ),
     [],
   );
 });

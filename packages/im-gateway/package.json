@@ -1,0 +1,38 @@
+{
+  "name": "@lencx/minke-im-gateway",
+  "description": "Provider-neutral IM gateway contracts and worker orchestration for Minke",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./lib/index.js"
+    },
+    "./sqlite": {
+      "types": "./src/sqlite.ts",
+      "default": "./lib/sqlite.js"
+    },
+    "./weixin": {
+      "types": "./src/weixin.ts",
+      "default": "./lib/weixin.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "README.md"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@lencx/minke-im-weixin": "workspace:*"
+  }
+}
