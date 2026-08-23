@@ -950,6 +950,88 @@ test("a stale session checkpoint cannot confirm a same-sequence head", async (t)
   );
 });
 
+test("mailbox admission failure replays a same-sequence message from a replacement session", async (t) => {
+  const fixture = await startedProvider();
+  t.after(() => fixture.provider.close());
+  let checkpoint = null;
+  const admitted = [];
+  const mailbox = {
+    admitBatch(batch) {
+      admitted.push(batch);
+      if (admitted.length === 2) {
+        throw new Error("mailbox temporarily unavailable");
+      }
+      checkpoint = batch.nextCheckpoint;
+      return {
+        admittedNativeIds: batch.events.map(
+          (event) => event.nativeId,
+        ),
+        confirmedOperationIds: [],
+        nextCheckpoint: batch.nextCheckpoint,
+      };
+    },
+    getCheckpoint() {
+      return checkpoint;
+    },
+  };
+  fixture.socket.emitMessage({
+    d: message({ id: "600000000000000040" }),
+    op: 0,
+    s: 100,
+    t: "MESSAGE_CREATE",
+  });
+  await pollGatewayProviderOnce({
+    mailbox,
+    provider: fixture.provider,
+  });
+  const oldCheckpoint = gatewayCheckpoint(100);
+  assert.equal(checkpoint, oldCheckpoint);
+
+  const pendingAdmission = pollGatewayProviderOnce({
+    mailbox,
+    provider: fixture.provider,
+  });
+  fixture.socket.serverClose(4009);
+  fixture.timers.runDelay(0);
+  const replacement = fixture.sockets.sockets[1];
+  assert.ok(replacement);
+  hello(replacement);
+  ready(replacement, 1, "replacement-session-id");
+  replacement.emitMessage({
+    d: message({ id: "600000000000000041" }),
+    op: 0,
+    s: 100,
+    t: "MESSAGE_CREATE",
+  });
+  await assert.rejects(
+    pendingAdmission,
+    /mailbox temporarily unavailable/u,
+  );
+  assert.equal(checkpoint, oldCheckpoint);
+
+  const retried = await pollGatewayProviderOnce({
+    mailbox,
+    provider: fixture.provider,
+  });
+  const replacementCheckpoint = gatewayCheckpoint(
+    100,
+    "replacement-session-id",
+  );
+  assert.equal(retried.nextCheckpoint, replacementCheckpoint);
+  assert.equal(admitted.length, 3);
+  assert.equal(admitted[1].fromCheckpoint, oldCheckpoint);
+  assert.equal(admitted[2].fromCheckpoint, oldCheckpoint);
+  assert.equal(
+    admitted[1].events[0].nativeId,
+    "600000000000000041",
+  );
+  assert.equal(
+    admitted[2].events[0].nativeId,
+    "600000000000000041",
+  );
+  assert.equal(checkpoint, replacementCheckpoint);
+});
+
 test("a confirmed head cannot discard lower sequences from a new Gateway session", async (t) => {
   const fixture = await startedProvider();
   t.after(() => fixture.provider.close());
