@@ -24,10 +24,7 @@ import {
   type PreferencesTranslate,
 } from "../preferences/index.ts";
 import {
-  createDetailsTabRenderer,
-  DetailsTabsController,
-  installDetailsLayoutOpenBridge,
-  installDetailsTabsBridge,
+  installDetailsTabs,
   installDetailsTabStyles,
 } from "./details/index.ts";
 import {
@@ -444,25 +441,12 @@ export function installTabs(
   );
   ctx.effect(
     () =>
-      rightWorkspace.renderers.register(
-        createDetailsTabRenderer(),
-      ),
-    "minke-overlay: right Details renderer",
-  );
-  const detailsTabs = new DetailsTabsController(rightTabs, {
-    releaseHost: closeRightHost,
-  });
-  ctx.effect(
-    () =>
-      installDetailsLayoutOpenBridge(
-        ctx.layout,
-        detailsTabs,
-      ),
-    "minke-overlay: Details layout.openDetails bridge",
-  );
-  ctx.effect(
-    () => installDetailsTabsBridge(detailsTabs),
-    "minke-overlay: Details tab lifecycle bridge",
+      installDetailsTabs({
+        runtime: rightTabs,
+        renderers: rightWorkspace.renderers,
+        layout: ctx.layout,
+      }),
+    "minke-overlay: Details tabs integration",
   );
   const bottomWorkspace = createTabsWorkspace(
     bottomTabs,

@@ -80,10 +80,23 @@ export class DetailsTabsController {
   }
 
   #reconcile(state: DshDetailsState): void {
-    const current =
+    const tracked =
       this.#tabId === undefined
         ? undefined
         : this.#runtime.tab(this.#tabId);
+    const current =
+      tracked?.kind === DETAILS_TAB_KIND &&
+        tracked.key === DETAILS_TAB_KEY
+        ? tracked
+        : this.#runtime
+          .getSnapshot()
+          .tabs
+          .find(
+            (tab) =>
+              tab.kind === DETAILS_TAB_KIND &&
+              tab.key === DETAILS_TAB_KEY,
+          );
+    this.#tabId = current?.id;
     if (!state.open || state.callId === undefined) {
       if (current !== undefined) {
         this.#runtime.close(current.id);
@@ -127,7 +140,13 @@ export function installDetailsTabsBridge(
     if (state !== undefined) controller.accept(state);
   };
   host.addEventListener(DSH_DETAILS_STATE_EVENT, reconcile);
-  reconcile();
+  try {
+    reconcile();
+  } catch (error) {
+    host.removeEventListener(DSH_DETAILS_STATE_EVENT, reconcile);
+    controller.dispose();
+    throw error;
+  }
   return () => {
     host.removeEventListener(DSH_DETAILS_STATE_EVENT, reconcile);
     controller.dispose();

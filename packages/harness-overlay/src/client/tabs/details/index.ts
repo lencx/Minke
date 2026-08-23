@@ -1,13 +1,17 @@
 export {
   DETAILS_TAB_KEY,
   DETAILS_TAB_KIND,
-  DetailsTabsController,
-  installDetailsLayoutOpenBridge,
-  installDetailsTabsBridge,
 } from "./controller.ts";
 export type {
   DetailsTabPayload,
 } from "./controller.ts";
+export {
+  installDetailsTabs,
+} from "./integration.ts";
+export type {
+  DetailsTabsIntegrationOptions,
+  DetailsTabsLayoutHost,
+} from "./integration.ts";
 export {
   DSH_DETAILS_STATE_EVENT,
   DSH_DETAILS_STATE_KEY,
@@ -19,9 +23,6 @@ export {
 export type {
   DshDetailsState,
 } from "./contract.ts";
-export {
-  createDetailsTabRenderer,
-} from "./renderer.tsx";
 export {
   DETAILS_TAB_STYLES,
   installDetailsTabStyles,

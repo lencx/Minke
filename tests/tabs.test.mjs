@@ -3490,13 +3490,13 @@ test("Closing Details preserves sibling tabs and a later call reopens it", () =>
   tabs.dispose();
 });
 
-test("Details bridge refresh reuses an existing tab without duplication", () => {
+test("Details bridge refresh resynchronizes an existing tab without duplication", () => {
   const tasks = [];
   const tabs = new TabsRuntime({
     showPanel() {},
     hidePanel() {},
   });
-  const state = {
+  const initialState = {
     open: true,
     sessionId: "session-1",
     callId: "call-1",
@@ -3507,13 +3507,17 @@ test("Details bridge refresh reuses an existing tab without duplication", () => 
     releaseHost() {},
     schedule: (task) => tasks.push(task),
   });
-  first.accept(state);
+  first.accept(initialState);
   tasks.shift()();
   const originalId = tabs.getSnapshot().tabs[0].id;
   first.dispose();
 
   const host = new EventTarget();
-  host[DSH_DETAILS_STATE_KEY] = state;
+  host[DSH_DETAILS_STATE_KEY] = {
+    ...initialState,
+    callId: "call-2",
+    title: "Read",
+  };
   const refreshed = new DetailsTabsController(tabs, {
     releaseHost() {},
     schedule: (task) => tasks.push(task),
@@ -3524,8 +3528,9 @@ test("Details bridge refresh reuses an existing tab without duplication", () => 
   assert.equal(tabs.getSnapshot().tabs[0].id, originalId);
   assert.equal(
     tabs.getSnapshot().tabs[0].title,
-    "Details · Custom Plugin Tool",
+    "Details · Read",
   );
+  assert.equal(tabs.getSnapshot().tabs[0].payload.callId, "call-2");
   dispose();
   tabs.dispose();
 });
