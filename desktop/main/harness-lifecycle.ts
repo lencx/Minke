@@ -13,6 +13,7 @@ export interface HarnessLifecycleWindow {
   loadURL(url: string): Promise<unknown>;
   webContents: {
     isDestroyed(): boolean;
+    stop(): void;
   };
 }
 
@@ -20,6 +21,16 @@ export interface HarnessLifecycleOptions {
   runtime: HarnessLifecycleRuntime;
   remote?: HarnessLifecycleRemote;
   reportError?: (message: string, error: unknown) => void;
+  navigationTimeoutMs?: number;
+}
+
+const DEFAULT_NAVIGATION_TIMEOUT_MS = 15_000;
+
+export class HarnessNavigationError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "HarnessNavigationError";
+  }
 }
 
 function isUsableWindow(
@@ -38,6 +49,7 @@ export class HarnessLifecycle {
   readonly #runtime: HarnessLifecycleRuntime;
   readonly #remote: HarnessLifecycleRemote | undefined;
   readonly #reportError: (message: string, error: unknown) => void;
+  readonly #navigationTimeoutMs: number;
   #url: string | undefined;
 
   constructor(options: HarnessLifecycleOptions) {
@@ -46,6 +58,17 @@ export class HarnessLifecycle {
     this.#reportError =
       options.reportError ??
       ((message, error) => console.error(message, error));
+    this.#navigationTimeoutMs =
+      options.navigationTimeoutMs ??
+      DEFAULT_NAVIGATION_TIMEOUT_MS;
+    if (
+      !Number.isSafeInteger(this.#navigationTimeoutMs) ||
+      this.#navigationTimeoutMs <= 0
+    ) {
+      throw new RangeError(
+        "Harness navigation timeout must be a positive integer",
+      );
+    }
   }
 
   get url(): string | undefined {
@@ -61,7 +84,7 @@ export class HarnessLifecycle {
   ): Promise<void> {
     const url = this.#url;
     if (url === undefined || !isUsableWindow(window)) return;
-    await window.loadURL(url);
+    await this.#loadWindow(window, url);
   }
 
   async start(
@@ -81,7 +104,7 @@ export class HarnessLifecycle {
     const url = await this.#runtime.start();
     this.#url = url;
     if (isUsableWindow(window)) {
-      await window.loadURL(url);
+      await this.#loadWindow(window, url);
     }
     if (this.#remote?.read().state === "ready") {
       void this.#remote.start(url).catch((error: unknown) => {
@@ -92,5 +115,61 @@ export class HarnessLifecycle {
       });
     }
     return url;
+  }
+
+  async #loadWindow(
+    window: HarnessLifecycleWindow,
+    url: string,
+  ): Promise<void> {
+    let navigation: Promise<unknown>;
+    try {
+      navigation = window.loadURL(url);
+    } catch (error) {
+      throw new HarnessNavigationError(
+        `Harness window could not start loading ${url}`,
+        { cause: error },
+      );
+    }
+
+    await new Promise<void>((resolvePromise, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        if (isUsableWindow(window)) {
+          try {
+            window.webContents.stop();
+          } catch {
+            // The window can be destroyed between the guard and stop().
+          }
+        }
+        reject(
+          new HarnessNavigationError(
+            `Harness window navigation did not finish within ${String(this.#navigationTimeoutMs)} ms`,
+          ),
+        );
+      }, this.#navigationTimeoutMs);
+      timeout.unref();
+
+      void navigation.then(
+        () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          resolvePromise();
+        },
+        (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          reject(
+            new HarnessNavigationError(
+              `Harness window failed to load ${url}`,
+              { cause: error },
+            ),
+          );
+        },
+      );
+    });
   }
 }

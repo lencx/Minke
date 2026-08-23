@@ -12,6 +12,9 @@ import {
   harnessRuntimeEnvironment,
 } from "@minke/desktop/main/harness-runtime.ts";
 import {
+  HarnessLifecycle,
+} from "@minke/desktop/main/harness-lifecycle.ts";
+import {
   HarnessControlChannel,
 } from "@minke/desktop/main/harness-control.ts";
 import {
@@ -282,3 +285,58 @@ test("Harness control waits for an acknowledged trusted-host replacement", async
   }]);
   control.dispose();
 });
+
+test("Harness window navigation cannot leave the bootstrap pending forever", async () => {
+  const harnessUrl = "http://127.0.0.1:43117";
+  let navigationStops = 0;
+  let remoteStarts = 0;
+  const lifecycle = new HarnessLifecycle({
+    runtime: {
+      async start() {
+        return harnessUrl;
+      },
+    },
+    remote: {
+      read() {
+        return { state: "ready" };
+      },
+      async start() {
+        remoteStarts += 1;
+      },
+      async stop() {},
+    },
+    navigationTimeoutMs: 10,
+  });
+  const navigation = lifecycle.start({
+    isDestroyed() {
+      return false;
+    },
+    async loadURL() {
+      return await new Promise(() => {});
+    },
+    webContents: {
+      isDestroyed() {
+        return false;
+      },
+      stop() {
+        navigationStops += 1;
+      },
+    },
+  });
+  const outcome = await Promise.race([
+    navigation.then(
+      () => "resolved",
+      (error) => error,
+    ),
+    new Promise((resolve) => {
+      setTimeout(() => resolve("still-pending"), 50);
+    }),
+  ]);
+
+  assert.notEqual(
+    outcome,
+    "still-pending",
+    "Harness navigation must settle before the external deadline",
+  );
+  assert.equal(outcome?.name, "HarnessNavigationError");
+  assert.match(outcome?.message, /did not finish within 10 ms/u);
