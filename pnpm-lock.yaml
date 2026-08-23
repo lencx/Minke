@@ -85,12 +85,18 @@ importers:
       '@vitejs/plugin-react':
         specifier: 6.0.5
         version: 6.0.5(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0))
+      acorn:
+        specifier: 8.18.0
+        version: 8.18.0
       electron:
         specifier: 43.4.0
         version: 43.4.0(supports-color@8.1.1)
       electron-winstaller:
         specifier: 5.4.4
         version: 5.4.4
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3
@@ -4803,7 +4809,6 @@ snapshots:
       '@esbuild/win32-arm64': 0.28.2
       '@esbuild/win32-ia32': 0.28.2
       '@esbuild/win32-x64': 0.28.2
-    optional: true
 
   escalade@3.2.0: {}
 

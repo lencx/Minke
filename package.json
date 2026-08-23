@@ -71,8 +71,10 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "6.0.5",
+    "acorn": "8.18.0",
     "electron": "43.4.0",
     "electron-winstaller": "5.4.4",
+    "esbuild": "0.28.2",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "8.2.1"
