@@ -20,6 +20,7 @@ import {
   type GatewayDeliveryPreparation,
   type GatewayInboxLease,
   type GatewayInboundBatch,
+  type GatewayInboundKind,
   type GatewayOutboxIntent,
   type GatewayOutboxLease,
   type GatewayOutboxSnapshot,
@@ -59,6 +60,7 @@ interface InboxRow {
   readonly conversation_id: string;
   readonly generation: number;
   readonly inbox_id: number;
+  readonly kind: GatewayInboundKind;
   readonly native_id: string;
   readonly occurred_at: number | null;
   readonly payload_cipher: Uint8Array;
@@ -325,11 +327,20 @@ function inboxRow(
   row: Record<string, unknown> | undefined,
 ): InboxRow | undefined {
   if (row === undefined) return undefined;
+  const kind = requiredString(row, "kind");
+  if (
+    kind !== "bot-echo" &&
+    kind !== "system" &&
+    kind !== "user-message"
+  ) {
+    throw new TypeError("kind is invalid");
+  }
   return {
     account_key: requiredString(row, "account_key"),
     conversation_id: requiredString(row, "conversation_id"),
     generation: requiredNumber(row, "generation"),
     inbox_id: requiredNumber(row, "inbox_id"),
+    kind,
     native_id: requiredString(row, "native_id"),
     occurred_at: nullableNumber(row, "occurred_at"),
     payload_cipher: requiredBytes(row, "payload_cipher"),
@@ -1002,6 +1013,7 @@ export class SqliteGatewayMailbox {
               inbox_id,
               account_key,
               generation,
+              kind,
               native_id,
               conversation_id,
               peer_id,
@@ -1060,6 +1072,7 @@ export class SqliteGatewayMailbox {
         accountKey: row.account_key,
         conversationId: row.conversation_id,
         inboxId: row.inbox_id,
+        kind: row.kind,
         leaseToken,
         nativeId: row.native_id,
         occurredAt: row.occurred_at ?? undefined,

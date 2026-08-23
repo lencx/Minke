@@ -252,6 +252,8 @@ test("batch admission atomically advances the checkpoint and deduplicates by nat
   });
   assert.equal(first?.nativeId, "message-1");
   assert.equal(second?.nativeId, "message-2");
+  assert.equal(first?.kind, "user-message");
+  assert.equal(second?.kind, "user-message");
   assert.deepEqual(first?.payload, { text: "hello" });
   assert.deepEqual(second?.payload, { text: "hello" });
   assert.equal(

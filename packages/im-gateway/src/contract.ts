@@ -47,6 +47,7 @@ export interface GatewayInboxLease {
   readonly accountKey: string;
   readonly conversationId: string;
   readonly inboxId: number;
+  readonly kind: GatewayInboundKind;
   readonly leaseToken: string;
   readonly nativeId: string;
   readonly occurredAt?: number;
