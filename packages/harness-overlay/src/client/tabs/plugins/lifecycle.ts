@@ -50,6 +50,7 @@ export type PluginLifecycleState =
 export interface PluginLifecyclePlugin {
   readonly name: string;
   readonly requested: string;
+  readonly enabled: boolean;
   readonly version?: string;
   readonly description?: string;
   readonly repositoryUrl?: string;
@@ -58,6 +59,7 @@ export interface PluginLifecyclePlugin {
 
 export interface PluginLifecycleSnapshot {
   readonly plugins: readonly PluginLifecyclePlugin[];
+  readonly safeMode: boolean;
   readonly runtimeError?: string;
 }
 
@@ -65,6 +67,8 @@ export interface PluginLifecyclePort {
   readonly available: boolean;
   install(command: string): Promise<void>;
   restart(): Promise<void>;
+  setEnabled(name: string, enabled: boolean): Promise<void>;
+  setSafeMode(enabled: boolean): Promise<void>;
   uninstall(name: string): Promise<void>;
   read(): Promise<PluginLifecycleSnapshot>;
 }
@@ -192,7 +196,9 @@ function runtimeErrorMessage(error: unknown): string {
 function lifecycleState(
   plugin: InstalledPlugin,
   entries: readonly PluginRuntimeInventoryEntry[] | undefined,
+  safeMode: boolean,
 ): PluginLifecycleState {
+  if (safeMode || !plugin.enabled) return "disabled";
   if (plugin.state === "missing") return "missing";
   if (entries === undefined) return "unknown";
   if (entries.length === 0) return "unobserved";
@@ -210,10 +216,12 @@ function lifecycleState(
 function lifecyclePlugin(
   plugin: InstalledPlugin,
   entries: readonly PluginRuntimeInventoryEntry[] | undefined,
+  safeMode: boolean,
 ): PluginLifecyclePlugin {
   return Object.freeze({
     name: plugin.name,
     requested: plugin.requested,
+    enabled: plugin.enabled,
     ...(plugin.version === undefined
       ? {}
       : { version: plugin.version }),
@@ -223,7 +231,7 @@ function lifecyclePlugin(
     ...(plugin.repositoryUrl === undefined
       ? {}
       : { repositoryUrl: plugin.repositoryUrl }),
-    state: lifecycleState(plugin, entries),
+    state: lifecycleState(plugin, entries, safeMode),
   });
 }
 
@@ -264,6 +272,15 @@ export function createPluginLifecyclePort(
     async restart(): Promise<void> {
       await installer.restart();
     },
+    async setEnabled(
+      name: string,
+      enabled: boolean,
+    ): Promise<void> {
+      await installer.setEnabled(name, enabled);
+    },
+    async setSafeMode(enabled: boolean): Promise<void> {
+      await installer.setSafeMode(enabled);
+    },
     async uninstall(name: string): Promise<void> {
       await installer.uninstall(name);
     },
@@ -294,9 +311,11 @@ export function createPluginLifecyclePort(
               "snapshot" in runtime
                 ? (byModule.get(plugin.name) ?? [])
                 : undefined,
+              installed.safeMode,
             )
           ),
         ),
+        safeMode: installed.safeMode,
         ...("error" in runtime
           ? { runtimeError: runtime.error }
           : {}),

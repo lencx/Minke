@@ -50,6 +50,11 @@ export const pluginsZh = {
   "plugins.installed.noDescription": "此插件没有提供说明。",
   "plugins.installed.requested": "安装来源",
   "plugins.installed.repository": "在内部标签页打开插件仓库",
+  "plugins.installed.enable": "启用 {name}",
+  "plugins.installed.disable": "禁用 {name}",
+  "plugins.installed.enabling": "正在启用 {name}",
+  "plugins.installed.disabling": "正在禁用 {name}",
+  "plugins.installed.enabledStateFailed": "无法更新插件状态：{message}",
   "plugins.installed.uninstall": "卸载",
   "plugins.installed.uninstallLabel": "卸载 {name}",
   "plugins.installed.uninstalling": "正在卸载 {name}",
@@ -62,6 +67,14 @@ export const pluginsZh = {
     "无法读取 dsh loader 运行状态：{message}",
   "plugins.installed.failedNotice":
     "一个或多个插件加载失败，但失败已被隔离，不会阻止 Minke 启动。",
+  "plugins.installed.safeMode": "安全模式",
+  "plugins.installed.safeModeBody":
+    "安全模式会在启动时跳过所有第三方插件，但保留安装记录，便于排查和恢复。",
+  "plugins.installed.safeModeActive":
+    "安全模式已开启；所有第三方插件均被临时跳过。",
+  "plugins.installed.enterSafeMode": "以安全模式重启",
+  "plugins.installed.exitSafeMode": "退出安全模式并重启",
+  "plugins.installed.safeModeFailed": "无法更新安全模式：{message}",
   "plugins.installed.unobservedNotice":
     "部分已安装插件尚未出现在运行时清单中，可能需要重启后加载。",
   "plugins.installed.restart": "重启 Minke",
@@ -144,6 +157,12 @@ export const pluginsEn: Record<PluginsLocaleKey, string> = {
     "No description was provided for this plugin.",
   "plugins.installed.requested": "Install source",
   "plugins.installed.repository": "Open plugin repository in a tab",
+  "plugins.installed.enable": "Enable {name}",
+  "plugins.installed.disable": "Disable {name}",
+  "plugins.installed.enabling": "Enabling {name}",
+  "plugins.installed.disabling": "Disabling {name}",
+  "plugins.installed.enabledStateFailed":
+    "The plugin state could not be updated: {message}",
   "plugins.installed.uninstall": "Uninstall",
   "plugins.installed.uninstallLabel": "Uninstall {name}",
   "plugins.installed.uninstalling": "Uninstalling {name}",
@@ -156,6 +175,16 @@ export const pluginsEn: Record<PluginsLocaleKey, string> = {
     "The dsh loader state could not be read: {message}",
   "plugins.installed.failedNotice":
     "One or more plugins failed to load, but the failures were isolated and did not stop Minke.",
+  "plugins.installed.safeMode": "Safe mode",
+  "plugins.installed.safeModeBody":
+    "Safe mode skips every third-party plugin at startup without removing its installation, making recovery reversible.",
+  "plugins.installed.safeModeActive":
+    "Safe mode is active; all third-party plugins were skipped temporarily.",
+  "plugins.installed.enterSafeMode": "Restart in safe mode",
+  "plugins.installed.exitSafeMode":
+    "Exit safe mode and restart",
+  "plugins.installed.safeModeFailed":
+    "Safe mode could not be updated: {message}",
   "plugins.installed.unobservedNotice":
     "Some installed plugins are not yet visible in the runtime inventory and may need a restart.",
   "plugins.installed.restart": "Restart Minke",

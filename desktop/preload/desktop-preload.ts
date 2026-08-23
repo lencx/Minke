@@ -4,9 +4,13 @@ import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
   PLUGIN_RESTART_CHANNEL,
+  PLUGIN_SAFE_MODE_SET_CHANNEL,
+  PLUGIN_SET_ENABLED_CHANNEL,
   PLUGIN_UNINSTALL_CHANNEL,
   parseInstalledPluginsSnapshot,
   parsePluginInstallRequest,
+  parsePluginSafeModeSetRequest,
+  parsePluginSetEnabledRequest,
   parsePluginUninstallRequest,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
@@ -445,6 +449,18 @@ const pluginInstaller = Object.freeze({
     await ipcRenderer.invoke(
       PLUGIN_UNINSTALL_CHANNEL,
       parsePluginUninstallRequest({ name }),
+    );
+  },
+  async setEnabled(name: string, enabled: boolean): Promise<void> {
+    await ipcRenderer.invoke(
+      PLUGIN_SET_ENABLED_CHANNEL,
+      parsePluginSetEnabledRequest({ name, enabled }),
+    );
+  },
+  async setSafeMode(enabled: boolean): Promise<void> {
+    await ipcRenderer.invoke(
+      PLUGIN_SAFE_MODE_SET_CHANNEL,
+      parsePluginSafeModeSetRequest({ enabled }),
     );
   },
   async restart(): Promise<void> {

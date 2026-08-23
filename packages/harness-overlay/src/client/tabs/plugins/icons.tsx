@@ -6,6 +6,7 @@ import {
   CircleCheck,
   Download,
   House,
+  Power,
   Puzzle,
   RefreshCw,
   Square,
@@ -31,6 +32,10 @@ export function PluginInstallIcon(): ReactNode {
 
 export function PluginUninstallIcon(): ReactNode {
   return <LucideIcon icon={Trash2} size={14} />;
+}
+
+export function PluginPowerIcon(): ReactNode {
+  return <LucideIcon icon={Power} size={14} />;
 }
 
 export function PluginSuccessIcon(): ReactNode {

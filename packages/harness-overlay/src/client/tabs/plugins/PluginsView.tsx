@@ -12,7 +12,6 @@ import type {
   DidNavigateInPageEvent,
   WebviewTag,
 } from "electron";
-import { TABS_WEB_PARTITION } from "@minke/harness-overlay/tabs/contract.ts";
 import {
   parsePluginInstallCommand,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
@@ -28,6 +27,7 @@ import {
   PluginHomeIcon,
   PluginIcon,
   PluginInstallIcon,
+  PluginPowerIcon,
   PluginRefreshIcon,
   PluginStopIcon,
   PluginSuccessIcon,
@@ -49,6 +49,9 @@ import {
   readPluginSearchQuery,
   removeInsertedWebviewCssSafely,
 } from "./resources.ts";
+import {
+  configurePluginDiscoveryWebview,
+} from "./webview.ts";
 import type { PluginTab } from "./types.ts";
 
 export interface PluginsViewProps {
@@ -160,6 +163,7 @@ function InstalledPluginCard(props: {
   readonly plugin: PluginLifecyclePlugin;
   readonly busy: boolean;
   readonly uninstalling: boolean;
+  readonly changingEnabled: boolean;
   readonly controller: PluginTabsController;
   readonly t: PluginsTranslate;
 }): ReactNode {
@@ -168,6 +172,7 @@ function InstalledPluginCard(props: {
     plugin,
     busy,
     uninstalling,
+    changingEnabled,
     controller,
     t,
   } = props;
@@ -177,6 +182,16 @@ function InstalledPluginCard(props: {
     uninstalling
       ? "plugins.installed.uninstalling"
       : "plugins.installed.uninstallLabel",
+    { name: plugin.name },
+  );
+  const enabledLabel = t(
+    changingEnabled
+      ? plugin.enabled
+        ? "plugins.installed.disabling"
+        : "plugins.installed.enabling"
+      : plugin.enabled
+        ? "plugins.installed.disable"
+        : "plugins.installed.enable",
     { name: plugin.name },
   );
   const requestUninstall = (): void => {
@@ -211,6 +226,25 @@ function InstalledPluginCard(props: {
           </span>
         </span>
         <span className="minke-plugins-installed__actions">
+          <button
+            type="button"
+            className="minke-plugins-installed__enabled"
+            title={enabledLabel}
+            aria-label={enabledLabel}
+            aria-pressed={plugin.enabled}
+            disabled={busy}
+            data-spinning={changingEnabled || undefined}
+            onClick={() =>
+              void controller.setEnabled(
+                tabId,
+                plugin.name,
+                !plugin.enabled,
+              )}
+          >
+            {changingEnabled
+              ? <PluginRefreshIcon />
+              : <PluginPowerIcon />}
+          </button>
           {repositoryUrl !== undefined && (
             <button
               type="button"
@@ -280,18 +314,28 @@ export function PluginsView({
   const hasDraft = draft.trim().length > 0;
   const invalid = hasDraft && parsedCommand === undefined;
   const attemptedCommand = parsedCommand?.command ?? draft;
-  const feedbackMatches = tab.payload.attemptedCommand === attemptedCommand;
+  const operation = tab.payload.operation;
+  const feedback = tab.payload.feedback;
+  const catalog = tab.payload.catalog;
+  const plugins = catalog.plugins;
+  const installing = operation.kind === "install";
+  const restarting = operation.kind === "restart";
+  const changingSafeMode =
+    operation.kind === "set-safe-mode";
+  const loadingInstalled = catalog.status === "loading";
   const installed =
-    feedbackMatches && tab.payload.installedCommand === attemptedCommand;
-  const installError = feedbackMatches ? tab.payload.error : undefined;
-  const mutating =
-    tab.payload.installing ||
-    tab.payload.restarting ||
-    tab.payload.uninstallingPlugin !== undefined;
-  const hasFailedPlugins = tab.payload.installedPlugins.some(
+    feedback.kind === "install-success" &&
+    feedback.command === attemptedCommand;
+  const installError =
+    feedback.kind === "install-error" &&
+      feedback.command === attemptedCommand
+      ? feedback.message
+      : undefined;
+  const mutating = operation.kind !== "idle";
+  const hasFailedPlugins = plugins.some(
     (plugin) => plugin.state === "failed",
   );
-  const hasUnobservedPlugins = tab.payload.installedPlugins.some(
+  const hasUnobservedPlugins = plugins.some(
     (plugin) => plugin.state === "unobserved",
   );
 
@@ -302,19 +346,10 @@ export function PluginsView({
 
     const initialUrl = browserUrlRef.current;
     const view = host.ownerDocument.createElement("webview") as WebviewTag;
-    view.className = "minke-plugins-browser__guest";
-    view.setAttribute("src", initialUrl);
-    view.setAttribute("partition", TABS_WEB_PARTITION);
-    view.setAttribute(
-      "webpreferences",
-      [
-        "contextIsolation=yes",
-        "nodeIntegration=no",
-        "sandbox=yes",
-        "webSecurity=yes",
-      ].join(","),
-    );
-    view.setAttribute("aria-label", t("plugins.browser.title"));
+    configurePluginDiscoveryWebview(view, {
+      label: t("plugins.browser.title"),
+      url: initialUrl,
+    });
     viewRef.current = view;
     setBrowser((current) => ({
       ...current,
@@ -486,7 +521,7 @@ export function PluginsView({
       aria-labelledby={`minke-tab-${tab.id}`}
       aria-busy={
         mutating ||
-        (tab.payload.view === "installed" && tab.payload.loadingInstalled)
+        (tab.payload.view === "installed" && loadingInstalled)
       }
       hidden={!active}
     >
@@ -524,17 +559,17 @@ export function PluginsView({
             disabled={parsedCommand === undefined || mutating}
           >
             <span
-              data-spinning={tab.payload.installing || undefined}
+              data-spinning={installing || undefined}
               aria-hidden="true"
             >
-              {tab.payload.installing ? (
+              {installing ? (
                 <PluginRefreshIcon />
               ) : (
                 <PluginInstallIcon />
               )}
             </span>
             {t(
-              tab.payload.installing
+              installing
                 ? "plugins.install.installing"
                 : "plugins.install.action",
             )}
@@ -586,7 +621,7 @@ export function PluginsView({
           >
             <PluginIcon size={14} />
             <span>{t("plugins.view.installed")}</span>
-            <small>{tab.payload.installedPlugins.length}</small>
+            <small>{plugins.length}</small>
           </button>
           <button
             id={`minke-plugin-view-discover-${tab.id}`}
@@ -608,11 +643,9 @@ export function PluginsView({
             title={t("plugins.installed.refresh")}
             aria-label={t("plugins.installed.refresh")}
             disabled={
-              tab.payload.loadingInstalled ||
-              tab.payload.restarting ||
-              tab.payload.uninstallingPlugin !== undefined
+              loadingInstalled || mutating
             }
-            data-spinning={tab.payload.loadingInstalled || undefined}
+            data-spinning={loadingInstalled || undefined}
             onClick={() => void controller.refreshInstalled(tab.id)}
           >
             <PluginRefreshIcon />
@@ -627,12 +660,10 @@ export function PluginsView({
           role="tabpanel"
           aria-labelledby={`minke-plugin-view-installed-${tab.id}`}
           aria-busy={
-            tab.payload.loadingInstalled ||
-            tab.payload.restarting ||
-            tab.payload.uninstallingPlugin !== undefined
+            loadingInstalled || mutating
           }
         >
-          {tab.payload.uninstalledPlugin !== undefined && (
+          {feedback.kind === "uninstall-success" && (
             <div
               className="minke-plugins-installed__notice"
               data-state="success"
@@ -641,12 +672,12 @@ export function PluginsView({
               <PluginSuccessIcon />
               <span>
                 {t("plugins.installed.uninstallSuccess", {
-                  name: tab.payload.uninstalledPlugin,
+                  name: feedback.plugin,
                 })}
               </span>
             </div>
           )}
-          {tab.payload.uninstallError !== undefined && (
+          {feedback.kind === "uninstall-error" && (
             <div
               className="minke-plugins-installed__notice"
               data-state="error"
@@ -655,12 +686,12 @@ export function PluginsView({
               <PluginWarningIcon />
               <span>
                 {t("plugins.installed.uninstallFailed", {
-                  message: tab.payload.uninstallError,
+                  message: feedback.message,
                 })}
               </span>
             </div>
           )}
-          {tab.payload.restartError !== undefined && (
+          {feedback.kind === "restart-error" && (
             <div
               className="minke-plugins-installed__notice"
               data-state="error"
@@ -669,12 +700,40 @@ export function PluginsView({
               <PluginWarningIcon />
               <span>
                 {t("plugins.installed.restartFailed", {
-                  message: tab.payload.restartError,
+                  message: feedback.message,
                 })}
               </span>
             </div>
           )}
-          {tab.payload.runtimeError !== undefined && (
+          {feedback.kind === "set-enabled-error" && (
+            <div
+              className="minke-plugins-installed__notice"
+              data-state="error"
+              role="alert"
+            >
+              <PluginWarningIcon />
+              <span>
+                {t("plugins.installed.enabledStateFailed", {
+                  message: feedback.message,
+                })}
+              </span>
+            </div>
+          )}
+          {feedback.kind === "safe-mode-error" && (
+            <div
+              className="minke-plugins-installed__notice"
+              data-state="error"
+              role="alert"
+            >
+              <PluginWarningIcon />
+              <span>
+                {t("plugins.installed.safeModeFailed", {
+                  message: feedback.message,
+                })}
+              </span>
+            </div>
+          )}
+          {catalog.status === "runtime-unavailable" && (
             <div
               className="minke-plugins-installed__notice"
               role="status"
@@ -682,7 +741,7 @@ export function PluginsView({
               <PluginWarningIcon />
               <span>
                 {t("plugins.installed.runtimeUnavailable", {
-                  message: tab.payload.runtimeError,
+                  message: catalog.message,
                 })}
               </span>
               <button
@@ -691,6 +750,46 @@ export function PluginsView({
                 onClick={() => void controller.refreshInstalled(tab.id)}
               >
                 {t("plugins.installed.retry")}
+              </button>
+            </div>
+          )}
+          {catalog.safeMode && (
+            <div
+              className="minke-plugins-installed__notice"
+              data-state="success"
+              role="status"
+            >
+              <PluginPowerIcon />
+              <span>{t("plugins.installed.safeModeActive")}</span>
+              <button
+                type="button"
+                disabled={mutating}
+                onClick={() =>
+                  void controller.setSafeMode(tab.id, false)}
+              >
+                {changingSafeMode
+                  ? t("plugins.installed.restarting")
+                  : t("plugins.installed.exitSafeMode")}
+              </button>
+            </div>
+          )}
+          {!catalog.safeMode && !hasFailedPlugins && (
+            <div
+              className="minke-plugins-installed__notice"
+              role="group"
+              aria-label={t("plugins.installed.safeMode")}
+            >
+              <PluginPowerIcon />
+              <span>{t("plugins.installed.safeModeBody")}</span>
+              <button
+                type="button"
+                disabled={mutating}
+                onClick={() =>
+                  void controller.setSafeMode(tab.id, true)}
+              >
+                {changingSafeMode
+                  ? t("plugins.installed.restarting")
+                  : t("plugins.installed.enterSafeMode")}
               </button>
             </div>
           )}
@@ -711,21 +810,28 @@ export function PluginsView({
               <button
                 type="button"
                 disabled={mutating}
-                onClick={() => void controller.restart(tab.id)}
+                onClick={() =>
+                  hasFailedPlugins
+                    ? void controller.setSafeMode(tab.id, true)
+                    : void controller.restart(tab.id)}
               >
-                {t(
-                  tab.payload.restarting
-                    ? "plugins.installed.restarting"
-                    : "plugins.installed.restart",
-                )}
+                {hasFailedPlugins
+                  ? changingSafeMode
+                    ? t("plugins.installed.restarting")
+                    : t("plugins.installed.enterSafeMode")
+                  : restarting
+                    ? t("plugins.installed.restarting")
+                    : t("plugins.installed.restart")}
               </button>
             </div>
           )}
-          {tab.payload.installedError !== undefined &&
-            tab.payload.installedPlugins.length > 0 && (
+          {catalog.status === "failed" &&
+            plugins.length > 0 && (
               <div className="minke-plugins-installed__notice" role="alert">
                 <PluginWarningIcon />
-                <span>{t("plugins.installed.errorTitle")}</span>
+                <span>
+                  {t("plugins.installed.errorTitle")}: {catalog.message}
+                </span>
                 <button
                   type="button"
                   onClick={() => void controller.refreshInstalled(tab.id)}
@@ -734,8 +840,7 @@ export function PluginsView({
                 </button>
               </div>
             )}
-          {tab.payload.loadingInstalled &&
-          tab.payload.installedPlugins.length === 0 ? (
+          {loadingInstalled && plugins.length === 0 ? (
             <div
               className="minke-plugins-installed__state"
               data-state="loading"
@@ -746,8 +851,8 @@ export function PluginsView({
               </span>
               <h3>{t("plugins.installed.loading")}</h3>
             </div>
-          ) : tab.payload.installedError !== undefined &&
-            tab.payload.installedPlugins.length === 0 ? (
+          ) : catalog.status === "failed" &&
+            plugins.length === 0 ? (
             <div
               className="minke-plugins-installed__state"
               data-state="error"
@@ -765,7 +870,7 @@ export function PluginsView({
                 {t("plugins.installed.retry")}
               </button>
             </div>
-          ) : tab.payload.installedPlugins.length === 0 ? (
+          ) : plugins.length === 0 ? (
             <div className="minke-plugins-installed__state">
               <span aria-hidden="true">
                 <PluginIcon size={18} />
@@ -782,14 +887,19 @@ export function PluginsView({
             </div>
           ) : (
             <div className="minke-plugins-installed__grid">
-              {tab.payload.installedPlugins.map((plugin) => (
+              {plugins.map((plugin) => (
                 <InstalledPluginCard
                   key={plugin.name}
                   tabId={tab.id}
                   plugin={plugin}
                   busy={mutating}
                   uninstalling={
-                    tab.payload.uninstallingPlugin === plugin.name
+                    operation.kind === "uninstall" &&
+                    operation.plugin === plugin.name
+                  }
+                  changingEnabled={
+                    operation.kind === "set-enabled" &&
+                    operation.plugin === plugin.name
                   }
                   controller={controller}
                   t={t}

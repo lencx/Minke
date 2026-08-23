@@ -176,6 +176,8 @@ export interface PluginInstallerPort {
   readonly available: boolean;
   install(command: string): Promise<void>;
   restart(): Promise<void>;
+  setEnabled(name: string, enabled: boolean): Promise<void>;
+  setSafeMode(enabled: boolean): Promise<void>;
   uninstall(name: string): Promise<void>;
   readInstalled(): Promise<InstalledPluginsSnapshot>;
 }
@@ -247,6 +249,8 @@ export interface DesktopRemoteBridge {
 export interface DesktopPluginInstallerBridge {
   install(command: string): Promise<void>;
   restart(): Promise<void>;
+  setEnabled(name: string, enabled: boolean): Promise<void>;
+  setSafeMode(enabled: boolean): Promise<void>;
   uninstall(name: string): Promise<void>;
   readInstalled(): Promise<unknown>;
 }

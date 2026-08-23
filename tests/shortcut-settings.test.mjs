@@ -92,6 +92,10 @@ test("the desktop store writes the shared Minke config", async () => {
       lmStudio: { enabled: false },
       ollama: { enabled: false },
     },
+    plugins: {
+      safeMode: false,
+      disabledPlugins: [],
+    },
   });
   assertDefaultRemoteSettings(remote);
 });

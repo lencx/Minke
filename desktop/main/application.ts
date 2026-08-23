@@ -139,6 +139,7 @@ class DesktopApplication {
     const terminalSettingsStore = minkeConfig.terminal;
     const modelRuntimeSettingsStore = minkeConfig.modelRuntime;
     const remoteSettingsStore = minkeConfig.remote;
+    const pluginSettingsStore = minkeConfig.plugins;
     const dataHomeManager = new DataHomeManager({
       userDataPath: app.getPath("userData"),
       homeDirectory: app.getPath("home"),
@@ -193,6 +194,7 @@ class DesktopApplication {
       dshHome: activeDshHome,
       electronExecutable: process.execPath,
       environment: activeDshEnvironment,
+      settings: pluginSettingsStore,
     });
     const localModelCommands = await discoverLocalModelCommands({
       homeDirectory: app.getPath("home"),
@@ -228,6 +230,10 @@ class DesktopApplication {
       tailscale: { ...DEFAULT_REMOTE_SETTINGS.tailscale },
       cloudflare: { ...DEFAULT_REMOTE_SETTINGS.cloudflare },
     };
+    let pluginManagement = {
+      safeMode: false,
+      disabledPlugins: [] as readonly string[],
+    };
     try {
       shortcutBindings = await shortcutStore.read();
     } catch (error) {
@@ -253,6 +259,15 @@ class DesktopApplication {
         error,
       );
     }
+    try {
+      pluginManagement = await pluginSettingsStore.read();
+    } catch (error) {
+      console.error(
+        "Unable to read plugin management settings:",
+        error,
+      );
+    }
+
     const remoteAccess = new RemoteAccessService({
       settings: remoteSettings,
       commands: remoteCommands,
@@ -365,6 +380,7 @@ class DesktopApplication {
             : { command: localModelCommands.ollama }),
         },
       },
+      pluginManagement,
       trustedHosts: remoteTrustedHosts,
       onUnexpectedExit: (exit) => {
         void this.#handleUnexpectedExit(exit);

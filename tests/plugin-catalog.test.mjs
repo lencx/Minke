@@ -9,15 +9,22 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
   PLUGIN_RESTART_CHANNEL,
+  PLUGIN_SAFE_MODE_SET_CHANNEL,
+  PLUGIN_SET_ENABLED_CHANNEL,
   PLUGIN_UNINSTALL_CHANNEL,
   parseInstalledPluginsSnapshot,
   parsePluginInstallCommand,
   parsePluginInstallRequest,
   parsePluginInstallTarget,
+  parsePluginManagementSettings,
+  parsePluginSafeModeSetRequest,
+  parsePluginSetEnabledRequest,
   parsePluginUninstallRequest,
   parsePluginUninstallTarget,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
@@ -38,6 +45,12 @@ import {
   PluginTabsController,
 } from "@minke/harness-overlay/client/tabs/plugins/controller.ts";
 import {
+  PluginsView,
+} from "@minke/harness-overlay/client/tabs/plugins/PluginsView.tsx";
+import {
+  createPluginTabRenderer,
+} from "@minke/harness-overlay/client/tabs/plugins/renderer.tsx";
+import {
   createHarnessPluginInventoryPort,
   createPluginLifecyclePort,
 } from "@minke/harness-overlay/client/tabs/plugins/lifecycle.ts";
@@ -51,6 +64,10 @@ import {
   readPluginSearchQuery,
   removeInsertedWebviewCssSafely,
 } from "@minke/harness-overlay/client/tabs/plugins/resources.ts";
+import {
+  PLUGIN_DISCOVERY_WEB_PREFERENCES,
+  configurePluginDiscoveryWebview,
+} from "@minke/harness-overlay/client/tabs/plugins/webview.ts";
 import {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
@@ -137,6 +154,39 @@ test("plugin webview CSS cleanup contains synchronous Electron failures", () => 
       ["compact"],
     );
   });
+});
+
+test("plugin discovery webviews receive one explicit security contract", () => {
+  const attributes = new Map();
+  const view = {
+    className: "",
+    setAttribute(name, value) {
+      attributes.set(name, value);
+    },
+  };
+  configurePluginDiscoveryWebview(view, {
+    label: "Discover plugins",
+    url: PLUGIN_DISCOVERY_TOPIC_URL,
+  });
+
+  assert.equal(view.className, "minke-plugins-browser__guest");
+  assert.deepEqual(Object.fromEntries(attributes), {
+    "aria-label": "Discover plugins",
+    partition: "persist:minke-tabs-web",
+    src: PLUGIN_DISCOVERY_TOPIC_URL,
+    webpreferences: [
+      "contextIsolation=yes",
+      "nodeIntegration=no",
+      "sandbox=yes",
+      "webSecurity=yes",
+    ].join(","),
+  });
+  assert.deepEqual(PLUGIN_DISCOVERY_WEB_PREFERENCES, [
+    "contextIsolation=yes",
+    "nodeIntegration=no",
+    "sandbox=yes",
+    "webSecurity=yes",
+  ]);
 });
 
 test("plugin install commands accept one web-profile package target", () => {
@@ -229,6 +279,7 @@ test("plugin uninstall requests accept one installed package name", () => {
 test("installed plugin snapshots accept only bounded display metadata", () => {
   assert.deepEqual(
     parseInstalledPluginsSnapshot({
+      safeMode: false,
       plugins: [
         {
           name: "@minke/example-plugin",
@@ -237,16 +288,19 @@ test("installed plugin snapshots accept only bounded display metadata", () => {
           description: "A web profile plugin.",
           repositoryUrl:
             "https://github.com/minke/example-plugin",
+          enabled: true,
           state: "ready",
         },
         {
           name: "missing-plugin",
           requested: "github:minke/missing-plugin",
+          enabled: false,
           state: "missing",
         },
       ],
     }),
     {
+      safeMode: false,
       plugins: [
         {
           name: "@minke/example-plugin",
@@ -255,39 +309,58 @@ test("installed plugin snapshots accept only bounded display metadata", () => {
           description: "A web profile plugin.",
           repositoryUrl:
             "https://github.com/minke/example-plugin",
+          enabled: true,
           state: "ready",
         },
         {
           name: "missing-plugin",
           requested: "github:minke/missing-plugin",
+          enabled: false,
           state: "missing",
         },
       ],
     },
   );
 
-  for (const invalid of [
-    { plugins: "not-an-array" },
+  const inheritedSnapshot = Object.assign(
+    Object.create({
+      plugins: [],
+      safeMode: false,
+    }),
     {
+      unrelated: true,
+      other: true,
+    },
+  );
+  for (const invalid of [
+    { plugins: "not-an-array", safeMode: false },
+    inheritedSnapshot,
+    {
+      safeMode: false,
       plugins: [{
         name: "../escape",
         requested: "^1.0.0",
+        enabled: true,
         state: "ready",
       }],
     },
     {
+      safeMode: false,
       plugins: [{
         name: "example-plugin",
         requested: "^1.0.0",
+        enabled: true,
         repositoryUrl:
           "https://token@github.com/minke/example-plugin",
         state: "ready",
       }],
     },
     {
+      safeMode: false,
       plugins: [{
         name: "example-plugin",
         requested: "^1.0.0",
+        enabled: true,
         state: "unknown",
       }],
     },
@@ -299,43 +372,87 @@ test("installed plugin snapshots accept only bounded display metadata", () => {
   }
 });
 
+test("plugin management requests reject ambiguous persisted state", () => {
+  assert.deepEqual(
+    parsePluginManagementSettings({
+      safeMode: true,
+      disabledPlugins: ["broken-plugin"],
+    }),
+    {
+      safeMode: true,
+      disabledPlugins: ["broken-plugin"],
+    },
+  );
+  assert.deepEqual(
+    parsePluginSetEnabledRequest({
+      name: "broken-plugin",
+      enabled: false,
+    }),
+    {
+      name: "broken-plugin",
+      enabled: false,
+    },
+  );
+  assert.deepEqual(
+    parsePluginSafeModeSetRequest({ enabled: true }),
+    { enabled: true },
+  );
+  assert.throws(
+    () =>
+      parsePluginManagementSettings({
+        safeMode: false,
+        disabledPlugins: ["broken-plugin", "broken-plugin"],
+      }),
+    /duplicate disabled plugins/u,
+  );
+});
+
 test("plugin lifecycle combines installed packages with loader inventory", async () => {
   const lifecycle = createPluginLifecyclePort({
     available: true,
     async install() {},
     async restart() {},
+    async setEnabled() {},
+    async setSafeMode() {},
     async uninstall() {},
     async readInstalled() {
       return {
+        safeMode: false,
         plugins: [
           {
             name: "active-plugin",
             requested: "^1.0.0",
+            enabled: true,
             state: "ready",
           },
           {
             name: "failed-plugin",
             requested: "^1.0.0",
+            enabled: true,
             state: "ready",
           },
           {
             name: "disabled-plugin",
             requested: "^1.0.0",
+            enabled: true,
             state: "ready",
           },
           {
             name: "pending-plugin",
             requested: "^1.0.0",
+            enabled: true,
             state: "ready",
           },
           {
             name: "unobserved-plugin",
             requested: "^1.0.0",
+            enabled: true,
             state: "ready",
           },
           {
             name: "missing-plugin",
             requested: "^1.0.0",
+            enabled: true,
             state: "missing",
           },
         ],
@@ -395,19 +512,24 @@ test("plugin lifecycle keeps installed metadata when inventory is unavailable", 
     available: true,
     async install() {},
     async restart() {},
+    async setEnabled() {},
+    async setSafeMode() {},
     async uninstall() {},
     async readInstalled() {
       return {
+        safeMode: false,
         plugins: [
           {
             name: "unknown-plugin",
             requested: "^1.0.0",
             version: "1.2.3",
+            enabled: true,
             state: "ready",
           },
           {
             name: "missing-plugin",
             requested: "^1.0.0",
+            enabled: true,
             state: "missing",
           },
         ],
@@ -425,16 +547,85 @@ test("plugin lifecycle keeps installed metadata when inventory is unavailable", 
         name: "unknown-plugin",
         requested: "^1.0.0",
         version: "1.2.3",
+        enabled: true,
         state: "unknown",
       },
       {
         name: "missing-plugin",
         requested: "^1.0.0",
+        enabled: true,
         state: "missing",
       },
     ],
+    safeMode: false,
     runtimeError: "inventory offline",
   });
+});
+
+test("safe mode and per-plugin disablement override live inventory", async () => {
+  const enabledUpdates = [];
+  const safeModeUpdates = [];
+  const lifecycle = createPluginLifecyclePort({
+    available: true,
+    async install() {},
+    async restart() {},
+    async uninstall() {},
+    async setEnabled(name, enabled) {
+      enabledUpdates.push({ name, enabled });
+    },
+    async setSafeMode(enabled) {
+      safeModeUpdates.push(enabled);
+    },
+    async readInstalled() {
+      return {
+        safeMode: true,
+        plugins: [
+          {
+            name: "active-plugin",
+            requested: "^1.0.0",
+            enabled: true,
+            state: "ready",
+          },
+          {
+            name: "disabled-plugin",
+            requested: "^1.0.0",
+            enabled: false,
+            state: "ready",
+          },
+        ],
+      };
+    },
+  }, {
+    async read() {
+      return {
+        entries: [
+          {
+            entryId: "active",
+            moduleName: "active-plugin",
+            enabled: true,
+            fiberPhase: "active",
+          },
+        ],
+      };
+    },
+  });
+
+  const snapshot = await lifecycle.read();
+  assert.equal(snapshot.safeMode, true);
+  assert.deepEqual(
+    snapshot.plugins.map(({ name, state }) => ({ name, state })),
+    [
+      { name: "active-plugin", state: "disabled" },
+      { name: "disabled-plugin", state: "disabled" },
+    ],
+  );
+  await lifecycle.setEnabled("disabled-plugin", true);
+  await lifecycle.setSafeMode(false);
+  assert.deepEqual(enabledUpdates, [{
+    name: "disabled-plugin",
+    enabled: true,
+  }]);
+  assert.deepEqual(safeModeUpdates, [false]);
 });
 
 test("the Harness inventory port validates the authoritative loader snapshot", async () => {
@@ -626,13 +817,26 @@ test("the installation runtime lists only active web-profile plugins", async () 
       },
     }),
   );
+  let pluginSettings = {
+    safeMode: false,
+    disabledPlugins: ["missing-plugin"],
+  };
   const installation = new PluginInstallationRuntime({
     runtimeRoot: join(root, "runtime"),
     dshHome,
     electronExecutable: join(root, "Minke"),
+    settings: {
+      async read() {
+        return pluginSettings;
+      },
+      async write(value) {
+        pluginSettings = value;
+      },
+    },
   });
 
   assert.deepEqual(await installation.listInstalled(), {
+    safeMode: false,
     plugins: [
       {
         name: "@minke/example-plugin",
@@ -641,14 +845,22 @@ test("the installation runtime lists only active web-profile plugins", async () 
         description: "A web profile plugin.",
         repositoryUrl:
           "https://github.com/minke/example-plugin",
+        enabled: true,
         state: "ready",
       },
       {
         name: "missing-plugin",
         requested: "github:minke/missing-plugin",
+        enabled: false,
         state: "missing",
       },
     ],
+  });
+  await installation.setEnabled("missing-plugin", true);
+  await installation.setSafeMode(true);
+  assert.deepEqual(pluginSettings, {
+    safeMode: true,
+    disabledPlugins: [],
   });
 });
 
@@ -662,6 +874,7 @@ test("the installation runtime treats a missing web profile as empty", async () 
 
   assert.deepEqual(await installation.listInstalled(), {
     plugins: [],
+    safeMode: false,
   });
 });
 
@@ -669,6 +882,8 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
   const handlers = new Map();
   const installs = [];
   const uninstalls = [];
+  const enabledUpdates = [];
+  const safeModeUpdates = [];
   let restarts = 0;
   const binding = bindPluginInstallIpc(
     {
@@ -689,11 +904,19 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
           throw new Error("plugin remove failed");
         }
       },
+      async setEnabled(name, enabled) {
+        enabledUpdates.push({ name, enabled });
+      },
+      async setSafeMode(enabled) {
+        safeModeUpdates.push(enabled);
+      },
       async listInstalled() {
         return {
+          safeMode: false,
           plugins: [{
             name: "example-plugin",
             requested: "^1.0.0",
+            enabled: true,
             state: "ready",
           }],
         };
@@ -712,10 +935,18 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     PLUGIN_UNINSTALL_CHANNEL,
   );
   const restartHandler = handlers.get(PLUGIN_RESTART_CHANNEL);
+  const setEnabledHandler = handlers.get(
+    PLUGIN_SET_ENABLED_CHANNEL,
+  );
+  const safeModeHandler = handlers.get(
+    PLUGIN_SAFE_MODE_SET_CHANNEL,
+  );
   assert.equal(typeof handler, "function");
   assert.equal(typeof readHandler, "function");
   assert.equal(typeof uninstallHandler, "function");
   assert.equal(typeof restartHandler, "function");
+  assert.equal(typeof setEnabledHandler, "function");
+  assert.equal(typeof safeModeHandler, "function");
 
   await handler("trusted", {
     command:
@@ -743,6 +974,22 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
   });
   assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
   assert.equal(restarts, 2);
+  await setEnabledHandler("trusted", {
+    name: "dsh-status-rotator",
+    enabled: false,
+  });
+  assert.deepEqual(enabledUpdates, [{
+    name: "dsh-status-rotator",
+    enabled: false,
+  }]);
+  assert.equal(restarts, 3);
+  await safeModeHandler("trusted", { enabled: true });
+  assert.deepEqual(safeModeUpdates, [true]);
+  assert.equal(restarts, 4);
+  await assert.rejects(
+    safeModeHandler("untrusted", { enabled: false }),
+    /unauthorized/u,
+  );
   await assert.rejects(
     uninstallHandler("untrusted", {
       name: "dsh-status-rotator",
@@ -750,7 +997,7 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     /unauthorized/u,
   );
   assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
-  assert.equal(restarts, 2);
+  assert.equal(restarts, 4);
   await assert.rejects(
     uninstallHandler("trusted", {
       name: "broken-plugin",
@@ -761,11 +1008,13 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     "dsh-status-rotator",
     "broken-plugin",
   ]);
-  assert.equal(restarts, 2);
+  assert.equal(restarts, 4);
   assert.deepEqual(await readHandler("trusted"), {
+    safeMode: false,
     plugins: [{
       name: "example-plugin",
       requested: "^1.0.0",
+      enabled: true,
       state: "ready",
     }],
   });
@@ -785,6 +1034,8 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     false,
   );
   assert.equal(handlers.has(PLUGIN_RESTART_CHANNEL), false);
+  assert.equal(handlers.has(PLUGIN_SET_ENABLED_CHANNEL), false);
+  assert.equal(handlers.has(PLUGIN_SAFE_MODE_SET_CHANNEL), false);
 });
 
 test("legacy cleanup removes only the retired catalog cache", async () => {
@@ -818,6 +1069,8 @@ test("legacy cleanup removes only the retired catalog cache", async () => {
 test("the renderer port exposes installation and installed plugins", async () => {
   const commands = [];
   const uninstalls = [];
+  const enabledUpdates = [];
+  const safeModeUpdates = [];
   let restarts = 0;
   const port = desktopPluginInstallerPort({
     minkeDesktop: {
@@ -831,11 +1084,19 @@ test("the renderer port exposes installation and installed plugins", async () =>
         async restart() {
           restarts += 1;
         },
+        async setEnabled(name, enabled) {
+          enabledUpdates.push({ name, enabled });
+        },
+        async setSafeMode(enabled) {
+          safeModeUpdates.push(enabled);
+        },
         async readInstalled() {
           return {
+            safeMode: false,
             plugins: [{
               name: "example-plugin",
               requested: "^1.0.0",
+              enabled: true,
               state: "ready",
             }],
           };
@@ -854,10 +1115,19 @@ test("the renderer port exposes installation and installed plugins", async () =>
   assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
   await port.restart();
   assert.equal(restarts, 1);
+  await port.setEnabled("example-plugin", false);
+  assert.deepEqual(enabledUpdates, [{
+    name: "example-plugin",
+    enabled: false,
+  }]);
+  await port.setSafeMode(true);
+  assert.deepEqual(safeModeUpdates, [true]);
   assert.deepEqual(await port.readInstalled(), {
+    safeMode: false,
     plugins: [{
       name: "example-plugin",
       requested: "^1.0.0",
+      enabled: true,
       state: "ready",
     }],
   });
@@ -882,6 +1152,14 @@ test("the renderer port exposes installation and installed plugins", async () =>
     unavailable.restart(),
     /bridge is unavailable/u,
   );
+  await assert.rejects(
+    unavailable.setEnabled("dsh-status-rotator", false),
+    /bridge is unavailable/u,
+  );
+  await assert.rejects(
+    unavailable.setSafeMode(true),
+    /bridge is unavailable/u,
+  );
 });
 
 test("the Plugins tab reports command installation outcomes", async () => {
@@ -891,9 +1169,13 @@ test("the Plugins tab reports command installation outcomes", async () => {
   });
   const commands = [];
   const uninstalls = [];
+  const enabledUpdates = [];
+  const safeModeUpdates = [];
   let restarts = 0;
   let restartFails = true;
   let pluginInstalled = true;
+  let pluginEnabled = true;
+  let safeMode = false;
   let installedReads = 0;
   const externalUrls = [];
   const internalUrls = [];
@@ -910,15 +1192,28 @@ test("the Plugins tab reports command installation outcomes", async () => {
       uninstalls.push(name);
       pluginInstalled = false;
     },
+    async setEnabled(name, enabled) {
+      enabledUpdates.push({ name, enabled });
+      pluginEnabled = enabled;
+    },
+    async setSafeMode(enabled) {
+      safeModeUpdates.push(enabled);
+      safeMode = enabled;
+    },
     async read() {
       installedReads += 1;
       return {
+        safeMode,
         plugins: pluginInstalled
           ? [{
               name: "example-plugin",
               requested: "^1.0.0",
               version: "1.0.0",
-              state: "active",
+              enabled: pluginEnabled,
+              state:
+                safeMode || !pluginEnabled
+                  ? "disabled"
+                  : "active",
             }]
           : [],
       };
@@ -948,13 +1243,26 @@ test("the Plugins tab reports command installation outcomes", async () => {
     "installed",
   );
   assert.deepEqual(
-    tabs.getSnapshot().tabs[0].payload.installedPlugins,
-    [{
-      name: "example-plugin",
-      requested: "^1.0.0",
-      version: "1.0.0",
-      state: "active",
-    }],
+    tabs.getSnapshot().tabs[0].payload.catalog,
+    {
+      status: "ready",
+      safeMode: false,
+      plugins: [{
+        name: "example-plugin",
+        requested: "^1.0.0",
+        version: "1.0.0",
+        enabled: true,
+        state: "active",
+      }],
+    },
+  );
+  assert.deepEqual(
+    tabs.getSnapshot().tabs[0].payload.operation,
+    { kind: "idle" },
+  );
+  assert.deepEqual(
+    tabs.getSnapshot().tabs[0].payload.feedback,
+    { kind: "none" },
   );
   controller.setView(tabId, "discover");
   assert.equal(
@@ -969,17 +1277,17 @@ test("the Plugins tab reports command installation outcomes", async () => {
   assert.deepEqual(commands, [
     "dsh plugin --profile web add dsh-status-rotator",
   ]);
-  assert.equal(
-    tabs.getSnapshot().tabs[0].payload.installing,
-    false,
+  assert.deepEqual(
+    tabs.getSnapshot().tabs[0].payload.operation,
+    { kind: "idle" },
   );
-  assert.equal(
-    tabs.getSnapshot().tabs[0].payload.attemptedCommand,
-    "dsh plugin --profile web add dsh-status-rotator",
-  );
-  assert.equal(
-    tabs.getSnapshot().tabs[0].payload.installedCommand,
-    "dsh plugin --profile web add dsh-status-rotator",
+  assert.deepEqual(
+    tabs.getSnapshot().tabs[0].payload.feedback,
+    {
+      kind: "install-success",
+      command:
+        "dsh plugin --profile web add dsh-status-rotator",
+    },
   );
   assert.equal(
     tabs.getSnapshot().tabs[0].payload.view,
@@ -989,31 +1297,35 @@ test("the Plugins tab reports command installation outcomes", async () => {
 
   await controller.uninstall(tabId, "example-plugin");
   assert.deepEqual(uninstalls, ["example-plugin"]);
-  assert.equal(
-    tabs.getSnapshot().tabs[0].payload.uninstallingPlugin,
-    undefined,
-  );
-  assert.equal(
-    tabs.getSnapshot().tabs[0].payload.uninstalledPlugin,
-    "example-plugin",
+  assert.deepEqual(
+    tabs.getSnapshot().tabs[0].payload.feedback,
+    { kind: "uninstall-success", plugin: "example-plugin" },
   );
   assert.deepEqual(
-    tabs.getSnapshot().tabs[0].payload.installedPlugins,
+    tabs.getSnapshot().tabs[0].payload.catalog.plugins,
     [],
   );
 
   await controller.uninstall(tabId, "../escape");
   assert.deepEqual(uninstalls, ["example-plugin"]);
   assert.match(
-    tabs.getSnapshot().tabs[0].payload.uninstallError,
+    tabs.getSnapshot().tabs[0].payload.feedback.message,
     /plugin uninstall/u,
+  );
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.feedback.kind,
+    "uninstall-error",
   );
 
   await controller.install(tabId, "echo unsafe");
   assert.equal(commands.length, 1);
   assert.match(
-    tabs.getSnapshot().tabs[0].payload.error,
+    tabs.getSnapshot().tabs[0].payload.feedback.message,
     /plugin install command/u,
+  );
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.feedback.kind,
+    "install-error",
   );
   controller.openExternal(
     "https://github.com/topics/dsh-plugin",
@@ -1027,57 +1339,53 @@ test("the Plugins tab reports command installation outcomes", async () => {
   assert.deepEqual(internalUrls, [
     "https://github.com/minke/example-plugin",
   ]);
-  const failedRestart = controller.restart(tabId);
-  assert.equal(
-    tabs.getSnapshot().tabs[0].payload.uninstallError,
-    undefined,
-  );
-  await failedRestart;
+  await controller.restart(tabId);
   assert.equal(restarts, 1);
-  assert.equal(
-    tabs.getSnapshot().tabs[0].payload.restarting,
-    false,
+  assert.deepEqual(
+    tabs.getSnapshot().tabs[0].payload.operation,
+    { kind: "idle" },
   );
   assert.match(
-    tabs.getSnapshot().tabs[0].payload.restartError,
+    tabs.getSnapshot().tabs[0].payload.feedback.message,
     /restart unavailable/u,
   );
-  await controller.uninstall(tabId, "example-plugin");
   assert.equal(
-    tabs.getSnapshot().tabs[0].payload.restartError,
-    undefined,
+    tabs.getSnapshot().tabs[0].payload.feedback.kind,
+    "restart-error",
   );
+
+  pluginInstalled = true;
+  await controller.refreshInstalled(tabId);
+  await controller.setEnabled(tabId, "example-plugin", false);
+  assert.deepEqual(enabledUpdates, [{
+    name: "example-plugin",
+    enabled: false,
+  }]);
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.catalog.plugins[0].state,
+    "disabled",
+  );
+  await controller.setSafeMode(tabId, true);
+  assert.deepEqual(safeModeUpdates, [true]);
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.catalog.safeMode,
+    true,
+  );
+
   restartFails = false;
   await controller.restart(tabId);
   assert.equal(restarts, 2);
-  assert.equal(
-    tabs.getSnapshot().tabs[0].payload.restarting,
-    true,
-  );
-  assert.equal(
-    tabs.getSnapshot().tabs[0].payload.uninstalledPlugin,
-    undefined,
+  assert.deepEqual(
+    tabs.getSnapshot().tabs[0].payload.operation,
+    { kind: "restart" },
   );
   controller.dispose();
   tabs.dispose();
 });
 
-test("the Plugins view switches between installed cards and GitHub discovery", async () => {
-  const [
-    viewSource,
-    topicCss,
-    searchCss,
-    styles,
-    rendererSource,
-  ] =
+test("the Plugins view renders installed recovery and GitHub discovery states", async () => {
+  const [topicCss, searchCss, styles] =
     await Promise.all([
-      readFile(
-        new URL(
-          "../packages/harness-overlay/src/client/tabs/plugins/PluginsView.tsx",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
       readFile(
         new URL(
           "../packages/harness-overlay/src/client/tabs/plugins/github-topic.css",
@@ -1099,50 +1407,158 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
         ),
         "utf8",
       ),
-      readFile(
-        new URL(
-          "../packages/harness-overlay/src/client/tabs/plugins/renderer.tsx",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
     ]);
 
   assert.equal(
     PLUGIN_DISCOVERY_TOPIC_URL,
     "https://github.com/topics/dsh-plugin",
   );
-  assert.match(
-    viewSource,
-    /createElement\(\s*"webview"/u,
+
+  const controllerCalls = [];
+  const controller = {
+    create(title) {
+      controllerCalls.push(["create", title]);
+    },
+    install() {},
+    openExternal() {},
+    openInTab() {},
+    refreshInstalled() {},
+    restart() {},
+    setEnabled() {},
+    setSafeMode() {},
+    setView() {},
+    uninstall() {},
+  };
+  const t = (key) => key;
+  const renderer = createPluginTabRenderer(controller, t);
+  assert.equal(renderer.kind, "plugin-catalog");
+  assert.equal(renderer.createOptions().length, 1);
+  renderer.createOptions()[0].create();
+  assert.deepEqual(controllerCalls, [
+    ["create", "plugins.tab.title"],
+  ]);
+
+  const installedTab = {
+    id: "plugins-1",
+    key: "plugins",
+    kind: "plugin-catalog",
+    title: "Plugins",
+    payload: {
+      catalog: {
+        plugins: [
+          {
+            description: "A failing plugin",
+            enabled: true,
+            name: "dsh-failing-plugin",
+            requested: "dsh-failing-plugin",
+            state: "failed",
+            version: "1.0.0",
+          },
+        ],
+        safeMode: false,
+        status: "ready",
+      },
+      feedback: { kind: "none" },
+      operation: { kind: "idle" },
+      view: "installed",
+    },
+  };
+  assert.equal(renderer.loading(installedTab), false);
+  assert.equal(
+    renderer.loading({
+      ...installedTab,
+      payload: {
+        ...installedTab.payload,
+        operation: {
+          command: "dsh plugin --profile web add dsh-failing-plugin",
+          kind: "install",
+        },
+      },
+    }),
+    true,
   );
-  assert.match(viewSource, /role="tablist"/u);
-  assert.match(viewSource, /plugins\.view\.installed/u);
-  assert.match(viewSource, /plugins\.view\.discover/u);
-  assert.match(viewSource, /installedPlugins\.map/u);
-  assert.match(viewSource, /InstalledPluginCard/u);
-  assert.match(viewSource, /controller\.setView/u);
-  assert.match(viewSource, /controller\.refreshInstalled/u);
-  assert.match(viewSource, /controller\.uninstall/u);
-  assert.match(viewSource, /window\?\.confirm/u);
-  assert.match(
-    viewSource,
-    /tab\.payload\.view !== "discover"/u,
+  assert.equal(
+    renderer.renderView(installedTab, true).type,
+    PluginsView,
   );
-  assert.match(viewSource, /TABS_WEB_PARTITION/u);
-  assert.match(viewSource, /nodeIntegration=no/u);
-  assert.match(viewSource, /sandbox=yes/u);
-  assert.match(viewSource, /insertCSS\(source\)/u);
-  assert.match(viewSource, /githubTopicCss/u);
-  assert.match(viewSource, /githubSearchCss/u);
-  assert.match(viewSource, /createPluginSearchUrl/u);
-  assert.match(viewSource, /role="search"/u);
-  assert.match(viewSource, /parsePluginInstallCommand/u);
-  assert.match(viewSource, /plugins\.browser\.back/u);
-  assert.match(viewSource, /plugins\.browser\.external/u);
-  assert.match(viewSource, /controller\.openExternal/u);
-  assert.match(viewSource, /controller\.openInTab/u);
-  assert.doesNotMatch(viewSource, /target="_blank"/u);
+  const installedMarkup = renderToStaticMarkup(
+    createElement(PluginsView, {
+      active: true,
+      controller,
+      t,
+      tab: installedTab,
+    }),
+  );
+  for (const contract of [
+    'role="tablist"',
+    'aria-pressed="true"',
+    "plugins.installed.disable",
+    "plugins.installed.failedNotice",
+    "plugins.installed.enterSafeMode",
+    "dsh-failing-plugin",
+  ]) {
+    assert.equal(
+      installedMarkup.includes(contract),
+      true,
+      `missing rendered Plugins contract: ${contract}`,
+    );
+  }
+
+  const safeModeMarkup = renderToStaticMarkup(
+    createElement(PluginsView, {
+      active: true,
+      controller,
+      t,
+      tab: {
+        ...installedTab,
+        payload: {
+          ...installedTab.payload,
+          catalog: {
+            plugins: [],
+            safeMode: true,
+            status: "ready",
+          },
+        },
+      },
+    }),
+  );
+  assert.equal(
+    safeModeMarkup.includes("plugins.installed.safeModeActive"),
+    true,
+  );
+  assert.equal(
+    safeModeMarkup.includes("plugins.installed.exitSafeMode"),
+    true,
+  );
+
+  const discoverMarkup = renderToStaticMarkup(
+    createElement(PluginsView, {
+      active: true,
+      controller,
+      t,
+      tab: {
+        ...installedTab,
+        payload: {
+          ...installedTab.payload,
+          view: "discover",
+        },
+      },
+    }),
+  );
+  for (const contract of [
+    'role="search"',
+    "plugins.browser.back",
+    "plugins.browser.external",
+    "plugins.browser.searchPlaceholder",
+    'class="minke-plugins-browser__host"',
+  ]) {
+    assert.equal(
+      discoverMarkup.includes(contract),
+      true,
+      `missing rendered discovery contract: ${contract}`,
+    );
+  }
+
   assert.match(topicCss, /\.Layout-sidebar/u);
   assert.match(topicCss, /\.col-md-6/u);
   assert.match(searchCss, /\.Layout-sidebar/u);
@@ -1151,11 +1567,8 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
   assert.match(styles, /\.minke-plugins-installed__grid/u);
   assert.match(styles, /\.minke-plugins-installed__card/u);
   assert.match(styles, /\.minke-plugins-installed__uninstall/u);
+  assert.match(styles, /\.minke-plugins-installed__enabled/u);
   assert.match(styles, /\.minke-plugins-installed__state/u);
-  assert.doesNotMatch(
-    `${viewSource}\n${rendererSource}`,
-    /catalog\.refresh|cancelRefresh|GitHub Token|minke-plugins-card/u,
-  );
   assert.equal(pluginsEn["plugins.install.action"], "Install");
   assert.match(
     pluginsEn["plugins.install.trust"],
@@ -1176,6 +1589,10 @@ test("the Plugins view switches between installed cards and GitHub discovery", a
   assert.equal(
     pluginsZh["plugins.installed.uninstall"],
     "卸载",
+  );
+  assert.equal(
+    pluginsZh["plugins.installed.safeMode"],
+    "安全模式",
   );
   assert.match(
     pluginsZh["plugins.installed.uninstallConfirm"],

@@ -152,6 +152,10 @@ test("the desktop runtime passes both explicit local-model opt-ins", () => {
         command: "/usr/local/bin/ollama",
       },
     },
+    pluginManagement: {
+      safeMode: true,
+      disabledPlugins: ["broken-plugin"],
+    },
   };
   const inherited = {
     PATH: "/usr/bin",
@@ -159,6 +163,8 @@ test("the desktop runtime passes both explicit local-model opt-ins", () => {
     MINKE_LM_STUDIO_COMMAND: "/stale/lms",
     MINKE_OLLAMA_ENABLED: "0",
     MINKE_OLLAMA_COMMAND: "/stale/ollama",
+    MINKE_PLUGIN_SAFE_MODE: "0",
+    MINKE_DISABLED_PLUGINS: "[\"stale-plugin\"]",
     PRESERVED: "yes",
   };
 
@@ -170,6 +176,8 @@ test("the desktop runtime passes both explicit local-model opt-ins", () => {
       MINKE_LM_STUDIO_COMMAND: "/home/user/.lmstudio/bin/lms",
       MINKE_OLLAMA_ENABLED: "1",
       MINKE_OLLAMA_COMMAND: "/usr/local/bin/ollama",
+      MINKE_PLUGIN_SAFE_MODE: "1",
+      MINKE_DISABLED_PLUGINS: "[\"broken-plugin\"]",
       PRESERVED: "yes",
       DSH_HOME: "/data/harness",
       ELECTRON_RUN_AS_NODE: "1",

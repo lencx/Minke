@@ -31,6 +31,7 @@ The applicator accepts git unified diffs that modify existing text files below `
 `optional-plugin-isolation.patch` is pinned to the same Harness commit. It:
 
 - marks entries inserted by profile bundles listed in the profile's `dependencies` as isolated, while installation-owned bundles and launcher overlays remain fail-fast;
+- skips external profile bundles selected by Minke's disabled-plugin policy or safe mode without changing the profile manifest;
 - retains a failed external entry as Loader health state, logs its original activation error, and lets unrelated entries finish booting;
 - exposes isolated activation failures as `failed` through the existing plugin inventory so Settings can report the degraded plugin.
 

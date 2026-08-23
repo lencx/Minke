@@ -387,6 +387,10 @@ test("the desktop store writes Terminal settings into Minke config", async () =>
       lmStudio: { enabled: false },
       ollama: { enabled: false },
     },
+    plugins: {
+      safeMode: false,
+      disabledPlugins: [],
+    },
   });
   assertDefaultRemoteSettings(remote);
 });

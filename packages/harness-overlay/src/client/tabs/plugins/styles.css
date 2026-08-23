@@ -552,6 +552,7 @@
   gap: 2px;
 }
 
+.minke-plugins-installed__enabled,
 .minke-plugins-installed__repository,
 .minke-plugins-installed__uninstall {
   display: grid;
@@ -566,6 +567,7 @@
   place-items: center;
 }
 
+.minke-plugins-installed__enabled:hover:not(:disabled),
 .minke-plugins-installed__repository:hover:not(:disabled) {
   background: color-mix(
     in srgb,
@@ -584,15 +586,24 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
+.minke-plugins-installed__enabled:disabled,
 .minke-plugins-installed__repository:disabled,
 .minke-plugins-installed__uninstall:disabled {
   cursor: default;
   opacity: 0.58;
 }
 
+.minke-plugins-installed__enabled[data-spinning] svg,
+.minke-plugins-installed__uninstall[data-spinning] svg {
+  animation: minke-plugin-spin 820ms linear infinite;
+}
+
+.minke-plugins-installed__enabled[data-spinning] svg {
+  color: var(--dsw-alias-state-business-primary);
+}
+
 .minke-plugins-installed__uninstall[data-spinning] svg {
   color: var(--dsw-alias-state-error-primary);
-  animation: minke-plugin-spin 820ms linear infinite;
 }
 
 .minke-plugins-installed__card > p {

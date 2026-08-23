@@ -7,21 +7,83 @@ import type {
 
 export type PluginView = "installed" | "discover";
 
+export type PluginOperation =
+  | { readonly kind: "idle" }
+  | { readonly kind: "install"; readonly command: string }
+  | { readonly kind: "uninstall"; readonly plugin: string }
+  | {
+      readonly kind: "set-enabled";
+      readonly plugin: string;
+      readonly enabled: boolean;
+    }
+  | { readonly kind: "restart" }
+  | {
+      readonly kind: "set-safe-mode";
+      readonly enabled: boolean;
+    };
+
+export type PluginFeedback =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "install-success";
+      readonly command: string;
+    }
+  | {
+      readonly kind: "install-error";
+      readonly command: string;
+      readonly message: string;
+    }
+  | {
+      readonly kind: "uninstall-success";
+      readonly plugin: string;
+    }
+  | {
+      readonly kind: "uninstall-error";
+      readonly plugin: string;
+      readonly message: string;
+    }
+  | {
+      readonly kind: "restart-error";
+      readonly message: string;
+    }
+  | {
+      readonly kind: "set-enabled-error";
+      readonly plugin: string;
+      readonly enabled: boolean;
+      readonly message: string;
+    }
+  | {
+      readonly kind: "safe-mode-error";
+      readonly enabled: boolean;
+      readonly message: string;
+    };
+
+interface PluginCatalogBase {
+  readonly plugins: readonly PluginLifecyclePlugin[];
+  readonly safeMode: boolean;
+}
+
+export type PluginCatalogState =
+  | (PluginCatalogBase & { readonly status: "loading" })
+  | (PluginCatalogBase & { readonly status: "ready" })
+  | (
+      PluginCatalogBase & {
+        readonly status: "runtime-unavailable";
+        readonly message: string;
+      }
+    )
+  | (
+      PluginCatalogBase & {
+        readonly status: "failed";
+        readonly message: string;
+      }
+    );
+
 export interface PluginTabPayload {
   readonly view: PluginView;
-  readonly installing: boolean;
-  readonly restarting: boolean;
-  readonly uninstallingPlugin?: string;
-  readonly loadingInstalled: boolean;
-  readonly installedPlugins: readonly PluginLifecyclePlugin[];
-  readonly attemptedCommand?: string;
-  readonly installedCommand?: string;
-  readonly error?: string;
-  readonly installedError?: string;
-  readonly runtimeError?: string;
-  readonly restartError?: string;
-  readonly uninstalledPlugin?: string;
-  readonly uninstallError?: string;
+  readonly operation: PluginOperation;
+  readonly feedback: PluginFeedback;
+  readonly catalog: PluginCatalogState;
 }
 
 export type PluginTab = ManagedTab<PluginTabPayload>;

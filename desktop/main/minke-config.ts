@@ -7,32 +7,41 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
-  DEFAULT_MODEL_RUNTIME_SETTINGS,
   parseModelRuntimeSettings,
   type ModelRuntimeSettings,
 } from "@lencx/minke-model-runtime/contract";
+import {
+  parseRemoteSettings,
+  type RemoteSettings,
+} from "@lencx/minke-remote-access/contract";
+import {
+  parseDataHomePath,
+} from "@minke/harness-overlay/data-home-contract.ts";
+import {
+  parsePluginManagementSettings,
+  type PluginManagementSettings,
+} from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
   parseShortcutBindings,
   type ShortcutBindings,
 } from "@minke/harness-overlay/shortcut-contract.ts";
 import {
-  DEFAULT_TERMINAL_SETTINGS,
   parseTerminalSettings,
   type TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import {
-  parseDataHomePath,
-} from "@minke/harness-overlay/data-home-contract.ts";
-import {
-  createDefaultRemoteSettings,
-  migrateLegacyRemoteSettings,
-  parseRemoteSettings,
-  type RemoteSettings,
-} from "@lencx/minke-remote-access/contract";
+  createDefaultMinkeConfigDocument,
+  parseMinkeConfigDocument,
+  type MinkeConfigDocument,
+} from "./minke-config/document.ts";
 
-/** Current schema version of the unified Minke desktop configuration. */
-export const MINKE_CONFIG_VERSION = 2;
-const LEGACY_MINKE_CONFIG_VERSION = 1;
+export {
+  MINKE_CONFIG_VERSION,
+  parseMinkeConfigDocument,
+} from "./minke-config/document.ts";
+export type {
+  MinkeConfigDocument,
+} from "./minke-config/document.ts";
 
 /** Resolve the unified desktop config path below Minke's user-data root. */
 export function minkeConfigFilePath(userDataPath: string): string {
@@ -43,110 +52,10 @@ export function minkeConfigFilePath(userDataPath: string): string {
   );
 }
 
-/** Complete Minke-owned desktop configuration stored on disk. */
-export interface MinkeConfigDocument {
-  version: typeof MINKE_CONFIG_VERSION;
-  shortcuts: ShortcutBindings;
-  terminal: TerminalSettings;
-  modelRuntime: ModelRuntimeSettings;
-  remote: RemoteSettings;
-  dshHome?: string;
-}
-
 /** One validated section of the unified desktop configuration. */
 export interface MinkeConfigSection<T> {
   read(): Promise<T>;
   write(value: unknown): Promise<void>;
-}
-
-const CONFIG_KEYS = new Set([
-  "version",
-  "shortcuts",
-  "terminal",
-  "modelRuntime",
-  "remote",
-  "dshHome",
-]);
-
-function defaultDocument(): MinkeConfigDocument {
-  return {
-    version: MINKE_CONFIG_VERSION,
-    shortcuts: {},
-    terminal: { ...DEFAULT_TERMINAL_SETTINGS },
-    modelRuntime: {
-      lmStudio: {
-        ...DEFAULT_MODEL_RUNTIME_SETTINGS.lmStudio,
-      },
-      ollama: {
-        ...DEFAULT_MODEL_RUNTIME_SETTINGS.ollama,
-      },
-    },
-    remote: createDefaultRemoteSettings(),
-  };
-}
-
-function parseStoredRemoteSettings(
-  value: unknown,
-): RemoteSettings {
-  try {
-    return parseRemoteSettings(value);
-  } catch (currentError) {
-    try {
-      return migrateLegacyRemoteSettings(value);
-    } catch {
-      throw currentError;
-    }
-  }
-}
-
-/** Validate and copy one unified Minke desktop configuration document. */
-export function parseMinkeConfigDocument(
-  value: unknown,
-): MinkeConfigDocument {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new TypeError("Minke config document must be an object");
-  }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record);
-  if (
-    keys.some((key) => !CONFIG_KEYS.has(key)) ||
-    !Object.hasOwn(record, "version") ||
-    !Object.hasOwn(record, "shortcuts") ||
-    !Object.hasOwn(record, "terminal") ||
-    (
-      record.version !== MINKE_CONFIG_VERSION &&
-      record.version !== LEGACY_MINKE_CONFIG_VERSION
-    )
-  ) {
-    throw new TypeError("unsupported Minke config document");
-  }
-  return {
-    version: MINKE_CONFIG_VERSION,
-    shortcuts: parseShortcutBindings(record.shortcuts),
-    terminal: parseTerminalSettings(record.terminal),
-    modelRuntime:
-      record.modelRuntime === undefined
-        ? {
-            lmStudio: {
-              ...DEFAULT_MODEL_RUNTIME_SETTINGS.lmStudio,
-            },
-            ollama: {
-              ...DEFAULT_MODEL_RUNTIME_SETTINGS.ollama,
-            },
-          }
-        : parseModelRuntimeSettings(record.modelRuntime),
-    remote:
-      record.remote === undefined
-        ? createDefaultRemoteSettings()
-        : parseStoredRemoteSettings(record.remote),
-    ...(record.dshHome === undefined
-      ? {}
-      : { dshHome: parseDataHomePath(record.dshHome) }),
-  };
 }
 
 /**
@@ -159,6 +68,7 @@ export class MinkeConfigStore {
   readonly terminal: MinkeConfigSection<TerminalSettings>;
   readonly modelRuntime: MinkeConfigSection<ModelRuntimeSettings>;
   readonly remote: MinkeConfigSection<RemoteSettings>;
+  readonly plugins: MinkeConfigSection<PluginManagementSettings>;
   readonly dshHome: MinkeConfigSection<string | undefined>;
 
   #document: MinkeConfigDocument | undefined;
@@ -184,6 +94,10 @@ export class MinkeConfigStore {
       read: () => this.#readRemote(),
       write: (value: unknown) => this.#writeRemote(value),
     });
+    this.plugins = Object.freeze({
+      read: () => this.#readPlugins(),
+      write: (value: unknown) => this.#writePlugins(value),
+    });
     this.dshHome = Object.freeze({
       read: () => this.#readDshHome(),
       write: (value: unknown) => this.#writeDshHome(value),
@@ -208,7 +122,7 @@ export class MinkeConfigStore {
       );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      document = defaultDocument();
+      document = createDefaultMinkeConfigDocument();
     }
     this.#document = document;
     this.#loaded = true;
@@ -251,6 +165,16 @@ export class MinkeConfigStore {
         method: settings.method,
         tailscale: { ...settings.tailscale },
         cloudflare: { ...settings.cloudflare },
+      };
+    });
+  }
+
+  #readPlugins(): Promise<PluginManagementSettings> {
+    return this.#runExclusive(async () => {
+      const settings = (await this.#load()).plugins;
+      return {
+        safeMode: settings.safeMode,
+        disabledPlugins: [...settings.disabledPlugins],
       };
     });
   }
@@ -313,6 +237,18 @@ export class MinkeConfigStore {
       const next: MinkeConfigDocument = {
         ...(await this.#load()),
         remote,
+      };
+      await this.#persist(next);
+      this.#document = next;
+    });
+  }
+
+  #writePlugins(value: unknown): Promise<void> {
+    return this.#runExclusive(async () => {
+      const plugins = parsePluginManagementSettings(value);
+      const next: MinkeConfigDocument = {
+        ...(await this.#load()),
+        plugins,
       };
       await this.#persist(next);
       this.#document = next;

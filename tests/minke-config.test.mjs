@@ -315,6 +315,10 @@ test("desktop settings share one versioned Minke config", async () => {
     });
     const remote = await store.remote.read();
     assertDefaultRemoteSettings(remote);
+    assert.deepEqual(await store.plugins.read(), {
+      safeMode: false,
+      disabledPlugins: [],
+    });
 
     await Promise.all([
       store.shortcuts.write({
@@ -333,6 +337,10 @@ test("desktop settings share one versioned Minke config", async () => {
       store.remote.write({
         ...remote,
         enabled: true,
+      }),
+      store.plugins.write({
+        safeMode: true,
+        disabledPlugins: ["broken-plugin"],
       }),
     ]);
 
@@ -354,6 +362,10 @@ test("desktop settings share one versioned Minke config", async () => {
       remote: {
         ...remote,
         enabled: true,
+      },
+      plugins: {
+        safeMode: true,
+        disabledPlugins: ["broken-plugin"],
       },
     });
     assert.deepEqual(

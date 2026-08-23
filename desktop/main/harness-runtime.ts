@@ -6,6 +6,12 @@ import {
 import {
   type LocalModelRuntimeId,
 } from "@lencx/minke-model-runtime/contract";
+import type {
+  PluginManagementSettings,
+} from "@minke/harness-overlay/plugin-install-contract";
+import {
+  DEFAULT_PLUGIN_MANAGEMENT_SETTINGS,
+} from "@minke/harness-overlay/plugin-install-contract";
 import {
   harnessWebArguments,
   readHarnessRuntimeLayout,
@@ -28,6 +34,7 @@ export interface HarnessRuntimeOptions {
   dshHome: string;
   electronExecutable: string;
   modelRuntimes: LocalModelRuntimeLaunchOptions;
+  pluginManagement: PluginManagementSettings;
   trustedHosts?: readonly string[];
   onUnexpectedExit(exit: HarnessRuntimeExit): void;
   startupTimeoutMs?: number;
@@ -47,7 +54,9 @@ type HarnessRuntimeEnvironmentOptions = Pick<
   | "dshHome"
   | "electronExecutable"
   | "modelRuntimes"
->;
+> & {
+  pluginManagement?: PluginManagementSettings;
+};
 
 const LOCAL_MODEL_ENVIRONMENT = [
   {
@@ -81,6 +90,14 @@ export function harnessRuntimeEnvironment(
     inherited,
   );
   environment.DSH_HOME = options.dshHome;
+  const pluginManagement =
+    options.pluginManagement ??
+    DEFAULT_PLUGIN_MANAGEMENT_SETTINGS;
+  environment.MINKE_PLUGIN_SAFE_MODE =
+    pluginManagement.safeMode ? "1" : "0";
+  environment.MINKE_DISABLED_PLUGINS = JSON.stringify(
+    pluginManagement.disabledPlugins,
+  );
   for (const descriptor of LOCAL_MODEL_ENVIRONMENT) {
     const runtime = options.modelRuntimes[descriptor.id];
     environment[descriptor.enabled] =

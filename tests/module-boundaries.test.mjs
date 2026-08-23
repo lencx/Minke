@@ -4,7 +4,14 @@ import {
   readFileSync,
   readdirSync,
 } from "node:fs";
-import { extname, join, relative, resolve, sep } from "node:path";
+import {
+  dirname,
+  extname,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -37,6 +44,22 @@ const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/tabs/terminal-contract",
   "@minke/harness-overlay/terminal-settings-contract",
 ]);
+const privateDesktopMainModules = [
+  {
+    facade: resolve(projectRoot, "desktop/main/minke-config.ts"),
+    root: resolve(projectRoot, "desktop/main/minke-config"),
+  },
+  {
+    facade: resolve(
+      projectRoot,
+      "desktop/main/plugin-installation.ts",
+    ),
+    root: resolve(
+      projectRoot,
+      "desktop/main/plugin-installation",
+    ),
+  },
+];
 
 function sourceFiles(root) {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
@@ -59,6 +82,42 @@ const productionFiles = sourceRoots.flatMap(sourceFiles);
 const productionImports = productionFiles.flatMap((path) =>
   importSpecifiers(path).map((specifier) => ({ path, specifier })),
 );
+
+function resolveProductionImport(path, specifier) {
+  let target;
+  if (specifier.startsWith(".")) {
+    target = resolve(dirname(path), specifier);
+  } else {
+    const desktopAlias = "@minke/desktop/";
+    if (!specifier.startsWith(desktopAlias)) return undefined;
+    target = resolve(
+      projectRoot,
+      "desktop",
+      specifier.slice(desktopAlias.length),
+    );
+  }
+  for (const extension of sourceExtensions) {
+    const file = `${target}${extension}`;
+    if (existsSync(file)) return file;
+  }
+  return target;
+}
+
+function privateDesktopMainImportViolations(imports) {
+  return imports.filter(({ path, specifier }) => {
+    const target = resolveProductionImport(path, specifier);
+    if (target === undefined) return false;
+    const owner = privateDesktopMainModules.find(
+      ({ root }) =>
+        target === root || target.startsWith(`${root}${sep}`),
+    );
+    if (owner === undefined) return false;
+    return (
+      path !== owner.facade &&
+      !path.startsWith(`${owner.root}${sep}`)
+    );
+  });
+}
 
 test("production sources do not cross the root or vendored-source aliases", () => {
   const violations = productionImports.filter(
@@ -94,6 +153,54 @@ test("desktop imports only the overlay's explicit shared modules", () => {
       specifier,
     ]),
     [],
+  );
+});
+
+test("desktop main implementation modules stay behind their facades", () => {
+  const knownViolation = {
+    path: resolve(projectRoot, "desktop/main/main.ts"),
+    specifier: "./plugin-installation/profile.ts",
+  };
+  assert.deepEqual(
+    privateDesktopMainImportViolations([knownViolation]),
+    [knownViolation],
+  );
+
+  assert.deepEqual(
+    privateDesktopMainImportViolations(productionImports).map(
+      ({ path, specifier }) => [
+        relative(projectRoot, path),
+        specifier,
+      ],
+    ),
+    [],
+  );
+});
+
+test("the desktop entry remains a composition root", () => {
+  const expectedImports = [
+    "./application",
+    "electron",
+    "electron-squirrel-startup",
+  ];
+  const rejectUnexpected = (specifiers) =>
+    specifiers.filter(
+      (specifier) => !expectedImports.includes(specifier),
+    );
+  assert.deepEqual(
+    rejectUnexpected([...expectedImports, "./main-window"]),
+    ["./main-window"],
+  );
+
+  assert.deepEqual(
+    productionImports
+      .filter(
+        ({ path }) =>
+          path === resolve(projectRoot, "desktop/main/main.ts"),
+      )
+      .map(({ specifier }) => specifier)
+      .sort(),
+    expectedImports,
   );
 });
 

@@ -2,10 +2,14 @@ import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
   PLUGIN_RESTART_CHANNEL,
+  PLUGIN_SAFE_MODE_SET_CHANNEL,
+  PLUGIN_SET_ENABLED_CHANNEL,
   PLUGIN_UNINSTALL_CHANNEL,
   parseInstalledPluginsSnapshot,
   parsePluginInstallCommand,
   parsePluginInstallRequest,
+  parsePluginSafeModeSetRequest,
+  parsePluginSetEnabledRequest,
   parsePluginUninstallRequest,
   type InstalledPluginsSnapshot,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
@@ -21,6 +25,8 @@ interface IpcMainLike {
 export interface PluginInstaller {
   install(target: string): Promise<void>;
   uninstall(name: string): Promise<void>;
+  setEnabled(name: string, enabled: boolean): Promise<void>;
+  setSafeMode(enabled: boolean): Promise<void>;
   listInstalled(): Promise<InstalledPluginsSnapshot>;
 }
 
@@ -75,10 +81,34 @@ export function bindPluginInstallIpc(
     }
     restartDesktop();
   };
+  const setEnabled = async (
+    event: unknown,
+    value: unknown,
+  ): Promise<void> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized plugin enabled-state request");
+    }
+    const request = parsePluginSetEnabledRequest(value);
+    await installer.setEnabled(request.name, request.enabled);
+    restartDesktop();
+  };
+  const setSafeMode = async (
+    event: unknown,
+    value: unknown,
+  ): Promise<void> => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized plugin safe-mode request");
+    }
+    const request = parsePluginSafeModeSetRequest(value);
+    await installer.setSafeMode(request.enabled);
+    restartDesktop();
+  };
 
   ipcMain.handle(PLUGIN_INSTALL_CHANNEL, install);
   ipcMain.handle(PLUGIN_RESTART_CHANNEL, restart);
   ipcMain.handle(PLUGIN_UNINSTALL_CHANNEL, uninstall);
+  ipcMain.handle(PLUGIN_SET_ENABLED_CHANNEL, setEnabled);
+  ipcMain.handle(PLUGIN_SAFE_MODE_SET_CHANNEL, setSafeMode);
   ipcMain.handle(
     PLUGIN_INSTALLED_READ_CHANNEL,
     readInstalled,
@@ -92,6 +122,8 @@ export function bindPluginInstallIpc(
       ipcMain.removeHandler(PLUGIN_INSTALL_CHANNEL);
       ipcMain.removeHandler(PLUGIN_RESTART_CHANNEL);
       ipcMain.removeHandler(PLUGIN_UNINSTALL_CHANNEL);
+      ipcMain.removeHandler(PLUGIN_SET_ENABLED_CHANNEL);
+      ipcMain.removeHandler(PLUGIN_SAFE_MODE_SET_CHANNEL);
       ipcMain.removeHandler(PLUGIN_INSTALLED_READ_CHANNEL);
     },
   });

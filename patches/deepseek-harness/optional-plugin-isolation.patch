@@ -66,7 +66,7 @@ diff --git a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js b/node_
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
-@@ -522,6 +522,20 @@ function resolveBundleDir(binName, packageName, installAnchor, profileDir) {
+@@ -522,6 +522,40 @@ function resolveBundleDir(binName, packageName, installAnchor, profileDir) {
  	}
  	throw new Error(`${binName}: cannot resolve profile bundle ${JSON.stringify(packageName)} from the dsh installation or ${profileDir}; run 'dsh plugin --profile ${basename(profileDir)} install' if its dependency is not installed`);
  }
@@ -84,17 +84,38 @@ diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/
 +		insert: patch.insert.map(isolateExternalBundleEntry)
 +	} : patch);
 +}
++function readMinkePluginPolicy(environment = process.env) {
++	const safeMode = environment.MINKE_PLUGIN_SAFE_MODE;
++	if (safeMode !== void 0 && safeMode !== "0" && safeMode !== "1") throw new Error("dsh: invalid MINKE_PLUGIN_SAFE_MODE");
++	const raw = environment.MINKE_DISABLED_PLUGINS;
++	let disabled = [];
++	if (raw !== void 0) {
++		try {
++			disabled = JSON.parse(raw);
++		} catch {
++			throw new Error("dsh: invalid MINKE_DISABLED_PLUGINS");
++		}
++		if (!Array.isArray(disabled) || disabled.length > 512 || disabled.some((name) => typeof name !== "string" || name.length === 0 || name.trim() !== name || /[\0\r\n]/u.test(name)) || new Set(disabled).size !== disabled.length) {
++			throw new Error("dsh: invalid MINKE_DISABLED_PLUGINS");
++		}
++	}
++	return {
++		safeMode: safeMode === "1",
++		disabled: new Set(disabled)
++	};
++}
  /**
  * Load a profile: resolve every `dsh.profile.bundles` entry to its patch
  * layer and parse the profile's own patch file. A listed bundle without a
-@@ -543,16 +557,19 @@ function loadProfile(binName, name, installAnchor, home = resolveDshHome(), opti
+@@ -543,16 +577,20 @@ function loadProfile(binName, name, installAnchor, home = resolveDshHome(), opti
  		if (template === void 0) throw new Error(`${binName}: profile ${JSON.stringify(name)} does not exist; create it with 'dsh plugin --profile ${name} add <package>'`);
  		initProfile(dir, template);
  	}
 -	const layers = (normalizeShippedProfile(name, dir, readProfileManifest(binName, dir)).dsh?.profile?.bundles ?? []).map((packageName) => {
 +	const manifest = normalizeShippedProfile(name, dir, readProfileManifest(binName, dir));
 +	const externalBundles = new Set(Object.keys(manifest.dependencies ?? {}));
-+	const layers = (manifest.dsh?.profile?.bundles ?? []).map((packageName) => {
++	const pluginPolicy = readMinkePluginPolicy();
++	const layers = (manifest.dsh?.profile?.bundles ?? []).filter((packageName) => !externalBundles.has(packageName) || !pluginPolicy.safeMode && !pluginPolicy.disabled.has(packageName)).map((packageName) => {
  		const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir);
  		const declared = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")).dsh?.bundle?.patch;
  		if (declared === void 0) throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`);
@@ -109,7 +130,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/
  		};
  	});
  	const patchPath = join(dir, PROFILE_PATCH_FILENAME);
-@@ -1074,7 +1091,7 @@ function installFailLoud(binName, proc = process, release) {
+@@ -1074,7 +1112,7 @@ function installFailLoud(binName, proc = process, release) {
  * @param binName - the diagnostic prefix on the thrown error.
  */
  function assertEntriesLoaded(ctx, binName) {
@@ -118,7 +139,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/
  	if (failed.length > 0) {
  		const names = failed.map((entry) => entry.options.name).join(", ");
  		throw new Error(`${binName}: plugin(s) failed to load: ${names}; Cordis startup failed because these plugin(s) could not be resolved (see the error(s) logged above)`);
-@@ -1113,6 +1130,7 @@ async function assertEntriesActivated(ctx, binName) {
+@@ -1113,6 +1151,7 @@ async function assertEntriesActivated(ctx, binName) {
  		if (fiber === void 0 || entry.disabled) continue;
  		const state = fiber.state;
  		if (state === FIBER_ACTIVE) continue;

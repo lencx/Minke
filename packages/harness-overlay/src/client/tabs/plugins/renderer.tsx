@@ -41,7 +41,8 @@ export function createPluginTabRenderer(
     ],
     renderIcon: () => <PluginIcon size={13} />,
     loading: (tab) =>
-      isPluginTab(tab) && tab.payload.installing,
+      isPluginTab(tab) &&
+      tab.payload.operation.kind === "install",
     loadingLabel: () => t("plugins.install.installing"),
     renderView: (
       tab: ManagedTab,
