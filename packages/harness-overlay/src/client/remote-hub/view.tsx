@@ -1,0 +1,857 @@
+import {
+  MessageCircle,
+  RadioTower,
+  ScanQrCode,
+  ShieldCheck,
+  X,
+} from "@lucide/icons";
+import QRCode from "qrcode";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import type {
+  WeixinHubIssue,
+  WeixinHubSnapshot,
+} from "@minke/harness-overlay/remote-hub-contract.ts";
+import {
+  RemoteSettingsSection,
+} from "../remote/RemoteSettingsSection.tsx";
+import type {
+  RemoteTranslate,
+} from "../remote/locales.ts";
+import {
+  LucideIcon,
+} from "../tabs/components/LucideIcon.ts";
+import type {
+  RemoteHubTranslate,
+} from "./locales.ts";
+import type {
+  RemoteHubRuntime,
+} from "./runtime.ts";
+
+const FOCUSABLE_SELECTOR = [
+  "button:not(:disabled)",
+  "input:not(:disabled)",
+  '[href]:not([aria-disabled="true"])',
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+interface SessionListSelection {
+  readonly current: string | undefined;
+  readonly byId: Readonly<
+    Record<string, { readonly blank?: boolean } | undefined>
+  >;
+}
+
+export interface RemoteHubActionProps {
+  readonly location?: "fallback" | "session";
+  readonly runtime: RemoteHubRuntime;
+  readonly t: RemoteHubTranslate;
+}
+
+export interface NewSessionRemoteHubActionProps
+  extends RemoteHubActionProps {
+  readonly useSessions: <T>(
+    selector: (state: SessionListSelection) => T,
+  ) => T;
+}
+
+export interface RemoteHubDialogHostProps
+  extends RemoteHubActionProps {
+  readonly remoteT: RemoteTranslate;
+}
+
+function hubState(
+  snapshot: ReturnType<RemoteHubRuntime["getSnapshot"]>,
+): "idle" | "working" | "active" | "attention" {
+  const remoteState = snapshot.remote.data.runtime.state;
+  const weixin = snapshot.channels.channels.weixin;
+  if (
+    weixin.state === "error" ||
+    weixin.state === "session-stale" ||
+    snapshot.error !== undefined ||
+    snapshot.remote.error === "read" ||
+    snapshot.remote.error === "write" ||
+    remoteState === "error"
+  ) {
+    return "attention";
+  }
+  if (
+    weixin.state === "degraded" &&
+    weixin.issue === "receive"
+  ) {
+    return "attention";
+  }
+  if (
+    snapshot.operation !== "idle" ||
+    snapshot.remote.operation.kind !== "idle" ||
+    weixin.state === "loading" ||
+    weixin.state === "linking" ||
+    weixin.state === "connecting" ||
+    remoteState === "starting" ||
+    remoteState === "stopping" ||
+    remoteState === "retrying"
+  ) {
+    return "working";
+  }
+  if (
+    weixin.state === "degraded" ||
+    remoteState === "active" ||
+    remoteState === "ready"
+  ) {
+    return "active";
+  }
+  return "idle";
+}
+
+/** One top-bar entry shared by active and blank Session chrome. */
+export function RemoteHubAction({
+  location = "session",
+  runtime,
+  t,
+}: RemoteHubActionProps): ReactNode {
+  const snapshot = useSyncExternalStore(
+    runtime.subscribe,
+    runtime.getSnapshot,
+    runtime.getSnapshot,
+  );
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const state = hubState(snapshot);
+  const accessibleLabel = t(
+    state === "idle"
+      ? "triggerIdle"
+      : state === "working"
+        ? "triggerWorking"
+        : state === "active"
+          ? "triggerActive"
+          : "triggerAttention",
+  );
+  useLayoutEffect(() => {
+    if (location !== "session") return;
+    return runtime.registerSessionTrigger();
+  }, [location, runtime]);
+  return (
+    <button
+      ref={triggerRef}
+      type="button"
+      data-minke-remote-hub-action
+      data-location={location}
+      data-state={state}
+      aria-label={accessibleLabel}
+      aria-haspopup="dialog"
+      aria-expanded={snapshot.open}
+      title={t("trigger")}
+      onClick={() => runtime.open(triggerRef.current ?? undefined)}
+    >
+      <LucideIcon icon={RadioTower} size={16} />
+      <span aria-hidden="true" data-minke-remote-hub-indicator />
+    </button>
+  );
+}
+
+/** Keep the same Remote entry visible while blank Session chrome is absent. */
+export function NewSessionRemoteHubAction({
+  runtime,
+  t,
+  useSessions,
+}: NewSessionRemoteHubActionProps): ReactNode {
+  const isNewSession = useSessions((state) => {
+    if (state.current === undefined) return true;
+    return state.byId[state.current]?.blank === true;
+  });
+  const hasSessionTrigger = useSyncExternalStore(
+    runtime.subscribe,
+    runtime.hasSessionTrigger,
+    runtime.hasSessionTrigger,
+  );
+  if (!isNewSession || hasSessionTrigger) return null;
+  return (
+    <div data-minke-new-session-remote-hub-action>
+      <RemoteHubAction
+        location="fallback"
+        runtime={runtime}
+        t={t}
+      />
+    </div>
+  );
+}
+
+type QrRenderState =
+  | { readonly state: "idle" | "loading" | "error" }
+  | { readonly state: "ready"; readonly dataUrl: string };
+
+function useQrDataUrl(
+  content: string | undefined,
+): QrRenderState {
+  const [result, setResult] = useState<QrRenderState>({
+    state: "idle",
+  });
+  useEffect(() => {
+    let active = true;
+    setResult({
+      state: content === undefined ? "idle" : "loading",
+    });
+    if (content === undefined) return () => {
+      active = false;
+    };
+    void Promise.resolve()
+      .then(() =>
+        QRCode.toDataURL(content, {
+          color: {
+            dark: "#111827",
+            light: "#ffffff",
+          },
+          errorCorrectionLevel: "M",
+          margin: 2,
+          width: 224,
+        }),
+      )
+      .then((dataUrl) => {
+        if (active) setResult({ state: "ready", dataUrl });
+      })
+      .catch(() => {
+        if (active) setResult({ state: "error" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [content]);
+  return result;
+}
+
+function statusLabel(
+  value: WeixinHubSnapshot,
+  t: RemoteHubTranslate,
+): string {
+  switch (value.state) {
+    case "loading":
+      return t("loading");
+    case "unavailable":
+      return t("unavailable");
+    case "unlinked":
+      return t("unlinked");
+    case "linking":
+      switch (value.phase) {
+        case "waiting":
+          return t("waiting");
+        case "scanned":
+          return t("scanned");
+        case "verification-required":
+          return t("verificationRequired");
+      }
+    case "connecting":
+      return t("connecting");
+    case "degraded":
+      return t("linkedLimited");
+    case "error":
+    case "session-stale":
+      return t("attention");
+  }
+}
+
+function issueText(
+  issue: WeixinHubIssue,
+  t: RemoteHubTranslate,
+): string {
+  switch (issue) {
+    case "agent-route-pending":
+      return t("agentRoutePending");
+    case "receive":
+      return t("receiveIssue");
+    case "vault-unavailable":
+      return t("vaultUnavailable");
+    case "already-bound":
+      return t("alreadyBound");
+    case "credential-read":
+      return t("credentialRead");
+    case "credential-store":
+      return t("credentialStore");
+    case "gateway-store":
+      return t("gatewayStore");
+    case "login-network":
+      return t("loginNetwork");
+    case "login-protocol":
+      return t("loginProtocol");
+    case "transport-start":
+      return t("transportStart");
+    case "session-stale":
+      return t("sessionStale");
+  }
+}
+
+function WeixinChannel({
+  runtime,
+  snapshot,
+  t,
+}: {
+  readonly runtime: RemoteHubRuntime;
+  readonly snapshot: ReturnType<RemoteHubRuntime["getSnapshot"]>;
+  readonly t: RemoteHubTranslate;
+}): ReactNode {
+  const weixin = snapshot.channels.channels.weixin;
+  const [code, setCode] = useState("");
+  const [confirmReset, setConfirmReset] = useState(false);
+  const previousConfirmResetRef = useRef(false);
+  const channelRef = useRef<HTMLElement>(null);
+  const resetTriggerRef = useRef<HTMLButtonElement>(null);
+  const resetConfirmRef = useRef<HTMLButtonElement>(null);
+  const codeId = useId();
+  const qrContent =
+    weixin.state === "linking"
+      ? weixin.challenge.content
+      : undefined;
+  const qr = useQrDataUrl(qrContent);
+  const busy = snapshot.operation !== "idle";
+
+  useEffect(() => {
+    if (
+      weixin.state !== "linking" ||
+      weixin.phase !== "verification-required"
+    ) {
+      setCode("");
+    }
+  }, [
+    weixin.state,
+    weixin.state === "linking"
+      ? weixin.flowId
+      : undefined,
+    weixin.state === "linking"
+      ? weixin.phase
+      : undefined,
+  ]);
+
+  useEffect(() => {
+    setConfirmReset(false);
+  }, [
+    weixin.state,
+    weixin.state === "error" ? weixin.issue : undefined,
+  ]);
+
+  useEffect(() => {
+    const previous = previousConfirmResetRef.current;
+    previousConfirmResetRef.current = confirmReset;
+    if (confirmReset && !previous) {
+      resetConfirmRef.current?.focus();
+    } else if (!confirmReset && previous) {
+      const resetTrigger = resetTriggerRef.current;
+      if (resetTrigger !== null) {
+        resetTrigger.focus();
+      } else {
+        channelRef.current
+          ?.closest<HTMLElement>(
+            "[data-minke-remote-hub-dialog]",
+          )
+          ?.querySelector<HTMLElement>(
+            ".minke-remote-hub__close",
+          )
+          ?.focus();
+      }
+    }
+  }, [confirmReset]);
+
+  const submitVerification = (
+    event: FormEvent<HTMLFormElement>,
+  ): void => {
+    event.preventDefault();
+    if (
+      weixin.state !== "linking" ||
+      weixin.phase !== "verification-required" ||
+      !/^[0-9]{1,32}$/u.test(code) ||
+      busy
+    ) {
+      return;
+    }
+    void runtime.dispatch({
+      kind: "weixin/link/verify",
+      flowId: weixin.flowId,
+      code,
+    });
+  };
+
+  const canStart =
+    weixin.state === "unlinked" ||
+    weixin.state === "session-stale" ||
+    (
+      weixin.state === "error" &&
+      weixin.issue !== "credential-read" &&
+      weixin.issue !== "gateway-store" &&
+      weixin.issue !== "transport-start"
+    );
+  const canReconnect =
+    weixin.state === "degraded" ||
+    (
+      weixin.state === "error" &&
+      weixin.issue === "transport-start"
+    );
+  const canUnlink =
+    weixin.state === "connecting" ||
+    weixin.state === "degraded" ||
+    weixin.state === "error" ||
+    weixin.state === "session-stale";
+  const canReset =
+    weixin.state === "error" &&
+    (
+      weixin.issue === "credential-read" ||
+      weixin.issue === "credential-store" ||
+      weixin.issue === "gateway-store" ||
+      weixin.issue === "transport-start"
+    );
+  const resetGateway =
+    weixin.state === "error" &&
+    weixin.issue === "gateway-store";
+
+  return (
+    <section
+      ref={channelRef}
+      className="minke-remote-hub__weixin"
+      data-state={weixin.state}
+      aria-labelledby="minke-remote-hub-weixin-title"
+    >
+      <div className="minke-remote-hub__channel-heading">
+        <span className="minke-remote-hub__channel-icon">
+          <LucideIcon icon={ScanQrCode} size={18} />
+        </span>
+        <span className="minke-remote-hub__channel-copy">
+          <strong id="minke-remote-hub-weixin-title">
+            {t("weixinTitle")}
+          </strong>
+          <span>{t("weixinDescription")}</span>
+        </span>
+        <span
+          className="minke-remote-hub__channel-status"
+          data-state={weixin.state}
+          role="status"
+          aria-live="polite"
+        >
+          {statusLabel(weixin, t)}
+        </span>
+      </div>
+
+      {weixin.state === "linking" && (
+        <div className="minke-remote-hub__link-flow">
+          <div className="minke-remote-hub__qr-frame">
+            {qr.state === "ready" ? (
+              <img
+                src={qr.dataUrl}
+                alt={t("qrAlt")}
+                width="224"
+                height="224"
+              />
+            ) : qr.state === "error" ? (
+              <span role="alert">{t("qrRenderError")}</span>
+            ) : (
+              <span role="status">{t("qrPreparing")}</span>
+            )}
+          </div>
+          <div className="minke-remote-hub__link-copy">
+            <p>
+              {weixin.phase === "waiting"
+                ? t("qrInstruction")
+                : weixin.phase === "scanned"
+                  ? t("scannedInstruction")
+                  : t("verificationInstruction")}
+            </p>
+            <small>
+              {t("qrExpires").replace(
+                "{time}",
+                new Intl.DateTimeFormat(undefined, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }).format(weixin.challenge.expiresAt),
+              )}
+            </small>
+            {weixin.phase === "verification-required" && (
+              <form
+                className="minke-remote-hub__verify"
+                onSubmit={submitVerification}
+              >
+                <label htmlFor={codeId}>
+                  {t("verificationCodeLabel")}
+                </label>
+                <div>
+                  <input
+                    id={codeId}
+                    type="text"
+                    value={code}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{1,32}"
+                    placeholder={t("verificationCodePlaceholder")}
+                    disabled={busy}
+                    onChange={(event) =>
+                      setCode(
+                        event.currentTarget.value
+                          .replace(/\D/gu, "")
+                          .slice(0, 32),
+                      )}
+                  />
+                  <button
+                    type="submit"
+                    disabled={
+                      busy || !/^[0-9]{1,32}$/u.test(code)
+                    }
+                  >
+                    {busy ? t("busy") : t("verifyCode")}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {(weixin.state === "connecting" ||
+        weixin.state === "degraded") && (
+        <div className="minke-remote-hub__channel-detail">
+          <strong>
+            {t("account").replace(
+              "{label}",
+              weixin.accountLabel,
+            )}
+          </strong>
+          {weixin.state === "degraded" && (
+            <p>{issueText(weixin.issue, t)}</p>
+          )}
+        </div>
+      )}
+
+      {(weixin.state === "unavailable" ||
+        weixin.state === "error" ||
+        weixin.state === "session-stale") && (
+        <p className="minke-remote-hub__issue" role="alert">
+          {issueText(weixin.issue, t)}
+        </p>
+      )}
+
+      {snapshot.error !== undefined && (
+        <p className="minke-remote-hub__issue" role="alert">
+          {t(
+            snapshot.error === "read"
+              ? "readError"
+              : "commandError",
+          )}
+        </p>
+      )}
+
+      <div className="minke-remote-hub__channel-actions">
+        {canStart && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              void runtime.dispatch({
+                kind: "weixin/link/start",
+              });
+            }}
+          >
+            {busy ? t("busy") : t("connectWeixin")}
+          </button>
+        )}
+        {canReconnect && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              void runtime.dispatch({
+                kind: "weixin/reconnect",
+              });
+            }}
+          >
+            {busy ? t("busy") : t("reconnectWeixin")}
+          </button>
+        )}
+        {weixin.state === "linking" && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              void runtime.dispatch({
+                kind: "weixin/link/cancel",
+                flowId: weixin.flowId,
+              });
+            }}
+          >
+            {busy ? t("busy") : t("cancelLink")}
+          </button>
+        )}
+        {canUnlink && (
+          <button
+            type="button"
+            className="minke-remote-hub__button--quiet"
+            disabled={busy}
+            onClick={() => {
+              void runtime.dispatch({
+                kind: "weixin/unlink",
+              });
+            }}
+          >
+            {t("unlinkWeixin")}
+          </button>
+        )}
+        {canReset && !confirmReset && (
+          <button
+            ref={resetTriggerRef}
+            type="button"
+            className="minke-remote-hub__button--quiet"
+            disabled={busy}
+            onClick={() => setConfirmReset(true)}
+          >
+            {t(resetGateway ? "resetGateway" : "resetLocal")}
+          </button>
+        )}
+      </div>
+      {confirmReset && (
+        <div
+          className="minke-remote-hub__reset-confirmation"
+          role="alert"
+        >
+          <p>
+            {t(
+              resetGateway
+                ? "resetGatewayWarning"
+                : "resetLocalWarning",
+            )}
+          </p>
+          <div className="minke-remote-hub__channel-actions">
+            <button
+              ref={resetConfirmRef}
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                void runtime.dispatch({
+                  kind: resetGateway
+                    ? "gateway/reset-local"
+                    : "weixin/reset-local",
+                });
+              }}
+            >
+              {busy
+                ? t("busy")
+                : t(
+                    resetGateway
+                      ? "confirmResetGateway"
+                      : "confirmResetLocal",
+                  )}
+            </button>
+            <button
+              type="button"
+              className="minke-remote-hub__button--quiet"
+              disabled={busy}
+              onClick={() => setConfirmReset(false)}
+            >
+              {t("keepLocalData")}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PlannedChannels({
+  t,
+}: {
+  readonly t: RemoteHubTranslate;
+}): ReactNode {
+  return (
+    <div className="minke-remote-hub__planned">
+      {[
+        t("telegramTitle"),
+        t("discordTitle"),
+      ].map((name) => (
+        <div key={name} className="minke-remote-hub__planned-row">
+          <span className="minke-remote-hub__channel-icon">
+            <LucideIcon icon={MessageCircle} size={16} />
+          </span>
+          <strong>{name}</strong>
+          <span>{t("planned")}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RemoteHubDialog({
+  runtime,
+  remoteT,
+  t,
+}: RemoteHubDialogHostProps): ReactNode {
+  const snapshot = useSyncExternalStore(
+    runtime.subscribe,
+    runtime.getSnapshot,
+    runtime.getSnapshot,
+  );
+  const titleId = useId();
+  const descriptionId = useId();
+  const panelRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const containFocus = (event: FocusEvent): void => {
+      const panel = panelRef.current;
+      if (
+        panel !== null &&
+        !panel.contains(event.target as Node | null)
+      ) {
+        closeRef.current?.focus();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        runtime.close();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const panel = panelRef.current;
+      const focusable = [
+        ...(panel?.querySelectorAll<HTMLElement>(
+          FOCUSABLE_SELECTOR,
+        ) ?? []),
+      ];
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      const active = document.activeElement;
+      if (panel === null || !panel.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("focusin", containFocus, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("focusin", containFocus, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [runtime]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (
+      panel !== null &&
+      !panel.contains(document.activeElement)
+    ) {
+      closeRef.current?.focus();
+    }
+  }, [
+    snapshot.channels,
+    snapshot.operation,
+    snapshot.remote,
+  ]);
+
+  return (
+    <div
+      className="minke-remote-hub__overlay"
+      data-minke-remote-hub-overlay
+      role="presentation"
+    >
+      <div
+        className="minke-remote-hub__mask"
+        aria-hidden="true"
+        onClick={() => runtime.close()}
+      />
+      <section
+        ref={panelRef}
+        className="minke-remote-hub__dialog"
+        data-minke-remote-hub-dialog
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+      >
+        <header className="minke-remote-hub__header">
+          <div>
+            <h1 id={titleId}>{t("title")}</h1>
+            <p id={descriptionId}>{t("description")}</p>
+          </div>
+          <button
+            ref={closeRef}
+            type="button"
+            className="minke-remote-hub__close"
+            aria-label={t("close")}
+            title={t("close")}
+            onClick={() => runtime.close()}
+          >
+            <LucideIcon icon={X} size={17} />
+          </button>
+        </header>
+
+        <div
+          className="minke-remote-hub__dependencies"
+          aria-label={t("dependencyTitle")}
+        >
+          <span
+            data-state={
+              snapshot.channels.dependencies
+                  .credentialVault
+            }
+          >
+            <LucideIcon icon={ShieldCheck} size={14} />
+            {snapshot.channels.dependencies
+                .credentialVault === "ready"
+              ? t("vaultReady")
+              : snapshot.channels.dependencies
+                    .credentialVault === "pending"
+                ? t("vaultChecking")
+                : t("vaultMissing")}
+          </span>
+          <span data-state="pending">
+            <LucideIcon icon={RadioTower} size={14} />
+            {t("agentRoutePendingShort")}
+          </span>
+        </div>
+
+        <div className="minke-remote-hub__body">
+          <div className="minke-remote-hub__channels">
+            <h2>{t("channelsTitle")}</h2>
+            <WeixinChannel
+              runtime={runtime}
+              snapshot={snapshot}
+              t={t}
+            />
+            <PlannedChannels t={t} />
+          </div>
+          <div
+            className="minke-remote-hub__access"
+            aria-label={t("accessTitle")}
+          >
+            <RemoteSettingsSection
+              runtime={runtime.remote}
+              t={remoteT}
+            />
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** Root-level dialog host; opening state survives Session changes. */
+export function RemoteHubDialogHost(
+  props: RemoteHubDialogHostProps,
+): ReactNode {
+  const snapshot = useSyncExternalStore(
+    props.runtime.subscribe,
+    props.runtime.getSnapshot,
+    props.runtime.getSnapshot,
+  );
+  return snapshot.open ? <RemoteHubDialog {...props} /> : null;
+}

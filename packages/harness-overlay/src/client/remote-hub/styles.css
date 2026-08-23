@@ -1,0 +1,618 @@
+/* Root-scoped Remote Capability Hub, aligned with the incumbent Minke surface. */
+
+[data-minke-remote-hub-action] {
+  position: relative;
+  display: inline-grid !important;
+  box-sizing: border-box;
+  width: 32px;
+  min-width: 32px !important;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  padding: 0 !important;
+  border: none;
+  border-radius: 10px;
+  appearance: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+[data-minke-remote-hub-action]:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+[data-minke-remote-hub-action]:focus-visible,
+.minke-remote-hub__close:focus-visible,
+.minke-remote-hub__channel-actions button:focus-visible,
+.minke-remote-hub__verify input:focus-visible,
+.minke-remote-hub__verify button:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+[data-minke-remote-hub-indicator] {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  box-sizing: border-box;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--dsw-alias-bg-layer-1);
+  border-radius: 50%;
+  background: var(--dsw-alias-label-quaternary);
+}
+
+[data-minke-remote-hub-action][data-state="active"]
+  [data-minke-remote-hub-indicator] {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+[data-minke-remote-hub-action][data-state="working"]
+  [data-minke-remote-hub-indicator] {
+  background: var(--dsw-alias-brand-primary);
+}
+
+[data-minke-remote-hub-action][data-state="attention"]
+  [data-minke-remote-hub-indicator] {
+  background: var(--dsw-alias-state-warning-primary);
+}
+
+[data-minke-new-session-remote-hub-action] {
+  position: absolute;
+  top: var(--minke-tabs-primary-row-top, 6px);
+  right: calc(
+    var(--minke-tabs-layout-actions-clearance, 0px) + 8px
+  );
+  z-index: 6;
+  pointer-events: none !important;
+}
+
+[data-minke-new-session-remote-hub-action]
+  > [data-minke-remote-hub-action] {
+  pointer-events: auto;
+}
+
+.minke-remote-hub__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.minke-remote-hub__mask {
+  position: absolute;
+  inset: 0;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
+  animation: minke-remote-hub-mask-in 160ms ease-out;
+}
+
+.minke-remote-hub__dialog {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  width: min(980px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary);
+  animation: minke-remote-hub-panel-in 220ms
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.minke-remote-hub__header {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 24px 18px;
+}
+
+.minke-remote-hub__header > div {
+  min-width: 0;
+}
+
+.minke-remote-hub__header h1,
+.minke-remote-hub__header p,
+.minke-remote-hub__channels h2,
+.minke-remote-hub__channel-detail p,
+.minke-remote-hub__issue,
+.minke-remote-hub__reset-confirmation p,
+.minke-remote-hub__link-copy p {
+  margin: 0;
+}
+
+.minke-remote-hub__header h1 {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 28px;
+  text-wrap: balance;
+}
+
+.minke-remote-hub__header p {
+  max-width: 68ch;
+  margin-top: 5px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 19px;
+}
+
+.minke-remote-hub__close {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.minke-remote-hub__close:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-remote-hub__dependencies {
+  display: flex;
+  flex: none;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 0 24px 16px;
+}
+
+.minke-remote-hub__dependencies > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 17px;
+}
+
+.minke-remote-hub__dependencies > span[data-state="ready"] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 11%,
+    transparent
+  );
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.minke-remote-hub__dependencies
+  > span[data-state="unavailable"] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warning-primary) 11%,
+    transparent
+  );
+  color: var(--dsw-alias-state-warning-primary);
+}
+
+.minke-remote-hub__body {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(280px, 0.78fr) minmax(440px, 1.22fr);
+  overflow: hidden;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-remote-hub__channels,
+.minke-remote-hub__access {
+  min-width: 0;
+  overflow: auto;
+  padding: 22px 24px 28px;
+  scrollbar-color:
+    var(--dsw-alias-scrollbar-bg-l2) transparent;
+  scrollbar-width: thin;
+}
+
+.minke-remote-hub__channels {
+  border-right: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-remote-hub__channels h2 {
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 21px;
+}
+
+.minke-remote-hub__weixin {
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.minke-remote-hub__channel-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.minke-remote-hub__channel-icon {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.minke-remote-hub__channel-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.minke-remote-hub__channel-copy strong,
+.minke-remote-hub__planned-row strong,
+.minke-remote-hub__channel-detail strong {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 19px;
+}
+
+.minke-remote-hub__channel-copy > span,
+.minke-remote-hub__planned-row > span:last-child,
+.minke-remote-hub__channel-detail p,
+.minke-remote-hub__link-copy p {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.minke-remote-hub__channel-status {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.minke-remote-hub__channel-status[data-state="degraded"] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warning-primary) 11%,
+    transparent
+  );
+  color: var(--dsw-alias-state-warning-primary);
+}
+
+.minke-remote-hub__channel-status[data-state="linking"],
+.minke-remote-hub__channel-status[data-state="connecting"] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-brand-primary) 11%,
+    transparent
+  );
+  color: var(--dsw-alias-brand-primary);
+}
+
+.minke-remote-hub__channel-status[data-state="error"],
+.minke-remote-hub__channel-status[data-state="session-stale"] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 10%,
+    transparent
+  );
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.minke-remote-hub__link-flow {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-remote-hub__qr-frame {
+  display: grid;
+  box-sizing: border-box;
+  width: min(224px, 100%);
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 11px;
+  line-height: 17px;
+  text-align: center;
+}
+
+.minke-remote-hub__qr-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.minke-remote-hub__link-copy {
+  width: 100%;
+  text-align: center;
+}
+
+.minke-remote-hub__link-copy small {
+  display: block;
+  margin-top: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+}
+
+.minke-remote-hub__verify {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: left;
+}
+
+.minke-remote-hub__verify > div {
+  display: flex;
+  gap: 7px;
+}
+
+.minke-remote-hub__verify input,
+.minke-remote-hub__verify button,
+.minke-remote-hub__channel-actions button {
+  box-sizing: border-box;
+  min-height: 34px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.minke-remote-hub__verify input {
+  min-width: 0;
+  flex: 1;
+  padding: 7px 9px;
+  background: var(--dsw-alias-bg-module-platform);
+  caret-color: var(--dsw-alias-brand-primary);
+}
+
+.minke-remote-hub__verify input::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.minke-remote-hub__verify button,
+.minke-remote-hub__channel-actions button {
+  padding: 7px 11px;
+  cursor: pointer;
+}
+
+.minke-remote-hub__verify button:not(:disabled):hover,
+.minke-remote-hub__channel-actions
+  button:not(:disabled):hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.minke-remote-hub__verify button:disabled,
+.minke-remote-hub__channel-actions button:disabled {
+  opacity: 0.52;
+  cursor: wait;
+}
+
+.minke-remote-hub__channel-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 13px;
+}
+
+.minke-remote-hub__channel-actions
+  .minke-remote-hub__button--quiet {
+  border-color: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.minke-remote-hub__channel-detail,
+.minke-remote-hub__issue {
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-remote-hub__reset-confirmation {
+  margin-top: 12px;
+  padding: 11px;
+  border-radius: 9px;
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 8%,
+    transparent
+  );
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.minke-remote-hub__reset-confirmation
+  .minke-remote-hub__channel-actions {
+  margin-top: 9px;
+}
+
+.minke-remote-hub__channel-detail p {
+  margin-top: 3px;
+}
+
+.minke-remote-hub__issue {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.minke-remote-hub__planned {
+  margin-top: 12px;
+}
+
+.minke-remote-hub__planned-row {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-remote-hub__planned-row:last-child {
+  border-bottom: 0;
+}
+
+.minke-remote-hub__planned-row > span:last-child {
+  font-size: 10px;
+}
+
+.minke-remote-hub__access .minke-remote {
+  gap: 16px;
+}
+
+.minke-remote-hub__access .minke-remote__description {
+  max-width: 68ch;
+}
+
+.minke-remote-hub__dialog ::selection {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-brand-primary) 30%,
+    transparent
+  );
+  color: var(--dsw-alias-label-primary);
+}
+
+@keyframes minke-remote-hub-mask-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes minke-remote-hub-panel-in {
+  from {
+    opacity: 0.82;
+    transform: translateY(10px) scale(0.985);
+    filter: blur(2px);
+  }
+}
+
+@media (max-width: 780px) {
+  .minke-remote-hub__dialog {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+    border-radius: 16px;
+  }
+
+  .minke-remote-hub__header {
+    padding: 18px 18px 14px;
+  }
+
+  .minke-remote-hub__dependencies {
+    padding: 0 18px 14px;
+  }
+
+  .minke-remote-hub__body {
+    display: block;
+    overflow: auto;
+  }
+
+  .minke-remote-hub__channels,
+  .minke-remote-hub__access {
+    overflow: visible;
+    padding: 18px;
+  }
+
+  .minke-remote-hub__channels {
+    border-right: 0;
+    border-bottom: 1px solid var(--dsw-alias-border-l2);
+  }
+}
+
+@media (max-width: 520px) {
+  .minke-remote-hub__header p {
+    display: none;
+  }
+
+  .minke-remote-hub__dependencies {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .minke-remote-hub__dependencies > span {
+    width: max-content;
+    max-width: 100%;
+  }
+
+  .minke-remote-hub__channel-heading {
+    flex-wrap: wrap;
+  }
+
+  .minke-remote-hub__channel-status {
+    margin-left: 40px;
+  }
+
+  .minke-remote-hub__verify > div,
+  .minke-remote-hub__access .minke-remote__address-control {
+    flex-direction: column;
+  }
+
+  .minke-remote-hub__access .minke-remote__choices,
+  .minke-remote-hub__access .minke-remote__form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .minke-remote-hub__access .minke-remote__field--wide {
+    grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .minke-remote-hub__mask,
+  .minke-remote-hub__dialog {
+    animation: none;
+  }
+}
