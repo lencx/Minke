@@ -12,8 +12,15 @@ The applicator accepts git unified diffs that modify existing text files below `
 `windows-background-processes.patch` is pinned to the same Harness commit. It:
 
 - makes every first-party non-terminal child process explicitly suppress native Windows console windows, including the unified subprocess runtime, its teardown helpers, sandbox probes, browser handoff, and plugin management;
-- hides restricted-token children with `STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES` and `SW_HIDE`, preserving the creation mode required by the Windows ACL sandbox;
 - leaves PTY/ConPTY terminal sessions on their dedicated `spawnTerminal` lifecycle path.
+
+After applying that static source patch, staging enumerates every JavaScript
+artifact actually deployed by `dsh-sandbox-windows-acl` and hides each
+restricted-token child with
+`STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES` and `SW_HIDE`. This transform is
+deliberately independent of generated `types-<hash>.js` names, which differ
+between platform-specific dependency closures. The staged-artifact AST audit
+then rejects any direct or restricted launch site that remains visible.
 
 `tabs-details-layout.patch` is pinned to the same Harness commit. It:
 

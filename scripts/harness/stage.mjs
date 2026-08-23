@@ -48,6 +48,7 @@ import {
   verifyHarnessRuntimePatchesApplied,
 } from "./runtime-patches.mjs";
 import {
+  hardenHarnessWindowsRestrictedLaunches,
   verifyHarnessRuntimeProcessPolicy,
 } from "./runtime-process-policy.mjs";
 
@@ -1015,6 +1016,17 @@ async function main() {
     );
     await materializeSymlinks(candidateRuntimeRoot);
     await applyHarnessRuntimePatches(candidateRuntimeRoot, runtimePatches);
+    const processHardening =
+      await hardenHarnessWindowsRestrictedLaunches(candidateRuntimeRoot);
+    console.log(
+      `Hardened ${String(
+        processHardening.changedLaunches,
+      )}/${String(
+        processHardening.launches,
+      )} restricted Windows launch sites across ${String(
+        processHardening.files,
+      )} deployed bundle(s)`,
+    );
     await writeFileAtomic(
       join(candidateRuntimeRoot, "index.mjs"),
       runtimeEntrySource(contract.packageName),

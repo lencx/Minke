@@ -16,6 +16,7 @@ import {
   verifyHarnessRuntimePatchesApplied,
 } from "../scripts/harness/runtime-patches.mjs";
 import {
+  hardenHarnessWindowsRestrictedLaunches,
   inspectHarnessRuntimeProcessPolicy,
   verifyHarnessRuntimeProcessPolicy,
 } from "../scripts/harness/runtime-process-policy.mjs";
@@ -152,8 +153,25 @@ test("Harness runtime patch declarations are unique and convention-bound", async
   });
 });
 
+test("the background-process patch does not pin generated ACL bundle hashes", async () => {
+  const source = await readFile(
+    join(
+      repositoryRoot,
+      "patches",
+      "deepseek-harness",
+      "windows-background-processes.patch",
+    ),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    source,
+    /dsh-sandbox-windows-acl\/lib\/types-/u,
+  );
+});
+
 async function withProcessPolicyFixture(
   {
+    aclBundles,
     launchExtension = ".js",
     launchSource,
     startupFlags = 0x101,
@@ -172,23 +190,38 @@ async function withProcessPolicyFixture(
     "lib",
     `index${launchExtension}`,
   );
-  const aclPath = join(
+  const aclRoot = join(
     runtimeRoot,
     "node_modules",
     "@deepseek-ai",
     "dsh-sandbox-windows-acl",
     "lib",
-    "index.js",
   );
   await mkdir(dirname(launchPath), { recursive: true });
-  await mkdir(dirname(aclPath), { recursive: true });
+  await mkdir(aclRoot, { recursive: true });
   await writeFile(launchPath, launchSource);
-  await writeFile(
-    aclPath,
-    `function restricted(api, token, startupInfo, processInfo) {
+  const bundles = aclBundles ?? [
+    {
+      name: "index.js",
+      showWindow,
+      startupFlags,
+    },
+  ];
+  const aclPaths = [];
+  for (const [index, bundle] of bundles.entries()) {
+    const aclPath = join(aclRoot, bundle.name);
+    const showWindowField =
+      bundle.showWindow === undefined
+        ? ""
+        : `    wShowWindow: ${String(bundle.showWindow)},\n`;
+    await writeFile(
+      aclPath,
+      `function restricted${String(index)}(api, token, startupInfo, processInfo) {
   encodeStartupInfo(startupInfo, {
-    dwFlags: ${String(startupFlags)},
-    wShowWindow: ${String(showWindow)},
+    dwFlags: ${String(bundle.startupFlags)},
+${showWindowField}    hStdInput: null,
+    hStdOutput: null,
+    hStdError: null,
   });
   return api.createProcessAsUserW(
     token, null, "probe.exe", null, null, 1, 0, null, null,
@@ -196,9 +229,11 @@ async function withProcessPolicyFixture(
   );
 }
 `,
-  );
+    );
+    aclPaths.push(aclPath);
+  }
   try {
-    await callback(runtimeRoot);
+    await callback(runtimeRoot, aclPaths);
   } finally {
     await rm(runtimeRoot, { recursive: true, force: true });
   }
@@ -251,6 +286,94 @@ spawnSync("probe.exe", [], { windowsHide: true });
       await assert.rejects(
         verifyHarnessRuntimeProcessPolicy(runtimeRoot),
         /STARTF_USESHOWWINDOW.*SW_HIDE/u,
+      );
+    },
+  );
+});
+
+test("restricted launch hardening discovers one or multiple hashed ACL bundles", async () => {
+  for (const bundleNames of [
+    ["types-WindowsHash.js"],
+    ["types-DarwinHashA.js", "types-DarwinHashB.js"],
+  ]) {
+    await withProcessPolicyFixture(
+      {
+        aclBundles: bundleNames.map((name) => ({
+          name,
+          showWindow: undefined,
+          startupFlags: 0x100,
+        })),
+        launchSource: `import { spawn } from "node:child_process";
+spawn("probe.exe", [], { stdio: "ignore", windowsHide: true });
+`,
+      },
+      async (runtimeRoot, aclPaths) => {
+        const first =
+          await hardenHarnessWindowsRestrictedLaunches(runtimeRoot);
+        assert.deepEqual(first, {
+          changedLaunches: bundleNames.length,
+          files: bundleNames.length,
+          launches: bundleNames.length,
+        });
+        for (const aclPath of aclPaths) {
+          const source = normalizeLineEndings(
+            await readFile(aclPath, "utf8"),
+          );
+          assert.match(source, /dwFlags: 257,/u);
+          assert.match(source, /wShowWindow: 0,/u);
+        }
+        await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+
+        const second =
+          await hardenHarnessWindowsRestrictedLaunches(runtimeRoot);
+        assert.equal(second.changedLaunches, 0);
+      },
+    );
+  }
+});
+
+test("restricted launch hardening rejects drift before changing any bundle", async () => {
+  await withProcessPolicyFixture(
+    {
+      aclBundles: [
+        {
+          name: "types-A-valid.js",
+          showWindow: undefined,
+          startupFlags: 0x100,
+        },
+        {
+          name: "types-Z-drifted.js",
+          showWindow: undefined,
+          startupFlags: "flags",
+        },
+      ],
+      launchSource: `const { spawnSync } = require("child_process");
+spawnSync("probe.exe", [], { windowsHide: true });
+`,
+    },
+    async (runtimeRoot, [validPath]) => {
+      const before = await readFile(validPath, "utf8");
+      await assert.rejects(
+        hardenHarnessWindowsRestrictedLaunches(runtimeRoot),
+        /dwFlags must statically include STARTF_USESTDHANDLES/u,
+      );
+      assert.equal(await readFile(validPath, "utf8"), before);
+    },
+  );
+});
+
+test("restricted launch hardening rejects a runtime with no ACL launch sites", async () => {
+  await withProcessPolicyFixture(
+    {
+      aclBundles: [],
+      launchSource: `import { spawn } from "node:child_process";
+spawn("probe.exe", [], { windowsHide: true });
+`,
+    },
+    async (runtimeRoot) => {
+      await assert.rejects(
+        hardenHarnessWindowsRestrictedLaunches(runtimeRoot),
+        /has no CreateProcessAsUserW launch sites/u,
       );
     },
   );
