@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import {
   mkdtemp,
-  readFile,
   rm,
   stat,
 } from "node:fs/promises";
@@ -9,11 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { configureAppDataPaths } from "@minke/desktop/main/app-data-paths.ts";
-
-const desktopMainSource = await readFile(
-  new URL("../desktop/main/main.ts", import.meta.url),
-  "utf8",
-);
+import {
+  prepareDesktopApplication,
+} from "@minke/desktop/main/application-entry.ts";
 
 test("desktop data and browser session data share ~/.minke", async () => {
   const homePath = await mkdtemp(join(tmpdir(), "minke-app-data-"));
@@ -40,16 +37,62 @@ test("desktop data and browser session data share ~/.minke", async () => {
   }
 });
 
-test("desktop configures its data paths before Electron acquires state", () => {
-  const configureIndex = desktopMainSource.indexOf(
-    "configureAppDataPaths(app);",
-  );
-  const singleInstanceIndex = desktopMainSource.indexOf(
-    "app.requestSingleInstanceLock()",
-  );
-  const readyIndex = desktopMainSource.indexOf("await app.whenReady()");
+test("desktop configures data paths before claiming the process", async () => {
+  const homePath = await mkdtemp(join(tmpdir(), "minke-entry-"));
+  const calls = [];
+  try {
+    assert.equal(
+      prepareDesktopApplication({
+        setName(name) {
+          calls.push(["name", name]);
+        },
+        getPath(name) {
+          calls.push(["getPath", name]);
+          return homePath;
+        },
+        setPath(name, path) {
+          calls.push(["setPath", name, path]);
+        },
+        requestSingleInstanceLock() {
+          calls.push(["lock"]);
+          return true;
+        },
+        quit() {
+          calls.push(["quit"]);
+        },
+      }),
+      true,
+    );
+    assert.deepEqual(calls, [
+      ["name", "Minke"],
+      ["getPath", "home"],
+      ["setPath", "userData", join(homePath, ".minke")],
+      ["setPath", "sessionData", join(homePath, ".minke")],
+      ["lock"],
+    ]);
+  } finally {
+    await rm(homePath, { recursive: true, force: true });
+  }
+});
 
-  assert.notEqual(configureIndex, -1);
-  assert.ok(configureIndex < singleInstanceIndex);
-  assert.ok(configureIndex < readyIndex);
+test("a duplicate desktop process yields the single-instance claim", async () => {
+  const homePath = await mkdtemp(join(tmpdir(), "minke-entry-"));
+  let quitCalls = 0;
+  try {
+    assert.equal(
+      prepareDesktopApplication({
+        setName() {},
+        getPath: () => homePath,
+        setPath() {},
+        requestSingleInstanceLock: () => false,
+        quit() {
+          quitCalls += 1;
+        },
+      }),
+      false,
+    );
+    assert.equal(quitCalls, 1);
+  } finally {
+    await rm(homePath, { recursive: true, force: true });
+  }
 });

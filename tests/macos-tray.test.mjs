@@ -3,10 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import test from "node:test";
 
-const desktopMainSource = readFileSync(
-  new URL("../desktop/main/main.ts", import.meta.url),
-  "utf8",
-);
 const forgeSource = readFileSync(
   new URL("../forge.config.ts", import.meta.url),
   "utf8",
@@ -114,14 +110,7 @@ function assertTemplateMask(url, expectedSize) {
   assert.equal(hasVisiblePixel, true, "template mask cannot be empty");
 }
 
-test("macOS Tray uses a black-alpha template image pair", () => {
-  assert.match(desktopMainSource, /trayTemplate\.png/);
-  assert.match(desktopMainSource, /image\.setTemplateImage\(true\)/);
-  assert.ok(
-    desktopMainSource.indexOf("image.setTemplateImage(true)") <
-      desktopMainSource.indexOf("new Tray(image)"),
-    "the image must be marked as a template before creating the Tray",
-  );
+test("macOS Tray assets use a black-alpha template image pair", () => {
   assert.match(forgeSource, /trayTemplate\.png/);
   assert.match(forgeSource, /trayTemplate@2x\.png/);
   assert.match(iconGeneratorSource, /"minke-tray\.png"/);

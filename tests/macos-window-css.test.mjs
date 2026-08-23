@@ -13,10 +13,16 @@ const macOSWindowControlsSource = readFileSync(
   new URL("../desktop/main/macos-window-controls.ts", import.meta.url),
   "utf8",
 );
-const desktopMainSource = readFileSync(
-  new URL("../desktop/main/main.ts", import.meta.url),
+const mainWindowSource = readFileSync(
+  new URL("../desktop/main/main-window.ts", import.meta.url),
   "utf8",
 );
+const applicationSource = readFileSync(
+  new URL("../desktop/main/application.ts", import.meta.url),
+  "utf8",
+);
+const desktopMainSource =
+  `${mainWindowSource}\n${applicationSource}`;
 const forgeSource = readFileSync(
   new URL("../forge.config.ts", import.meta.url),
   "utf8",
@@ -152,8 +158,12 @@ test("Electron loads only the native surface bootstrap at document start", () =>
     /session\.defaultSession\.extensions\.loadExtension/,
   );
   assert.ok(
-    desktopMainSource.indexOf("await installMacOSSurfaceBootstrap();") <
-      desktopMainSource.indexOf("installPermissionPolicy();"),
+    applicationSource.indexOf(
+      "await windows.installSurfaceBootstrap();",
+    ) <
+      applicationSource.indexOf(
+        "windows.installPermissionPolicy();",
+      ),
     "the native bootstrap must load before the first Harness document",
   );
   assert.match(forgeSource, /resources", "desktop-style-extension"/);
@@ -442,7 +452,7 @@ test("the native titlebar hides only the expanded web brand", () => {
   );
   assert.match(
     desktopMainSource,
-    /bindMacOSWindowButtonSpacing\(window/,
+    /bindMacOSWindowButtonSpacing\(\s*window/,
   );
   assert.equal(Number(sidebarWidth[1]), 56);
   assert.ok(titlebarRule, "titlebar anchor rule must remain present");

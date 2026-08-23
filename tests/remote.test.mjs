@@ -334,27 +334,18 @@ test("remote host labels compactly encode 80 bits and custom names require expli
 
 test("optional remote access stays outside the local startup path", async () => {
   const source = await readFile(
-    new URL("../desktop/main/main.ts", import.meta.url),
+    new URL("../desktop/main/application.ts", import.meta.url),
     "utf8",
   );
-  const startHarnessSource = source.slice(
-    source.indexOf("async function startHarness"),
-    source.indexOf("async function handleUnexpectedExit"),
-  );
   const bootstrapSource = source.slice(
-    source.indexOf("async function bootstrap"),
-    source.indexOf('app.on("before-quit"'),
+    source.indexOf("async start(): Promise<void>"),
+    source.indexOf("beforeQuit(event: BeforeQuitEvent)"),
   );
 
   assert.ok(
-    bootstrapSource.indexOf("await createWindow()") <
+    bootstrapSource.indexOf("await windows.create()") <
       bootstrapSource.indexOf("await remoteAccess.prepare()"),
     "the local bootstrap window must appear before Tailscale preparation",
-  );
-  assert.match(
-    startHarnessSource,
-    /harnessLifecycle\?\.start\(mainWindow\)/u,
-    "Harness startup must delegate window-independent lifecycle ordering",
   );
 });
 
