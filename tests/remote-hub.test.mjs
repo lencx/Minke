@@ -30,6 +30,9 @@ import {
   BotCapabilityRuntime,
 } from "@minke/desktop/main/remote-hub/bot-runtime.ts";
 import {
+  createGatewayMailboxRecovery,
+} from "@minke/desktop/main/remote-hub/mailbox-recovery.ts";
+import {
   RemoteHubCapabilityRuntime,
 } from "@minke/desktop/main/remote-hub/runtime.ts";
 import {
@@ -317,7 +320,40 @@ function abortableWait(signal) {
   });
 }
 
-function stalledBotPoll({ signal }) {
+function deferred() {
+  let resolvePromise;
+  let rejectPromise;
+  const promise = new Promise((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  return {
+    promise,
+    reject: rejectPromise,
+    resolve: resolvePromise,
+  };
+}
+
+function assertFailClosedIngressPolicy(ingressPolicy) {
+  assert.equal(typeof ingressPolicy, "function");
+  assert.equal(
+    ingressPolicy({
+      account: {},
+      event: { kind: "user-message" },
+    }),
+    false,
+  );
+  assert.equal(
+    ingressPolicy({
+      account: {},
+      event: { kind: "bot-echo" },
+    }),
+    true,
+  );
+}
+
+function stalledBotPoll({ ingressPolicy, signal }) {
+  assertFailClosedIngressPolicy(ingressPolicy);
   return new Promise((resolvePromise) => {
     if (signal.aborted) {
       resolvePromise();
@@ -329,6 +365,149 @@ function stalledBotPoll({ signal }) {
       { once: true },
     );
   });
+}
+
+function transactionalBotHarness(options = {}) {
+  const state = {
+    deletes: 0,
+    mailboxes: [],
+    providers: [],
+    stored: options.stored,
+    writes: [],
+  };
+  const cipher = {
+    open(value) {
+      return value;
+    },
+    seal(value) {
+      return value;
+    },
+  };
+  const runtime = new BotCapabilityRuntime({
+    mailboxPath: "/tmp/minke-transactional-bot-test.sqlite",
+    vault: {
+      available: true,
+      async readBot() {
+        return state.stored;
+      },
+      async writeBot(_provider, value) {
+        state.writes.push(value);
+        if (options.writeBot !== undefined) {
+          await options.writeBot(value, state);
+          return;
+        }
+        state.stored = value;
+      },
+      async deleteBot() {
+        state.deletes += 1;
+        if (options.deleteBot !== undefined) {
+          await options.deleteBot(state);
+          return;
+        }
+        state.stored = undefined;
+      },
+      gatewayCipher() {
+        return cipher;
+      },
+    },
+    driver: {
+      provider: "telegram",
+      candidateHealthIssue(provider) {
+        return options.candidateHealthIssue?.(
+          provider,
+          state,
+        );
+      },
+      async validate(token) {
+        if (options.validate !== undefined) {
+          return await options.validate(token);
+        }
+        return {
+          id: "transactional-bot-id",
+          label: `@${token.slice(0, 8)}`,
+        };
+      },
+      identityId(identity) {
+        return identity.id;
+      },
+      identityLabel(identity) {
+        return identity.label;
+      },
+      isAborted(_error, signal) {
+        return signal.aborted;
+      },
+      issue(error) {
+        return error?.code ?? "transport-start";
+      },
+      async createProvider(input) {
+        const record = {
+          closes: 0,
+          input,
+          provider: undefined,
+          starts: 0,
+        };
+        state.providers.push(record);
+        const provider = {
+          account: {
+            accountKey: input.accountKey,
+            generation: input.generation,
+            provider: "telegram",
+            providerAccountId: input.identity.id,
+            requiresDeliveryContext: false,
+          },
+          async start() {
+            record.starts += 1;
+            await options.startProvider?.(input, record);
+          },
+          async close() {
+            record.closes += 1;
+          },
+          async receive() {
+            throw new Error("injected poll owns receive");
+          },
+          async prepare() {
+            throw new Error("not exercised");
+          },
+          async deliver() {
+            throw new Error("not exercised");
+          },
+        };
+        record.provider = provider;
+        return provider;
+      },
+    },
+    createMailbox() {
+      const mailbox = {
+        accounts: [],
+        closes: 0,
+        recoveries: 0,
+        removals: 0,
+        close() {
+          this.closes += 1;
+        },
+        getAccountGeneration() {
+          return options.durableGeneration;
+        },
+        recover() {
+          this.recoveries += 1;
+          options.recoverMailbox?.(this);
+        },
+        registerAccount(account) {
+          options.registerAccount?.(account, this);
+          this.accounts.push(account);
+        },
+        removeProviderAccounts() {
+          this.removals += 1;
+          return 1;
+        },
+      };
+      state.mailboxes.push(mailbox);
+      return mailbox;
+    },
+    pollProviderOnce:
+      options.pollProviderOnce ?? stalledBotPoll,
+  });
+  return { runtime, state };
 }
 
 test("token bot runtime validates before persistence and fences generations", async () => {
@@ -649,6 +828,645 @@ test("an invalid replacement token leaves the active bot provider running", asyn
   assert.equal(closes, 1);
 });
 
+test("a failed reconnect leaves the stored provider running", async () => {
+  const token = "123456789:active-private-token-value";
+  let validations = 0;
+  const { runtime, state } = transactionalBotHarness({
+    stored: {
+      accountId: "transactional-bot-id",
+      accountLabel: "@active_bot",
+      generation: 1,
+      token,
+    },
+    async validate() {
+      validations += 1;
+      if (validations > 1) {
+        throw { code: "credential-invalid" };
+      }
+      return {
+        id: "transactional-bot-id",
+        label: "@active_bot",
+      };
+    },
+  });
+
+  await runtime.initialize();
+  const active = state.providers[0];
+  await runtime.reconnect();
+
+  assert.equal(active.closes, 0);
+  assert.equal(state.providers.length, 1);
+  assert.equal(state.stored.token, token);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "credential-invalid",
+  });
+  await runtime.dispose();
+  assert.equal(active.closes, 1);
+});
+
+test("a replacement provider must reach READY before its credential commits", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const replacementToken =
+    "123456789:replacement-private-token-value";
+  const previous = {
+    accountId: "transactional-bot-id",
+    accountLabel: "@active_bot",
+    generation: 1,
+    token: oldToken,
+  };
+  const { runtime, state } = transactionalBotHarness({
+    stored: previous,
+    async startProvider(input) {
+      if (input.token === replacementToken) {
+        throw { code: "privileged-intent" };
+      }
+    },
+  });
+
+  await runtime.initialize();
+  const active = state.providers[0];
+  await runtime.connect(replacementToken);
+
+  assert.deepEqual(state.stored, previous);
+  assert.equal(state.writes.length, 0);
+  assert.equal(active.closes, 0);
+  assert.equal(state.providers[1].closes, 1);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "privileged-intent",
+  });
+
+  await runtime.dispose();
+  assert.equal(active.closes, 1);
+});
+
+test("a failed credential commit rolls back and keeps the active provider", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const replacementToken =
+    "123456789:replacement-private-token-value";
+  const previous = {
+    accountId: "transactional-bot-id",
+    accountLabel: "@active_bot",
+    generation: 1,
+    token: oldToken,
+  };
+  let rejectCandidate = true;
+  const { runtime, state } = transactionalBotHarness({
+    stored: previous,
+    async writeBot(value, current) {
+      current.stored = value;
+      if (
+        value.token === replacementToken &&
+        rejectCandidate
+      ) {
+        rejectCandidate = false;
+        throw new Error("credential commit failed");
+      }
+    },
+  });
+
+  await runtime.initialize();
+  const active = state.providers[0];
+  await runtime.connect(replacementToken);
+
+  assert.deepEqual(state.stored, previous);
+  assert.deepEqual(
+    state.writes.map((value) => value.token),
+    [replacementToken, oldToken],
+  );
+  assert.equal(active.closes, 0);
+  assert.equal(state.providers[1].closes, 1);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "credential-store",
+  });
+  await runtime.dispose();
+});
+
+test("a mailbox registration failure rolls back the credential and keeps the active provider", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const replacementToken =
+    "123456789:replacement-private-token-value";
+  const previous = {
+    accountId: "transactional-bot-id",
+    accountLabel: "@active_bot",
+    generation: 1,
+    token: oldToken,
+  };
+  const { runtime, state } = transactionalBotHarness({
+    stored: previous,
+    registerAccount(account) {
+      if (account.generation > previous.generation) {
+        throw new Error("mailbox registration failed");
+      }
+    },
+  });
+
+  await runtime.initialize();
+  const active = state.providers[0];
+  await runtime.connect(replacementToken);
+
+  assert.deepEqual(state.stored, previous);
+  assert.deepEqual(
+    state.writes.map((value) => value.token),
+    [replacementToken, oldToken],
+  );
+  assert.equal(active.closes, 0);
+  assert.equal(state.providers[1].closes, 1);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "gateway-store",
+  });
+  await runtime.dispose();
+});
+
+test("a candidate that turns fatal during credential commit cannot replace the active provider", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const replacementToken =
+    "123456789:replacement-private-token-value";
+  const previous = {
+    accountId: "transactional-bot-id",
+    accountLabel: "@active_bot",
+    generation: 1,
+    token: oldToken,
+  };
+  const writeStarted = deferred();
+  const releaseWrite = deferred();
+  const { runtime, state } = transactionalBotHarness({
+    stored: previous,
+    candidateHealthIssue(provider, current) {
+      return current.providers.find(
+        (record) => record.provider === provider,
+      )?.healthIssue;
+    },
+    async writeBot(value, current) {
+      current.stored = value;
+      if (value.token === replacementToken) {
+        writeStarted.resolve();
+        await releaseWrite.promise;
+      }
+    },
+  });
+
+  await runtime.initialize();
+  const active = state.providers[0];
+  const connecting = runtime.connect(replacementToken);
+  await writeStarted.promise;
+  state.providers[1].healthIssue = "transport-fatal";
+  releaseWrite.resolve();
+  await connecting;
+
+  assert.deepEqual(state.stored, previous);
+  assert.equal(active.closes, 0);
+  assert.equal(state.providers[1].closes, 1);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "transport-fatal",
+  });
+  await runtime.dispose();
+});
+
+test("a committed candidate that turns fatal during handoff never starts receiving", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const replacementToken =
+    "123456789:replacement-private-token-value";
+  const oldAborted = deferred();
+  const releaseOldPoll = deferred();
+  let candidatePolls = 0;
+  const { runtime, state } = transactionalBotHarness({
+    stored: {
+      accountId: "transactional-bot-id",
+      accountLabel: "@active_bot",
+      generation: 1,
+      token: oldToken,
+    },
+    candidateHealthIssue(provider, current) {
+      return current.providers.find(
+        (record) => record.provider === provider,
+      )?.healthIssue;
+    },
+    async pollProviderOnce({ provider, signal }) {
+      if (provider === state.providers[0]?.provider) {
+        await new Promise((resolvePromise) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              oldAborted.resolve();
+              resolvePromise();
+            },
+            { once: true },
+          );
+        });
+        await releaseOldPoll.promise;
+        return;
+      }
+      candidatePolls += 1;
+      await abortableWait(signal);
+    },
+  });
+
+  await runtime.initialize();
+  const connecting = runtime.connect(replacementToken);
+  await oldAborted.promise;
+  state.providers[1].healthIssue = "transport-fatal";
+  releaseOldPoll.resolve();
+  await connecting;
+
+  assert.equal(candidatePolls, 0);
+  assert.equal(state.providers[0].closes, 1);
+  assert.equal(state.providers[1].closes, 1);
+  assert.equal(state.stored.token, replacementToken);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "transport-fatal",
+  });
+  await runtime.dispose();
+});
+
+test("replacement waits for the prior receive owner before polling", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const replacementToken =
+    "123456789:replacement-private-token-value";
+  const previous = {
+    accountId: "transactional-bot-id",
+    accountLabel: "@active_bot",
+    generation: 1,
+    token: oldToken,
+  };
+  const candidatePolling = deferred();
+  let oldPolling = false;
+  const { runtime, state } = transactionalBotHarness({
+    stored: previous,
+    async pollProviderOnce({
+      ingressPolicy,
+      provider,
+      signal,
+    }) {
+      assertFailClosedIngressPolicy(ingressPolicy);
+      if (provider.account.generation === 1) {
+        oldPolling = true;
+        await new Promise((resolvePromise) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              oldPolling = false;
+              resolvePromise();
+            },
+            { once: true },
+          );
+        });
+        return;
+      }
+      assert.equal(oldPolling, false);
+      candidatePolling.resolve();
+      await new Promise((resolvePromise) => {
+        signal.addEventListener(
+          "abort",
+          resolvePromise,
+          { once: true },
+        );
+      });
+    },
+  });
+
+  await runtime.initialize();
+  assert.equal(oldPolling, true);
+  await runtime.connect(replacementToken);
+  await candidatePolling.promise;
+
+  assert.equal(state.stored.token, replacementToken);
+  assert.equal(state.providers[0].closes, 1);
+  assert.equal(state.providers[1].closes, 0);
+  await runtime.dispose();
+});
+
+test("a new connection waits for every detached receive owner to drain", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const replacementToken =
+    "123456789:replacement-private-token-value";
+  const oldAborted = deferred();
+  const releaseOldPoll = deferred();
+  let candidatePolling = false;
+  const { runtime, state } = transactionalBotHarness({
+    stored: {
+      accountId: "transactional-bot-id",
+      accountLabel: "@active_bot",
+      generation: 1,
+      token: oldToken,
+    },
+    async pollProviderOnce({
+      ingressPolicy,
+      provider,
+      signal,
+    }) {
+      assertFailClosedIngressPolicy(ingressPolicy);
+      if (provider === state.providers[0]?.provider) {
+        await new Promise((resolvePromise) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              oldAborted.resolve();
+              resolvePromise();
+            },
+            { once: true },
+          );
+        });
+        await releaseOldPoll.promise;
+        return;
+      }
+      candidatePolling = true;
+      await new Promise((resolvePromise) => {
+        signal.addEventListener(
+          "abort",
+          resolvePromise,
+          { once: true },
+        );
+      });
+    },
+  });
+
+  await runtime.initialize();
+  const unlinking = runtime.unlink();
+  await oldAborted.promise;
+  const connecting = runtime.connect(replacementToken);
+  await new Promise((resolvePromise) => {
+    setImmediate(resolvePromise);
+  });
+  assert.equal(candidatePolling, false);
+
+  releaseOldPoll.resolve();
+  await Promise.all([unlinking, connecting]);
+  assert.equal(candidatePolling, true);
+  await runtime.dispose();
+});
+
+test("unlink fences and removes a delayed candidate credential write", async () => {
+  const writeStarted = deferred();
+  const releaseWrite = deferred();
+  let delayed = true;
+  const { runtime, state } = transactionalBotHarness({
+    async writeBot(value, current) {
+      if (delayed) {
+        delayed = false;
+        writeStarted.resolve();
+        await releaseWrite.promise;
+      }
+      current.stored = value;
+    },
+  });
+  const token =
+    "123456789:first-private-token-value";
+
+  const connecting = runtime.connect(token);
+  await writeStarted.promise;
+  const unlinking = runtime.unlink();
+  releaseWrite.resolve();
+  await Promise.all([connecting, unlinking]);
+
+  assert.equal(state.stored, undefined);
+  assert.equal(state.providers.length, 1);
+  assert.equal(state.providers[0].closes, 1);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "unlinked",
+  });
+  await runtime.dispose();
+});
+
+test("a failed newer connect preempts unlink without killing the restored provider", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const invalidToken =
+    "123456789:invalid-private-token-value";
+  const previous = {
+    accountId: "transactional-bot-id",
+    accountLabel: "@active_bot",
+    generation: 1,
+    token: oldToken,
+  };
+  const deleteStarted = deferred();
+  const releaseDelete = deferred();
+  let delayed = true;
+  const { runtime, state } = transactionalBotHarness({
+    stored: previous,
+    async deleteBot(current) {
+      if (delayed) {
+        delayed = false;
+        deleteStarted.resolve();
+        await releaseDelete.promise;
+      }
+      current.stored = undefined;
+    },
+    async validate(token) {
+      if (token === invalidToken) {
+        throw { code: "credential-invalid" };
+      }
+      return {
+        id: "transactional-bot-id",
+        label: "@active_bot",
+      };
+    },
+  });
+
+  await runtime.initialize();
+  const unlinking = runtime.unlink();
+  await deleteStarted.promise;
+  const connecting = runtime.connect(invalidToken);
+  releaseDelete.resolve();
+  await Promise.all([unlinking, connecting]);
+
+  assert.deepEqual(state.stored, previous);
+  assert.equal(state.providers.length, 1);
+  assert.equal(state.providers[0].closes, 0);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "credential-invalid",
+  });
+  await runtime.dispose();
+});
+
+test("a newer connect cannot be overwritten by a delayed stale write", async () => {
+  const writeStarted = deferred();
+  const releaseWrite = deferred();
+  let delayed = true;
+  const { runtime, state } = transactionalBotHarness({
+    async writeBot(value, current) {
+      if (delayed) {
+        delayed = false;
+        writeStarted.resolve();
+        await releaseWrite.promise;
+      }
+      current.stored = value;
+    },
+  });
+  const firstToken =
+    "123456789:first-private-token-value";
+  const secondToken =
+    "123456789:second-private-token-value";
+
+  const firstConnect = runtime.connect(firstToken);
+  await writeStarted.promise;
+  const secondConnect = runtime.connect(secondToken);
+  releaseWrite.resolve();
+  await Promise.all([firstConnect, secondConnect]);
+
+  assert.equal(state.stored.token, secondToken);
+  assert.equal(state.providers.length, 2);
+  assert.equal(state.providers[0].closes, 1);
+  assert.equal(state.providers[1].closes, 0);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "degraded",
+    accountLabel: `@${secondToken.slice(0, 8)}`,
+    issue: "agent-route-pending",
+  });
+  await runtime.dispose();
+});
+
+test("a failed newer connect does not revive a delayed stale credential", async () => {
+  const writeStarted = deferred();
+  const releaseWrite = deferred();
+  let delayed = true;
+  const firstToken =
+    "123456789:first-private-token-value";
+  const secondToken =
+    "123456789:second-private-token-value";
+  const { runtime, state } = transactionalBotHarness({
+    async writeBot(value, current) {
+      if (delayed) {
+        delayed = false;
+        writeStarted.resolve();
+        await releaseWrite.promise;
+      }
+      current.stored = value;
+    },
+    async startProvider(input) {
+      if (input.token === secondToken) {
+        throw { code: "network" };
+      }
+    },
+  });
+
+  const firstConnect = runtime.connect(firstToken);
+  await writeStarted.promise;
+  const secondConnect = runtime.connect(secondToken);
+  releaseWrite.resolve();
+  await Promise.all([firstConnect, secondConnect]);
+
+  assert.equal(state.stored, undefined);
+  assert.equal(state.providers[0].closes, 1);
+  assert.equal(state.providers[1].closes, 1);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "network",
+  });
+  await runtime.dispose();
+});
+
+test("a newer connect fences reset before it removes the durable account", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const replacementToken =
+    "123456789:replacement-private-token-value";
+  const deleteStarted = deferred();
+  const releaseDelete = deferred();
+  let delayed = true;
+  const { runtime, state } = transactionalBotHarness({
+    stored: {
+      accountId: "transactional-bot-id",
+      accountLabel: "@active_bot",
+      generation: 1,
+      token: oldToken,
+    },
+    async deleteBot(current) {
+      if (delayed) {
+        delayed = false;
+        deleteStarted.resolve();
+        await releaseDelete.promise;
+      }
+      current.stored = undefined;
+    },
+  });
+
+  await runtime.initialize();
+  const resetting = runtime.resetLocal();
+  await deleteStarted.promise;
+  const connecting = runtime.connect(replacementToken);
+  releaseDelete.resolve();
+  await Promise.all([resetting, connecting]);
+
+  assert.equal(state.stored.token, replacementToken);
+  assert.equal(
+    state.mailboxes.reduce(
+      (count, mailbox) => count + mailbox.removals,
+      0,
+    ),
+    0,
+  );
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "degraded",
+    accountLabel: `@${replacementToken.slice(0, 8)}`,
+    issue: "agent-route-pending",
+  });
+  await runtime.dispose();
+});
+
+test("dispose waits for and rolls back an in-flight credential write", async () => {
+  const writeStarted = deferred();
+  const releaseWrite = deferred();
+  const { runtime, state } = transactionalBotHarness({
+    async writeBot(value, current) {
+      writeStarted.resolve();
+      await releaseWrite.promise;
+      current.stored = value;
+    },
+  });
+  const connecting = runtime.connect(
+    "123456789:first-private-token-value",
+  );
+  await writeStarted.promise;
+  let disposed = false;
+  const disposing = runtime.dispose().then(() => {
+    disposed = true;
+  });
+  await new Promise((resolvePromise) => {
+    setImmediate(resolvePromise);
+  });
+  assert.equal(disposed, false);
+
+  releaseWrite.resolve();
+  await Promise.all([connecting, disposing]);
+  assert.equal(state.stored, undefined);
+  assert.equal(disposed, true);
+});
+
+test("mailbox recovery runs once across bot reconnects by default", async () => {
+  const stored = {
+    accountId: "transactional-bot-id",
+    accountLabel: "@active_bot",
+    generation: 1,
+    token: "123456789:old-private-token-value",
+  };
+  let recoveries = 0;
+  const { runtime } = transactionalBotHarness({
+    stored,
+    recoverMailbox() {
+      recoveries += 1;
+    },
+  });
+
+  await runtime.initialize();
+  await runtime.reconnect();
+  assert.equal(recoveries, 1);
+  await runtime.dispose();
+});
+
 async function assertTerminalBotReceiveIssue(issue) {
   const stored = {
     accountId: "bot-id",
@@ -784,6 +1602,7 @@ async function assertTerminalBotReceiveIssue(issue) {
 test("terminal bot receive failures stop instead of entering the generic retry loop", async () => {
   await assertTerminalBotReceiveIssue("polling-conflict");
   await assertTerminalBotReceiveIssue("privileged-intent");
+  await assertTerminalBotReceiveIssue("transport-fatal");
 });
 
 function botRuntimeStub(initial) {
@@ -971,6 +1790,124 @@ test("one stalled bot cannot block another channel or its own unlink", async () 
   await runtime.dispose();
 });
 
+test("Gateway reset is exclusive while ordinary channel commands remain concurrent", async () => {
+  const telegram = botRuntimeStub({ state: "unlinked" });
+  const discord = botRuntimeStub({
+    state: "error",
+    issue: "gateway-store",
+  });
+  const weixin = weixinRuntimeStub({ state: "unlinked" });
+  const resetStarted = deferred();
+  const releaseReset = deferred();
+  const recoverMailbox = createGatewayMailboxRecovery();
+  const recoveryFailure = new Error("stale recovery epoch");
+  let recoveryAttempts = 0;
+  assert.throws(
+    () =>
+      recoverMailbox({
+        recover() {
+          recoveryAttempts += 1;
+          throw recoveryFailure;
+        },
+      }),
+    recoveryFailure,
+  );
+  const dispatchWeixin = weixin.dispatch;
+  weixin.dispatch = async (command) => {
+    if (command.kind === "gateway/reset-local") {
+      resetStarted.resolve();
+      await releaseReset.promise;
+    }
+    return await dispatchWeixin(command);
+  };
+  const runtime = new RemoteHubCapabilityRuntime({
+    dataHome: "/tmp/minke-exclusive-gateway-reset-test",
+    vault: {},
+    weixin,
+    telegram,
+    discord,
+    recoverMailbox,
+  });
+
+  const resetting = runtime.dispatch({
+    kind: "gateway/reset-local",
+  });
+  await resetStarted.promise;
+  const connecting = runtime.dispatch({
+    kind: "telegram/connect",
+    token: "telegram-private-token-value-123456789",
+  });
+  await new Promise((resolvePromise) => {
+    setImmediate(resolvePromise);
+  });
+  assert.equal(
+    telegram.calls.some(
+      (call) =>
+        Array.isArray(call) &&
+        call[0] === "connect",
+    ),
+    false,
+  );
+
+  releaseReset.resolve();
+  await Promise.all([resetting, connecting]);
+  const reconnectIndex = telegram.calls.indexOf("reconnect");
+  const connectIndex = telegram.calls.findIndex(
+    (call) =>
+      Array.isArray(call) &&
+      call[0] === "connect",
+  );
+  assert.equal(reconnectIndex >= 0, true);
+  assert.equal(connectIndex > reconnectIndex, true);
+  recoverMailbox({
+    recover() {
+      recoveryAttempts += 1;
+    },
+  });
+  assert.equal(recoveryAttempts, 2);
+  await runtime.dispose();
+});
+
+test("shared mailbox recovery can start a fresh epoch after Gateway reset", () => {
+  const recovery = createGatewayMailboxRecovery();
+  const firstFailure = new Error("incompatible mailbox");
+  let recoveries = 0;
+
+  assert.throws(
+    () =>
+      recovery({
+        recover() {
+          recoveries += 1;
+          throw firstFailure;
+        },
+      }),
+    firstFailure,
+  );
+  assert.throws(
+    () =>
+      recovery({
+        recover() {
+          recoveries += 1;
+        },
+      }),
+    firstFailure,
+  );
+  assert.equal(recoveries, 1);
+
+  recovery.reset();
+  recovery({
+    recover() {
+      recoveries += 1;
+    },
+  });
+  recovery({
+    recover() {
+      recoveries += 1;
+    },
+  });
+  assert.equal(recoveries, 2);
+});
+
 test("Weixin runtime commits the grant before starting its durable provider", async () => {
   const operations = [];
   let stored;
@@ -1089,8 +2026,8 @@ test("Weixin runtime commits the grant before starting its durable provider", as
             "generation-read",
             "mailbox-close",
             "credential-commit",
-            "register:1",
             "recover",
+            "register:1",
           ]);
           operations.push("provider-start");
         },
@@ -1108,7 +2045,8 @@ test("Weixin runtime commits the grant before starting its durable provider", as
         },
       };
     },
-    async pollProviderOnce({ signal }) {
+    async pollProviderOnce({ ingressPolicy, signal }) {
+      assertFailClosedIngressPolicy(ingressPolicy);
       await new Promise((_, reject) => {
         signal.addEventListener(
           "abort",
@@ -1150,8 +2088,8 @@ test("Weixin runtime commits the grant before starting its durable provider", as
     "generation-read",
     "mailbox-close",
     "credential-commit",
-    "register:1",
     "recover",
+    "register:1",
     "provider-start",
   ]);
   await new Promise((resolvePromise) => {

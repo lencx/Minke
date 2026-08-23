@@ -73,6 +73,7 @@ export type BotHubIssue =
   | "polling-conflict"
   | "privileged-intent"
   | "receive"
+  | "transport-fatal"
   | "transport-start"
   | "vault-unavailable";
 
@@ -426,6 +427,7 @@ function parseBotHubSnapshot(
         "network",
         "polling-conflict",
         "privileged-intent",
+        "transport-fatal",
         "transport-start",
       ] as const;
       if (

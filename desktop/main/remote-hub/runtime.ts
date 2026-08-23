@@ -30,6 +30,10 @@ import {
 import type {
   RemoteHubCredentialVault,
 } from "./credential-vault.ts";
+import {
+  createGatewayMailboxRecovery,
+  type GatewayMailboxRecovery,
+} from "./mailbox-recovery.ts";
 
 interface WeixinRuntimePort {
   dispatch(value: unknown): Promise<RemoteHubSnapshot>;
@@ -50,12 +54,79 @@ interface BotRuntimePort {
   unlink(): Promise<void>;
 }
 
+interface QueuedRemoteHubCommand {
+  readonly exclusive: boolean;
+  readonly reject: (error: unknown) => void;
+  readonly resolve: (snapshot: RemoteHubSnapshot) => void;
+  readonly run: () => Promise<RemoteHubSnapshot>;
+}
+
+class RemoteHubCommandBarrier {
+  readonly #queue: QueuedRemoteHubCommand[] = [];
+  #activeShared = 0;
+  #exclusiveActive = false;
+
+  run(
+    exclusive: boolean,
+    operation: () => Promise<RemoteHubSnapshot>,
+  ): Promise<RemoteHubSnapshot> {
+    return new Promise<RemoteHubSnapshot>((resolve, reject) => {
+      this.#queue.push({
+        exclusive,
+        reject,
+        resolve,
+        run: operation,
+      });
+      this.#drain();
+    });
+  }
+
+  #drain(): void {
+    if (this.#exclusiveActive) return;
+    const first = this.#queue[0];
+    if (first === undefined) return;
+    if (first.exclusive) {
+      if (this.#activeShared !== 0) return;
+      this.#queue.shift();
+      this.#exclusiveActive = true;
+      void this.#execute(first, () => {
+        this.#exclusiveActive = false;
+        this.#drain();
+      });
+      return;
+    }
+    while (this.#queue[0]?.exclusive === false) {
+      const next = this.#queue.shift();
+      if (next === undefined) break;
+      this.#activeShared += 1;
+      void this.#execute(next, () => {
+        this.#activeShared -= 1;
+        this.#drain();
+      });
+    }
+  }
+
+  async #execute(
+    command: QueuedRemoteHubCommand,
+    release: () => void,
+  ): Promise<void> {
+    try {
+      command.resolve(await command.run());
+    } catch (error) {
+      command.reject(error);
+    } finally {
+      release();
+    }
+  }
+}
+
 export interface RemoteHubCapabilityRuntimeOptions {
   readonly dataHome: string;
   readonly vault: RemoteHubCredentialVault;
   readonly weixin?: WeixinRuntimePort;
   readonly telegram?: BotRuntimePort;
   readonly discord?: BotRuntimePort;
+  readonly recoverMailbox?: GatewayMailboxRecovery;
 }
 
 const NETWORK_ERROR_CODES = new Set([
@@ -121,14 +192,24 @@ export function createTelegramBotDriver(): BotProviderDriver<
         if (error.code === "conflict") {
           return "polling-conflict";
         }
+        if (
+          phase === "receive" &&
+          error.effect === "unknown"
+        ) {
+          return "transport-fatal";
+        }
         if (NETWORK_ERROR_CODES.has(error.code)) {
           return "network";
+        }
+        if (phase === "receive") {
+          return "transport-fatal";
         }
       }
       return "transport-start";
     },
     async createProvider(input) {
       const transport = createTelegramTransport({
+        clearWebhookBeforePolling: "on-receive",
         credential: { token: input.token },
       });
       try {
@@ -160,6 +241,15 @@ export function createDiscordBotDriver(): BotProviderDriver<
 > {
   const driver: BotProviderDriver<DiscordBotIdentity> = {
     provider: "discord",
+    candidateHealthIssue(provider) {
+      const state = (
+        provider as DiscordGatewayProvider
+      ).getStatus().state;
+      if (state === "ready") return undefined;
+      return state === "fatal" || state === "closed"
+        ? "transport-fatal"
+        : "network";
+    },
     async validate(token, { signal }) {
       return await validateDiscordBotToken({
         signal,
@@ -199,6 +289,9 @@ export function createDiscordBotDriver(): BotProviderDriver<
         }
         if (NETWORK_ERROR_CODES.has(error.code)) {
           return "network";
+        }
+        if (phase === "receive") {
+          return "transport-fatal";
         }
       }
       return "transport-start";
@@ -245,7 +338,9 @@ function isGatewayStoreFailure(
  * snapshot and one operation-fenced command surface.
  */
 export class RemoteHubCapabilityRuntime {
+  readonly #commandBarrier = new RemoteHubCommandBarrier();
   readonly #listeners = new Set<() => void>();
+  readonly #recoverMailbox: GatewayMailboxRecovery;
   readonly #weixin: WeixinRuntimePort;
   readonly #telegram: BotRuntimePort;
   readonly #discord: BotRuntimePort;
@@ -264,11 +359,16 @@ export class RemoteHubCapabilityRuntime {
       "im",
       "gateway.sqlite",
     );
+    const recoverMailbox =
+      options.recoverMailbox ??
+      createGatewayMailboxRecovery();
+    this.#recoverMailbox = recoverMailbox;
     this.#weixin =
       options.weixin ??
       new WeixinCapabilityRuntime({
         dataHome: options.dataHome,
         vault: options.vault,
+        recoverMailbox,
         gatewayResetAllowed: () =>
           this.#botGatewayResetAllowed(),
       });
@@ -278,6 +378,7 @@ export class RemoteHubCapabilityRuntime {
         driver: createTelegramBotDriver(),
         mailboxPath,
         vault: options.vault,
+        recoverMailbox,
         onSnapshot: () => this.#publish(),
       });
     this.#discord =
@@ -286,6 +387,7 @@ export class RemoteHubCapabilityRuntime {
         driver: createDiscordBotDriver(),
         mailboxPath,
         vault: options.vault,
+        recoverMailbox,
         onSnapshot: () => this.#publish(),
       });
     this.#unsubscribeWeixin = this.#weixin.subscribe(
@@ -320,12 +422,15 @@ export class RemoteHubCapabilityRuntime {
       this.#assertGatewayResetAllowed();
     }
     void this.initialize();
-    const operation = (async (): Promise<RemoteHubSnapshot> => {
-      if (this.#disposed) return this.#snapshot;
-      await this.#dispatch(command);
-      this.#publish();
-      return this.#snapshot;
-    })();
+    const operation = this.#commandBarrier.run(
+      command.kind === "gateway/reset-local",
+      async (): Promise<RemoteHubSnapshot> => {
+        if (this.#disposed) return this.#snapshot;
+        await this.#dispatch(command);
+        this.#publish();
+        return this.#snapshot;
+      },
+    );
     this.#activeCommands.add(operation);
     try {
       return await operation;
@@ -363,7 +468,13 @@ export class RemoteHubCapabilityRuntime {
           this.#telegram.stopForGatewayReset(),
           this.#discord.stopForGatewayReset(),
         ]);
-        await this.#weixin.dispatch(command);
+        {
+          const reset = await this.#weixin.dispatch(command);
+          if (reset.channels.weixin.state !== "unlinked") {
+            return;
+          }
+        }
+        this.#recoverMailbox.reset?.();
         await Promise.all([
           this.#telegram.reconnect(),
           this.#discord.reconnect(),

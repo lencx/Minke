@@ -1,6 +1,8 @@
 import {
+  botEchoOnlyGatewayIngress,
   pollGatewayProviderOnce,
   type GatewayCipher,
+  type GatewayIngressPolicy,
   type GatewayMailboxPort,
   type GatewayProviderSession,
 } from "@lencx/minke-im-gateway";
@@ -15,6 +17,10 @@ import type {
   BotCredentialProvider,
   StoredBotCredential,
 } from "./credential-vault.ts";
+import {
+  createGatewayMailboxRecovery,
+  type GatewayMailboxRecovery,
+} from "./mailbox-recovery.ts";
 
 interface BotMailbox extends GatewayMailboxPort {
   close(): void;
@@ -37,8 +43,21 @@ export interface BotCredentialVaultPort {
   ): Promise<void>;
 }
 
+export type BotProviderIssue = Exclude<
+  BotHubIssue,
+  | "agent-route-pending"
+  | "credential-read"
+  | "credential-store"
+  | "gateway-store"
+  | "receive"
+  | "vault-unavailable"
+>;
+
 export interface BotProviderDriver<Identity> {
   readonly provider: BotCredentialProvider;
+  candidateHealthIssue?(
+    provider: GatewayProviderSession,
+  ): BotProviderIssue | undefined;
   createProvider(input: {
     readonly accountKey: string;
     readonly generation: number;
@@ -52,15 +71,7 @@ export interface BotProviderDriver<Identity> {
   issue(
     error: unknown,
     phase: "receive" | "start" | "validate",
-  ): Exclude<
-    BotHubIssue,
-    | "agent-route-pending"
-    | "credential-read"
-    | "credential-store"
-    | "gateway-store"
-    | "receive"
-    | "vault-unavailable"
-  >;
+  ): BotProviderIssue;
   validate(
     token: string,
     options: { readonly signal: AbortSignal },
@@ -76,6 +87,8 @@ export interface BotCapabilityRuntimeOptions<Identity> {
     readonly path: string;
   }) => BotMailbox;
   readonly pollProviderOnce?: typeof pollGatewayProviderOnce;
+  readonly ingressPolicy?: GatewayIngressPolicy;
+  readonly recoverMailbox?: GatewayMailboxRecovery;
   readonly waitBeforeRetry?: (
     signal: AbortSignal,
   ) => Promise<void>;
@@ -89,11 +102,13 @@ function isTerminalReceiveIssue(
 ): issue is
   | "credential-invalid"
   | "polling-conflict"
-  | "privileged-intent" {
+  | "privileged-intent"
+  | "transport-fatal" {
   return (
     issue === "credential-invalid" ||
     issue === "polling-conflict" ||
-    issue === "privileged-intent"
+    issue === "privileged-intent" ||
+    issue === "transport-fatal"
   );
 }
 
@@ -140,6 +155,37 @@ function nextCredential(
   };
 }
 
+interface ActiveBotProvider {
+  readonly controller: AbortController;
+  readonly mailbox: BotMailbox;
+  readonly provider: GatewayProviderSession;
+  readonly receiveTask: Promise<void>;
+}
+
+interface CandidateBotProvider {
+  readonly controller: AbortController;
+  readonly detachOperation: () => void;
+  readonly provider: GatewayProviderSession;
+}
+
+type VaultOperationResult<T> =
+  | { readonly status: "completed"; readonly value: T }
+  | { readonly status: "stale" };
+
+type CandidateCommitResult =
+  | {
+      readonly previous: ActiveBotProvider | undefined;
+      readonly status: "activated";
+    }
+  | {
+      readonly issue:
+        | BotProviderIssue
+        | "credential-store"
+        | "gateway-store";
+      readonly status: "error";
+    }
+  | { readonly status: "stale" };
+
 /**
  * Own one token-authenticated provider without exposing its token or transport
  * details to the renderer.
@@ -154,6 +200,8 @@ export class BotCapabilityRuntime<Identity> {
   readonly #pollProviderOnce: NonNullable<
     BotCapabilityRuntimeOptions<Identity>["pollProviderOnce"]
   >;
+  readonly #ingressPolicy: GatewayIngressPolicy;
+  readonly #recoverMailbox: GatewayMailboxRecovery;
   readonly #waitBeforeRetry: NonNullable<
     BotCapabilityRuntimeOptions<Identity>["waitBeforeRetry"]
   >;
@@ -168,6 +216,8 @@ export class BotCapabilityRuntime<Identity> {
   #providerController: AbortController | undefined;
   #operationController: AbortController | undefined;
   #receiveTask: Promise<void> = Promise.resolve();
+  #providerDrainTail: Promise<void> = Promise.resolve();
+  #vaultMutationTail: Promise<void> = Promise.resolve();
   #disposed = false;
 
   constructor(options: BotCapabilityRuntimeOptions<Identity>) {
@@ -178,6 +228,11 @@ export class BotCapabilityRuntime<Identity> {
       options.createMailbox ?? createSqliteGatewayMailbox;
     this.#pollProviderOnce =
       options.pollProviderOnce ?? pollGatewayProviderOnce;
+    this.#ingressPolicy =
+      options.ingressPolicy ?? botEchoOnlyGatewayIngress;
+    this.#recoverMailbox =
+      options.recoverMailbox ??
+      createGatewayMailboxRecovery();
     this.#waitBeforeRetry =
       options.waitBeforeRetry ?? waitBeforeRetry;
     this.#onSnapshot = options.onSnapshot;
@@ -195,10 +250,14 @@ export class BotCapabilityRuntime<Identity> {
       return;
     }
     const controller = this.#beginOperation();
-    let stored: StoredBotCredential | undefined;
+    let storedResult: VaultOperationResult<
+      StoredBotCredential | undefined
+    >;
     try {
-      stored = await this.#vault.readBot(
-        this.#driver.provider,
+      storedResult = await this.#serializeVaultOperation(
+        controller,
+        async () =>
+          await this.#vault.readBot(this.#driver.provider),
       );
     } catch {
       if (!this.#ownsOperation(controller)) return;
@@ -208,7 +267,13 @@ export class BotCapabilityRuntime<Identity> {
       });
       return;
     }
-    if (!this.#ownsOperation(controller)) return;
+    if (
+      storedResult.status === "stale" ||
+      !this.#ownsOperation(controller)
+    ) {
+      return;
+    }
+    const stored = storedResult.value;
     if (stored === undefined) {
       this.#publish({ state: "unlinked" });
       return;
@@ -257,10 +322,14 @@ export class BotCapabilityRuntime<Identity> {
     const accountId = this.#driver.identityId(identity);
     const accountLabel = this.#driver.identityLabel(identity);
     const key = accountKey(this.#driver.provider, accountId);
-    let previous: StoredBotCredential | undefined;
+    let previousResult: VaultOperationResult<
+      StoredBotCredential | undefined
+    >;
     try {
-      previous = await this.#vault.readBot(
-        this.#driver.provider,
+      previousResult = await this.#serializeVaultOperation(
+        controller,
+        async () =>
+          await this.#vault.readBot(this.#driver.provider),
       );
     } catch {
       if (!this.#ownsOperation(controller)) return;
@@ -270,7 +339,13 @@ export class BotCapabilityRuntime<Identity> {
       });
       return;
     }
-    if (!this.#ownsOperation(controller)) return;
+    if (
+      previousResult.status === "stale" ||
+      !this.#ownsOperation(controller)
+    ) {
+      return;
+    }
+    const previous = previousResult.value;
 
     let durableGeneration: number | undefined;
     let mailbox: BotMailbox | undefined;
@@ -304,23 +379,89 @@ export class BotCapabilityRuntime<Identity> {
         token,
       },
     );
+
+    const candidate = await this.#startCandidate(
+      stored,
+      identity,
+      controller,
+    );
+    if (candidate === undefined) return;
+
+    let committed: VaultOperationResult<CandidateCommitResult>;
     try {
-      await this.#vault.writeBot(
-        this.#driver.provider,
-        stored,
+      committed = await this.#serializeVaultOperation(
+        controller,
+        async () =>
+          await this.#commitCandidate({
+            candidate,
+            operation: controller,
+            previous,
+            stored,
+          }),
       );
     } catch {
-      if (!this.#ownsOperation(controller)) return;
-      this.#publish({
-        state: "error",
-        issue: "credential-store",
-      });
+      await this.#closeCandidate(candidate);
+      if (this.#ownsOperation(controller)) {
+        this.#publish({
+          state: "error",
+          issue: "credential-store",
+        });
+      }
       return;
     }
-    if (!this.#ownsOperation(controller)) return;
-    await this.#stopProvider();
-    if (!this.#ownsOperation(controller)) return;
-    await this.#connectStored(stored, controller, identity);
+    if (
+      committed.status === "stale" ||
+      committed.value.status === "stale"
+    ) {
+      await this.#closeCandidate(candidate);
+      return;
+    }
+    if (committed.value.status === "error") {
+      await this.#closeCandidate(candidate);
+      if (this.#ownsOperation(controller)) {
+        this.#publish({
+          state: "error",
+          issue: committed.value.issue,
+        });
+      }
+      return;
+    }
+
+    await this.#closeActiveProvider(committed.value.previous);
+    const handoffIssue = this.#candidateHealthIssue(
+      candidate.provider,
+    );
+    if (
+      handoffIssue !== undefined &&
+      this.#provider === candidate.provider
+    ) {
+      await this.#stopProvider();
+      if (this.#ownsOperation(controller)) {
+        this.#publish({
+          state: "error",
+          issue: handoffIssue,
+        });
+      }
+      return;
+    }
+    if (
+      this.#provider === candidate.provider &&
+      !candidate.controller.signal.aborted
+    ) {
+      this.#runReceiveLoop(
+        candidate.provider,
+        this.#mailbox!,
+        candidate.controller,
+        stored.accountLabel,
+      );
+    }
+    if (this.#ownsOperation(controller)) {
+      this.#publish({
+        state: "degraded",
+        accountLabel: stored.accountLabel,
+        issue: "agent-route-pending",
+      });
+    }
   }
 
   async reconnect(): Promise<void> {
@@ -333,12 +474,14 @@ export class BotCapabilityRuntime<Identity> {
       return;
     }
     const controller = this.#beginOperation();
-    await this.#stopProvider();
-    if (!this.#ownsOperation(controller)) return;
-    let stored: StoredBotCredential | undefined;
+    let storedResult: VaultOperationResult<
+      StoredBotCredential | undefined
+    >;
     try {
-      stored = await this.#vault.readBot(
-        this.#driver.provider,
+      storedResult = await this.#serializeVaultOperation(
+        controller,
+        async () =>
+          await this.#vault.readBot(this.#driver.provider),
       );
     } catch {
       if (!this.#ownsOperation(controller)) return;
@@ -348,9 +491,18 @@ export class BotCapabilityRuntime<Identity> {
       });
       return;
     }
-    if (!this.#ownsOperation(controller)) return;
+    if (
+      storedResult.status === "stale" ||
+      !this.#ownsOperation(controller)
+    ) {
+      return;
+    }
+    const stored = storedResult.value;
     if (stored === undefined) {
-      this.#publish({ state: "unlinked" });
+      await this.#stopProvider();
+      if (this.#ownsOperation(controller)) {
+        this.#publish({ state: "unlinked" });
+      }
       return;
     }
     await this.#connectStored(stored, controller);
@@ -358,61 +510,46 @@ export class BotCapabilityRuntime<Identity> {
 
   async unlink(): Promise<void> {
     this.#assertActive();
-    this.#beginOperation();
-    await this.#stopProvider();
-    if (this.#disposed) return;
-    try {
-      await this.#vault.deleteBot(this.#driver.provider);
-      if (!this.#disposed) this.#publish({ state: "unlinked" });
-    } catch {
-      if (!this.#disposed) {
+    const controller = this.#beginOperation();
+    const outcome = await this.#deleteCredential(controller);
+    if (outcome.status === "stale") {
+      return;
+    }
+    if (outcome.status === "error") {
+      if (this.#ownsOperation(controller)) {
         this.#publish({
           state: "error",
           issue: "credential-store",
         });
       }
+      return;
+    }
+    await this.#closeActiveProvider(outcome.previous);
+    if (this.#ownsOperation(controller)) {
+      this.#publish({ state: "unlinked" });
     }
   }
 
   async resetLocal(): Promise<void> {
     this.#assertActive();
-    this.#beginOperation();
-    await this.#stopProvider();
-    if (this.#disposed) return;
-    let mailbox: BotMailbox | undefined;
-    try {
-      mailbox = this.#createMailbox({
-        cipher: this.#vault.gatewayCipher(),
-        path: this.#mailboxPath,
-      });
-      mailbox.removeProviderAccounts(this.#driver.provider);
-      mailbox.close();
-      mailbox = undefined;
-    } catch {
-      try {
-        mailbox?.close();
-      } catch {
-        // The explicit whole-Gateway recovery path remains available.
-      }
-      if (!this.#disposed) {
+    const controller = this.#beginOperation();
+    const outcome =
+      await this.#resetCredentialAndMailbox(controller);
+    if (outcome.status === "stale") {
+      return;
+    }
+    if (outcome.status === "error") {
+      if (this.#ownsOperation(controller)) {
         this.#publish({
           state: "error",
-          issue: "gateway-store",
+          issue: outcome.issue,
         });
       }
       return;
     }
-    if (this.#disposed) return;
-    try {
-      await this.#vault.deleteBot(this.#driver.provider);
-      if (!this.#disposed) this.#publish({ state: "unlinked" });
-    } catch {
-      if (!this.#disposed) {
-        this.#publish({
-          state: "error",
-          issue: "credential-store",
-        });
-      }
+    await this.#closeActiveProvider(outcome.previous);
+    if (this.#ownsOperation(controller)) {
+      this.#publish({ state: "unlinked" });
     }
   }
 
@@ -420,6 +557,7 @@ export class BotCapabilityRuntime<Identity> {
     if (this.#disposed) return;
     this.#beginOperation();
     await this.#stopProvider();
+    await this.#vaultMutationTail.catch(() => {});
   }
 
   async dispose(): Promise<void> {
@@ -428,6 +566,376 @@ export class BotCapabilityRuntime<Identity> {
     this.#operationController?.abort();
     this.#operationController = undefined;
     await this.#stopProvider();
+    await this.#vaultMutationTail.catch(() => {});
+  }
+
+  async #startCandidate(
+    stored: StoredBotCredential,
+    identity: Identity,
+    operation: AbortController,
+  ): Promise<CandidateBotProvider | undefined> {
+    const controller = new AbortController();
+    const abortFromOperation = (): void =>
+      controller.abort(operation.signal.reason);
+    const detachOperation = (): void =>
+      operation.signal.removeEventListener(
+        "abort",
+        abortFromOperation,
+      );
+    operation.signal.addEventListener(
+      "abort",
+      abortFromOperation,
+      { once: true },
+    );
+    if (operation.signal.aborted) abortFromOperation();
+
+    let provider: GatewayProviderSession | undefined;
+    try {
+      provider = await this.#driver.createProvider({
+        accountKey: accountKey(
+          this.#driver.provider,
+          stored.accountId,
+        ),
+        generation: stored.generation,
+        identity,
+        signal: controller.signal,
+        token: stored.token,
+      });
+      if (
+        !this.#ownsOperation(operation) ||
+        controller.signal.aborted
+      ) {
+        detachOperation();
+        controller.abort();
+        await provider.close().catch(() => {});
+        return undefined;
+      }
+      await provider.start({ signal: controller.signal });
+      if (
+        !this.#ownsOperation(operation) ||
+        controller.signal.aborted
+      ) {
+        detachOperation();
+        controller.abort();
+        await provider.close().catch(() => {});
+        return undefined;
+      }
+      return {
+        controller,
+        detachOperation,
+        provider,
+      };
+    } catch (error) {
+      const wasAborted =
+        this.#driver.isAborted(error, controller.signal) ||
+        !this.#ownsOperation(operation);
+      detachOperation();
+      controller.abort();
+      await provider?.close().catch(() => {});
+      if (!wasAborted && this.#ownsOperation(operation)) {
+        this.#publish({
+          state: "error",
+          issue: this.#driver.issue(error, "start"),
+        });
+      }
+      return undefined;
+    }
+  }
+
+  async #commitCandidate(input: {
+    readonly candidate: CandidateBotProvider;
+    readonly operation: AbortController;
+    readonly previous: StoredBotCredential | undefined;
+    readonly stored: StoredBotCredential;
+  }): Promise<CandidateCommitResult> {
+    try {
+      await this.#vault.writeBot(
+        this.#driver.provider,
+        input.stored,
+      );
+    } catch {
+      await this.#restoreCredential(input.previous);
+      return {
+        status: "error",
+        issue: "credential-store",
+      };
+    }
+
+    if (!this.#ownsOperation(input.operation)) {
+      await this.#restoreCredential(input.previous);
+      return { status: "stale" };
+    }
+
+    const candidateIssue = this.#candidateHealthIssue(
+      input.candidate.provider,
+    );
+    if (candidateIssue !== undefined) {
+      const restored = await this.#restoreCredential(
+        input.previous,
+      );
+      return {
+        status: "error",
+        issue: restored
+          ? candidateIssue
+          : "credential-store",
+      };
+    }
+
+    let mailbox: BotMailbox | undefined;
+    try {
+      mailbox = this.#createMailbox({
+        cipher: this.#vault.gatewayCipher(),
+        path: this.#mailboxPath,
+      });
+      // Recover before registration so a recovery failure cannot advance the
+      // durable generation and fence the still-running provider.
+      this.#recoverMailbox(mailbox);
+      mailbox.registerAccount(input.candidate.provider.account);
+    } catch {
+      try {
+        mailbox?.close();
+      } catch {
+        // Preserve the actionable credential/Gateway failure below.
+      }
+      const restored = await this.#restoreCredential(
+        input.previous,
+      );
+      return {
+        status: "error",
+        issue: restored
+          ? "gateway-store"
+          : "credential-store",
+      };
+    }
+
+    input.candidate.detachOperation();
+    const previous = this.#detachActiveProvider();
+    this.#provider = input.candidate.provider;
+    this.#mailbox = mailbox;
+    this.#providerController = input.candidate.controller;
+    return {
+      previous,
+      status: "activated",
+    };
+  }
+
+  async #deleteCredential(
+    operation: AbortController,
+  ): Promise<
+    | {
+        readonly previous: ActiveBotProvider | undefined;
+        readonly status: "deleted";
+      }
+    | { readonly status: "error" }
+    | { readonly status: "stale" }
+  > {
+    let result: VaultOperationResult<
+      | {
+          readonly previous:
+            | ActiveBotProvider
+            | undefined;
+          readonly status: "deleted";
+        }
+      | { readonly status: "error" }
+      | { readonly status: "stale" }
+    >;
+    try {
+      result = await this.#serializeVaultOperation(
+        operation,
+        async () => {
+          let previous: StoredBotCredential | undefined;
+          try {
+            previous = await this.#vault.readBot(
+              this.#driver.provider,
+            );
+          } catch {
+            return this.#ownsOperation(operation)
+              ? { status: "error" }
+              : { status: "stale" };
+          }
+          if (!this.#ownsOperation(operation)) {
+            return { status: "stale" };
+          }
+          try {
+            await this.#vault.deleteBot(
+              this.#driver.provider,
+            );
+          } catch {
+            await this.#restoreCredential(previous);
+            return this.#ownsOperation(operation)
+              ? { status: "error" }
+              : { status: "stale" };
+          }
+          if (!this.#ownsOperation(operation)) {
+            await this.#restoreCredential(previous);
+            return { status: "stale" };
+          }
+          return {
+            previous: this.#detachActiveProvider(),
+            status: "deleted",
+          };
+        },
+      );
+    } catch {
+      return this.#ownsOperation(operation)
+        ? { status: "error" }
+        : { status: "stale" };
+    }
+    return result.status === "stale"
+      ? { status: "stale" }
+      : result.value;
+  }
+
+  async #resetCredentialAndMailbox(
+    operation: AbortController,
+  ): Promise<
+    | {
+        readonly previous: ActiveBotProvider | undefined;
+        readonly status: "reset";
+      }
+    | { readonly status: "stale" }
+    | {
+        readonly issue: "credential-store" | "gateway-store";
+        readonly status: "error";
+      }
+  > {
+    let result: VaultOperationResult<
+      | {
+          readonly previous:
+            | ActiveBotProvider
+            | undefined;
+          readonly status: "reset";
+        }
+      | { readonly status: "stale" }
+      | {
+          readonly issue:
+            | "credential-store"
+            | "gateway-store";
+          readonly status: "error";
+        }
+    >;
+    try {
+      result = await this.#serializeVaultOperation(
+        operation,
+        async () => {
+          let previous: StoredBotCredential | undefined;
+          try {
+            previous = await this.#vault.readBot(
+              this.#driver.provider,
+            );
+          } catch {
+            return {
+              status: "error",
+              issue: "credential-store",
+            };
+          }
+          if (!this.#ownsOperation(operation)) {
+            return { status: "stale" };
+          }
+          try {
+            await this.#vault.deleteBot(
+              this.#driver.provider,
+            );
+          } catch {
+            await this.#restoreCredential(previous);
+            return this.#ownsOperation(operation)
+              ? {
+                  status: "error",
+                  issue: "credential-store",
+                }
+              : { status: "stale" };
+          }
+          if (!this.#ownsOperation(operation)) {
+            await this.#restoreCredential(previous);
+            return { status: "stale" };
+          }
+
+          let mailbox: BotMailbox | undefined;
+          try {
+            mailbox = this.#createMailbox({
+              cipher: this.#vault.gatewayCipher(),
+              path: this.#mailboxPath,
+            });
+            mailbox.removeProviderAccounts(
+              this.#driver.provider,
+            );
+          } catch {
+            try {
+              mailbox?.close();
+            } catch {
+              // Preserve the rollback result below.
+            }
+            const restored =
+              await this.#restoreCredential(previous);
+            return {
+              status: "error",
+              issue: restored
+                ? "gateway-store"
+                : "credential-store",
+            };
+          }
+          try {
+            mailbox.close();
+          } catch {
+            // The reset transaction is already durable.
+          }
+          return {
+            previous: this.#detachActiveProvider(),
+            status: "reset",
+          };
+        },
+      );
+    } catch {
+      return this.#ownsOperation(operation)
+        ? {
+            status: "error",
+            issue: "credential-store",
+          }
+        : { status: "stale" };
+    }
+    return result.status === "stale"
+      ? { status: "stale" }
+      : result.value;
+  }
+
+  async #restoreCredential(
+    previous: StoredBotCredential | undefined,
+  ): Promise<boolean> {
+    try {
+      if (previous === undefined) {
+        await this.#vault.deleteBot(this.#driver.provider);
+      } else {
+        await this.#vault.writeBot(
+          this.#driver.provider,
+          previous,
+        );
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  #serializeVaultOperation<T>(
+    operation: AbortController,
+    action: () => Promise<T>,
+  ): Promise<VaultOperationResult<T>> {
+    const result = this.#vaultMutationTail.then(
+      async (): Promise<VaultOperationResult<T>> => {
+        if (!this.#ownsOperation(operation)) {
+          return { status: "stale" };
+        }
+        return {
+          status: "completed",
+          value: await action(),
+        };
+      },
+    );
+    this.#vaultMutationTail = result.then(
+      () => {},
+      () => {},
+    );
+    return result;
   }
 
   async #connectStored(
@@ -473,105 +981,76 @@ export class BotCapabilityRuntime<Identity> {
       return;
     }
 
-    const controller = new AbortController();
-    const abortFromOperation = (): void =>
-      controller.abort(operation.signal.reason);
-    operation.signal.addEventListener(
-      "abort",
-      abortFromOperation,
-      { once: true },
+    const candidate = await this.#startCandidate(
+      stored,
+      identity,
+      operation,
     );
-    if (operation.signal.aborted) abortFromOperation();
-    let provider: GatewayProviderSession | undefined;
+    if (candidate === undefined) return;
+
     let mailbox: BotMailbox | undefined;
-    let providerOwned = false;
     try {
-      provider = await this.#driver.createProvider({
-        accountKey: accountKey(
-          this.#driver.provider,
-          stored.accountId,
-        ),
-        generation: stored.generation,
-        identity,
-        signal: controller.signal,
-        token: stored.token,
+      mailbox = this.#createMailbox({
+        cipher: this.#vault.gatewayCipher(),
+        path: this.#mailboxPath,
       });
-      if (
-        !this.#ownsOperation(operation) ||
-        controller.signal.aborted
-      ) {
-        await provider.close().catch(() => {});
-        return;
-      }
+      this.#recoverMailbox(mailbox);
+      mailbox.registerAccount(candidate.provider.account);
+    } catch {
       try {
-        mailbox = this.#createMailbox({
-          cipher: this.#vault.gatewayCipher(),
-          path: this.#mailboxPath,
-        });
+        mailbox?.close();
       } catch {
-        await provider.close().catch(() => {});
-        if (this.#ownsOperation(operation)) {
-          this.#publish({
-            state: "error",
-            issue: "gateway-store",
-          });
-        }
-        return;
+        // Preserve the actionable Gateway failure.
       }
-      mailbox.registerAccount(provider.account);
-      mailbox.recover();
-      this.#provider = provider;
-      this.#mailbox = mailbox;
-      this.#providerController = controller;
-      providerOwned = true;
-      await provider.start({ signal: controller.signal });
-      if (
-        !this.#ownsOperation(operation) ||
-        controller.signal.aborted ||
-        this.#provider !== provider
-      ) {
-        return;
+      await this.#closeCandidate(candidate);
+      if (this.#ownsOperation(operation)) {
+        this.#publish({
+          state: "error",
+          issue: "gateway-store",
+        });
       }
+      return;
+    }
+
+    candidate.detachOperation();
+    const previous = this.#detachActiveProvider();
+    this.#provider = candidate.provider;
+    this.#mailbox = mailbox;
+    this.#providerController = candidate.controller;
+    await this.#closeActiveProvider(previous);
+    const handoffIssue = this.#candidateHealthIssue(
+      candidate.provider,
+    );
+    if (
+      handoffIssue !== undefined &&
+      this.#provider === candidate.provider
+    ) {
+      await this.#stopProvider();
+      if (this.#ownsOperation(operation)) {
+        this.#publish({
+          state: "error",
+          issue: handoffIssue,
+        });
+      }
+      return;
+    }
+    if (
+      this.#provider === candidate.provider &&
+      !candidate.controller.signal.aborted
+    ) {
+      this.#runReceiveLoop(
+        candidate.provider,
+        mailbox,
+        candidate.controller,
+        stored.accountLabel,
+      );
+    }
+    if (this.#ownsOperation(operation)) {
       this.#publish({
         state: "degraded",
         accountLabel: stored.accountLabel,
         issue: "agent-route-pending",
       });
-      this.#runReceiveLoop(
-        provider,
-        mailbox,
-        controller,
-        stored.accountLabel,
-      );
-    } catch (error) {
-      const wasAborted =
-        this.#driver.isAborted(error, controller.signal) ||
-        !this.#ownsOperation(operation);
-      controller.abort();
-      if (
-        provider !== undefined &&
-        this.#provider === provider
-      ) {
-        this.#provider = undefined;
-        this.#mailbox = undefined;
-        this.#providerController = undefined;
-        await provider.close().catch(() => {});
-        mailbox?.close();
-      } else if (!providerOwned) {
-        await provider?.close().catch(() => {});
-        mailbox?.close();
-      }
-      if (!wasAborted && !this.#disposed) {
-        this.#publish({
-          state: "error",
-          issue: this.#driver.issue(error, "start"),
-        });
-      }
-    } finally {
-      operation.signal.removeEventListener(
-        "abort",
-        abortFromOperation,
-      );
     }
   }
 
@@ -588,6 +1067,7 @@ export class BotCapabilityRuntime<Identity> {
     ) {
       try {
         await this.#pollProviderOnce({
+          ingressPolicy: this.#ingressPolicy,
           mailbox,
           provider,
           signal: controller.signal,
@@ -682,17 +1162,71 @@ export class BotCapabilityRuntime<Identity> {
     });
   }
 
-  async #stopProvider(): Promise<void> {
+  async #closeCandidate(
+    candidate: CandidateBotProvider,
+  ): Promise<void> {
+    candidate.detachOperation();
+    candidate.controller.abort();
+    await candidate.provider.close().catch(() => {});
+  }
+
+  #candidateHealthIssue(
+    provider: GatewayProviderSession,
+  ): BotProviderIssue | undefined {
+    try {
+      return this.#driver.candidateHealthIssue?.(provider);
+    } catch {
+      return "transport-fatal";
+    }
+  }
+
+  #detachActiveProvider(): ActiveBotProvider | undefined {
     const provider = this.#provider;
     const mailbox = this.#mailbox;
     const controller = this.#providerController;
+    if (
+      provider === undefined ||
+      mailbox === undefined ||
+      controller === undefined
+    ) {
+      return undefined;
+    }
+    const active = {
+      controller,
+      mailbox,
+      provider,
+      receiveTask: this.#receiveTask,
+    };
     this.#provider = undefined;
     this.#mailbox = undefined;
     this.#providerController = undefined;
-    controller?.abort();
-    await provider?.close().catch(() => {});
-    mailbox?.close();
-    await this.#receiveTask.catch(() => {});
+    this.#receiveTask = Promise.resolve();
+    controller.abort();
+    return active;
+  }
+
+  async #closeActiveProvider(
+    active: ActiveBotProvider | undefined,
+  ): Promise<void> {
+    const drain = this.#providerDrainTail.then(async () => {
+      if (active === undefined) return;
+      active.controller.abort();
+      await active.provider.close().catch(() => {});
+      await active.receiveTask.catch(() => {});
+      try {
+        active.mailbox.close();
+      } catch {
+        // Closing an already-detached mailbox must not replace channel state.
+      }
+    });
+    this.#providerDrainTail = drain.catch(() => {});
+    await drain;
+  }
+
+  async #stopProvider(): Promise<void> {
+    await this.#closeActiveProvider(
+      this.#detachActiveProvider(),
+    );
   }
 
   #publish(snapshot: BotHubSnapshot): void {

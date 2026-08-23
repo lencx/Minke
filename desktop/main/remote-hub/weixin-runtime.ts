@@ -2,8 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  botEchoOnlyGatewayIngress,
   pollGatewayProviderOnce,
   type GatewayCipher,
+  type GatewayIngressPolicy,
   type GatewayMailboxPort,
   type GatewayProviderSession,
 } from "@lencx/minke-im-gateway";
@@ -32,6 +34,10 @@ import {
 import type {
   StoredWeixinGrant,
 } from "./credential-vault.ts";
+import {
+  createGatewayMailboxRecovery,
+  type GatewayMailboxRecovery,
+} from "./mailbox-recovery.ts";
 
 interface WeixinVaultPort {
   readonly available: boolean;
@@ -68,6 +74,8 @@ export interface WeixinCapabilityRuntimeOptions {
     readonly transport: WeixinTransport;
   }) => GatewayProviderSession;
   readonly pollProviderOnce?: typeof pollGatewayProviderOnce;
+  readonly ingressPolicy?: GatewayIngressPolicy;
+  readonly recoverMailbox?: GatewayMailboxRecovery;
   readonly waitBeforePoll?: (
     signal: AbortSignal,
   ) => Promise<void>;
@@ -256,6 +264,8 @@ export class WeixinCapabilityRuntime {
   readonly #pollProviderOnce: NonNullable<
     WeixinCapabilityRuntimeOptions["pollProviderOnce"]
   >;
+  readonly #ingressPolicy: GatewayIngressPolicy;
+  readonly #recoverMailbox: GatewayMailboxRecovery;
   readonly #waitBeforePoll: NonNullable<
     WeixinCapabilityRuntimeOptions["waitBeforePoll"]
   >;
@@ -302,6 +312,11 @@ export class WeixinCapabilityRuntime {
       options.createProvider ?? createWeixinGatewayProvider;
     this.#pollProviderOnce =
       options.pollProviderOnce ?? pollGatewayProviderOnce;
+    this.#ingressPolicy =
+      options.ingressPolicy ?? botEchoOnlyGatewayIngress;
+    this.#recoverMailbox =
+      options.recoverMailbox ??
+      createGatewayMailboxRecovery();
     this.#waitBeforePoll =
       options.waitBeforePoll ?? waitBeforePoll;
     this.#resetGatewayMailbox =
@@ -769,8 +784,8 @@ export class WeixinCapabilityRuntime {
         generation: stored.generation,
         transport,
       });
+      this.#recoverMailbox(mailbox);
       mailbox.registerAccount(provider.account);
-      mailbox.recover();
       this.#provider = provider;
       this.#mailbox = mailbox;
       this.#providerController = controller;
@@ -852,6 +867,7 @@ export class WeixinCapabilityRuntime {
     ) {
       try {
         await this.#pollProviderOnce({
+          ingressPolicy: this.#ingressPolicy,
           mailbox,
           provider,
           signal: controller.signal,
@@ -1001,6 +1017,7 @@ export class WeixinCapabilityRuntime {
     if (this.#disposed) return;
     try {
       await this.#resetGatewayMailbox(this.#mailboxPath);
+      this.#recoverMailbox.reset?.();
     } catch {
       this.#publish({
         state: "error",
