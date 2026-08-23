@@ -14,6 +14,7 @@ const taskFiles = Object.freeze({
   core: Object.freeze([
     "app-data-paths.test.mjs",
     "appimage-packaging.test.mjs",
+    "assertion-policy.test.mjs",
     "cross-platform-packaging.test.mjs",
     "desktop-i18n.test.mjs",
     "development-restart.test.mjs",

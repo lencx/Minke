@@ -22,6 +22,7 @@
     "typecheck": "tsc --noEmit && pnpm --filter @lencx/minke-remote-access typecheck && pnpm --filter @lencx/minke-model-runtime typecheck && pnpm --filter @lencx/minke-harness-overlay typecheck",
     "build:product-packages": "node scripts/harness/build-product-packages.mjs",
     "build:preload": "vite build --config vite.preload.config.mts",
+    "test:assertions": "node --test tests/assertion-policy.test.mjs",
     "test:desktop": "node scripts/tests/desktop.mjs all",
     "test:desktop:core": "node scripts/tests/desktop.mjs core",
     "test:desktop:harness": "node scripts/tests/desktop.mjs harness",

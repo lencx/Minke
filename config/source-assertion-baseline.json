@@ -1,0 +1,18 @@
+{
+  "tests/appimage-packaging.test.mjs": 8,
+  "tests/bootstrap-theme.test.mjs": 3,
+  "tests/cross-platform-packaging.test.mjs": 7,
+  "tests/data-home-settings.test.mjs": 3,
+  "tests/embedded-node-permissions.test.mjs": 11,
+  "tests/github-actions-package.test.mjs": 51,
+  "tests/harness-overlay.test.mjs": 179,
+  "tests/harness-runtime-prune.test.mjs": 1,
+  "tests/macos-tray.test.mjs": 6,
+  "tests/macos-window-css.test.mjs": 143,
+  "tests/mobile-web-viewport.test.mjs": 1,
+  "tests/plugin-catalog.test.mjs": 15,
+  "tests/pwa.test.mjs": 1,
+  "tests/tabs.test.mjs": 111,
+  "tests/terminal-settings.test.mjs": 12,
+  "tests/terminal-tabs.test.mjs": 12
+}
