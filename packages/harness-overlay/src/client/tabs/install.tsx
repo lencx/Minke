@@ -445,6 +445,7 @@ export function installTabs(
         runtime: rightTabs,
         renderers: rightWorkspace.renderers,
         layout: ctx.layout,
+        slots: ctx.slots,
       }),
     "minke-overlay: Details tabs integration",
   );

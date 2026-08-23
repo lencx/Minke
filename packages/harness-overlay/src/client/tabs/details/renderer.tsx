@@ -15,9 +15,9 @@ import {
   DETAILS_TAB_KIND,
   type DetailsTabPayload,
 } from "./controller.ts";
-import {
-  MINKE_DETAILS_PORTAL_EVENT,
-} from "./contract.ts";
+import type {
+  DetailsPresentationRuntime,
+} from "./presentation-runtime.ts";
 
 function isDetailsTab(
   tab: ManagedTab,
@@ -30,32 +30,23 @@ function isDetailsTab(
   );
 }
 
-function publishPortalTarget(
-  view: Window,
-  target: HTMLElement | null,
-): void {
-  view.dispatchEvent(
-    new CustomEvent(MINKE_DETAILS_PORTAL_EVENT, {
-      detail: { target },
-    }),
-  );
-}
-
 function DetailsTabView(props: {
   readonly tab: ManagedTab<DetailsTabPayload>;
   readonly active: boolean;
+  readonly presentation: DetailsPresentationRuntime;
 }): ReactNode {
   const targetRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
     const target = targetRef.current;
-    const view = target?.ownerDocument.defaultView;
-    if (target === null || view === null || view === undefined) {
-      return;
-    }
-    publishPortalTarget(view, target);
-    return () => publishPortalTarget(view, null);
-  }, []);
+    if (target === null) return;
+    props.presentation.setTarget(target);
+    return () => {
+      if (props.presentation.getSnapshot() === target) {
+        props.presentation.setTarget(null);
+      }
+    };
+  }, [props.presentation]);
 
   return (
     <section
@@ -70,19 +61,25 @@ function DetailsTabView(props: {
       <div
         ref={targetRef}
         className="minke-details-tab__portal"
-        data-minke-details-portal=""
       />
     </section>
   );
 }
 
-/** Render the unmodified upstream Details tree inside the managed Tabs shell. */
-export function createDetailsTabRenderer(): TabRenderer {
+/** Render the upstream Details tree inside the managed Tabs shell. */
+export function createDetailsTabRenderer(
+  presentation: DetailsPresentationRuntime,
+  closeDetails: () => void,
+): TabRenderer {
   return {
     kind: DETAILS_TAB_KIND,
     renderIcon: () => (
       <LucideIcon icon={ListTree} size={13} />
     ),
+    beforeClose: (tab) => {
+      if (isDetailsTab(tab)) closeDetails();
+      return true;
+    },
     renderView: (tab, active) =>
       isDetailsTab(tab)
         ? (
@@ -90,6 +87,7 @@ export function createDetailsTabRenderer(): TabRenderer {
             key={tab.id}
             tab={tab}
             active={active}
+            presentation={presentation}
           />
         )
         : null,

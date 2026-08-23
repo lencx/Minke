@@ -45,11 +45,11 @@ export interface SlotRegistration {
 }
 
 export interface SlotService {
-  inject(name: string, callback: () => unknown): void;
-  register(
+  inject(name: string, callback: () => unknown): () => void;
+  register<Props>(
     options: SlotRegistration,
-    component: ComponentType<never>,
-  ): unknown;
+    component: ComponentType<Props>,
+  ): () => void;
 }
 
 export type HarnessRpcResult =
@@ -93,6 +93,13 @@ export interface HarnessClientContext {
     closeDetails(): void;
     setDetails(width: number): void;
     toggleSidebar(): void;
+    details: {
+      open(): void;
+      close(): void;
+      getSnapshot(): boolean;
+      subscribe(listener: () => void): () => void;
+      registerHost(): () => void;
+    };
   };
   slots: SlotService;
   theme: {

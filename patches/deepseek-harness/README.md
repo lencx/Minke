@@ -14,11 +14,12 @@ The applicator accepts git unified diffs that modify existing text files below `
 - lets the details grid track reflow up to two thirds of the area remaining after the sidebar, so a wider Files reader compresses the conversation;
 - exposes the existing `setDetails` store action through `ctx.layout`, allowing Minke to restore a persisted width without simulating pointer input;
 - raises the stored-width guard for Minke's wider overlay continuation. Minke still owns the final viewport clamp and leaves a 20px conversation remainder.
+- exposes semantic Details open state through `ctx.layout.details`, with subscription and presentation-host registration while retaining the native layout as fallback.
 
-`details-tab-portal.patch` is pinned to the same Harness commit. It:
+`details-presentation-slot.patch` is pinned to the same Harness commit. It:
 
-- publishes the selected Harness details state so Minke can keep its native tab title and open state synchronized;
-- renders the upstream details panel into Minke's details portal when present, while retaining the upstream in-place panel as the fallback;
+- publishes selected Details state and the native panel tree through the declared `conversation.details.presentation` slot;
+- keeps the upstream in-place panel as the slot fallback when no external presentation host is registered;
 - adds stable details-panel anchors used by Minke's structural adapter.
 
 `optional-plugin-isolation.patch` is pinned to the same Harness commit. It:

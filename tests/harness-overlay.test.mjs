@@ -74,13 +74,6 @@ const aboutInstallSource = readFileSync(
   ),
   "utf8",
 );
-const detailsIntegrationSource = readFileSync(
-  new URL(
-    "../packages/harness-overlay/src/client/tabs/details/integration.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const commandPaletteSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/palette/CommandPalette.tsx",
@@ -634,18 +627,13 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     tabsInstallSource,
-    /installDetailsTabs\(\{\s*runtime:\s*rightTabs,\s*renderers:\s*rightWorkspace\.renderers,\s*layout:\s*ctx\.layout,\s*\}\)/u,
+    /installDetailsTabs\(\{\s*runtime:\s*rightTabs,\s*renderers:\s*rightWorkspace\.renderers,\s*layout:\s*ctx\.layout,\s*slots:\s*ctx\.slots,\s*\}\)/u,
     "the native Details adapter belongs only to the managed right workspace",
   );
   assert.equal(
     (tabsInstallSource.match(/installDetailsTabs\(\{/gu) ?? [])
       .length,
     1,
-  );
-  assert.match(
-    detailsIntegrationSource,
-    /new DetailsTabsController[\s\S]*renderers\.register\(\s*createDetailsTabRenderer\(\),?\s*\)[\s\S]*installDetailsLayoutOpenBridge[\s\S]*installDetailsTabsBridge/u,
-    "the Details deep module owns its renderer and compatibility bridges",
   );
   assert.match(
     tabsInstallSource,

@@ -29,6 +29,27 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js b/node
  			};
  		}
  		//#endregion
+@@ -155,7 +146,7 @@
+ 			});
+ 		}
+ 		/** The three-column frame (see module doc). */
+-		function AppFrame({ useStore, useSessions, actions, renderSlot }) {
++		function AppFrame({ useStore, useSessions, actions, renderSlot, detailsController }) {
+ 			const panels = useStore((s) => s);
+ 			const detailsSession = useSessions((s) => {
+ 				const current = s.current;
+@@ -166,9 +157,9 @@
+ 			const lastSession = (0, react.useRef)(detailsSession);
+ 			(0, react.useLayoutEffect)(() => {
+ 				if (detailsSession === void 0) return;
+-				if (lastSession.current !== void 0 && lastSession.current !== detailsSession) actions.closeDetails();
++				if (lastSession.current !== void 0 && lastSession.current !== detailsSession) detailsController.close();
+ 				lastSession.current = detailsSession;
+-			}, [actions, detailsSession]);
++			}, [detailsController, detailsSession]);
+ 			(0, react.useEffect)(() => {
+ 				const el = frameRef.current;
+ 				/* v8 ignore next -- the ref is always attached by effect time: the frame div renders unconditionally. */
 @@ -287,7 +278,7 @@
  						d.sidebar = clampWidth(px, 264, 420);
  					},
@@ -38,14 +59,101 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js b/node
  					},
  					toggleSidebar: (d) => {
  						if (d.narrow) d.narrowExpanded = !d.narrowExpanded;
-@@ -330,6 +321,10 @@
- 			openDetails() {
- 				this.#require().openDetails();
+@@ -309,9 +300,62 @@
+ 		}
+ 		//#endregion
+ 		//#region lib/types/client/service.js
++		/** Semantic Details state and presentation-host arbitration. */
++		var DetailsController = class {
++			#panels;
++			#open = false;
++			#hosts = 0;
++			#listeners = new Set();
++			attachPanels(actions) {
++				this.#panels = actions;
++				this.#syncPanel();
++			}
++			open = () => {
++				if (this.#open) return;
++				this.#open = true;
++				this.#syncPanel();
++				this.#notify();
++			};
++			close = () => {
++				if (!this.#open) {
++					this.#panels?.closeDetails();
++					return;
++				}
++				this.#open = false;
++				this.#syncPanel();
++				this.#notify();
++			};
++			getSnapshot = () => this.#open;
++			subscribe = (listener) => {
++				this.#listeners.add(listener);
++				return () => {
++					this.#listeners.delete(listener);
++				};
++			};
++			registerHost = () => {
++				this.#hosts += 1;
++				this.#syncPanel();
++				let active = true;
++				return () => {
++					if (!active) return;
++					active = false;
++					this.#hosts -= 1;
++					this.#syncPanel();
++				};
++			};
++			#syncPanel() {
++				if (this.#panels === void 0) return;
++				if (this.#open && this.#hosts === 0) this.#panels.openDetails();
++				else this.#panels.closeDetails();
++			}
++			#notify() {
++				for (const listener of this.#listeners) listener();
++			}
++		};
+ 		/** Cross-plugin panel-action face (ctx.layout). */
+ 		var LayoutController = class {
+ 			#panels;
++			details = new DetailsController();
+ 			/**
+ 			* Adopt the root entry's bound store actions. Called from the root
+ 			* registration's inject hook (a sanctioned assembly side effect), so the
+@@ -321,6 +365,7 @@
+ 			*/
+ 			attachPanels(actions) {
+ 				this.#panels = actions;
++				this.details.attachPanels(actions);
  			}
+ 			/** Toggle the sidebar panel (closed ⟷ contract default width). */
+ 			toggleSidebar() {
+@@ -328,11 +373,15 @@
+ 			}
+ 			/** Open the details panel (no-op when already open). */
+ 			openDetails() {
+-				this.#require().openDetails();
++				this.details.open();
++			}
 +			/** Set the details track width without changing its open state. */
 +			setDetails(width) {
 +				this.#require().setDetails(width);
-+			}
+ 			}
  			/** Close the details panel. */
  			closeDetails() {
- 				this.#require().closeDetails();
+-				this.#require().closeDetails();
++				this.details.close();
+ 			}
+ 			#require() {
+ 				if (this.#panels === void 0) throw new Error("layout: panel actions not wired (root entry not mounted)");
+@@ -425,7 +474,7 @@
+ 					store: createLayoutStore,
+ 					inject: (actions) => {
+ 						layout.attachPanels(actions);
+-						return {};
++						return { detailsController: layout.details };
+ 					}
+ 				}, AppFrame);
+ 				return () => {

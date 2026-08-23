@@ -1,0 +1,106 @@
+diff --git a/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
+--- a/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
++++ b/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
+@@ -7483,24 +7483,36 @@
+ 			if (parts.length === 0 && block.error !== void 0) parts.push(`${block.error.name}: ${block.error.code}`);
+ 			return parts.join("\n");
+ 		}
+-		function DetailsPanel({ useSession, useSessions, sessionId, useStore, renderSlot, closeDetails, t }) {
++		function DetailsPanel({ useSession, useSessions, sessionId, useStore, renderSlot, details, t }) {
+ 			const selection = useStore((s) => s.selection);
+ 			const sessionCwd = useSessions((list) => list.byId[sessionId]?.cwd);
+ 			const callId = selection?.callId;
+ 			const material = useSession((s) => callId === void 0 ? null : materialFor(s, callId), (a, b) => (0, _deepseek_ai_dsh_client_runtime_client.shallowEqual)(a, b));
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			const label = t("details.title");
++			const title = selection === null ? label : material?.name ?? selection.toolName ?? label;
++			const open = (0, react.useSyncExternalStore)(details.subscribe, details.getSnapshot, details.getSnapshot);
++			const state = {
++				open,
++				sessionId,
++				...callId === void 0 ? {} : { callId },
++				label,
++				title
++			};
++			const panel = (0, react_jsx_runtime.jsxs)("div", {
+ 				className: DetailsPanel_module_css_default.root,
++				"data-dsh-details-panel": "",
+ 				children: [(0, react_jsx_runtime.jsxs)("div", {
+ 					className: DetailsPanel_module_css_default.header,
++					"data-dsh-details-header": "",
+ 					children: [(0, react_jsx_runtime.jsx)("div", {
+ 						className: DetailsPanel_module_css_default.title,
+-						children: selection === null ? t("details.title") : material?.name ?? selection.toolName ?? t("details.title")
++						children: title
+ 					}), (0, react_jsx_runtime.jsx)("button", {
+ 						type: "button",
+ 						className: DetailsPanel_module_css_default.close,
+ 						"aria-label": t("details.close"),
+ 						onClick: () => {
+-							closeDetails();
++							details.close();
+ 						},
+ 						children: (0, react_jsx_runtime.jsx)("svg", {
+ 							viewBox: "0 0 16 16",
+@@ -7517,6 +7529,7 @@
+ 					})]
+ 				}), (0, react_jsx_runtime.jsx)("div", {
+ 					className: DetailsPanel_module_css_default.body,
++					"data-dsh-details-body": "",
+ 					children: selection === null || callId === void 0 ? (0, react_jsx_runtime.jsx)("div", {
+ 						className: DetailsPanel_module_css_default.empty,
+ 						children: t("details.empty")
+@@ -7536,6 +7549,7 @@
+ 						})]
+ 					}), (0, react_jsx_runtime.jsxs)("section", {
+ 						className: DetailsPanel_module_css_default.section,
++						"data-dsh-details-tool": "",
+ 						children: [(0, react_jsx_runtime.jsx)("div", {
+ 							className: DetailsPanel_module_css_default.sectionLabel,
+ 							children: t("details.output")
+@@ -7553,6 +7567,10 @@
+ 					})] })
+ 				})]
+ 			});
++			return renderSlot("conversation.details.presentation", {
++				state,
++				panel
++			}, { fallback: panel });
+ 		}
+ 		//#endregion
+ 		//#region lib/types/client/conversation-nodes/common.js
+@@ -10182,7 +10200,7 @@
+ 					return {
+ 						openDetails: (target) => {
+ 							actions.select(target);
+-							layout.openDetails();
++							layout.details.open();
+ 						},
+ 						fileMentions: (owner) => ctx.get("chatFileMentions")?.forClosing(owner),
+ 						openFile: (path) => {
+@@ -10231,14 +10249,18 @@
+ 			slots.register({
+ 				name: "details",
+ 				locale: NS,
+-				children: { "conversation.details.tool": {
+-					kind: "single",
+-					scope: "session"
+-				} },
++				children: {
++					"conversation.details.presentation": {
++						kind: "single",
++						scope: "session"
++					},
++					"conversation.details.tool": {
++						kind: "single",
++						scope: "session"
++					}
++				},
+ 				store: chatStore,
+-				inject: () => ({ closeDetails: () => {
+-					layout.closeDetails();
+-				} })
++				inject: () => ({ details: layout.details })
+ 			}, DetailsPanel);
+ 		}
+ 		//#endregion

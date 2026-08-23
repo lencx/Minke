@@ -1,11 +1,6 @@
-export const DSH_DETAILS_STATE_EVENT =
-  "minke:dsh-details-state";
-export const MINKE_DETAILS_PORTAL_EVENT =
-  "minke:details-portal-change";
-export const MINKE_DETAILS_PORTAL_SELECTOR =
-  "[data-minke-details-portal]";
-export const DSH_DETAILS_STATE_KEY =
-  "__minkeDshDetailsState";
+import type {
+  ReactNode,
+} from "react";
 
 export interface DshDetailsState {
   readonly open: boolean;
@@ -15,9 +10,10 @@ export interface DshDetailsState {
   readonly title: string;
 }
 
-type DetailsStateHost = Readonly<
-  Record<string, unknown>
->;
+export interface DshDetailsPresentation {
+  readonly state: DshDetailsState;
+  readonly panel: ReactNode;
+}
 
 function nonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -25,10 +21,7 @@ function nonEmptyString(value: unknown): string | undefined {
   return normalized === "" ? undefined : normalized;
 }
 
-/**
- * Keep the runtime-patch boundary narrow and fail closed when an older or
- * third-party Details producer publishes an incomplete payload.
- */
+/** Validate the narrow state Interface published by Harness Details. */
 export function parseDshDetailsState(
   value: unknown,
 ): DshDetailsState | undefined {
@@ -60,10 +53,4 @@ export function parseDshDetailsState(
     label,
     title,
   });
-}
-
-export function readDshDetailsState(
-  host: DetailsStateHost = globalThis as DetailsStateHost,
-): DshDetailsState | undefined {
-  return parseDshDetailsState(host[DSH_DETAILS_STATE_KEY]);
 }

@@ -1,4 +1,11 @@
 import type {
+  HarnessClientContext,
+  SlotService,
+} from "../../core/context.ts";
+import {
+  createElement,
+} from "react";
+import type {
   TabRendererRegistry,
 } from "../registry.ts";
 import type {
@@ -6,81 +13,99 @@ import type {
 } from "../runtime.ts";
 import {
   DetailsTabsController,
-  installDetailsLayoutOpenBridge,
-  installDetailsTabsBridge,
 } from "./controller.ts";
+import type {
+  DshDetailsPresentation,
+} from "./contract.ts";
+import {
+  DetailsPresentationAdapter,
+} from "./presentation.tsx";
+import {
+  DetailsPresentationRuntime,
+} from "./presentation-runtime.ts";
 import {
   createDetailsTabRenderer,
 } from "./renderer.tsx";
 
-interface DetailsStateEventHost extends EventTarget {
-  readonly [key: string]: unknown;
-}
-
-export interface DetailsTabsLayoutHost {
-  openDetails(): void;
-  closeDetails(): void;
-}
-
 export interface DetailsTabsIntegrationOptions {
   readonly runtime: TabsRuntime;
   readonly renderers: TabRendererRegistry;
-  readonly layout: DetailsTabsLayoutHost;
-  readonly host?: DetailsStateEventHost;
+  readonly slots: SlotService;
+  readonly layout: Pick<HarnessClientContext["layout"], "details">;
   readonly schedule?: (task: () => void) => void;
 }
 
 /**
- * Own the complete Details/Tabs integration lifecycle behind one seam:
- * renderer registration, upstream state reconciliation, layout interception,
- * and cleanup ordering.
+ * Adapt Harness's semantic Details state and presentation slot to Minke Tabs.
+ * Harness retains the panel tree and state; Minke owns only its host surface.
  */
 export function installDetailsTabs({
   runtime,
   renderers,
+  slots,
   layout,
-  host,
   schedule,
 }: DetailsTabsIntegrationOptions): () => void {
+  const presentation = new DetailsPresentationRuntime();
   const controller = new DetailsTabsController(runtime, {
-    releaseHost: layout.closeDetails.bind(layout),
+    releaseHost: layout.details.close,
     ...(schedule === undefined ? {} : { schedule }),
   });
   const unregisterRenderer = renderers.register(
-    createDetailsTabRenderer(),
+    createDetailsTabRenderer(
+      presentation,
+      layout.details.close,
+    ),
   );
-  let restoreLayout: (() => void) | undefined;
+  let disconnectPresentation: (() => void) | undefined;
   try {
-    restoreLayout = installDetailsLayoutOpenBridge(
-      layout,
-      controller,
-      host,
-    );
-    const disconnectState = installDetailsTabsBridge(
-      controller,
-      host,
+    disconnectPresentation = slots.inject(
+      "conversation.details.presentation",
+      () => {
+        const releasePresentationHost =
+          layout.details.registerHost();
+        try {
+          const unregisterPresentation =
+            slots.register<DshDetailsPresentation>(
+              {
+                name: "conversation.details.presentation",
+                id: "minke-details-tabs",
+              },
+              (props) =>
+                createElement(DetailsPresentationAdapter, {
+                  ...props,
+                  controller,
+                  presentation,
+                }),
+            );
+          return () => {
+            try {
+              unregisterPresentation();
+            } finally {
+              releasePresentationHost();
+            }
+          };
+        } catch (error) {
+          releasePresentationHost();
+          throw error;
+        }
+      },
     );
     let disposed = false;
     return () => {
       if (disposed) return;
       disposed = true;
       try {
-        restoreLayout?.();
+        disconnectPresentation?.();
       } finally {
-        try {
-          disconnectState();
-        } finally {
-          unregisterRenderer();
-        }
+        controller.dispose();
+        presentation.setTarget(null);
+        unregisterRenderer();
       }
     };
   } catch (error) {
-    try {
-      restoreLayout?.();
-    } finally {
-      controller.dispose();
-      unregisterRenderer();
-    }
+    controller.dispose();
+    unregisterRenderer();
     throw error;
   }
 }

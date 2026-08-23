@@ -10,19 +10,17 @@ export {
 } from "./integration.ts";
 export type {
   DetailsTabsIntegrationOptions,
-  DetailsTabsLayoutHost,
 } from "./integration.ts";
 export {
-  DSH_DETAILS_STATE_EVENT,
-  DSH_DETAILS_STATE_KEY,
-  MINKE_DETAILS_PORTAL_EVENT,
-  MINKE_DETAILS_PORTAL_SELECTOR,
   parseDshDetailsState,
-  readDshDetailsState,
 } from "./contract.ts";
 export type {
+  DshDetailsPresentation,
   DshDetailsState,
 } from "./contract.ts";
+export {
+  DetailsPresentationRuntime,
+} from "./presentation-runtime.ts";
 export {
   DETAILS_TAB_STYLES,
   installDetailsTabStyles,

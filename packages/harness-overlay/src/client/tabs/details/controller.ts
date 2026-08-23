@@ -2,8 +2,6 @@ import type {
   TabsRuntime,
 } from "../runtime.ts";
 import {
-  DSH_DETAILS_STATE_EVENT,
-  readDshDetailsState,
   type DshDetailsState,
 } from "./contract.ts";
 
@@ -20,14 +18,6 @@ export interface DetailsTabPayload {
 export interface DetailsTabsControllerOptions {
   readonly releaseHost: () => void;
   readonly schedule?: (task: () => void) => void;
-}
-
-interface DetailsStateEventHost extends EventTarget {
-  readonly [DSH_DETAILS_STATE_KEY: string]: unknown;
-}
-
-interface DetailsLayoutOpenHost {
-  openDetails(): void;
 }
 
 function tabTitle(state: DshDetailsState): string {
@@ -129,67 +119,4 @@ export class DetailsTabsController {
       payload,
     });
   }
-}
-
-export function installDetailsTabsBridge(
-  controller: DetailsTabsController,
-  host: DetailsStateEventHost = window as unknown as DetailsStateEventHost,
-): () => void {
-  const reconcile = (): void => {
-    const state = readDshDetailsState(host);
-    if (state !== undefined) controller.accept(state);
-  };
-  host.addEventListener(DSH_DETAILS_STATE_EVENT, reconcile);
-  try {
-    reconcile();
-  } catch (error) {
-    host.removeEventListener(DSH_DETAILS_STATE_EVENT, reconcile);
-    controller.dispose();
-    throw error;
-  }
-  return () => {
-    host.removeEventListener(DSH_DETAILS_STATE_EVENT, reconcile);
-    controller.dispose();
-  };
-}
-
-/**
- * Route the public layout.openDetails() compatibility seam through the
- * managed Details tab. A producer without a selected call cannot create a
- * useful Details surface, so its empty host-track open is intentionally
- * suppressed. An unpatched/older DSH runtime has no state snapshot and keeps
- * the original behavior.
- */
-export function installDetailsLayoutOpenBridge(
-  layout: DetailsLayoutOpenHost,
-  controller: DetailsTabsController,
-  host: DetailsStateEventHost = window as unknown as DetailsStateEventHost,
-): () => void {
-  const ownDescriptor = Object.getOwnPropertyDescriptor(
-    layout,
-    "openDetails",
-  );
-  const original = layout.openDetails;
-  const intercepted = (): void => {
-    const state = readDshDetailsState(host);
-    if (state === undefined) {
-      Reflect.apply(original, layout, []);
-      return;
-    }
-    controller.accept(state);
-  };
-  Object.defineProperty(layout, "openDetails", {
-    configurable: true,
-    enumerable: ownDescriptor?.enumerable ?? false,
-    value: intercepted,
-    writable: true,
-  });
-  return () => {
-    if (layout.openDetails !== intercepted) return;
-    if (ownDescriptor === undefined) {
-      delete (layout as Partial<DetailsLayoutOpenHost>).openDetails;
-      return;
-    }
-    Object.defineProperty(layout, "openDetails", ownDescriptor);
-  };
 }
