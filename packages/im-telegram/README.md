@@ -2,7 +2,7 @@
 
 `@lencx/minke-im-telegram` is Minke's Telegram Bot API transport and Gateway provider. It uses the official HTTPS Bot API directly and has no OpenClaw, desktop, webhook server, or third-party Telegram SDK dependency.
 
-Create a transport with a BotFather token, call `start()` to validate it through `getMe`, then create the Gateway provider. `identity` is intentionally unavailable until `getMe()` or `start()` succeeds, so a durable Gateway account is always bound to the bot ID returned by Telegram rather than to an unverified token string.
+Create a transport with a BotFather token, call `start()` to validate it through `getMe`, clear any legacy webhook without dropping queued updates, and then create the Gateway provider. `identity` is intentionally unavailable until `getMe()` or `start()` succeeds, so a durable Gateway account is always bound to the bot ID returned by Telegram rather than to an unverified token string.
 
 ```ts
 import {
@@ -36,7 +36,9 @@ The transport never stores or advances a checkpoint. The Gateway must admit norm
 
 Inbound normalization covers text, photo, document, audio, video, voice, sticker, location, and contact messages. It retains chat identity and type, sender or sender-chat identity, forum thread ID, reply summary, edit/update kind, Telegram message ID, and the original update ID. Opaque `file_id` values are retained for later download or reuse but are not fetched automatically.
 
-Telegram long polling and webhooks are mutually exclusive. A Bot API `409` response is classified as `conflict`; remove the webhook before starting this provider. See Telegram's official [`getUpdates` reference](https://core.telegram.org/bots/api#getupdates) and [Bot FAQ](https://core.telegram.org/bots/faq#long-polling-gives-me-the-same-updates-again-and-again).
+Telegram long polling and webhooks are mutually exclusive. `start()` therefore calls `deleteWebhook` once per transport by default with `drop_pending_updates: false`, preserving queued updates while making the desktop's single-owner long poll the active receive mode. Set `clearWebhookBeforePolling: false` only when the Host owns webhook cleanup separately and can guarantee that no webhook is registered. Cleanup participates in `AbortSignal` and request-timeout cancellation, and an uncertain cleanup attempt is not repeated by the same transport; dispose it and create a fresh transport if the Host chooses to retry.
+
+A Bot API `409` from `getUpdates` remains classified as `conflict` after webhook cleanup because it normally means another long-polling instance is using the same bot token. The Host should surface that ownership conflict rather than deleting the webhook again or silently retrying. See Telegram's official [`deleteWebhook` reference](https://core.telegram.org/bots/api#deletewebhook), [`getUpdates` reference](https://core.telegram.org/bots/api#getupdates), and [Bot FAQ](https://core.telegram.org/bots/faq#long-polling-gives-me-the-same-updates-again-and-again).
 
 ## Delivery contract
 

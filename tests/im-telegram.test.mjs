@@ -89,6 +89,7 @@ function sequenceFetch(responses, requests = []) {
 
 function transportOptions(fetch, overrides = {}) {
   return {
+    clearWebhookBeforePolling: false,
     credential: { token: TOKEN },
     fetch,
     longPollTimeoutMs: 2_000,
@@ -96,6 +97,138 @@ function transportOptions(fetch, overrides = {}) {
     ...overrides,
   };
 }
+
+test("start clears a legacy webhook once without dropping queued updates", async () => {
+  const requests = [];
+  const fetch = sequenceFetch(
+    [success(botIdentity()), success(true)],
+    requests,
+  );
+  const transport = createTelegramTransport({
+    credential: { token: TOKEN },
+    fetch,
+    longPollTimeoutMs: 2_000,
+    requestTimeoutMs: 5_000,
+  });
+
+  await Promise.all([transport.start(), transport.start()]);
+  await transport.start();
+
+  assert.deepEqual(
+    requests.map(({ url }) => url.slice(url.lastIndexOf("/") + 1)),
+    ["getMe", "deleteWebhook"],
+  );
+  assert.deepEqual(requests[1].body, {
+    drop_pending_updates: false,
+  });
+  assert.equal(requests[1].method, "POST");
+  await transport.close();
+});
+
+test("webhook cleanup is cancellable, redacted, and never repeated after an uncertain attempt", async () => {
+  const requests = [];
+  let cleanupStarted;
+  const started = new Promise((resolve) => {
+    cleanupStarted = resolve;
+  });
+  const fetch = sequenceFetch(
+    [
+      success(botIdentity()),
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          cleanupStarted();
+          init.signal.addEventListener(
+            "abort",
+            () =>
+              reject(
+                new DOMException(
+                  `cancelled ${TOKEN}`,
+                  "AbortError",
+                ),
+              ),
+            { once: true },
+          );
+        }),
+      success(botIdentity()),
+    ],
+    requests,
+  );
+  const transport = createTelegramTransport({
+    credential: { token: TOKEN },
+    fetch,
+    requestTimeoutMs: 5_000,
+  });
+  const controller = new AbortController();
+  const pending = transport.start({ signal: controller.signal });
+  await started;
+  controller.abort(`private ${TOKEN}`);
+
+  let failure;
+  try {
+    await pending;
+  } catch (error) {
+    failure = error;
+  }
+  assert.equal(failure instanceof TelegramTransportError, true);
+  assert.equal(failure.code, "aborted");
+  assert.equal(failure.effect, "unknown");
+  assert.doesNotMatch(String(failure), new RegExp(TOKEN, "u"));
+  assert.doesNotMatch(
+    JSON.stringify(failure),
+    new RegExp(TOKEN, "u"),
+  );
+  await assert.rejects(
+    transport.start(),
+    (error) => error === failure,
+  );
+  assert.deepEqual(
+    requests.map(({ url }) => url.slice(url.lastIndexOf("/") + 1)),
+    ["getMe", "deleteWebhook", "getMe"],
+  );
+  await transport.close();
+});
+
+test("a competing long poll remains a distinct redacted conflict after webhook cleanup", async () => {
+  const requests = [];
+  const transport = createTelegramTransport({
+    credential: { token: TOKEN },
+    fetch: sequenceFetch(
+      [
+        success(botIdentity()),
+        success(true),
+        json(
+          {
+            description: `terminated by another getUpdates ${TOKEN}`,
+            error_code: 409,
+            ok: false,
+          },
+          { status: 409 },
+        ),
+      ],
+      requests,
+    ),
+    longPollTimeoutMs: 2_000,
+    requestTimeoutMs: 5_000,
+  });
+  await transport.start();
+
+  await assert.rejects(
+    transport.receive(null),
+    (error) =>
+      error instanceof TelegramTransportError &&
+      error.code === "conflict" &&
+      error.effect === "none" &&
+      error.status === 409 &&
+      !String(error).includes(TOKEN) &&
+      !JSON.stringify(error).includes(TOKEN),
+  );
+  assert.equal(
+    requests.filter(({ url }) => url.endsWith("/deleteWebhook"))
+      .length,
+    1,
+  );
+  await transport.close();
+});
 
 function inboundMessage(messageId, content = {}, overrides = {}) {
   return {

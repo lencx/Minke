@@ -364,6 +364,11 @@ export interface TelegramCredential {
 export interface TelegramTransportOptions {
   readonly allowedUpdates?: readonly string[];
   readonly apiBaseUrl?: string;
+  /**
+   * Delete any legacy webhook before opening long polling. Defaults to true
+   * for Minke's single-owner desktop runtime.
+   */
+  readonly clearWebhookBeforePolling?: boolean;
   readonly credential: TelegramCredential;
   readonly fetch?: typeof globalThis.fetch;
   readonly getUpdatesLimit?: number;

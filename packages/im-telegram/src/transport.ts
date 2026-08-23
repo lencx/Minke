@@ -64,6 +64,21 @@ function positiveInteger(
   return resolved;
 }
 
+function optionalBoolean(
+  value: boolean | undefined,
+  fallback: boolean,
+  label: string,
+): boolean {
+  const resolved = value ?? fallback;
+  if (typeof resolved !== "boolean") {
+    throw new TelegramTransportError(
+      "invalid-config",
+      `${label} must be a boolean`,
+    );
+  }
+  return resolved;
+}
+
 function normalizeAllowedUpdates(
   values: readonly string[] | undefined,
 ): readonly string[] {
@@ -371,6 +386,7 @@ class TelegramTransportImplementation
   implements TelegramTransport
 {
   readonly #allowedUpdates: readonly string[];
+  readonly #clearWebhookBeforePolling: boolean;
   readonly #getUpdatesLimit: number;
   readonly #lifecycle = new AbortController();
   readonly #longPollTimeoutMs: number;
@@ -383,6 +399,7 @@ class TelegramTransportImplementation
   #polling = false;
   #startPromise?: Promise<void>;
   #state: TransportState = "new";
+  #webhookCleanupPromise?: Promise<void>;
 
   constructor(options: TelegramTransportOptions) {
     this.#network = new TelegramNetwork({
@@ -393,6 +410,11 @@ class TelegramTransportImplementation
     });
     this.#allowedUpdates = normalizeAllowedUpdates(
       options.allowedUpdates,
+    );
+    this.#clearWebhookBeforePolling = optionalBoolean(
+      options.clearWebhookBeforePolling,
+      true,
+      "clearWebhookBeforePolling",
     );
     this.#getUpdatesLimit = positiveInteger(
       options.getUpdatesLimit,
@@ -499,6 +521,49 @@ class TelegramTransportImplementation
     }
   }
 
+  async #clearWebhook(
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    if (!this.#clearWebhookBeforePolling) return;
+    if (this.#webhookCleanupPromise === undefined) {
+      const cleanup = this.#withSignal(
+        signal,
+        async (combined) => {
+          const result = await this.#network.call({
+            body: { drop_pending_updates: false },
+            effectOnUncertainResponse: "unknown",
+            method: "deleteWebhook",
+            signal: combined,
+            timeoutMs: this.#requestTimeoutMs,
+          });
+          if (result !== true) {
+            throw new TelegramTransportError(
+              "protocol",
+              "Telegram deleteWebhook response is invalid",
+              { effect: "unknown" },
+            );
+          }
+        },
+      );
+      this.#webhookCleanupPromise = cleanup;
+      try {
+        await cleanup;
+      } catch (error) {
+        if (
+          error instanceof TelegramTransportError &&
+          error.code === "aborted" &&
+          error.effect === "none" &&
+          this.#webhookCleanupPromise === cleanup
+        ) {
+          this.#webhookCleanupPromise = undefined;
+        }
+        throw error;
+      }
+      return;
+    }
+    await this.#webhookCleanupPromise;
+  }
+
   async start(
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<void> {
@@ -511,6 +576,7 @@ class TelegramTransportImplementation
     this.#startPromise = (async () => {
       try {
         await this.getMe(options);
+        await this.#clearWebhook(options.signal);
         if (
           this.#state !== "closing" &&
           this.#state !== "closed"
@@ -518,7 +584,13 @@ class TelegramTransportImplementation
           this.#state = "open";
         }
       } catch (error) {
-        if (this.#state === "starting") this.#state = "new";
+        if (this.#state === "starting") {
+          this.#state =
+            error instanceof TelegramTransportError &&
+            error.code === "credential-invalid"
+              ? "credential-invalid"
+              : "new";
+        }
         throw error;
       } finally {
         this.#startPromise = undefined;
