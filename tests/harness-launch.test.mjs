@@ -340,3 +340,7 @@ test("Harness window navigation cannot leave the bootstrap pending forever", asy
   );
   assert.equal(outcome?.name, "HarnessNavigationError");
   assert.match(outcome?.message, /did not finish within 10 ms/u);
+  assert.equal(lifecycle.url, harnessUrl);
+  assert.equal(navigationStops, 1);
+  assert.equal(remoteStarts, 0);
+});
