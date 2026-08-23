@@ -7,7 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
@@ -21,7 +21,9 @@ import {
   verifyHarnessRuntimeProcessPolicy,
 } from "../scripts/harness/runtime-process-policy.mjs";
 
-const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+const repositoryRoot = resolve(
+  fileURLToPath(new URL("..", import.meta.url)),
+);
 
 const fixturePatch = `diff --git a/node_modules/@deepseek-ai/example/lib/index.js b/node_modules/@deepseek-ai/example/lib/index.js
 --- a/node_modules/@deepseek-ai/example/lib/index.js
@@ -153,19 +155,20 @@ test("Harness runtime patch declarations are unique and convention-bound", async
   });
 });
 
-test("the background-process patch does not pin generated ACL bundle hashes", async () => {
-  const source = await readFile(
-    join(
-      repositoryRoot,
-      "patches",
-      "deepseek-harness",
-      "windows-background-processes.patch",
-    ),
-    "utf8",
+test("the background-process patch leaves generated ACL bundles to the runtime transform", async () => {
+  const [patch] = await resolveHarnessRuntimePatches(
+    repositoryRoot,
+    [
+      "patches/deepseek-harness/windows-background-processes.patch",
+    ],
   );
-  assert.doesNotMatch(
-    source,
-    /dsh-sandbox-windows-acl\/lib\/types-/u,
+  assert.equal(
+    patch.targets.some((target) =>
+      target.startsWith(
+        "node_modules/@deepseek-ai/dsh-sandbox-windows-acl/",
+      ),
+    ),
+    false,
   );
 });
 
@@ -307,7 +310,7 @@ test("restricted launch hardening discovers one or multiple hashed ACL bundles",
 spawn("probe.exe", [], { stdio: "ignore", windowsHide: true });
 `,
       },
-      async (runtimeRoot, aclPaths) => {
+      async (runtimeRoot) => {
         const first =
           await hardenHarnessWindowsRestrictedLaunches(runtimeRoot);
         assert.deepEqual(first, {
@@ -315,14 +318,13 @@ spawn("probe.exe", [], { stdio: "ignore", windowsHide: true });
           files: bundleNames.length,
           launches: bundleNames.length,
         });
-        for (const aclPath of aclPaths) {
-          const source = normalizeLineEndings(
-            await readFile(aclPath, "utf8"),
-          );
-          assert.match(source, /dwFlags: 257,/u);
-          assert.match(source, /wShowWindow: 0,/u);
-        }
-        await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+        const inspection =
+          await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+        assert.equal(
+          inspection.restrictedLaunches.length,
+          bundleNames.length,
+        );
+        assert.deepEqual(inspection.violations, []);
 
         const second =
           await hardenHarnessWindowsRestrictedLaunches(runtimeRoot);
