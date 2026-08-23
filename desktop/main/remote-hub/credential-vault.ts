@@ -32,6 +32,15 @@ export interface StoredWeixinGrant {
   readonly grant: WeixinAccountGrant;
 }
 
+export type BotCredentialProvider = "telegram" | "discord";
+
+export interface StoredBotCredential {
+  readonly accountId: string;
+  readonly accountLabel: string;
+  readonly generation: number;
+  readonly token: string;
+}
+
 interface AeadDocument {
   readonly ciphertext: string;
   readonly nonce: string;
@@ -51,6 +60,12 @@ const GCM_TAG_BYTES = 16;
 const GATEWAY_ENVELOPE_BYTES =
   1 + GCM_NONCE_BYTES + GCM_TAG_BYTES;
 const WEIXIN_GRANT_PURPOSE = "minke:weixin-grant:v1";
+const BOT_CREDENTIAL_PURPOSE: Readonly<
+  Record<BotCredentialProvider, string>
+> = Object.freeze({
+  telegram: "minke:telegram-bot-credential:v1",
+  discord: "minke:discord-bot-credential:v1",
+});
 
 function isRecord(
   value: unknown,
@@ -113,6 +128,35 @@ function storedGrant(value: unknown): StoredWeixinGrant {
   };
 }
 
+function storedBotCredential(
+  value: unknown,
+): StoredBotCredential {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 4 ||
+    typeof value.accountId !== "string" ||
+    value.accountId.length === 0 ||
+    value.accountId.length > 128 ||
+    typeof value.accountLabel !== "string" ||
+    value.accountLabel.length === 0 ||
+    value.accountLabel.length > 128 ||
+    !Number.isSafeInteger(value.generation) ||
+    Number(value.generation) <= 0 ||
+    typeof value.token !== "string" ||
+    value.token.length < 20 ||
+    value.token.length > 4_096 ||
+    /\s/u.test(value.token)
+  ) {
+    throw new TypeError("stored bot credential is invalid");
+  }
+  return {
+    accountId: value.accountId,
+    accountLabel: value.accountLabel,
+    generation: Number(value.generation),
+    token: value.token,
+  };
+}
+
 function aeadDocument(value: unknown): AeadDocument {
   if (
     !isRecord(value) ||
@@ -124,7 +168,7 @@ function aeadDocument(value: unknown): AeadDocument {
     value.nonce.length === 0 ||
     value.tag.length === 0
   ) {
-    throw new TypeError("encrypted Weixin grant document is invalid");
+    throw new TypeError("encrypted credential document is invalid");
   }
   return {
     version: AEAD_VERSION,
@@ -237,15 +281,15 @@ function protectedBackend(
 }
 
 /**
- * Persist Weixin credentials with an authenticated data key wrapped by
- * Electron's OS-backed safeStorage.
+ * Persist every Remote Hub credential with an authenticated data key wrapped
+ * by Electron's OS-backed safeStorage.
  *
  * The file contains ciphertext only and is never folded into the ordinary
  * Minke configuration document.
  */
-export class WeixinGrantVault {
+export class RemoteHubCredentialVault {
   readonly #gatewayKeyPath: string;
-  readonly #path: string;
+  readonly #weixinGrantPath: string;
   readonly #storage: ElectronSafeStoragePort;
   #gatewayKey: Buffer | undefined;
   #gatewayKeyPromise: Promise<Buffer> | undefined;
@@ -254,7 +298,7 @@ export class WeixinGrantVault {
     userDataPath: string,
     storage: ElectronSafeStoragePort,
   ) {
-    this.#path = join(
+    this.#weixinGrantPath = join(
       userDataPath,
       "secrets",
       "weixin.grant.json",
@@ -272,64 +316,61 @@ export class WeixinGrantVault {
   }
 
   async read(): Promise<StoredWeixinGrant | undefined> {
-    if (!this.available) {
-      throw new Error("OS credential protection is unavailable");
-    }
-    const key = await this.#ensureGatewayKey();
-    let source: string;
-    try {
-      source = await readFile(this.#path, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return undefined;
-      }
-      throw error;
-    }
-    const document = aeadDocument(JSON.parse(source));
-    const plaintext = openAead(
-      key,
-      {
-        ciphertext: decodeBase64(
-          document.ciphertext,
-          "Weixin grant ciphertext",
-        ),
-        nonce: decodeBase64(
-          document.nonce,
-          "Weixin grant nonce",
-          GCM_NONCE_BYTES,
-        ),
-        tag: decodeBase64(
-          document.tag,
-          "Weixin grant authentication tag",
-          GCM_TAG_BYTES,
-        ),
-      },
+    return await this.#readCredential(
+      this.#weixinGrantPath,
       WEIXIN_GRANT_PURPOSE,
+      "Weixin grant",
+      storedGrant,
     );
-    return storedGrant(JSON.parse(plaintext.toString("utf8")));
   }
 
   async write(value: StoredWeixinGrant): Promise<void> {
-    if (!this.available) {
-      throw new Error("OS credential protection is unavailable");
-    }
     const validated = storedGrant(value);
-    const key = await this.#ensureGatewayKey();
-    const encrypted = sealAead(
-      key,
-      Buffer.from(JSON.stringify(validated), "utf8"),
+    await this.#writeCredential(
+      this.#weixinGrantPath,
       WEIXIN_GRANT_PURPOSE,
+      validated,
     );
-    await this.#writeProtectedDocument(this.#path, {
-      version: AEAD_VERSION,
-      nonce: encrypted.nonce.toString("base64"),
-      tag: encrypted.tag.toString("base64"),
-      ciphertext: encrypted.ciphertext.toString("base64"),
-    });
   }
 
   async delete(): Promise<void> {
-    await rm(this.#path, { force: true });
+    await rm(this.#weixinGrantPath, { force: true });
+  }
+
+  async readBot(
+    provider: BotCredentialProvider,
+  ): Promise<StoredBotCredential | undefined> {
+    return await this.#readCredential(
+      this.#botCredentialPath(provider),
+      BOT_CREDENTIAL_PURPOSE[provider],
+      `${provider} bot credential`,
+      storedBotCredential,
+    );
+  }
+
+  async writeBot(
+    provider: BotCredentialProvider,
+    value: StoredBotCredential,
+  ): Promise<void> {
+    await this.#writeCredential(
+      this.#botCredentialPath(provider),
+      BOT_CREDENTIAL_PURPOSE[provider],
+      storedBotCredential(value),
+    );
+  }
+
+  async deleteBot(
+    provider: BotCredentialProvider,
+  ): Promise<void> {
+    await rm(this.#botCredentialPath(provider), { force: true });
+  }
+
+  async deleteAllCredentials(): Promise<void> {
+    await Promise.all([
+      this.delete(),
+      this.deleteBot("telegram"),
+      this.deleteBot("discord"),
+    ]);
   }
 
   async resetGatewayCipher(): Promise<void> {
@@ -413,6 +454,78 @@ export class WeixinGrantVault {
         this.#gatewayKeyPromise = undefined;
       });
     return await this.#gatewayKeyPromise;
+  }
+
+  #botCredentialPath(provider: BotCredentialProvider): string {
+    return join(
+      dirname(this.#weixinGrantPath),
+      `${provider}.bot.json`,
+    );
+  }
+
+  async #readCredential<T>(
+    path: string,
+    purpose: string,
+    label: string,
+    validate: (value: unknown) => T,
+  ): Promise<T | undefined> {
+    if (!this.available) {
+      throw new Error("OS credential protection is unavailable");
+    }
+    const key = await this.#ensureGatewayKey();
+    let source: string;
+    try {
+      source = await readFile(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return undefined;
+      }
+      throw error;
+    }
+    const document = aeadDocument(JSON.parse(source));
+    const plaintext = openAead(
+      key,
+      {
+        ciphertext: decodeBase64(
+          document.ciphertext,
+          `${label} ciphertext`,
+        ),
+        nonce: decodeBase64(
+          document.nonce,
+          `${label} nonce`,
+          GCM_NONCE_BYTES,
+        ),
+        tag: decodeBase64(
+          document.tag,
+          `${label} authentication tag`,
+          GCM_TAG_BYTES,
+        ),
+      },
+      purpose,
+    );
+    return validate(JSON.parse(plaintext.toString("utf8")));
+  }
+
+  async #writeCredential(
+    path: string,
+    purpose: string,
+    value: unknown,
+  ): Promise<void> {
+    if (!this.available) {
+      throw new Error("OS credential protection is unavailable");
+    }
+    const key = await this.#ensureGatewayKey();
+    const encrypted = sealAead(
+      key,
+      Buffer.from(JSON.stringify(value), "utf8"),
+      purpose,
+    );
+    await this.#writeProtectedDocument(path, {
+      version: AEAD_VERSION,
+      nonce: encrypted.nonce.toString("base64"),
+      tag: encrypted.tag.toString("base64"),
+      ciphertext: encrypted.ciphertext.toString("base64"),
+    });
   }
 
   async #loadOrCreateGatewayKey(): Promise<Buffer> {

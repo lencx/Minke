@@ -14,7 +14,9 @@ out
 runtime/host
 docs/research
 /packages/harness-overlay/lib/
+/packages/im-discord/lib/
 /packages/im-gateway/lib/
+/packages/im-telegram/lib/
 /packages/im-weixin/lib/
 /packages/model-runtime/lib/
 

@@ -68,12 +68,15 @@ const taskFiles = Object.freeze({
     "window-theme.test.mjs",
   ]),
   host: Object.freeze([
+    "im-discord.test.mjs",
     "im-gateway.test.mjs",
+    "im-telegram.test.mjs",
     "im-weixin.test.mjs",
     "local-model-settings.test.mjs",
     "minke-host.test.mjs",
     "model-runtime.test.mjs",
     "remote.test.mjs",
+    "remote-hub.test.mjs",
   ]),
 });
 

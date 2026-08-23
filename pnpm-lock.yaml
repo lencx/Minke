@@ -16,9 +16,15 @@ importers:
 
   .:
     dependencies:
+      '@lencx/minke-im-discord':
+        specifier: workspace:*
+        version: link:packages/im-discord
       '@lencx/minke-im-gateway':
         specifier: workspace:*
         version: link:packages/im-gateway
+      '@lencx/minke-im-telegram':
+        specifier: workspace:*
+        version: link:packages/im-telegram
       '@lencx/minke-im-weixin':
         specifier: workspace:*
         version: link:packages/im-weixin
@@ -164,11 +170,23 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
 
+  packages/im-discord:
+    dependencies:
+      '@lencx/minke-im-gateway':
+        specifier: workspace:*
+        version: link:../im-gateway
+
   packages/im-gateway:
     dependencies:
       '@lencx/minke-im-weixin':
         specifier: workspace:*
         version: link:../im-weixin
+
+  packages/im-telegram:
+    dependencies:
+      '@lencx/minke-im-gateway':
+        specifier: workspace:*
+        version: link:../im-gateway
 
   packages/im-weixin: {}
 

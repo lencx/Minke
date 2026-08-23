@@ -63,6 +63,47 @@ export type WeixinHubSnapshot =
       >;
     };
 
+export type BotHubIssue =
+  | "agent-route-pending"
+  | "credential-invalid"
+  | "credential-read"
+  | "credential-store"
+  | "gateway-store"
+  | "network"
+  | "polling-conflict"
+  | "privileged-intent"
+  | "receive"
+  | "transport-start"
+  | "vault-unavailable";
+
+export type BotHubSnapshot =
+  | {
+      readonly state: "loading";
+    }
+  | {
+      readonly state: "unavailable";
+      readonly issue: "vault-unavailable";
+    }
+  | {
+      readonly state: "unlinked";
+    }
+  | {
+      readonly state: "connecting";
+      readonly accountLabel: string;
+    }
+  | {
+      readonly state: "degraded";
+      readonly accountLabel: string;
+      readonly issue: "agent-route-pending" | "receive";
+    }
+  | {
+      readonly state: "error";
+      readonly issue: Exclude<
+        BotHubIssue,
+        "agent-route-pending" | "receive" | "vault-unavailable"
+      >;
+    };
+
 export interface RemoteHubSnapshot {
   readonly revision: number;
   readonly dependencies: {
@@ -71,14 +112,28 @@ export interface RemoteHubSnapshot {
   };
   readonly channels: {
     readonly weixin: WeixinHubSnapshot;
-    readonly telegram: { readonly state: "planned" };
-    readonly discord: { readonly state: "planned" };
+    readonly telegram: BotHubSnapshot;
+    readonly discord: BotHubSnapshot;
   };
 }
 
 export type RemoteHubCommand =
   | { readonly kind: "refresh" }
   | { readonly kind: "gateway/reset-local" }
+  | {
+      readonly kind: "telegram/connect";
+      readonly token: string;
+    }
+  | { readonly kind: "telegram/reconnect" }
+  | { readonly kind: "telegram/reset-local" }
+  | { readonly kind: "telegram/unlink" }
+  | {
+      readonly kind: "discord/connect";
+      readonly token: string;
+    }
+  | { readonly kind: "discord/reconnect" }
+  | { readonly kind: "discord/reset-local" }
+  | { readonly kind: "discord/unlink" }
   | { readonly kind: "weixin/link/start" }
   | {
       readonly kind: "weixin/link/verify";
@@ -285,6 +340,111 @@ function parseWeixinHubSnapshot(
   }
 }
 
+function parseBotHubSnapshot(
+  value: unknown,
+  provider: "Telegram" | "Discord",
+): BotHubSnapshot {
+  const candidate = record(value, `${provider} Hub snapshot`);
+  switch (candidate.state) {
+    case "loading":
+      exactKeys(
+        candidate,
+        ["state"],
+        `${provider} loading snapshot`,
+      );
+      return { state: "loading" };
+    case "unavailable":
+      exactKeys(
+        candidate,
+        ["state", "issue"],
+        `${provider} unavailable snapshot`,
+      );
+      if (candidate.issue !== "vault-unavailable") {
+        throw new TypeError(
+          `${provider} unavailable issue is invalid`,
+        );
+      }
+      return {
+        state: "unavailable",
+        issue: "vault-unavailable",
+      };
+    case "unlinked":
+      exactKeys(
+        candidate,
+        ["state"],
+        `${provider} unlinked snapshot`,
+      );
+      return { state: "unlinked" };
+    case "connecting":
+      exactKeys(
+        candidate,
+        ["state", "accountLabel"],
+        `${provider} connecting snapshot`,
+      );
+      return {
+        state: "connecting",
+        accountLabel: boundedText(
+          candidate.accountLabel,
+          `${provider} account label`,
+          128,
+        ),
+      };
+    case "degraded":
+      exactKeys(
+        candidate,
+        ["state", "accountLabel", "issue"],
+        `${provider} degraded snapshot`,
+      );
+      if (
+        candidate.issue !== "agent-route-pending" &&
+        candidate.issue !== "receive"
+      ) {
+        throw new TypeError(
+          `${provider} degraded issue is invalid`,
+        );
+      }
+      return {
+        state: "degraded",
+        accountLabel: boundedText(
+          candidate.accountLabel,
+          `${provider} account label`,
+          128,
+        ),
+        issue: candidate.issue,
+      };
+    case "error": {
+      exactKeys(
+        candidate,
+        ["state", "issue"],
+        `${provider} error snapshot`,
+      );
+      const issues = [
+        "credential-invalid",
+        "credential-read",
+        "credential-store",
+        "gateway-store",
+        "network",
+        "polling-conflict",
+        "privileged-intent",
+        "transport-start",
+      ] as const;
+      if (
+        !issues.includes(
+          candidate.issue as (typeof issues)[number],
+        )
+      ) {
+        throw new TypeError(`${provider} error issue is invalid`);
+      }
+      return {
+        state: "error",
+        issue: candidate.issue as (typeof issues)[number],
+      };
+    }
+    default:
+      throw new TypeError(`${provider} Hub state is invalid`);
+  }
+}
+
 /** Reject secret-bearing or forward-incompatible Hub snapshots at preload. */
 export function parseRemoteHubSnapshot(
   value: unknown,
@@ -320,16 +480,6 @@ export function parseRemoteHubSnapshot(
     ["weixin", "telegram", "discord"],
     "Remote Hub channels",
   );
-  const telegram = record(channels.telegram, "Telegram snapshot");
-  const discord = record(channels.discord, "Discord snapshot");
-  exactKeys(telegram, ["state"], "Telegram snapshot");
-  exactKeys(discord, ["state"], "Discord snapshot");
-  if (
-    telegram.state !== "planned" ||
-    discord.state !== "planned"
-  ) {
-    throw new TypeError("Remote Hub planned channel state is invalid");
-  }
   return {
     revision: revision(candidate.revision),
     dependencies: {
@@ -338,10 +488,29 @@ export function parseRemoteHubSnapshot(
     },
     channels: {
       weixin: parseWeixinHubSnapshot(channels.weixin),
-      telegram: { state: "planned" },
-      discord: { state: "planned" },
+      telegram: parseBotHubSnapshot(
+        channels.telegram,
+        "Telegram",
+      ),
+      discord: parseBotHubSnapshot(
+        channels.discord,
+        "Discord",
+      ),
     },
   };
+}
+
+function botToken(value: unknown, provider: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length < 20 ||
+    value.length > 4_096 ||
+    /\s/u.test(value) ||
+    new TextEncoder().encode(value).byteLength > 4_096
+  ) {
+    throw new TypeError(`${provider} bot token is invalid`);
+  }
+  return value;
 }
 
 export function parseRemoteHubCommand(
@@ -351,12 +520,34 @@ export function parseRemoteHubCommand(
   switch (candidate.kind) {
     case "refresh":
     case "gateway/reset-local":
+    case "telegram/reconnect":
+    case "telegram/reset-local":
+    case "telegram/unlink":
+    case "discord/reconnect":
+    case "discord/reset-local":
+    case "discord/unlink":
     case "weixin/link/start":
     case "weixin/reconnect":
     case "weixin/reset-local":
     case "weixin/unlink":
       exactKeys(candidate, ["kind"], "Remote Hub command");
       return { kind: candidate.kind };
+    case "telegram/connect":
+    case "discord/connect": {
+      exactKeys(
+        candidate,
+        ["kind", "token"],
+        "Remote Hub bot connect command",
+      );
+      const provider =
+        candidate.kind === "telegram/connect"
+          ? "Telegram"
+          : "Discord";
+      return {
+        kind: candidate.kind,
+        token: botToken(candidate.token, provider),
+      };
+    }
     case "weixin/link/cancel":
       exactKeys(
         candidate,

@@ -19,7 +19,9 @@ const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sourceRoots = [
   "desktop",
   "packages/harness-overlay/src",
+  "packages/im-discord/src",
   "packages/im-gateway/src",
+  "packages/im-telegram/src",
   "packages/im-weixin/src",
   "packages/model-runtime/src",
   "packages/remote-access/src",
@@ -41,6 +43,7 @@ const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/session-export-contract",
   "@minke/harness-overlay/data-home-contract",
   "@minke/harness-overlay/plugin-install-contract",
+  "@minke/harness-overlay/remote-hub-contract",
   "@minke/harness-overlay/shortcut-contract",
   "@minke/harness-overlay/tabs/contract",
   "@minke/harness-overlay/tabs/files-contract",
@@ -239,6 +242,34 @@ test("the Weixin transport stays independent of host runtimes", () => {
   const violations = productionImports.filter(
     ({ path, specifier }) =>
       path.startsWith(`${weixinRoot}${sep}`) &&
+      (
+        specifier === "electron" ||
+        specifier === "openclaw" ||
+        specifier.startsWith("openclaw/") ||
+        specifier.startsWith("@deepseek-ai/") ||
+        specifier.startsWith("@minke/desktop/") ||
+        specifier.startsWith("@minke/harness-overlay/")
+      ),
+  );
+  assert.deepEqual(
+    violations.map(({ path, specifier }) => [
+      relative(projectRoot, path),
+      specifier,
+    ]),
+    [],
+  );
+});
+
+test("Telegram and Discord transports stay independent of host runtimes", () => {
+  const transportRoots = [
+    "packages/im-telegram/src",
+    "packages/im-discord/src",
+  ].map((path) => resolve(projectRoot, path));
+  const violations = productionImports.filter(
+    ({ path, specifier }) =>
+      transportRoots.some((root) =>
+        path.startsWith(`${root}${sep}`)
+      ) &&
       (
         specifier === "electron" ||
         specifier === "openclaw" ||

@@ -24,8 +24,14 @@ import {
   WeixinCapabilityRuntime,
 } from "@minke/desktop/main/remote-hub/weixin-runtime.ts";
 import {
-  WeixinGrantVault,
-} from "@minke/desktop/main/remote-hub/weixin-vault.ts";
+  RemoteHubCredentialVault,
+} from "@minke/desktop/main/remote-hub/credential-vault.ts";
+import {
+  BotCapabilityRuntime,
+} from "@minke/desktop/main/remote-hub/bot-runtime.ts";
+import {
+  RemoteHubCapabilityRuntime,
+} from "@minke/desktop/main/remote-hub/runtime.ts";
 import {
   bindRemoteHubIpc,
 } from "@minke/desktop/main/remote-hub/ipc.ts";
@@ -60,8 +66,8 @@ function snapshot(weixin = { state: "unlinked" }) {
     },
     channels: {
       weixin,
-      telegram: { state: "planned" },
-      discord: { state: "planned" },
+      telegram: { state: "unlinked" },
+      discord: { state: "unlinked" },
     },
   };
 }
@@ -171,6 +177,59 @@ test("Remote Hub commands are finite and validate verification input", () => {
       }),
     /unexpected fields/u,
   );
+  const telegramToken =
+    "123456789:abcdefghijklmnopqrstuvwxyzABCDE";
+  assert.deepEqual(
+    parseRemoteHubCommand({
+      kind: "telegram/connect",
+      token: telegramToken,
+    }),
+    {
+      kind: "telegram/connect",
+      token: telegramToken,
+    },
+  );
+  assert.deepEqual(
+    parseRemoteHubCommand({
+      kind: "discord/unlink",
+    }),
+    { kind: "discord/unlink" },
+  );
+  assert.throws(
+    () =>
+      parseRemoteHubCommand({
+        kind: "discord/connect",
+        token: "contains whitespace and must fail",
+      }),
+    /Discord bot token/u,
+  );
+});
+
+test("Remote Hub bot snapshots expose identity but reject credentials", () => {
+  const value = snapshot();
+  value.channels.telegram = {
+    state: "error",
+    issue: "polling-conflict",
+  };
+  value.channels.discord = {
+    state: "error",
+    issue: "privileged-intent",
+  };
+  assert.deepEqual(parseRemoteHubSnapshot(value), value);
+  assert.throws(
+    () =>
+      parseRemoteHubSnapshot({
+        ...value,
+        channels: {
+          ...value.channels,
+          telegram: {
+            ...value.channels.telegram,
+            token: "must-never-cross-preload",
+          },
+        },
+      }),
+    /unexpected fields/u,
+  );
 });
 
 test("Remote Hub IPC authorizes both reads and finite commands", async () => {
@@ -257,6 +316,470 @@ function abortableWait(signal) {
     signal.addEventListener("abort", abort, { once: true });
   });
 }
+
+function stalledBotPoll({ signal }) {
+  return new Promise((resolvePromise) => {
+    if (signal.aborted) {
+      resolvePromise();
+      return;
+    }
+    signal.addEventListener(
+      "abort",
+      () => resolvePromise(),
+      { once: true },
+    );
+  });
+}
+
+test("token bot runtime validates before persistence and fences generations", async () => {
+  const token = "123456789:telegram-private-token-value";
+  let stored = {
+    accountId: "telegram-bot-id",
+    accountLabel: "@old_bot",
+    generation: 4,
+    token: "123456789:old-private-token-value",
+  };
+  const writes = [];
+  const snapshots = [];
+  const providers = [];
+  const mailboxes = [];
+  const runtime = new BotCapabilityRuntime({
+    mailboxPath: "/tmp/minke-bot-runtime-test.sqlite",
+    vault: {
+      available: true,
+      async readBot(provider) {
+        assert.equal(provider, "telegram");
+        return stored;
+      },
+      async writeBot(provider, value) {
+        assert.equal(provider, "telegram");
+        writes.push(value);
+        stored = value;
+      },
+      async deleteBot(provider) {
+        assert.equal(provider, "telegram");
+        stored = undefined;
+      },
+      gatewayCipher() {
+        return {
+          open(value) {
+            return value;
+          },
+          seal(value) {
+            return value;
+          },
+        };
+      },
+    },
+    driver: {
+      provider: "telegram",
+      async validate(value, { signal }) {
+        assert.equal(value, token);
+        assert.equal(signal.aborted, false);
+        return {
+          id: "telegram-bot-id",
+          label: "@minke_bot",
+        };
+      },
+      identityId(identity) {
+        return identity.id;
+      },
+      identityLabel(identity) {
+        return identity.label;
+      },
+      isAborted(_error, signal) {
+        return signal.aborted;
+      },
+      issue(error) {
+        return error?.code === "credential-invalid"
+          ? "credential-invalid"
+          : "network";
+      },
+      async createProvider(input) {
+        providers.push(input);
+        return {
+          account: {
+            accountKey: input.accountKey,
+            generation: input.generation,
+            provider: "telegram",
+            providerAccountId: input.identity.id,
+            requiresDeliveryContext: false,
+          },
+          async start() {},
+          async close() {},
+          async receive() {
+            throw new Error("injected poll owns receive");
+          },
+          async prepare() {
+            throw new Error("not exercised");
+          },
+          async deliver() {
+            throw new Error("not exercised");
+          },
+        };
+      },
+    },
+    createMailbox() {
+      const mailbox = {
+        close() {},
+        getAccountGeneration() {
+          return 7;
+        },
+        recover() {},
+        registerAccount(account) {
+          this.account = account;
+        },
+        removeProviderAccounts() {
+          return 1;
+        },
+      };
+      mailboxes.push(mailbox);
+      return mailbox;
+    },
+    pollProviderOnce: stalledBotPoll,
+    onSnapshot(value) {
+      snapshots.push(value);
+    },
+  });
+
+  await runtime.connect(token);
+  assert.deepEqual(writes, [{
+    accountId: "telegram-bot-id",
+    accountLabel: "@minke_bot",
+    generation: 8,
+    token,
+  }]);
+  assert.equal(providers.length, 1);
+  assert.equal(providers[0].generation, 8);
+  assert.equal(providers[0].token, token);
+  assert.equal(
+    providers[0].accountKey,
+    "telegram:telegram-bot-id",
+  );
+  assert.equal(mailboxes.at(-1).account.generation, 8);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "degraded",
+    accountLabel: "@minke_bot",
+    issue: "agent-route-pending",
+  });
+  assert.equal(
+    snapshots.some((value) =>
+      JSON.stringify(value).includes(token)
+    ),
+    false,
+  );
+
+  await runtime.unlink();
+  assert.equal(stored, undefined);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "unlinked",
+  });
+  await runtime.dispose();
+});
+
+test("token bot runtime never persists an invalid credential", async () => {
+  let writes = 0;
+  const runtime = new BotCapabilityRuntime({
+    mailboxPath: "/tmp/minke-invalid-bot-runtime-test.sqlite",
+    vault: {
+      available: true,
+      async readBot() {
+        return undefined;
+      },
+      async writeBot() {
+        writes += 1;
+      },
+      async deleteBot() {},
+      gatewayCipher() {
+        throw new Error("mailbox must not open");
+      },
+    },
+    driver: {
+      provider: "discord",
+      async validate() {
+        throw { code: "credential-invalid" };
+      },
+      identityId(identity) {
+        return identity.id;
+      },
+      identityLabel(identity) {
+        return identity.label;
+      },
+      isAborted(_error, signal) {
+        return signal.aborted;
+      },
+      issue(error) {
+        return error?.code === "credential-invalid"
+          ? "credential-invalid"
+          : "network";
+      },
+      async createProvider() {
+        throw new Error("provider must not be created");
+      },
+    },
+    createMailbox() {
+      throw new Error("mailbox must not open");
+    },
+  });
+
+  await runtime.connect(
+    "discord-private-token-value-123456789",
+  );
+  assert.equal(writes, 0);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "credential-invalid",
+  });
+  await runtime.dispose();
+});
+
+test("an invalid replacement token leaves the active bot provider running", async () => {
+  const oldToken =
+    "123456789:old-private-token-value";
+  const replacementToken =
+    "123456789:invalid-private-token-value";
+  let stored = {
+    accountId: "123456789",
+    accountLabel: "@active_bot",
+    generation: 1,
+    token: oldToken,
+  };
+  let closes = 0;
+  const runtime = new BotCapabilityRuntime({
+    mailboxPath: "/tmp/minke-active-bot-runtime-test.sqlite",
+    vault: {
+      available: true,
+      async readBot() {
+        return stored;
+      },
+      async writeBot(_provider, value) {
+        stored = value;
+      },
+      async deleteBot() {
+        stored = undefined;
+      },
+      gatewayCipher() {
+        return {
+          open(value) {
+            return value;
+          },
+          seal(value) {
+            return value;
+          },
+        };
+      },
+    },
+    driver: {
+      provider: "telegram",
+      async validate(token) {
+        if (token === replacementToken) {
+          throw { code: "credential-invalid" };
+        }
+        assert.equal(token, oldToken);
+        return {
+          id: "123456789",
+          label: "@active_bot",
+        };
+      },
+      identityId(identity) {
+        return identity.id;
+      },
+      identityLabel(identity) {
+        return identity.label;
+      },
+      isAborted(_error, signal) {
+        return signal.aborted;
+      },
+      issue(error) {
+        return error?.code === "credential-invalid"
+          ? "credential-invalid"
+          : "network";
+      },
+      async createProvider(input) {
+        return {
+          account: {
+            accountKey: input.accountKey,
+            generation: input.generation,
+            provider: "telegram",
+            providerAccountId: input.identity.id,
+            requiresDeliveryContext: false,
+          },
+          async start() {},
+          async close() {
+            closes += 1;
+          },
+          async receive() {
+            throw new Error("injected poll owns receive");
+          },
+          async prepare() {
+            throw new Error("not exercised");
+          },
+          async deliver() {
+            throw new Error("not exercised");
+          },
+        };
+      },
+    },
+    createMailbox() {
+      return {
+        close() {},
+        getAccountGeneration() {
+          return 1;
+        },
+        recover() {},
+        registerAccount() {},
+        removeProviderAccounts() {
+          return 1;
+        },
+      };
+    },
+    pollProviderOnce: stalledBotPoll,
+  });
+
+  await runtime.initialize();
+  assert.equal(closes, 0);
+  await runtime.connect(replacementToken);
+  assert.equal(closes, 0);
+  assert.equal(stored.token, oldToken);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "credential-invalid",
+  });
+  await runtime.dispose();
+  assert.equal(closes, 1);
+});
+
+function botRuntimeStub(initial) {
+  let current = initial;
+  const calls = [];
+  return {
+    calls,
+    getSnapshot() {
+      return current;
+    },
+    async initialize() {
+      calls.push("initialize");
+    },
+    async connect(token) {
+      calls.push(["connect", token]);
+      current = {
+        state: "degraded",
+        accountLabel: "@connected_bot",
+        issue: "agent-route-pending",
+      };
+    },
+    async reconnect() {
+      calls.push("reconnect");
+      current = { state: "unlinked" };
+    },
+    async resetLocal() {
+      calls.push("reset-local");
+      current = { state: "unlinked" };
+    },
+    async stopForGatewayReset() {
+      calls.push("stop-for-gateway-reset");
+    },
+    async unlink() {
+      calls.push("unlink");
+      current = { state: "unlinked" };
+    },
+    async dispose() {
+      calls.push("dispose");
+    },
+  };
+}
+
+function weixinRuntimeStub(initial) {
+  let current = snapshot(initial);
+  const calls = [];
+  const listeners = new Set();
+  return {
+    calls,
+    getSnapshot() {
+      return current;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    async initialize() {
+      calls.push("initialize");
+    },
+    async dispatch(command) {
+      calls.push(command.kind);
+      if (command.kind === "gateway/reset-local") {
+        current = {
+          ...current,
+          revision: current.revision + 1,
+          channels: {
+            ...current.channels,
+            weixin: { state: "unlinked" },
+          },
+        };
+        for (const listener of listeners) listener();
+      }
+      return current;
+    },
+    async dispose() {
+      calls.push("dispose");
+    },
+  };
+}
+
+test("Remote Hub composes bot lifecycles and gates whole-Gateway recovery", async () => {
+  const telegram = botRuntimeStub({ state: "unlinked" });
+  const discord = botRuntimeStub({
+    state: "error",
+    issue: "gateway-store",
+  });
+  const weixin = weixinRuntimeStub({ state: "unlinked" });
+  const runtime = new RemoteHubCapabilityRuntime({
+    dataHome: "/tmp/minke-remote-hub-runtime-test",
+    vault: {},
+    weixin,
+    telegram,
+    discord,
+  });
+
+  await runtime.dispatch({ kind: "gateway/reset-local" });
+  assert.deepEqual(
+    telegram.calls.slice(-2),
+    ["stop-for-gateway-reset", "reconnect"],
+  );
+  assert.deepEqual(
+    discord.calls.slice(-2),
+    ["stop-for-gateway-reset", "reconnect"],
+  );
+  assert.equal(
+    weixin.calls.includes("gateway/reset-local"),
+    true,
+  );
+  assert.deepEqual(runtime.getSnapshot().channels.discord, {
+    state: "unlinked",
+  });
+
+  const token =
+    "123456789:telegram-private-token-value";
+  await runtime.dispatch({
+    kind: "telegram/connect",
+    token,
+  });
+  assert.deepEqual(telegram.calls.at(-1), ["connect", token]);
+  assert.deepEqual(runtime.getSnapshot().channels.telegram, {
+    state: "degraded",
+    accountLabel: "@connected_bot",
+    issue: "agent-route-pending",
+  });
+  assert.equal(
+    JSON.stringify(runtime.getSnapshot()).includes(token),
+    false,
+  );
+  await assert.rejects(
+    runtime.dispatch({ kind: "gateway/reset-local" }),
+    /only available after a Gateway store failure/u,
+  );
+  await runtime.dispose();
+});
 
 test("Weixin runtime commits the grant before starting its durable provider", async () => {
   const operations = [];
@@ -1656,7 +2179,7 @@ test("Weixin disposal waits for a delayed vault read without starting later work
 });
 
 test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () => {
-  const root = await mkdtemp(join(tmpdir(), "minke-weixin-vault-"));
+  const root = await mkdtemp(join(tmpdir(), "minke-remote-hub-vault-"));
   const protectedValues = [];
   const safeStorage = {
     isEncryptionAvailable() {
@@ -1674,7 +2197,7 @@ test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () =
     },
   };
   try {
-    const vault = new WeixinGrantVault(root, safeStorage);
+    const vault = new RemoteHubCredentialVault(root, safeStorage);
     await vault.write({
       generation: 1,
       grant: {
@@ -1683,8 +2206,30 @@ test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () =
         baseUrl: "https://ilinkai.weixin.qq.com/",
       },
     });
+    const telegramCredential = {
+      accountId: "123456789",
+      accountLabel: "@minke_bot",
+      generation: 2,
+      token: "123456789:telegram-private-token-value",
+    };
+    const discordCredential = {
+      accountId: "987654321",
+      accountLabel: "Minke Discord",
+      generation: 3,
+      token: "discord-private-token-value-123456789",
+    };
+    await vault.writeBot("telegram", telegramCredential);
+    await vault.writeBot("discord", discordCredential);
     const source = await readFile(
       join(root, "secrets", "weixin.grant.json"),
+      "utf8",
+    );
+    const telegramSource = await readFile(
+      join(root, "secrets", "telegram.bot.json"),
+      "utf8",
+    );
+    const discordSource = await readFile(
+      join(root, "secrets", "discord.bot.json"),
       "utf8",
     );
     const keySource = await readFile(
@@ -1692,6 +2237,14 @@ test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () =
       "utf8",
     );
     assert.equal(source.includes("private-token"), false);
+    assert.equal(
+      telegramSource.includes(telegramCredential.token),
+      false,
+    );
+    assert.equal(
+      discordSource.includes(discordCredential.token),
+      false,
+    );
     assert.equal(keySource.includes("private-token"), false);
     assert.equal(protectedValues.length, 1);
     assert.equal(
@@ -1707,13 +2260,34 @@ test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () =
       },
     };
     assert.deepEqual(await vault.read(), expectedGrant);
-    const reopenedVault = new WeixinGrantVault(
+    assert.deepEqual(
+      await vault.readBot("telegram"),
+      telegramCredential,
+    );
+    assert.deepEqual(
+      await vault.readBot("discord"),
+      discordCredential,
+    );
+    const reopenedVault = new RemoteHubCredentialVault(
       root,
       safeStorage,
     );
     assert.deepEqual(
       await reopenedVault.read(),
       expectedGrant,
+    );
+    assert.deepEqual(
+      await reopenedVault.readBot("telegram"),
+      telegramCredential,
+    );
+
+    await writeFile(
+      join(root, "secrets", "telegram.bot.json"),
+      discordSource,
+    );
+    await assert.rejects(
+      reopenedVault.readBot("telegram"),
+      /authenticat/u,
     );
 
     const cipher = vault.gatewayCipher();
@@ -2057,6 +2631,15 @@ test("Remote Hub renders one accessible entry and a dialog containing IM and Tai
   assert.match(dialog, />Weixin</u);
   assert.match(dialog, />Telegram</u);
   assert.match(dialog, />Discord</u);
+  assert.equal(
+    (dialog.match(/type="password"/gu) ?? []).length,
+    2,
+  );
+  assert.equal(
+    (dialog.match(/aria-describedby=/gu) ?? []).length >= 3,
+    true,
+  );
+  assert.doesNotMatch(dialog, /planned/iu);
   assert.match(dialog, /Tailscale connection/u);
   assert.match(dialog, /role="status"/u);
   assert.match(dialog, /Enable remote access/u);

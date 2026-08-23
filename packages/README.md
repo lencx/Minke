@@ -4,7 +4,9 @@ Product capability modules use one naming rule:
 
 | Directory         | Package                        |
 | ----------------- | ------------------------------ |
+| `im-discord`      | `@lencx/minke-im-discord`      |
 | `im-gateway`      | `@lencx/minke-im-gateway`      |
+| `im-telegram`     | `@lencx/minke-im-telegram`     |
 | `im-weixin`       | `@lencx/minke-im-weixin`       |
 | `remote-access`   | `@lencx/minke-remote-access`   |
 | `model-runtime`   | `@lencx/minke-model-runtime`   |

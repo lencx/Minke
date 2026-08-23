@@ -26,10 +26,22 @@ const weixinPackageRoot = join(
   "packages",
   "im-weixin",
 );
+const telegramPackageRoot = join(
+  projectRoot,
+  "packages",
+  "im-telegram",
+);
+const discordPackageRoot = join(
+  projectRoot,
+  "packages",
+  "im-discord",
+);
 const overlayOutputRoot = join(overlayPackageRoot, "lib");
 const modelRuntimeOutputRoot = join(modelRuntimePackageRoot, "lib");
 const imGatewayOutputRoot = join(imGatewayPackageRoot, "lib");
 const weixinOutputRoot = join(weixinPackageRoot, "lib");
+const telegramOutputRoot = join(telegramPackageRoot, "lib");
+const discordOutputRoot = join(discordPackageRoot, "lib");
 const tsconfigPath = join(projectRoot, "tsconfig.json");
 
 async function readManifest(packageRoot) {
@@ -43,11 +55,15 @@ const [
   modelRuntimeManifest,
   imGatewayManifest,
   weixinManifest,
+  telegramManifest,
+  discordManifest,
 ] = await Promise.all([
   readManifest(overlayPackageRoot),
   readManifest(modelRuntimePackageRoot),
   readManifest(imGatewayPackageRoot),
   readManifest(weixinPackageRoot),
+  readManifest(telegramPackageRoot),
+  readManifest(discordPackageRoot),
 ]);
 const overlayPackageId = overlayManifest.name;
 const modelRuntimePackageId = modelRuntimeManifest.name;
@@ -73,10 +89,24 @@ if (weixinPackageId !== "@lencx/minke-im-weixin") {
     "Minke Weixin package name must be @lencx/minke-im-weixin",
   );
 }
+const telegramPackageId = telegramManifest.name;
+if (telegramPackageId !== "@lencx/minke-im-telegram") {
+  throw new Error(
+    "Minke Telegram package name must be @lencx/minke-im-telegram",
+  );
+}
+const discordPackageId = discordManifest.name;
+if (discordPackageId !== "@lencx/minke-im-discord") {
+  throw new Error(
+    "Minke Discord package name must be @lencx/minke-im-discord",
+  );
+}
 
 await Promise.all([
   rm(imGatewayOutputRoot, { force: true, recursive: true }),
   rm(weixinOutputRoot, { force: true, recursive: true }),
+  rm(telegramOutputRoot, { force: true, recursive: true }),
+  rm(discordOutputRoot, { force: true, recursive: true }),
 ]);
 
 await Promise.all([
@@ -84,6 +114,8 @@ await Promise.all([
   mkdir(modelRuntimeOutputRoot, { recursive: true }),
   mkdir(imGatewayOutputRoot, { recursive: true }),
   mkdir(weixinOutputRoot, { recursive: true }),
+  mkdir(telegramOutputRoot, { recursive: true }),
+  mkdir(discordOutputRoot, { recursive: true }),
   rm(join(overlayOutputRoot, "model-runtime.js"), { force: true }),
   rm(join(overlayOutputRoot, "model-runtime.js.map"), { force: true }),
 ]);
@@ -94,6 +126,30 @@ await Promise.all([
       join(weixinPackageRoot, "src", "index.ts"),
     ],
     outfile: join(weixinOutputRoot, "index.js"),
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "es2022",
+    tsconfig: tsconfigPath,
+    sourcemap: true,
+  }),
+  build({
+    entryPoints: [
+      join(telegramPackageRoot, "src", "index.ts"),
+    ],
+    outfile: join(telegramOutputRoot, "index.js"),
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "es2022",
+    tsconfig: tsconfigPath,
+    sourcemap: true,
+  }),
+  build({
+    entryPoints: [
+      join(discordPackageRoot, "src", "index.ts"),
+    ],
+    outfile: join(discordOutputRoot, "index.js"),
     bundle: true,
     format: "esm",
     platform: "node",
@@ -248,4 +304,6 @@ console.log(
   `Built ${imGatewayPackageId} in ${imGatewayOutputRoot}`,
 );
 console.log(`Built ${weixinPackageId} in ${weixinOutputRoot}`);
+console.log(`Built ${telegramPackageId} in ${telegramOutputRoot}`);
+console.log(`Built ${discordPackageId} in ${discordOutputRoot}`);
 console.log(`Built ${overlayPackageId} in ${overlayOutputRoot}`);

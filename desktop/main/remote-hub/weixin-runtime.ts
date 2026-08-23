@@ -31,11 +31,12 @@ import {
 } from "@minke/harness-overlay/remote-hub-contract.ts";
 import type {
   StoredWeixinGrant,
-} from "./weixin-vault.ts";
+} from "./credential-vault.ts";
 
 interface WeixinVaultPort {
   readonly available: boolean;
   delete(): Promise<void>;
+  deleteAllCredentials?(): Promise<void>;
   gatewayCipher(): GatewayCipher;
   read(): Promise<StoredWeixinGrant | undefined>;
   resetGatewayCipher(): Promise<void>;
@@ -71,6 +72,7 @@ export interface WeixinCapabilityRuntimeOptions {
     signal: AbortSignal,
   ) => Promise<void>;
   readonly resetGatewayMailbox?: (path: string) => Promise<void>;
+  readonly gatewayResetAllowed?: () => boolean;
   readonly createFlowId?: () => string;
 }
 
@@ -204,8 +206,8 @@ function initialSnapshot(): RemoteHubSnapshot {
     },
     channels: {
       weixin: { state: "loading" },
-      telegram: { state: "planned" },
-      discord: { state: "planned" },
+      telegram: { state: "loading" },
+      discord: { state: "loading" },
     },
   });
 }
@@ -263,6 +265,9 @@ export class WeixinCapabilityRuntime {
   readonly #resetGatewayMailbox: NonNullable<
     WeixinCapabilityRuntimeOptions["resetGatewayMailbox"]
   >;
+  readonly #gatewayResetAllowed:
+    | (() => boolean)
+    | undefined;
   readonly #listeners = new Set<() => void>();
   #snapshot = initialSnapshot();
   #initializePromise: Promise<void> | undefined;
@@ -301,6 +306,7 @@ export class WeixinCapabilityRuntime {
       options.waitBeforePoll ?? waitBeforePoll;
     this.#resetGatewayMailbox =
       options.resetGatewayMailbox ?? resetGatewayMailbox;
+    this.#gatewayResetAllowed = options.gatewayResetAllowed;
     this.#createFlowId = options.createFlowId ?? randomUUID;
   }
 
@@ -1004,7 +1010,8 @@ export class WeixinCapabilityRuntime {
     }
     try {
       await Promise.all([
-        this.#vault.delete(),
+        this.#vault.deleteAllCredentials?.() ??
+          this.#vault.delete(),
         this.#vault.resetGatewayCipher(),
       ]);
       this.#publish({ state: "unlinked" }, "ready");
@@ -1067,8 +1074,8 @@ export class WeixinCapabilityRuntime {
       },
       channels: {
         weixin,
-        telegram: { state: "planned" },
-        discord: { state: "planned" },
+        telegram: { state: "loading" },
+        discord: { state: "loading" },
       },
     });
     for (const listener of this.#listeners) listener();
@@ -1240,8 +1247,11 @@ export class WeixinCapabilityRuntime {
   #assertGatewayResetAllowed(): void {
     const weixin = this.#snapshot.channels.weixin;
     if (
-      weixin.state !== "error" ||
-      weixin.issue !== "gateway-store"
+      (
+        weixin.state !== "error" ||
+        weixin.issue !== "gateway-store"
+      ) &&
+      this.#gatewayResetAllowed?.() !== true
     ) {
       throw new TypeError(
         "IM Gateway reset is only available after a Gateway store failure",
