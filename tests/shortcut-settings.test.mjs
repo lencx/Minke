@@ -96,6 +96,9 @@ test("the desktop store writes the shared Minke config", async () => {
       safeMode: false,
       disabledPlugins: [],
     },
+    appUpdate: {
+      autoDownload: true,
+    },
   });
   assertDefaultRemoteSettings(remote);
 });

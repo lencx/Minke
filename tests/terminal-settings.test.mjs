@@ -391,6 +391,9 @@ test("the desktop store writes Terminal settings into Minke config", async () =>
       safeMode: false,
       disabledPlugins: [],
     },
+    appUpdate: {
+      autoDownload: true,
+    },
   });
   assertDefaultRemoteSettings(remote);
 });
