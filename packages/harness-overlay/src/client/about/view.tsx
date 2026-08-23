@@ -2,6 +2,9 @@ import {
   Info,
   X,
 } from "@lucide/icons";
+import type {
+  AppUpdateCheckResult,
+} from "@minke/harness-overlay/app-update-contract.ts";
 import {
   useCallback,
   useEffect,
@@ -34,7 +37,16 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
+const UPDATE_STATUS_KEYS = [
+  "updateStatusUpToDate",
+  "updateStatusAvailable",
+  "updateStatusBusy",
+  "updateStatusUnavailable",
+  "updateStatusFailed",
+] as const;
+
 export interface AboutPanelProps {
+  checkForUpdates?: () => Promise<AppUpdateCheckResult>;
   iconUrl: string;
   info: DesktopAboutInfo;
   onClose: () => void;
@@ -66,6 +78,7 @@ function GitHubMark(): ReactNode {
 
 /** Render the focused About surface independently for testing and review. */
 export function AboutPanel({
+  checkForUpdates,
   iconUrl,
   info,
   onClose,
@@ -76,6 +89,10 @@ export function AboutPanel({
   const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [taglineBefore, taglineAfter] = aboutTagline(t);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<
+    AppUpdateCheckResult | "failed" | undefined
+  >();
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -122,6 +139,31 @@ export function AboutPanel({
     event.preventDefault();
     openExternal(event.currentTarget.href);
   };
+  const handleUpdateCheck = useCallback(async () => {
+    if (checkForUpdates === undefined || checkingUpdate) return;
+    setCheckingUpdate(true);
+    setUpdateStatus(undefined);
+    try {
+      setUpdateStatus(await checkForUpdates());
+    } catch {
+      setUpdateStatus("failed");
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, [checkForUpdates, checkingUpdate]);
+  const updateStatusKey =
+    updateStatus === undefined
+      ? undefined
+      : ({
+          "up-to-date": "updateStatusUpToDate",
+          "update-available": "updateStatusAvailable",
+          busy: "updateStatusBusy",
+          unavailable: "updateStatusUnavailable",
+          failed: "updateStatusFailed",
+        } as const)[updateStatus];
+  const updateCheckLabelKey = checkingUpdate
+    ? "checkingUpdate"
+    : "checkUpdate";
 
   return (
     <div
@@ -181,6 +223,31 @@ export function AboutPanel({
 
         <div className="minke-about__copy">
           <footer className="minke-about__actions">
+            {checkForUpdates !== undefined && (
+              <button
+                type="button"
+                className="minke-about__action"
+                data-minke-about-update-check
+                disabled={checkingUpdate}
+                aria-label={t(updateCheckLabelKey)}
+                title={t(updateCheckLabelKey)}
+                onClick={() => {
+                  void handleUpdateCheck();
+                }}
+              >
+                <span
+                  className="minke-about__update-check-label"
+                  aria-hidden="true"
+                >
+                  <span data-active={!checkingUpdate}>
+                    {t("checkUpdate")}
+                  </span>
+                  <span data-active={checkingUpdate}>
+                    {t("checkingUpdate")}
+                  </span>
+                </span>
+              </button>
+            )}
             <a
               className="minke-about__action minke-about__action--primary"
               href={MINKE_PROJECT_URL}
@@ -190,6 +257,25 @@ export function AboutPanel({
               <span>{t("project")}</span>
             </a>
           </footer>
+          {checkForUpdates !== undefined && (
+            <p
+              className="minke-about__update-status"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <span className="minke-about__update-status-label">
+                {UPDATE_STATUS_KEYS.map((key) => (
+                  <span
+                    key={key}
+                    data-active={updateStatusKey === key}
+                  >
+                    {t(key)}
+                  </span>
+                ))}
+              </span>
+            </p>
+          )}
           <p className="minke-about__community">{t("community")}</p>
         </div>
       </section>
@@ -200,6 +286,7 @@ export function AboutPanel({
 /** Sidebar info action and its modal About surface. */
 export function AboutDialog({
   wide,
+  checkForUpdates,
   iconUrl,
   info,
   openExternal,
@@ -235,6 +322,7 @@ export function AboutDialog({
       </button>
       {open && (
         <AboutPanel
+          checkForUpdates={checkForUpdates}
           iconUrl={iconUrl}
           info={info}
           onClose={close}

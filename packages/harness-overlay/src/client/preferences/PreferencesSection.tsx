@@ -39,8 +39,12 @@ import type {
 import type {
   PreferencesTranslate,
 } from "./locales.ts";
+import type {
+  AppUpdateSettingsRuntime,
+} from "./app-update-runtime.ts";
 
 export interface PreferencesSectionProps {
+  appUpdateSettings?: AppUpdateSettingsRuntime;
   terminalSettings?: TerminalSettingsRuntime;
   codeThemes?: CodeThemeSettingsRuntime;
   t?: PreferencesTranslate;
@@ -48,13 +52,18 @@ export interface PreferencesSectionProps {
 
 /** One settings section for personal editor and Terminal preferences. */
 export function PreferencesSection({
+  appUpdateSettings,
   terminalSettings,
   codeThemes,
   t,
 }: PreferencesSectionProps): ReactNode {
   if (
     t === undefined ||
-    (terminalSettings === undefined && codeThemes === undefined)
+    (
+      appUpdateSettings === undefined &&
+      terminalSettings === undefined &&
+      codeThemes === undefined
+    )
   ) {
     return null;
   }
@@ -92,6 +101,75 @@ export function PreferencesSection({
           t={t}
         />
       )}
+      {appUpdateSettings !== undefined && (
+        <AppUpdatePreferences
+          runtime={appUpdateSettings}
+          t={t}
+        />
+      )}
+    </section>
+  );
+}
+
+function AppUpdatePreferences({
+  runtime,
+  t,
+}: {
+  readonly runtime: AppUpdateSettingsRuntime;
+  readonly t: PreferencesTranslate;
+}): ReactNode {
+  const snapshot = useSyncExternalStore(
+    runtime.subscribe,
+    runtime.getSnapshot,
+    runtime.getSnapshot,
+  );
+  return (
+    <section
+      className="minke-preferences__group"
+      aria-labelledby="minke-app-update-settings-title"
+      data-minke-app-update-settings
+    >
+      <div className="minke-preferences__group-heading">
+        <h3 id="minke-app-update-settings-title">
+          {t("preferences.update.title")}
+        </h3>
+        <p>{t("preferences.update.description")}</p>
+        {snapshot.error !== undefined && (
+          <p className="minke-preferences__error" role="alert">
+            {t(`preferences.update.error.${snapshot.error}`)}
+          </p>
+        )}
+      </div>
+      <div className="minke-preferences__fields">
+        <label className="minke-preferences__row">
+          <span className="minke-preferences__copy">
+            <span className="minke-preferences__label">
+              {t("preferences.update.autoDownload.label")}
+            </span>
+            <span className="minke-preferences__help">
+              {t("preferences.update.autoDownload.help")}
+            </span>
+          </span>
+          <span className="minke-preferences__control">
+            <span className="minke-preferences__switch">
+              <input
+                type="checkbox"
+                checked={snapshot.settings.autoDownload}
+                disabled={!snapshot.editable}
+                aria-label={t(
+                  "preferences.update.autoDownload.label",
+                )}
+                onChange={(event) => {
+                  runtime.setAutoDownload(
+                    event.currentTarget.checked,
+                  );
+                }}
+              />
+              <span aria-hidden="true" />
+            </span>
+          </span>
+        </label>
+      </div>
     </section>
   );
 }

@@ -91,20 +91,28 @@ Minke 只在应用运行期间持有前台代理，并会在退出时停止。�
 | Linux | Fedora / RHEL（`x64`） | `.rpm` |
 | Linux | 便携版（`x64`） | `.AppImage` |
 
+打包后的 macOS、Windows 和 Linux 版本都会自动检查稳定更新。Minke 会为当前系统
+选择名称固定的 DMG、EXE、DEB、RPM 或 AppImage，校验 GitHub 不可变 Release、
+下载地址链、精确大小、SHA-256 和系统可用的来源属性，再询问是否打开。可在
+**设置 → 个人偏好 → 应用更新** 中关闭后台下载；关闭后必须先确认“下载更新”。
+也可随时在 **关于 Minke → 检查更新** 中手动触发。安装过程始终需要用户明确确认。
+完整安全边界和各平台行为见[桌面应用更新说明](./docs/app-updates.md)。
+
 ### macOS
 
 1. 下载并打开 `.dmg` 文件。
 2. 将 `Minke.app` 拖入“应用程序”目录。
-3. 当前预发布版本尚未经过 Apple 公证。打开“终端”，移除已安装应用的 quarantine 属性：
+3. 当前预发布版本尚未经过 Apple 公证。请先尝试在 **系统设置 → 隐私与安全性** 中使用 Apple 提供的[“仍要打开”](https://support.apple.com/zh-cn/102445)流程。
+4. 仅当你明确接受风险且系统流程不可用时，才对已安装应用的精确路径移除 quarantine：
 
    ```bash
    xattr -dr com.apple.quarantine "/Applications/Minke.app"
    ```
 
-4. 从“应用程序”目录打开 Minke。
+5. 从“应用程序”目录打开 Minke。
 
 > [!CAUTION]
-> 移除 quarantine 属性会绕过一项 macOS 安全检查。请仅对从官方 Releases 页面下载的 `Minke.app` 执行上述命令，不要将命令中的路径替换为宽泛目录。也可以尝试在 **系统设置 → 隐私与安全性** 中使用 Apple 提供的[“仍要打开”](https://support.apple.com/zh-cn/102445)流程。
+> 移除 quarantine 属性会绕过一项 macOS 安全检查。Minke 更新器绝不会自动执行该命令。请仅将它作为最后手段，对从官方 Releases 页面下载的 `Minke.app` 使用，并且不要把路径替换为宽泛目录。
 
 ### Windows
 

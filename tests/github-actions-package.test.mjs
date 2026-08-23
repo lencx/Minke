@@ -164,11 +164,10 @@ test("GitHub Actions packages each supported desktop platform", async () => {
     releaseJob,
     /GH_REPO:\s*\$\{\{\s*github\.repository\s*\}\}/u,
   );
-  assert.match(releaseJob, /gh release create "\$GITHUB_REF_NAME"/u);
-  assert.match(releaseJob, /--verify-tag/u);
-  assert.match(releaseJob, /--generate-notes/u);
-  assert.match(releaseJob, /gh release upload "\$GITHUB_REF_NAME"/u);
-  assert.match(releaseJob, /--clobber/u);
+  assert.match(
+    releaseJob,
+    /run:\s*node scripts\/forge\/github-release\.mjs release-assets/u,
+  );
 });
 
 test("workflow dispatch can isolate the Windows package target", async () => {

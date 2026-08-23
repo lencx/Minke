@@ -319,6 +319,9 @@ test("desktop settings share one versioned Minke config", async () => {
       safeMode: false,
       disabledPlugins: [],
     });
+    assert.deepEqual(await store.appUpdate.read(), {
+      autoDownload: true,
+    });
 
     await Promise.all([
       store.shortcuts.write({
@@ -366,6 +369,9 @@ test("desktop settings share one versioned Minke config", async () => {
       plugins: {
         safeMode: true,
         disabledPlugins: ["broken-plugin"],
+      },
+      appUpdate: {
+        autoDownload: true,
       },
     });
     assert.deepEqual(
@@ -431,6 +437,24 @@ test("legacy version 1 configs migrate remote settings into the new schema", asy
       await store.remote.read(),
       true,
     );
+  });
+});
+
+test("legacy version 2 configs enable safe automatic update downloads by default", async () => {
+  await withStore(async ({ root, store }) => {
+    await mkdir(join(root, "desktop"), { recursive: true });
+    await writeFile(
+      store.path,
+      JSON.stringify({
+        version: 2,
+        shortcuts: {},
+        terminal: DEFAULT_TERMINAL_SETTINGS,
+      }),
+    );
+
+    assert.deepEqual(await store.appUpdate.read(), {
+      autoDownload: true,
+    });
   });
 });
 

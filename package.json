@@ -28,6 +28,7 @@
     "test:desktop:harness": "node scripts/tests/desktop.mjs harness",
     "test:desktop:ui": "node scripts/tests/desktop.mjs ui",
     "test:desktop:host": "node scripts/tests/desktop.mjs host",
+    "test:desktop:about-layout": "electron tests/about-update-layout-runtime.cjs",
     "test:desktop:runtime": "pnpm run build:preload && electron tests/macos-window-runtime.cjs",
     "test:sys": "node --test tests/sys-native-module.test.mjs",
     "harness:verify": "node scripts/harness/verify.mjs",

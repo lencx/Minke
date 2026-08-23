@@ -100,20 +100,32 @@ Download Minke only from the official [GitHub Releases](https://github.com/lencx
 
 Release checksums are available in [`SHA256SUMS`](https://github.com/lencx/Minke/releases/latest/download/SHA256SUMS).
 
+Packaged macOS, Windows, and Linux builds check for stable updates
+automatically. Minke selects the fixed DMG, EXE, DEB, RPM, or AppImage asset
+for the running system, verifies the immutable GitHub Release, URL chain,
+exact size, SHA-256 digest, and available OS provenance marker, then asks
+before opening it. Disable background downloads under
+**Settings → Personal preferences → Application updates** to require a
+**Download update** confirmation first, or use **About Minke → Check for
+updates** at any time. Installation always remains explicit. See
+[desktop application updates](./docs/app-updates.md) for the security model
+and platform behavior.
+
 ### macOS
 
 1. Download the `.dmg` file and open it.
 2. Drag `Minke.app` into the Applications folder.
-3. Current pre-release builds are not notarized. Open Terminal and remove the quarantine attribute from the installed app:
+3. Current pre-release builds are not notarized. First try Apple's [Open Anyway](https://support.apple.com/en-us/102445) flow under **System Settings → Privacy & Security**.
+4. If you explicitly accept the risk and the system flow is unavailable, remove quarantine only from the exact installed app:
 
    ```bash
    xattr -dr com.apple.quarantine "/Applications/Minke.app"
    ```
 
-4. Open Minke from the Applications folder.
+5. Open Minke from the Applications folder.
 
 > [!CAUTION]
-> Removing the quarantine attribute bypasses a macOS security check. Run this command only for `Minke.app` downloaded from the official Releases page, and never replace the path with a broad directory. You can also try Apple's [Open Anyway](https://support.apple.com/en-us/102445) flow under **System Settings → Privacy & Security**.
+> Removing the quarantine attribute bypasses a macOS security check. Minke's updater never runs this command automatically. Use it only as a last resort for `Minke.app` downloaded from the official Releases page, and never replace the path with a broad directory.
 
 ### Windows
 

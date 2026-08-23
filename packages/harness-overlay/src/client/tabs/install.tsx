@@ -3,6 +3,7 @@ import type {
   HarnessClientContext,
 } from "../core/context.ts";
 import {
+  desktopAppUpdateSettingsStore,
   desktopPluginInstallerPort,
   desktopSessionLogsPort,
   desktopTerminalSettingsStore,
@@ -15,6 +16,7 @@ import {
   installMobileWebViewportStyles,
 } from "../host/mobile-web-viewport.ts";
 import {
+  AppUpdateSettingsRuntime,
   PreferencesSection,
   preferencesEn,
   preferencesZh,
@@ -119,9 +121,14 @@ export function installTabs(
     createHarnessPluginInventoryPort(ctx.connection),
   );
   const terminalSettingsStore = desktopTerminalSettingsStore();
+  const appUpdateSettingsStore =
+    desktopAppUpdateSettingsStore();
   const sessionLogsPort = desktopSessionLogsPort();
   const terminalSettings = new TerminalSettingsRuntime(
     terminalSettingsStore,
+  );
+  const appUpdateSettings = new AppUpdateSettingsRuntime(
+    appUpdateSettingsStore,
   );
   const codeThemes = new CodeThemeSettingsRuntime(
     filesPort,
@@ -159,11 +166,13 @@ export function installTabs(
     () => () => {
       codeThemes.dispose();
       terminalSettings.dispose();
+      appUpdateSettings.dispose();
     },
     "minke-overlay: Personal preferences runtimes",
   );
   void codeThemes.initialize();
   void terminalSettings.initialize();
+  void appUpdateSettings.initialize();
   const terminalT = ctx.locale.bind<TerminalTabsLocaleKey>(
     TERMINAL_TABS_NAMESPACE,
   ) as TerminalTabsTranslate;
@@ -180,7 +189,11 @@ export function installTabs(
   const preferencesT = ctx.locale.bind<PreferencesLocaleKey>(
     PREFERENCES_NAMESPACE,
   ) as PreferencesTranslate;
-  if (terminalSettingsStore.available || filesPort.available) {
+  if (
+    terminalSettingsStore.available ||
+    filesPort.available ||
+    appUpdateSettingsStore.available
+  ) {
     ctx.effect(
       () =>
         ctx.locale.register(PREFERENCES_NAMESPACE, {
@@ -213,6 +226,9 @@ export function installTabs(
               ? { terminalSettings }
               : {}),
             ...(filesPort.available ? { codeThemes } : {}),
+            ...(appUpdateSettingsStore.available
+              ? { appUpdateSettings }
+              : {}),
           }),
         },
         PreferencesSection as ComponentType<never>,

@@ -4,7 +4,7 @@
   "tests/cross-platform-packaging.test.mjs": 7,
   "tests/data-home-settings.test.mjs": 3,
   "tests/embedded-node-permissions.test.mjs": 11,
-  "tests/github-actions-package.test.mjs": 51,
+  "tests/github-actions-package.test.mjs": 47,
   "tests/harness-overlay.test.mjs": 179,
   "tests/harness-runtime-prune.test.mjs": 1,
   "tests/macos-tray.test.mjs": 6,

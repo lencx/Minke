@@ -15,7 +15,14 @@ import {
 import {
   parseTerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
+import {
+  DEFAULT_APP_UPDATE_SETTINGS,
+  parseAppUpdateCheckResult,
+  parseAppUpdateSettings,
+} from "@minke/harness-overlay/app-update-contract.ts";
 import type {
+  AppUpdatePort,
+  AppUpdateSettingsStore,
   DataHomeSettingsPort,
   DesktopBridgeWindow,
   ModelRuntimeSettingsStore,
@@ -28,6 +35,53 @@ import {
   parseRemoteSettings,
   parseRemoteSettingsSnapshot,
 } from "@lencx/minke-remote-access/contract";
+
+/** Adapt the isolated preload bridge for update checks and preferences. */
+export function desktopAppUpdatePort(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): AppUpdatePort {
+  const bridge = source.minkeDesktop?.appUpdate;
+  if (bridge === undefined) {
+    return {
+      available: false,
+      async check() {
+        return "unavailable";
+      },
+      async read() {
+        return { ...DEFAULT_APP_UPDATE_SETTINGS };
+      },
+      async write() {
+        throw new Error(
+          "Minke desktop app update settings bridge is unavailable",
+        );
+      },
+    };
+  }
+  return {
+    available: true,
+    async check() {
+      if (typeof bridge.check !== "function") {
+        return "unavailable";
+      }
+      return parseAppUpdateCheckResult(await bridge.check());
+    },
+    async read() {
+      return parseAppUpdateSettings(await bridge.read());
+    },
+    async write(settings) {
+      await bridge.write(parseAppUpdateSettings(settings));
+    },
+  };
+}
+
+/** Adapt only the update preference surface used by Settings. */
+export function desktopAppUpdateSettingsStore(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): AppUpdateSettingsStore {
+  return desktopAppUpdatePort(source);
+}
 
 /**
  * Keep desktop-owned Settings entries discoverable across preload upgrades.

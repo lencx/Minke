@@ -232,6 +232,34 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.minke-about__action:disabled {
+  opacity: 0.58;
+  cursor: wait;
+}
+
+.minke-about__action:disabled:hover {
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.minke-about__update-check-label,
+.minke-about__update-status-label {
+  display: grid;
+}
+
+.minke-about__update-check-label > span,
+.minke-about__update-status-label > span {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+
+.minke-about__update-check-label
+  > span[data-active="true"],
+.minke-about__update-status-label
+  > span[data-active="true"] {
+  visibility: visible;
+}
+
 .minke-about__action--primary {
   border-color: transparent;
   background: var(--dsw-alias-button-info-fill);
@@ -252,6 +280,14 @@
 
 .minke-about__github-mark {
   flex: none;
+}
+
+.minke-about__update-status {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
 }
 
 @keyframes minke-about-mask-in {

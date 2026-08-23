@@ -25,10 +25,21 @@ import {
 import {
   type ShortcutBindings,
 } from "@minke/harness-overlay/shortcut-contract";
+import {
+  DEFAULT_APP_UPDATE_SETTINGS,
+} from "@minke/harness-overlay/app-update-contract";
 import { requestDesktopRestart } from "./app-restart";
 import {
   prepareDesktopApplication,
 } from "./application-entry";
+import {
+  detectAppUpdateTarget,
+} from "./app-update";
+import { AppUpdateRuntime } from "./app-update-runtime";
+import {
+  bindAppUpdateSettingsIpc,
+  type AppUpdateSettingsBinding,
+} from "./app-update-settings";
 import {
   bindDataHomeSettingsIpc,
   type DataHomeSettingsBinding,
@@ -88,6 +99,10 @@ interface BeforeQuitEvent {
 
 /** Coordinates process-wide startup, recovery, and ordered shutdown. */
 class DesktopApplication {
+  #appUpdate: AppUpdateRuntime | undefined;
+  #appUpdateSettingsBinding:
+    | AppUpdateSettingsBinding
+    | undefined;
   #runtime: HarnessRuntime | undefined;
   #harnessLifecycle: HarnessLifecycle | undefined;
   #remoteAccess: RemoteAccessService | undefined;
@@ -140,6 +155,7 @@ class DesktopApplication {
     const modelRuntimeSettingsStore = minkeConfig.modelRuntime;
     const remoteSettingsStore = minkeConfig.remote;
     const pluginSettingsStore = minkeConfig.plugins;
+    const appUpdateSettingsStore = minkeConfig.appUpdate;
     const dataHomeManager = new DataHomeManager({
       userDataPath: app.getPath("userData"),
       homeDirectory: app.getPath("home"),
@@ -234,6 +250,9 @@ class DesktopApplication {
       safeMode: false,
       disabledPlugins: [] as readonly string[],
     };
+    let appUpdateSettings = {
+      ...DEFAULT_APP_UPDATE_SETTINGS,
+    };
     try {
       shortcutBindings = await shortcutStore.read();
     } catch (error) {
@@ -264,6 +283,14 @@ class DesktopApplication {
     } catch (error) {
       console.error(
         "Unable to read plugin management settings:",
+        error,
+      );
+    }
+    try {
+      appUpdateSettings = await appUpdateSettingsStore.read();
+    } catch (error) {
+      console.error(
+        "Unable to read app update settings:",
         error,
       );
     }
@@ -357,6 +384,23 @@ class DesktopApplication {
           candidate as IpcMainInvokeEvent,
         ),
     );
+    this.#appUpdateSettingsBinding =
+      bindAppUpdateSettingsIpc(
+        ipcMain,
+        appUpdateSettingsStore,
+        (settings) => {
+          appUpdateSettings = settings;
+          this.#appUpdate?.setAutoDownload(
+            settings.autoDownload,
+          );
+        },
+        async () =>
+          (await this.#appUpdate?.checkNow()) ?? "unavailable",
+        (candidate) =>
+          windows.authorize(
+            candidate as IpcMainInvokeEvent,
+          ),
+      );
 
     const runtime = new HarnessRuntime({
       runtimeRoot: this.#runtimeRoot(),
@@ -392,6 +436,32 @@ class DesktopApplication {
       remote: remoteAccess,
     });
     await this.#startHarness();
+    if (app.isPackaged) {
+      try {
+        const target = await detectAppUpdateTarget(
+          process.platform,
+          process.arch,
+        );
+        const appUpdate = new AppUpdateRuntime({
+          target,
+          autoDownload: appUpdateSettings.autoDownload,
+          currentVersion: app.getVersion(),
+          userDataPath: app.getPath("userData"),
+          window: () => this.#windows?.current,
+          text: (key, params) =>
+            this.#desktopText(key, params),
+        });
+        this.#appUpdate = appUpdate;
+        appUpdate.start();
+      } catch (error) {
+        console.warn(
+          "Minke application updates are unavailable:",
+          error instanceof Error
+            ? error.message
+            : String(error),
+        );
+      }
+    }
 
     app.on("activate", () => this.#showMainWindow());
   }
@@ -566,6 +636,10 @@ class DesktopApplication {
   }
 
   #disposeApplicationBindings(): void {
+    this.#appUpdate?.dispose();
+    this.#appUpdate = undefined;
+    this.#appUpdateSettingsBinding?.dispose();
+    this.#appUpdateSettingsBinding = undefined;
     this.#shortcutMenuBinding?.dispose();
     this.#shortcutMenuBinding = undefined;
     this.#shortcutSettingsBinding?.dispose();

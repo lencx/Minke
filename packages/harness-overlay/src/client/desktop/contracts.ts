@@ -45,6 +45,10 @@ import type {
   TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import type {
+  AppUpdateCheckResult,
+  AppUpdateSettings,
+} from "@minke/harness-overlay/app-update-contract.ts";
+import type {
   RemoteSettings,
   RemoteSettingsSnapshot,
 } from "@lencx/minke-remote-access/contract";
@@ -70,6 +74,16 @@ export interface TerminalSettingsStore {
   readonly available: boolean;
   read(): Promise<TerminalSettings>;
   write(settings: TerminalSettings): Promise<void>;
+}
+
+export interface AppUpdateSettingsStore {
+  readonly available: boolean;
+  read(): Promise<AppUpdateSettings>;
+  write(settings: AppUpdateSettings): Promise<void>;
+}
+
+export interface AppUpdatePort extends AppUpdateSettingsStore {
+  check(): Promise<AppUpdateCheckResult>;
 }
 
 export interface ModelRuntimeSettingsStore {
@@ -235,6 +249,12 @@ export interface DesktopTerminalBridge {
   writeSettings(settings: TerminalSettings): Promise<void>;
 }
 
+export interface DesktopAppUpdateBridge {
+  check?(): Promise<unknown>;
+  read(): Promise<unknown>;
+  write(settings: AppUpdateSettings): Promise<void>;
+}
+
 export interface DesktopModelRuntimeBridge {
   read(): Promise<unknown>;
   write(settings: ModelRuntimeSettings): Promise<void>;
@@ -282,6 +302,7 @@ export interface DesktopAboutBridge {
 /** Shape exposed by the isolated Electron preload. */
 export interface DesktopBridgeWindow {
   minkeDesktop?: {
+    appUpdate?: DesktopAppUpdateBridge;
     about?: DesktopAboutBridge;
     dataHome?: DesktopDataHomeBridge;
     files?: DesktopFilesBridge;

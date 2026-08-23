@@ -151,6 +151,55 @@
 .minke-preferences__select {
   cursor: pointer;
 }
+.minke-preferences__switch {
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 20px;
+  flex: none;
+}
+.minke-preferences__switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.minke-preferences__switch > span {
+  box-sizing: border-box;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l2);
+  transition: background 120ms ease;
+}
+.minke-preferences__switch > span::after {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-primary-foreground);
+  content: "";
+  transition: transform 120ms ease;
+}
+.minke-preferences__switch input:checked + span {
+  background: var(--dsw-alias-brand-primary);
+}
+.minke-preferences__switch input:checked + span::after {
+  transform: translateX(16px);
+}
+.minke-preferences__switch input:focus-visible + span {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+.minke-preferences__switch input:disabled + span {
+  cursor: default;
+  opacity: 0.45;
+}
 .minke-preferences__code-previews {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

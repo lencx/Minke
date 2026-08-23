@@ -35,6 +35,15 @@ import {
   type TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import {
+  APP_UPDATE_CHECK_CHANNEL,
+  APP_UPDATE_SETTINGS_READ_CHANNEL,
+  APP_UPDATE_SETTINGS_WRITE_CHANNEL,
+  parseAppUpdateCheckResult,
+  parseAppUpdateSettings,
+  type AppUpdateCheckResult,
+  type AppUpdateSettings,
+} from "@minke/harness-overlay/app-update-contract.ts";
+import {
   DATA_HOME_CHOOSE_DIRECTORY_CHANNEL,
   DATA_HOME_MIGRATION_PLAN_CHANNEL,
   DATA_HOME_MIGRATION_SCHEDULE_CHANNEL,
@@ -407,6 +416,25 @@ const terminal = Object.freeze({
   },
 });
 
+const appUpdate = Object.freeze({
+  async check(): Promise<AppUpdateCheckResult> {
+    return parseAppUpdateCheckResult(
+      await ipcRenderer.invoke(APP_UPDATE_CHECK_CHANNEL),
+    );
+  },
+  async read(): Promise<unknown> {
+    return parseAppUpdateSettings(
+      await ipcRenderer.invoke(APP_UPDATE_SETTINGS_READ_CHANNEL),
+    );
+  },
+  async write(settings: AppUpdateSettings): Promise<void> {
+    await ipcRenderer.invoke(
+      APP_UPDATE_SETTINGS_WRITE_CHANNEL,
+      parseAppUpdateSettings(settings),
+    );
+  },
+});
+
 const modelRuntime = Object.freeze({
   async read(): Promise<unknown> {
     return await ipcRenderer.invoke(
@@ -539,6 +567,7 @@ const windowTheme = Object.freeze({
 contextBridge.exposeInMainWorld(
   "minkeDesktop",
   Object.freeze({
+    appUpdate,
     about,
     dataHome,
     files,

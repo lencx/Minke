@@ -26,10 +26,15 @@ import {
   parseTerminalSettings,
   type TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
+import {
+  DEFAULT_APP_UPDATE_SETTINGS,
+  parseAppUpdateSettings,
+  type AppUpdateSettings,
+} from "@minke/harness-overlay/app-update-contract.ts";
 
 /** Current schema version of the unified Minke desktop configuration. */
-export const MINKE_CONFIG_VERSION = 2;
-const LEGACY_MINKE_CONFIG_VERSION = 1;
+export const MINKE_CONFIG_VERSION = 3;
+const LEGACY_MINKE_CONFIG_VERSIONS = new Set([1, 2]);
 
 /** Complete Minke-owned desktop configuration stored on disk. */
 export interface MinkeConfigDocument {
@@ -39,6 +44,7 @@ export interface MinkeConfigDocument {
   modelRuntime: ModelRuntimeSettings;
   remote: RemoteSettings;
   plugins: PluginManagementSettings;
+  appUpdate: AppUpdateSettings;
   dshHome?: string;
 }
 
@@ -49,6 +55,7 @@ const CONFIG_KEYS = new Set([
   "modelRuntime",
   "remote",
   "plugins",
+  "appUpdate",
   "dshHome",
 ]);
 
@@ -72,6 +79,9 @@ export function createDefaultMinkeConfigDocument():
       disabledPlugins: [
         ...DEFAULT_PLUGIN_MANAGEMENT_SETTINGS.disabledPlugins,
       ],
+    },
+    appUpdate: {
+      ...DEFAULT_APP_UPDATE_SETTINGS,
     },
   };
 }
@@ -110,7 +120,9 @@ export function parseMinkeConfigDocument(
     !Object.hasOwn(record, "terminal") ||
     (
       record.version !== MINKE_CONFIG_VERSION &&
-      record.version !== LEGACY_MINKE_CONFIG_VERSION
+      !LEGACY_MINKE_CONFIG_VERSIONS.has(
+        record.version as number,
+      )
     )
   ) {
     throw new TypeError("unsupported Minke config document");
@@ -144,6 +156,10 @@ export function parseMinkeConfigDocument(
             ],
           }
         : parsePluginManagementSettings(record.plugins),
+    appUpdate:
+      record.appUpdate === undefined
+        ? { ...DEFAULT_APP_UPDATE_SETTINGS }
+        : parseAppUpdateSettings(record.appUpdate),
     ...(record.dshHome === undefined
       ? {}
       : { dshHome: parseDataHomePath(record.dshHome) }),

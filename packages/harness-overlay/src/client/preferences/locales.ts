@@ -2,7 +2,7 @@ export const preferencesZh = {
   "preferences.nav": "个人偏好",
   "preferences.title": "个人偏好",
   "preferences.description":
-    "集中管理代码编辑器和终端的显示偏好。更改会立即应用。",
+    "集中管理代码编辑器、终端和应用更新偏好。更改会立即应用。",
   "preferences.code.title": "代码与终端主题",
   "preferences.code.description":
     "代码编辑器与终端共享同一主题。分别设置 Minke 浅色与深色外观，每个外观都可选择任意配色。",
@@ -45,6 +45,18 @@ export const preferencesZh = {
     "字号必须是 {min} 到 {max} 之间的整数。",
   "preferences.terminal.validation.lineHeight":
     "行高必须在 {min} 到 {max} 之间。",
+  "preferences.update.title": "应用更新",
+  "preferences.update.description":
+    "Minke 只接受不可变 GitHub Release，并在打开对应平台安装包前校验下载地址、大小、SHA-256 和可用的系统来源属性。",
+  "preferences.update.autoDownload.label": "自动下载更新",
+  "preferences.update.autoDownload.help":
+    "开启后在后台下载并校验可信新版本；打开安装包或显示 AppImage 始终需要你的确认。",
+  "preferences.update.error.unavailable":
+    "当前构建或平台不支持应用更新。",
+  "preferences.update.error.read":
+    "无法读取应用更新设置，已暂时使用默认值。",
+  "preferences.update.error.write":
+    "应用更新设置尚未保存，请检查磁盘权限后重试。",
 } as const;
 
 export type PreferencesLocaleKey = keyof typeof preferencesZh;
@@ -60,7 +72,7 @@ export const preferencesEn: Record<
   "preferences.nav": "Preferences",
   "preferences.title": "Personal preferences",
   "preferences.description":
-    "Manage how the code editor and Terminal look in one place. Changes apply immediately.",
+    "Manage code editor, Terminal, and application update preferences in one place. Changes apply immediately.",
   "preferences.code.title": "Code & Terminal themes",
   "preferences.code.description":
     "The code editor and Terminal share one theme. Choose any palette separately for Minke's light and dark appearances.",
@@ -103,4 +115,17 @@ export const preferencesEn: Record<
     "Font size must be a whole number from {min} to {max}.",
   "preferences.terminal.validation.lineHeight":
     "Line height must be between {min} and {max}.",
+  "preferences.update.title": "Application updates",
+  "preferences.update.description":
+    "Minke accepts only immutable GitHub Releases and verifies the download URL, size, SHA-256 digest, and available OS provenance marker before opening the platform installer.",
+  "preferences.update.autoDownload.label":
+    "Download updates automatically",
+  "preferences.update.autoDownload.help":
+    "Download and verify trusted new versions in the background. Opening an installer or revealing an AppImage always requires your confirmation.",
+  "preferences.update.error.unavailable":
+    "Application updates are unavailable for this build or platform.",
+  "preferences.update.error.read":
+    "Application update settings could not be read. Defaults are in use for now.",
+  "preferences.update.error.write":
+    "Application update settings were not saved. Check disk permissions and try again.",
 };

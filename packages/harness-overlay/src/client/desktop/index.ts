@@ -1,4 +1,6 @@
 export type {
+  AppUpdatePort,
+  AppUpdateSettingsStore,
   DataHomeSettingsPort,
   DesktopAboutInfo,
   DesktopBridgeWindow,
@@ -16,6 +18,8 @@ export type {
   TerminalSettingsStore,
 } from "./contracts.ts";
 export {
+  desktopAppUpdatePort,
+  desktopAppUpdateSettingsStore,
   desktopDataHomeSettingsPort,
   desktopModelRuntimeSettingsStore,
   desktopRemoteSettingsStore,

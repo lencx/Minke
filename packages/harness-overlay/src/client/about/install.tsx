@@ -4,6 +4,7 @@ import type {
 } from "../core/context.ts";
 import {
   desktopAboutInfo,
+  desktopAppUpdatePort,
   desktopTabsPort,
 } from "../desktop/index.ts";
 import {
@@ -23,6 +24,7 @@ export function installAbout(ctx: HarnessClientContext): void {
   if (!aboutInfo.available) return;
 
   const tabsPort = desktopTabsPort();
+  const appUpdatePort = desktopAppUpdatePort();
   ctx.effect(
     () =>
       ctx.locale.register(ABOUT_NAMESPACE, {
@@ -47,6 +49,8 @@ export function installAbout(ctx: HarnessClientContext): void {
         label: () => aboutT("trigger"),
         locale: ABOUT_NAMESPACE,
         inject: () => ({
+          checkForUpdates: async () =>
+            await appUpdatePort.check(),
           info: aboutInfo,
           openExternal: (url: string) => {
             tabsPort.openExternal(url);

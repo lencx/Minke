@@ -2,6 +2,13 @@ export {
   PreferencesSection,
 } from "./PreferencesSection.tsx";
 export {
+  AppUpdateSettingsRuntime,
+} from "./app-update-runtime.ts";
+export type {
+  AppUpdateSettingsErrorKind,
+  AppUpdateSettingsSnapshot,
+} from "./app-update-runtime.ts";
+export {
   preferencesEn,
   preferencesZh,
 } from "./locales.ts";

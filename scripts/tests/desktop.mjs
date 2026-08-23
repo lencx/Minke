@@ -13,6 +13,8 @@ const projectRoot = resolve(
 const taskFiles = Object.freeze({
   core: Object.freeze([
     "app-data-paths.test.mjs",
+    "app-update-settings.test.mjs",
+    "app-update.test.mjs",
     "appimage-packaging.test.mjs",
     "assertion-policy.test.mjs",
     "cross-platform-packaging.test.mjs",
@@ -21,6 +23,7 @@ const taskFiles = Object.freeze({
     "electron-locales.test.mjs",
     "embedded-node-permissions.test.mjs",
     "github-actions-package.test.mjs",
+    "github-release.test.mjs",
     "harness-session.test.mjs",
     "main-window-devtools.test.mjs",
     "macos-tray.test.mjs",

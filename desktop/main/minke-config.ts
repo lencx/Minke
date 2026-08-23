@@ -30,6 +30,10 @@ import {
   type TerminalSettings,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
 import {
+  parseAppUpdateSettings,
+  type AppUpdateSettings,
+} from "@minke/harness-overlay/app-update-contract.ts";
+import {
   createDefaultMinkeConfigDocument,
   parseMinkeConfigDocument,
   type MinkeConfigDocument,
@@ -69,6 +73,7 @@ export class MinkeConfigStore {
   readonly modelRuntime: MinkeConfigSection<ModelRuntimeSettings>;
   readonly remote: MinkeConfigSection<RemoteSettings>;
   readonly plugins: MinkeConfigSection<PluginManagementSettings>;
+  readonly appUpdate: MinkeConfigSection<AppUpdateSettings>;
   readonly dshHome: MinkeConfigSection<string | undefined>;
 
   #document: MinkeConfigDocument | undefined;
@@ -97,6 +102,10 @@ export class MinkeConfigStore {
     this.plugins = Object.freeze({
       read: () => this.#readPlugins(),
       write: (value: unknown) => this.#writePlugins(value),
+    });
+    this.appUpdate = Object.freeze({
+      read: () => this.#readAppUpdate(),
+      write: (value: unknown) => this.#writeAppUpdate(value),
     });
     this.dshHome = Object.freeze({
       read: () => this.#readDshHome(),
@@ -179,6 +188,12 @@ export class MinkeConfigStore {
     });
   }
 
+  #readAppUpdate(): Promise<AppUpdateSettings> {
+    return this.#runExclusive(async () => ({
+      ...(await this.#load()).appUpdate,
+    }));
+  }
+
   #writeShortcuts(value: unknown): Promise<void> {
     return this.#runExclusive(async () => {
       const shortcuts = parseShortcutBindings(value);
@@ -249,6 +264,18 @@ export class MinkeConfigStore {
       const next: MinkeConfigDocument = {
         ...(await this.#load()),
         plugins,
+      };
+      await this.#persist(next);
+      this.#document = next;
+    });
+  }
+
+  #writeAppUpdate(value: unknown): Promise<void> {
+    return this.#runExclusive(async () => {
+      const appUpdate = parseAppUpdateSettings(value);
+      const next: MinkeConfigDocument = {
+        ...(await this.#load()),
+        appUpdate,
       };
       await this.#persist(next);
       this.#document = next;
