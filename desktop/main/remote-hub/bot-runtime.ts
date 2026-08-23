@@ -311,9 +311,12 @@ export class BotCapabilityRuntime<Identity> {
       ) {
         return;
       }
+      const issue = this.#driver.issue(error, "validate");
+      await this.#restoreStoredProviderIfUnowned(controller);
+      if (!this.#ownsOperation(controller)) return;
       this.#publish({
         state: "error",
-        issue: this.#driver.issue(error, "validate"),
+        issue,
       });
       return;
     }
@@ -385,7 +388,17 @@ export class BotCapabilityRuntime<Identity> {
       identity,
       controller,
     );
-    if (candidate === undefined) return;
+    if (candidate === undefined) {
+      const failure = this.#snapshot;
+      await this.#restoreStoredProviderIfUnowned(controller);
+      if (
+        this.#ownsOperation(controller) &&
+        failure.state === "error"
+      ) {
+        this.#publish(failure);
+      }
+      return;
+    }
 
     let committed: VaultOperationResult<CandidateCommitResult>;
     try {
@@ -401,6 +414,9 @@ export class BotCapabilityRuntime<Identity> {
       );
     } catch {
       await this.#closeCandidate(candidate);
+      if (this.#ownsOperation(controller)) {
+        await this.#restoreStoredProviderIfUnowned(controller);
+      }
       if (this.#ownsOperation(controller)) {
         this.#publish({
           state: "error",
@@ -418,6 +434,9 @@ export class BotCapabilityRuntime<Identity> {
     }
     if (committed.value.status === "error") {
       await this.#closeCandidate(candidate);
+      if (this.#ownsOperation(controller)) {
+        await this.#restoreStoredProviderIfUnowned(controller);
+      }
       if (this.#ownsOperation(controller)) {
         this.#publish({
           state: "error",
@@ -936,6 +955,38 @@ export class BotCapabilityRuntime<Identity> {
       () => {},
     );
     return result;
+  }
+
+  async #restoreStoredProviderIfUnowned(
+    operation: AbortController,
+  ): Promise<void> {
+    if (
+      this.#provider !== undefined ||
+      !this.#ownsOperation(operation)
+    ) {
+      return;
+    }
+    let storedResult: VaultOperationResult<
+      StoredBotCredential | undefined
+    >;
+    try {
+      storedResult = await this.#serializeVaultOperation(
+        operation,
+        async () =>
+          await this.#vault.readBot(this.#driver.provider),
+      );
+    } catch {
+      return;
+    }
+    if (
+      storedResult.status === "stale" ||
+      storedResult.value === undefined ||
+      !this.#ownsOperation(operation) ||
+      this.#provider !== undefined
+    ) {
+      return;
+    }
+    await this.#connectStored(storedResult.value, operation);
   }
 
   async #connectStored(

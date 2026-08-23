@@ -828,6 +828,55 @@ test("an invalid replacement token leaves the active bot provider running", asyn
   assert.equal(closes, 1);
 });
 
+test("a failed first connect restores the provider from cold-start storage", async () => {
+  const oldToken =
+    "123456789:stored-private-token-value";
+  const invalidToken =
+    "123456789:invalid-private-token-value";
+  const coldValidationStarted = deferred();
+  const releaseColdValidation = deferred();
+  let oldValidations = 0;
+  const { runtime, state } = transactionalBotHarness({
+    stored: {
+      accountId: "transactional-bot-id",
+      accountLabel: "@active_bot",
+      generation: 1,
+      token: oldToken,
+    },
+    async validate(token) {
+      if (token === invalidToken) {
+        throw { code: "credential-invalid" };
+      }
+      oldValidations += 1;
+      if (oldValidations === 1) {
+        coldValidationStarted.resolve();
+        await releaseColdValidation.promise;
+      }
+      return {
+        id: "transactional-bot-id",
+        label: "@active_bot",
+      };
+    },
+  });
+
+  const initialization = runtime.initialize();
+  await coldValidationStarted.promise;
+  await runtime.connect(invalidToken);
+
+  assert.equal(state.providers.length, 1);
+  assert.equal(state.providers[0].closes, 0);
+  assert.equal(state.stored.token, oldToken);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "error",
+    issue: "credential-invalid",
+  });
+
+  releaseColdValidation.resolve();
+  await initialization;
+  await runtime.dispose();
+  assert.equal(state.providers[0].closes, 1);
+});
+
 test("a failed reconnect leaves the stored provider running", async () => {
   const token = "123456789:active-private-token-value";
   let validations = 0;
