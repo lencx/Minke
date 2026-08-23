@@ -7,6 +7,9 @@ import {
   normalizeDiscordMessage,
   validateDiscordBotToken,
 } from "../packages/im-discord/src/index.ts";
+import {
+  pollGatewayProviderOnce,
+} from "../packages/im-gateway/src/index.ts";
 
 const secretToken = "private.discord.bot-token";
 const bot = Object.freeze({
@@ -220,14 +223,18 @@ async function waitFor(predicate) {
   throw new Error("condition was not reached");
 }
 
-function ready(socket, sequence = 1) {
+function ready(
+  socket,
+  sequence = 1,
+  sessionId = "opaque-session-id",
+) {
   socket.emitMessage({
     d: {
       application: { id: "200000000000000001" },
       guilds: [],
       resume_gateway_url:
         "wss://gateway-us-east1-b.discord.gg",
-      session_id: "opaque-session-id",
+      session_id: sessionId,
       user: {
         bot: true,
         id: bot.id,
@@ -239,6 +246,17 @@ function ready(socket, sequence = 1) {
     s: sequence,
     t: "READY",
   });
+}
+
+function gatewayCheckpoint(
+  sequence,
+  sessionId = "opaque-session-id",
+) {
+  return JSON.stringify([
+    "discord-gateway-v1",
+    sessionId,
+    sequence,
+  ]);
 }
 
 function hello(socket, interval = 100) {
@@ -565,6 +583,89 @@ test("socket open, Hello, and Ready startup phases each have a bounded deadline"
   });
 });
 
+test("initial Gateway recovery has a total deadline that abort and close can preempt", async (t) => {
+  async function recoveringProvider({
+    signal,
+    startupTimeoutMs = 40,
+  } = {}) {
+    const timers = new FakeTimers();
+    let attempts = 0;
+    const provider = await createDiscordGatewayProvider({
+      accountKey: `discord:${bot.id}`,
+      bot,
+      fetch: sequenceFetch([gatewayResponse()]),
+      gatewayInitialReadyTimeoutMs: startupTimeoutMs,
+      generation: 1,
+      reconnectBackoffMs: () => 0,
+      timers,
+      token: secretToken,
+      webSocketFactory() {
+        attempts += 1;
+        throw new Error("socket factory unavailable");
+      },
+    });
+    const start = provider.start({ signal });
+    await waitFor(() => attempts === 1);
+    return {
+      attempts: () => attempts,
+      provider,
+      start,
+      timers,
+    };
+  }
+
+  await t.test("persistent socket failure settles start", async (t) => {
+    const fixture = await recoveringProvider();
+    t.after(() => fixture.provider.close());
+    const rejected = assert.rejects(
+      fixture.start,
+      (error) =>
+        error instanceof DiscordTransportError &&
+        error.code === "network" &&
+        error.retryable &&
+        error.message ===
+          "Discord Gateway initial Ready deadline expired",
+    );
+    fixture.timers.runDelay(0);
+    fixture.timers.runDelay(0);
+    assert.equal(fixture.attempts(), 3);
+    fixture.timers.runDelay(40);
+    await rejected;
+    assert.equal(fixture.provider.getStatus().state, "fatal");
+    assert.equal(fixture.timers.size, 0);
+  });
+
+  await t.test("AbortSignal wins over the recovery deadline", async () => {
+    const controller = new AbortController();
+    const fixture = await recoveringProvider({
+      signal: controller.signal,
+    });
+    controller.abort();
+    await assert.rejects(
+      fixture.start,
+      (error) =>
+        error instanceof DiscordTransportError &&
+        error.code === "aborted",
+    );
+    assert.equal(fixture.provider.getStatus().state, "idle");
+    assert.equal(fixture.timers.size, 0);
+    await fixture.provider.close();
+  });
+
+  await t.test("close wins over the recovery deadline", async () => {
+    const fixture = await recoveringProvider();
+    await fixture.provider.close();
+    await assert.rejects(
+      fixture.start,
+      (error) =>
+        error instanceof DiscordTransportError &&
+        error.code === "gateway-closed",
+    );
+    assert.equal(fixture.provider.getStatus().state, "closed");
+    assert.equal(fixture.timers.size, 0);
+  });
+});
+
 test("Gateway v10 identifies, heartbeats, reconnects with Resume, and re-identifies an invalid session", async (t) => {
   const fixture = await startedProvider();
   t.after(() => fixture.provider.close());
@@ -702,7 +803,7 @@ test("MESSAGE_CREATE normalizes attachment, embed, reply, and thread context int
   });
   const batch = await receive;
   assert.equal(batch.fromCheckpoint, null);
-  assert.equal(batch.nextCheckpoint, "3");
+  assert.equal(batch.nextCheckpoint, gatewayCheckpoint(3));
   assert.equal(batch.events.length, 1);
   assert.deepEqual(
     {
@@ -746,6 +847,200 @@ test("MESSAGE_CREATE normalizes attachment, embed, reply, and thread context int
   });
 });
 
+test("mailbox admission failure replays the unconfirmed Discord batch from the same checkpoint", async (t) => {
+  const fixture = await startedProvider();
+  t.after(() => fixture.provider.close());
+  let checkpoint = null;
+  const admitted = [];
+  const mailbox = {
+    admitBatch(batch) {
+      admitted.push(batch);
+      if (admitted.length === 1) {
+        throw new Error("mailbox temporarily unavailable");
+      }
+      checkpoint = batch.nextCheckpoint;
+      return {
+        admittedNativeIds: batch.events.map(
+          (event) => event.nativeId,
+        ),
+        confirmedOperationIds: [],
+        nextCheckpoint: batch.nextCheckpoint,
+      };
+    },
+    getCheckpoint() {
+      return checkpoint;
+    },
+  };
+  fixture.socket.emitMessage({
+    d: message({ id: "600000000000000010" }),
+    op: 0,
+    s: 2,
+    t: "MESSAGE_CREATE",
+  });
+
+  await assert.rejects(
+    pollGatewayProviderOnce({
+      mailbox,
+      provider: fixture.provider,
+    }),
+    /mailbox temporarily unavailable/u,
+  );
+
+  fixture.socket.emitMessage({
+    d: message({ id: "600000000000000011" }),
+    op: 0,
+    s: 3,
+    t: "MESSAGE_CREATE",
+  });
+  const retried = await pollGatewayProviderOnce({
+    mailbox,
+    provider: fixture.provider,
+  });
+
+  assert.equal(retried.nextCheckpoint, gatewayCheckpoint(2));
+  assert.equal(admitted.length, 2);
+  assert.equal(admitted[0].fromCheckpoint, null);
+  assert.equal(admitted[1].fromCheckpoint, null);
+  assert.equal(
+    admitted[0].events[0].nativeId,
+    "600000000000000010",
+  );
+  assert.equal(
+    admitted[1].events[0].nativeId,
+    "600000000000000010",
+  );
+
+  const next = await pollGatewayProviderOnce({
+    mailbox,
+    provider: fixture.provider,
+  });
+  assert.equal(next.nextCheckpoint, gatewayCheckpoint(3));
+  assert.equal(
+    admitted[2].events[0].nativeId,
+    "600000000000000011",
+  );
+});
+
+test("a stale session checkpoint cannot confirm a same-sequence head", async (t) => {
+  const fixture = await startedProvider();
+  t.after(() => fixture.provider.close());
+  const staleCheckpoint = gatewayCheckpoint(
+    2,
+    "retired-session-id",
+  );
+  const firstReceive = fixture.provider.receive(staleCheckpoint);
+  fixture.socket.emitMessage({
+    d: message({ id: "600000000000000029" }),
+    op: 0,
+    s: 2,
+    t: "MESSAGE_CREATE",
+  });
+
+  const first = await firstReceive;
+  assert.equal(first.fromCheckpoint, staleCheckpoint);
+  assert.equal(first.nextCheckpoint, gatewayCheckpoint(2));
+
+  const replayed = await fixture.provider.receive(
+    staleCheckpoint,
+  );
+  assert.equal(replayed.nextCheckpoint, gatewayCheckpoint(2));
+  assert.equal(
+    replayed.events[0].nativeId,
+    "600000000000000029",
+  );
+});
+
+test("a confirmed head cannot discard lower sequences from a new Gateway session", async (t) => {
+  const fixture = await startedProvider();
+  t.after(() => fixture.provider.close());
+  fixture.socket.emitMessage({
+    d: message({ id: "600000000000000030" }),
+    op: 0,
+    s: 100,
+    t: "MESSAGE_CREATE",
+  });
+  const oldSessionBatch = await fixture.provider.receive(null);
+  assert.equal(
+    oldSessionBatch.nextCheckpoint,
+    gatewayCheckpoint(100),
+  );
+
+  fixture.socket.serverClose(4009);
+  fixture.timers.runDelay(0);
+  const newSessionSocket = fixture.sockets.sockets[1];
+  assert.ok(newSessionSocket);
+  hello(newSessionSocket);
+  ready(newSessionSocket, 1, "replacement-session-id");
+  newSessionSocket.emitMessage({
+    d: message({ id: "600000000000000031" }),
+    op: 0,
+    s: 2,
+    t: "MESSAGE_CREATE",
+  });
+
+  const nextBatch = fixture.provider.receive(
+    gatewayCheckpoint(100),
+  );
+  newSessionSocket.emitMessage({
+    d: message({ id: "600000000000000032" }),
+    op: 0,
+    s: 3,
+    t: "MESSAGE_CREATE",
+  });
+  const admitted = await nextBatch;
+  assert.equal(
+    admitted.fromCheckpoint,
+    gatewayCheckpoint(100),
+  );
+  assert.equal(
+    admitted.nextCheckpoint,
+    gatewayCheckpoint(2, "replacement-session-id"),
+  );
+  assert.equal(
+    admitted.events[0].nativeId,
+    "600000000000000031",
+  );
+});
+
+test("fatal queue overflow preserves an already delivered but unconfirmed head", async (t) => {
+  const fixture = await startedProvider({
+    maxPendingMessages: 1,
+  });
+  t.after(() => fixture.provider.close());
+  fixture.socket.emitMessage({
+    d: message({ id: "600000000000000020" }),
+    op: 0,
+    s: 2,
+    t: "MESSAGE_CREATE",
+  });
+  const delivered = await fixture.provider.receive(null);
+  assert.equal(
+    delivered.events[0].nativeId,
+    "600000000000000020",
+  );
+
+  fixture.socket.emitMessage({
+    d: message({ id: "600000000000000021" }),
+    op: 0,
+    s: 3,
+    t: "MESSAGE_CREATE",
+  });
+  assert.equal(fixture.provider.getStatus().state, "fatal");
+
+  const replayed = await fixture.provider.receive(null);
+  assert.equal(replayed.nextCheckpoint, gatewayCheckpoint(2));
+  assert.equal(
+    replayed.events[0].nativeId,
+    "600000000000000020",
+  );
+  await assert.rejects(
+    fixture.provider.receive(gatewayCheckpoint(2)),
+    (error) =>
+      error instanceof DiscordTransportError &&
+      error.code === "inbound-overflow",
+  );
+});
+
 test("the pre-admission MESSAGE_CREATE queue fails closed at its configured limit", async (t) => {
   const fixture = await startedProvider({
     maxPendingMessages: 1,
@@ -772,8 +1067,14 @@ test("the pre-admission MESSAGE_CREATE queue fails closed at its configured limi
     reason: "Fatal",
   });
   assert.equal(fixture.timers.size, 0);
+  const retained = await fixture.provider.receive(null);
+  assert.equal(retained.nextCheckpoint, gatewayCheckpoint(2));
+  assert.equal(
+    retained.events[0].nativeId,
+    "600000000000000002",
+  );
   await assert.rejects(
-    fixture.provider.receive(null),
+    fixture.provider.receive(gatewayCheckpoint(2)),
     (error) =>
       error instanceof DiscordTransportError &&
       error.code === "inbound-overflow" &&
@@ -792,7 +1093,9 @@ test("a bot echo maps Discord's bounded nonce back to the Gateway operation id",
     }),
   );
   assert.equal(preparation.status, "ready");
-  const receive = fixture.provider.receive("1");
+  const receive = fixture.provider.receive(
+    gatewayCheckpoint(1),
+  );
   fixture.socket.emitMessage({
     d: message({
       author: {
@@ -1183,7 +1486,9 @@ test("aborted work, malformed intent, close, and fatal Gateway codes fail closed
     },
   );
 
-  const pending = fixture.provider.receive("1");
+  const pending = fixture.provider.receive(
+    gatewayCheckpoint(1),
+  );
   fixture.socket.serverClose(4014);
   await assert.rejects(
     pending,
@@ -1199,7 +1504,9 @@ test("aborted work, malformed intent, close, and fatal Gateway codes fail closed
 
 test("close and AbortSignal release pending operations without reconnecting", async () => {
   const fixture = await startedProvider();
-  const pendingReceive = fixture.provider.receive("1");
+  const pendingReceive = fixture.provider.receive(
+    gatewayCheckpoint(1),
+  );
   await fixture.provider.close();
   await assert.rejects(
     pendingReceive,

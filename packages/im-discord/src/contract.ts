@@ -13,6 +13,8 @@ export const DISCORD_DEFAULT_MAX_PENDING_MESSAGES = 1_000;
 export const DISCORD_DEFAULT_GATEWAY_OPEN_TIMEOUT_MS = 10_000;
 export const DISCORD_DEFAULT_GATEWAY_HELLO_TIMEOUT_MS = 15_000;
 export const DISCORD_DEFAULT_GATEWAY_READY_TIMEOUT_MS = 30_000;
+export const DISCORD_DEFAULT_GATEWAY_INITIAL_READY_TIMEOUT_MS =
+  60_000;
 export const DISCORD_PREPARED_DELIVERY_ENCODING =
   "application/vnd.minke.discord-prepared+json;v=1";
 
@@ -339,6 +341,11 @@ export interface DiscordProviderOptions {
   readonly bot?: DiscordBotIdentity;
   readonly fetch?: typeof globalThis.fetch;
   readonly gatewayHelloTimeoutMs?: number;
+  /**
+   * Total recovery budget after a connection failure before the first Ready.
+   * Unlike phase deadlines, reconnect attempts do not reset this timer.
+   */
+  readonly gatewayInitialReadyTimeoutMs?: number;
   readonly gatewayOpenTimeoutMs?: number;
   readonly gatewayReadyTimeoutMs?: number;
   readonly generation: number;

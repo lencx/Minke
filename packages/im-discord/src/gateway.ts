@@ -7,6 +7,7 @@ import type {
 } from "@lencx/minke-im-gateway";
 import {
   DISCORD_DEFAULT_GATEWAY_HELLO_TIMEOUT_MS,
+  DISCORD_DEFAULT_GATEWAY_INITIAL_READY_TIMEOUT_MS,
   DISCORD_DEFAULT_GATEWAY_OPEN_TIMEOUT_MS,
   DISCORD_DEFAULT_GATEWAY_READY_TIMEOUT_MS,
   DISCORD_DEFAULT_INTENTS,
@@ -57,8 +58,8 @@ interface GatewayPayload {
 }
 
 interface QueuedMessage {
+  readonly checkpoint: string;
   readonly event: GatewayInboundEvent;
-  readonly sequence: number;
 }
 
 interface ReceiveWaiter {
@@ -190,6 +191,37 @@ function gatewayString(
     );
   }
   return value;
+}
+
+function gatewayCheckpoint(
+  sessionId: string,
+  sequence: number,
+): string {
+  return JSON.stringify([
+    "discord-gateway-v1",
+    sessionId,
+    sequence,
+  ]);
+}
+
+function validGatewayCheckpoint(value: string): boolean {
+  if (value.length > 4_096) return false;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return (
+      Array.isArray(parsed) &&
+      parsed.length === 3 &&
+      parsed[0] === "discord-gateway-v1" &&
+      typeof parsed[1] === "string" &&
+      parsed[1].length > 0 &&
+      parsed[1].length <= 1_024 &&
+      typeof parsed[2] === "number" &&
+      Number.isSafeInteger(parsed[2]) &&
+      parsed[2] >= 0
+    );
+  } catch {
+    return false;
+  }
 }
 
 function trustedGatewayUrl(raw: unknown): string {
@@ -383,6 +415,7 @@ export class DiscordGatewayProviderSession
     DiscordChannelMetadata
   >();
   readonly #gatewayHelloTimeoutMs: number;
+  readonly #gatewayInitialReadyTimeoutMs: number;
   readonly #gatewayOpenTimeoutMs: number;
   readonly #gatewayReadyTimeoutMs: number;
   readonly #intents: number;
@@ -405,6 +438,7 @@ export class DiscordGatewayProviderSession
   #heartbeatAwaitingAck = false;
   #heartbeatIntervalMs?: number;
   #heartbeatTimer?: unknown;
+  #initialReadyDeadline?: unknown;
   #lastSequence: number | null = null;
   #pendingReconnect?: ReconnectPlan;
   #ready?: Deferred<void>;
@@ -450,6 +484,11 @@ export class DiscordGatewayProviderSession
       input.options.gatewayHelloTimeoutMs,
       DISCORD_DEFAULT_GATEWAY_HELLO_TIMEOUT_MS,
       "gatewayHelloTimeoutMs",
+    );
+    this.#gatewayInitialReadyTimeoutMs = positiveInteger(
+      input.options.gatewayInitialReadyTimeoutMs,
+      DISCORD_DEFAULT_GATEWAY_INITIAL_READY_TIMEOUT_MS,
+      "gatewayInitialReadyTimeoutMs",
     );
     this.#gatewayReadyTimeoutMs = positiveInteger(
       input.options.gatewayReadyTimeoutMs,
@@ -529,20 +568,14 @@ export class DiscordGatewayProviderSession
     checkpoint: string | null,
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<GatewayInboundBatch> {
-    this.#throwIfUnavailable();
-    if (!this.#started || !this.#hasConnected) {
-      throw new DiscordTransportError(
-        "invalid-state",
-        "Discord provider must be started before receive",
-      );
-    }
+    if (this.#closed) this.#throwIfUnavailable();
     if (
       checkpoint !== null &&
-      !/^[0-9]+$/u.test(checkpoint)
+      !validGatewayCheckpoint(checkpoint)
     ) {
       throw new DiscordTransportError(
         "invalid-state",
-        "Discord checkpoint must be a decimal Gateway sequence",
+        "Discord checkpoint is invalid",
       );
     }
     if (options.signal?.aborted === true) {
@@ -551,9 +584,17 @@ export class DiscordGatewayProviderSession
         "Discord receive was aborted",
       );
     }
-    const next = this.#queue.shift();
+    this.#acknowledgeCheckpoint(checkpoint);
+    const next = this.#queue[0];
     if (next !== undefined) {
       return this.#batch(checkpoint, next);
+    }
+    this.#throwIfUnavailable();
+    if (!this.#started || !this.#hasConnected) {
+      throw new DiscordTransportError(
+        "invalid-state",
+        "Discord provider must be started before receive",
+      );
     }
     if (this.#receiveWaiter !== undefined) {
       throw new DiscordTransportError(
@@ -625,6 +666,7 @@ export class DiscordGatewayProviderSession
     this.#state = "closed";
     this.#clearHeartbeat();
     this.#clearReconnect();
+    this.#clearInitialReadyDeadline();
     this.#rest.close();
     this.#channels.clear();
     this.#operationByNonce.clear();
@@ -679,6 +721,7 @@ export class DiscordGatewayProviderSession
       this.#state = "idle";
       this.#clearHeartbeat();
       this.#clearReconnect();
+      this.#clearInitialReadyDeadline();
       const connection = this.#connection;
       if (connection !== undefined) {
         this.#detach(connection);
@@ -1076,9 +1119,16 @@ export class DiscordGatewayProviderSession
       peerId: message.channelId,
       senderId: message.author.id,
     });
+    const sessionId = this.#sessionId;
+    if (sessionId === undefined) {
+      throw new DiscordTransportError(
+        "protocol",
+        "Discord message arrived without an active Gateway session",
+      );
+    }
     this.#enqueue({
+      checkpoint: gatewayCheckpoint(sessionId, payload.s),
       event: inbound,
-      sequence: payload.s,
     });
   }
 
@@ -1112,6 +1162,7 @@ export class DiscordGatewayProviderSession
     if (connection !== undefined) {
       this.#clearStartupDeadline(connection);
     }
+    this.#clearInitialReadyDeadline();
     this.#hasConnected = true;
     this.#state = "ready";
     this.#reconnectAttempt = 0;
@@ -1120,25 +1171,31 @@ export class DiscordGatewayProviderSession
 
   #enqueue(message: QueuedMessage): void {
     const waiter = this.#receiveWaiter;
-    if (waiter === undefined) {
-      if (this.#queue.length >= this.#maxPendingMessages) {
-        this.#fail(
-          new DiscordTransportError(
-            "inbound-overflow",
-            "Discord inbound queue reached its pre-admission limit",
-          ),
-        );
-        return;
-      }
-      this.#queue.push(message);
+    if (this.#queue.length >= this.#maxPendingMessages) {
+      this.#fail(
+        new DiscordTransportError(
+          "inbound-overflow",
+          "Discord inbound queue reached its pre-admission limit",
+        ),
+      );
       return;
     }
+    this.#queue.push(message);
+    if (waiter === undefined) return;
     this.#receiveWaiter = undefined;
     waiter.signal?.removeEventListener(
       "abort",
       waiter.abort,
     );
     waiter.resolve(this.#batch(waiter.checkpoint, message));
+  }
+
+  #acknowledgeCheckpoint(checkpoint: string | null): void {
+    if (checkpoint === null) return;
+    const head = this.#queue[0];
+    if (head?.checkpoint === checkpoint) {
+      this.#queue.shift();
+    }
   }
 
   #batch(
@@ -1150,7 +1207,7 @@ export class DiscordGatewayProviderSession
       events: Object.freeze([message.event]),
       fromCheckpoint: checkpoint,
       generation: this.account.generation,
-      nextCheckpoint: String(message.sequence),
+      nextCheckpoint: message.checkpoint,
       observedAt: this.#now(),
     });
   }
@@ -1358,6 +1415,9 @@ export class DiscordGatewayProviderSession
     }
     const shouldResume = resume && this.#canResume();
     this.#state = "reconnecting";
+    if (!this.#hasConnected) {
+      this.#armInitialReadyDeadline();
+    }
     this.#reconnectAttempt += 1;
     let delayMs: number;
     try {
@@ -1436,6 +1496,39 @@ export class DiscordGatewayProviderSession
     this.#pendingReconnect = undefined;
   }
 
+  #armInitialReadyDeadline(): void {
+    if (
+      this.#hasConnected ||
+      this.#initialReadyDeadline !== undefined
+    ) {
+      return;
+    }
+    const timer = this.#timers.setTimeout(() => {
+      if (
+        this.#initialReadyDeadline !== timer ||
+        this.#hasConnected
+      ) {
+        return;
+      }
+      this.#initialReadyDeadline = undefined;
+      this.#fail(
+        new DiscordTransportError(
+          "network",
+          "Discord Gateway initial Ready deadline expired",
+          { retryable: true },
+        ),
+      );
+    }, this.#gatewayInitialReadyTimeoutMs);
+    this.#initialReadyDeadline = timer;
+    unrefTimer(timer);
+  }
+
+  #clearInitialReadyDeadline(): void {
+    if (this.#initialReadyDeadline === undefined) return;
+    this.#timers.clearTimeout(this.#initialReadyDeadline);
+    this.#initialReadyDeadline = undefined;
+  }
+
   #detach(connection: Connection): void {
     this.#clearStartupDeadline(connection);
     try {
@@ -1481,10 +1574,10 @@ export class DiscordGatewayProviderSession
     this.#started = false;
     this.#channels.clear();
     this.#operationByNonce.clear();
-    this.#queue.length = 0;
     this.#clearSession();
     this.#clearHeartbeat();
     this.#clearReconnect();
+    this.#clearInitialReadyDeadline();
     this.#ready?.reject(error);
     this.#ready = undefined;
     this.#rejectReceive(error);
