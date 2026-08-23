@@ -175,6 +175,7 @@ export interface DesktopSessionLogsPort {
 export interface PluginInstallerPort {
   readonly available: boolean;
   install(command: string): Promise<void>;
+  restart(): Promise<void>;
   uninstall(name: string): Promise<void>;
   readInstalled(): Promise<InstalledPluginsSnapshot>;
 }
@@ -245,6 +246,7 @@ export interface DesktopRemoteBridge {
 
 export interface DesktopPluginInstallerBridge {
   install(command: string): Promise<void>;
+  restart(): Promise<void>;
   uninstall(name: string): Promise<void>;
   readInstalled(): Promise<unknown>;
 }

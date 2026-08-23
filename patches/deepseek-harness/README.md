@@ -11,8 +11,8 @@ part of the runtime fingerprint and metadata; validation also reverse-checks
 that every declared patch is present before publishing or fast refresh.
 
 `win32-directory-picker.patch` is pinned to Harness
-`dsh-v0.1.1-rc.1`
-(`528c682e061696f5a160f363f236ecbf53cbd006`). It:
+`dsh-v0.1.1-rc.2`
+(`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`). It:
 
 - routes the directory dialog worker and Windows ACL sandbox runner through
   `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the

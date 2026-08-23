@@ -7,7 +7,6 @@ import {
 } from "@minke/harness-overlay/tabs/contract.ts";
 import type {
   DesktopTabsPort,
-  PluginInstallerPort,
 } from "@minke/harness-overlay/client/desktop/index.ts";
 import type {
   TabsRuntime,
@@ -20,6 +19,9 @@ import {
   type PluginView,
   type PluginTabPayload,
 } from "./types.ts";
+import type {
+  PluginLifecyclePort,
+} from "./lifecycle.ts";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -28,7 +30,7 @@ function errorMessage(error: unknown): string {
 /** Command installation state layered over the generic Tabs runtime. */
 export class PluginTabsController {
   readonly #tabs: TabsRuntime;
-  readonly #installer: PluginInstallerPort;
+  readonly #lifecycle: PluginLifecyclePort;
   readonly #desktop: DesktopTabsPort;
   readonly #webTabs: Pick<WebTabsController, "open">;
   readonly #revisions = new Map<string, number>();
@@ -38,18 +40,18 @@ export class PluginTabsController {
 
   constructor(
     tabs: TabsRuntime,
-    installer: PluginInstallerPort,
+    lifecycle: PluginLifecyclePort,
     desktop: DesktopTabsPort,
     webTabs: Pick<WebTabsController, "open">,
   ) {
     this.#tabs = tabs;
-    this.#installer = installer;
+    this.#lifecycle = lifecycle;
     this.#desktop = desktop;
     this.#webTabs = webTabs;
   }
 
   create(title: string): string | undefined {
-    if (this.#disposed || !this.#installer.available) {
+    if (this.#disposed || !this.#lifecycle.available) {
       return undefined;
     }
     const tabId = this.#tabs.open<PluginTabPayload>({
@@ -59,6 +61,7 @@ export class PluginTabsController {
       payload: {
         view: "installed",
         installing: false,
+        restarting: false,
         loadingInstalled: true,
         installedPlugins: [],
       },
@@ -83,14 +86,16 @@ export class PluginTabsController {
     this.#update(tabId, {
       loadingInstalled: true,
       installedError: undefined,
+      runtimeError: undefined,
     });
     try {
-      const snapshot = await this.#installer.readInstalled();
+      const snapshot = await this.#lifecycle.read();
       if (!this.#isListCurrent(tabId, revision)) return;
       this.#update(tabId, {
         loadingInstalled: false,
         installedPlugins: snapshot.plugins,
         installedError: undefined,
+        runtimeError: snapshot.runtimeError,
       });
     } catch (error) {
       if (!this.#isListCurrent(tabId, revision)) return;
@@ -108,6 +113,7 @@ export class PluginTabsController {
       tab === undefined ||
       !isPluginTab(tab) ||
       tab.payload.installing ||
+      tab.payload.restarting ||
       tab.payload.uninstallingPlugin !== undefined
     ) {
       return;
@@ -132,9 +138,10 @@ export class PluginTabsController {
       error: undefined,
       uninstalledPlugin: undefined,
       uninstallError: undefined,
+      restartError: undefined,
     });
     try {
-      await this.#installer.install(command);
+      await this.#lifecycle.install(command);
       if (!this.#isCurrent(tabId, revision)) return;
       this.#update(tabId, {
         view: "installed",
@@ -161,6 +168,7 @@ export class PluginTabsController {
       tab === undefined ||
       !isPluginTab(tab) ||
       tab.payload.installing ||
+      tab.payload.restarting ||
       tab.payload.uninstallingPlugin !== undefined
     ) {
       return;
@@ -186,7 +194,7 @@ export class PluginTabsController {
       uninstallError: undefined,
     });
     try {
-      await this.#installer.uninstall(name);
+      await this.#lifecycle.uninstall(name);
       if (!this.#isUninstallCurrent(tabId, revision)) return;
       const current = this.#tabs.tab(tabId);
       if (current === undefined || !isPluginTab(current)) return;
@@ -205,6 +213,32 @@ export class PluginTabsController {
         uninstallingPlugin: undefined,
         uninstalledPlugin: undefined,
         uninstallError: errorMessage(error),
+      });
+    }
+  }
+
+  async restart(tabId: string): Promise<void> {
+    if (this.#disposed) return;
+    const tab = this.#tabs.tab(tabId);
+    if (
+      tab === undefined ||
+      !isPluginTab(tab) ||
+      tab.payload.installing ||
+      tab.payload.restarting ||
+      tab.payload.uninstallingPlugin !== undefined
+    ) {
+      return;
+    }
+    this.#update(tabId, {
+      restarting: true,
+      restartError: undefined,
+    });
+    try {
+      await this.#lifecycle.restart();
+    } catch (error) {
+      this.#update(tabId, {
+        restarting: false,
+        restartError: errorMessage(error),
       });
     }
   }

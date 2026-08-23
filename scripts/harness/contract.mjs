@@ -326,6 +326,8 @@ export async function verifyHarnessContract(projectRoot) {
     appFrameSource,
     workspaceStorageSource,
     credentialsLocalSource,
+    pluginInventorySource,
+    webAppBundlePatchSource,
   ] = await Promise.all([
     readFile(join(cliRoot, "src", "plugin.ts"), "utf8"),
     readFile(join(cliRoot, "src", "args.ts"), "utf8"),
@@ -560,6 +562,27 @@ export async function verifyHarnessContract(projectRoot) {
       ),
       "utf8",
     ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "host",
+        "plugin-inventory",
+        "src",
+        "index.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "bundle",
+        "web-app",
+        "cordis.patch.yml",
+      ),
+      "utf8",
+    ),
   ]);
 
   requireSourceSeam(
@@ -721,6 +744,36 @@ export async function verifyHarnessContract(projectRoot) {
     credentialsLocalSource,
     "export const DOCUMENT_VERSION = 1",
     "Harness credentials document version changed; review the Data Home opaque-conflict policy.",
+  );
+  requireSourceSeam(
+    pluginInventorySource,
+    "super(ctx, 'pluginInventory')",
+    "Harness Loader inventory service changed; review the Minke plugin lifecycle adapter.",
+  );
+  requireSourceSeam(
+    pluginInventorySource,
+    "@Remote('list')",
+    "Harness Loader inventory Remote changed; review the Minke plugin lifecycle adapter.",
+  );
+  requireSourceSeam(
+    pluginInventorySource,
+    "moduleName: entry.options.name",
+    "Harness Loader inventory module identity changed; review plugin lifecycle matching.",
+  );
+  requireSourceSeam(
+    pluginInventorySource,
+    "enabled: !entry.disabled",
+    "Harness Loader inventory enablement changed; review plugin lifecycle states.",
+  );
+  requireSourceSeam(
+    pluginInventorySource,
+    "fiberPhase:",
+    "Harness Loader inventory fiber phase changed; review plugin lifecycle states.",
+  );
+  requireSourceSeam(
+    webAppBundlePatchSource,
+    "name: '@deepseek-ai/dsh-host-plugin-inventory'",
+    "Harness Web bundle no longer mounts the Loader inventory required by Minke.",
   );
 
   const productBundle = await verifyProductBundle(

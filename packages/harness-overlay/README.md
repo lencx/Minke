@@ -24,7 +24,7 @@ The host composition mounts the separate
   management.
 
 Product subagents follow the Profile Bundle contract in the pinned
-`dsh-v0.1.1-rc.1` runtime and are not embedded in Minke's base runtime.
+`dsh-v0.1.1-rc.2` runtime and are not embedded in Minke's base runtime.
 Install one into the `web` Profile:
 
 - Codex: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-codex`
@@ -88,6 +88,18 @@ is composed into the `web` Profile on every later launch. Such code can reach
 DSH data, workspaces, credentials through DSH services, and any service the
 user authorizes. Minke therefore treats the plugin source—not only its install
 command—as a persistent trust decision.
+
+The Plugins workspace combines desktop-owned Profile installation metadata with
+the current `pluginInventory/list` projection from DSH's Loader. Installed files
+and runtime activation are separate facts: a plugin can be active, disabled,
+pending, isolated after a load failure, missing locally, or have an unknown
+runtime state when inventory cannot be read. Inventory failure never hides the
+installed package list. The upstream inventory has no bundle provenance, so
+Minke correlates Profile bundles to Loader entries by exact package/module name;
+a bundle that inserts differently named entries is reported as unobserved
+instead of being assumed healthy. Loader failure details remain in the Host
+startup log; the workspace offers refresh, restart, repository access, and
+removal without duplicating the Loader state machine.
 
 The Remote access section is backed by the separate
 `@lencx/minke-remote-access` package. It persists a default-off Tailscale opt-in,

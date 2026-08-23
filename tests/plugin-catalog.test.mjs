@@ -12,6 +12,7 @@ import { afterEach, test } from "node:test";
 import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
+  PLUGIN_RESTART_CHANNEL,
   PLUGIN_UNINSTALL_CHANNEL,
   parseInstalledPluginsSnapshot,
   parsePluginInstallCommand,
@@ -36,6 +37,10 @@ import {
 import {
   PluginTabsController,
 } from "@minke/harness-overlay/client/tabs/plugins/controller.ts";
+import {
+  createHarnessPluginInventoryPort,
+  createPluginLifecyclePort,
+} from "@minke/harness-overlay/client/tabs/plugins/lifecycle.ts";
 import {
   pluginsEn,
   pluginsZh,
@@ -294,6 +299,202 @@ test("installed plugin snapshots accept only bounded display metadata", () => {
   }
 });
 
+test("plugin lifecycle combines installed packages with loader inventory", async () => {
+  const lifecycle = createPluginLifecyclePort({
+    available: true,
+    async install() {},
+    async restart() {},
+    async uninstall() {},
+    async readInstalled() {
+      return {
+        plugins: [
+          {
+            name: "active-plugin",
+            requested: "^1.0.0",
+            state: "ready",
+          },
+          {
+            name: "failed-plugin",
+            requested: "^1.0.0",
+            state: "ready",
+          },
+          {
+            name: "disabled-plugin",
+            requested: "^1.0.0",
+            state: "ready",
+          },
+          {
+            name: "pending-plugin",
+            requested: "^1.0.0",
+            state: "ready",
+          },
+          {
+            name: "unobserved-plugin",
+            requested: "^1.0.0",
+            state: "ready",
+          },
+          {
+            name: "missing-plugin",
+            requested: "^1.0.0",
+            state: "missing",
+          },
+        ],
+      };
+    },
+  }, {
+    async read() {
+      return {
+        entries: [
+          {
+            entryId: "active",
+            moduleName: "active-plugin",
+            enabled: true,
+            fiberPhase: "active",
+          },
+          {
+            entryId: "failed",
+            moduleName: "failed-plugin",
+            enabled: true,
+            fiberPhase: "failed",
+          },
+          {
+            entryId: "disabled",
+            moduleName: "disabled-plugin",
+            enabled: false,
+            fiberPhase: null,
+          },
+          {
+            entryId: "pending",
+            moduleName: "pending-plugin",
+            enabled: true,
+            fiberPhase: "loading",
+          },
+        ],
+      };
+    },
+  });
+
+  assert.deepEqual(
+    (await lifecycle.read()).plugins.map(({ name, state }) => ({
+      name,
+      state,
+    })),
+    [
+      { name: "active-plugin", state: "active" },
+      { name: "failed-plugin", state: "failed" },
+      { name: "disabled-plugin", state: "disabled" },
+      { name: "pending-plugin", state: "pending" },
+      { name: "unobserved-plugin", state: "unobserved" },
+      { name: "missing-plugin", state: "missing" },
+    ],
+  );
+});
+
+test("plugin lifecycle keeps installed metadata when inventory is unavailable", async () => {
+  const lifecycle = createPluginLifecyclePort({
+    available: true,
+    async install() {},
+    async restart() {},
+    async uninstall() {},
+    async readInstalled() {
+      return {
+        plugins: [
+          {
+            name: "unknown-plugin",
+            requested: "^1.0.0",
+            version: "1.2.3",
+            state: "ready",
+          },
+          {
+            name: "missing-plugin",
+            requested: "^1.0.0",
+            state: "missing",
+          },
+        ],
+      };
+    },
+  }, {
+    async read() {
+      throw new Error("inventory offline");
+    },
+  });
+
+  assert.deepEqual(await lifecycle.read(), {
+    plugins: [
+      {
+        name: "unknown-plugin",
+        requested: "^1.0.0",
+        version: "1.2.3",
+        state: "unknown",
+      },
+      {
+        name: "missing-plugin",
+        requested: "^1.0.0",
+        state: "missing",
+      },
+    ],
+    runtimeError: "inventory offline",
+  });
+});
+
+test("the Harness inventory port validates the authoritative loader snapshot", async () => {
+  const calls = [];
+  const inventory = createHarnessPluginInventoryPort({
+    rpc: {
+      async call(channel, endpoint, payload) {
+        calls.push({ channel, endpoint, payload });
+        return {
+          ok: true,
+          value: {
+            entries: [{
+              entryId: "visual-workflow",
+              moduleName: "dsh-visual-workflow",
+              enabled: true,
+              fiberPhase: "failed",
+            }],
+          },
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(await inventory.read(), {
+    entries: [{
+      entryId: "visual-workflow",
+      moduleName: "dsh-visual-workflow",
+      enabled: true,
+      fiberPhase: "failed",
+    }],
+  });
+  assert.deepEqual(calls, [{
+    channel: "/api",
+    endpoint: "pluginInventory/list",
+    payload: { args: {} },
+  }]);
+
+  const invalidInventory = createHarnessPluginInventoryPort({
+    rpc: {
+      async call() {
+        return {
+          ok: true,
+          value: {
+            entries: [{
+              entryId: "invalid",
+              moduleName: "invalid-plugin",
+              enabled: true,
+              fiberPhase: "crashed",
+            }],
+          },
+        };
+      },
+    },
+  });
+  await assert.rejects(
+    invalidInventory.read(),
+    /plugin inventory fiber phase/u,
+  );
+});
+
 test("the installation runtime forwards a validated target without a shell", async () => {
   const root = await temporaryRoot();
   const dshHome = join(root, "dsh-home");
@@ -510,9 +711,11 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
   const uninstallHandler = handlers.get(
     PLUGIN_UNINSTALL_CHANNEL,
   );
+  const restartHandler = handlers.get(PLUGIN_RESTART_CHANNEL);
   assert.equal(typeof handler, "function");
   assert.equal(typeof readHandler, "function");
   assert.equal(typeof uninstallHandler, "function");
+  assert.equal(typeof restartHandler, "function");
 
   await handler("trusted", {
     command:
@@ -528,11 +731,18 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     /unauthorized/u,
   );
   assert.deepEqual(installs, ["dsh-status-rotator"]);
+  restartHandler("trusted");
+  assert.equal(restarts, 1);
+  assert.throws(
+    () => restartHandler("untrusted"),
+    /unauthorized/u,
+  );
+  assert.equal(restarts, 1);
   await uninstallHandler("trusted", {
     name: "dsh-status-rotator",
   });
   assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
-  assert.equal(restarts, 1);
+  assert.equal(restarts, 2);
   await assert.rejects(
     uninstallHandler("untrusted", {
       name: "dsh-status-rotator",
@@ -540,7 +750,7 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     /unauthorized/u,
   );
   assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
-  assert.equal(restarts, 1);
+  assert.equal(restarts, 2);
   await assert.rejects(
     uninstallHandler("trusted", {
       name: "broken-plugin",
@@ -551,7 +761,7 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     "dsh-status-rotator",
     "broken-plugin",
   ]);
-  assert.equal(restarts, 1);
+  assert.equal(restarts, 2);
   assert.deepEqual(await readHandler("trusted"), {
     plugins: [{
       name: "example-plugin",
@@ -574,6 +784,7 @@ test("the desktop IPC binding authorizes and parses install commands", async () 
     handlers.has(PLUGIN_UNINSTALL_CHANNEL),
     false,
   );
+  assert.equal(handlers.has(PLUGIN_RESTART_CHANNEL), false);
 });
 
 test("legacy cleanup removes only the retired catalog cache", async () => {
@@ -607,6 +818,7 @@ test("legacy cleanup removes only the retired catalog cache", async () => {
 test("the renderer port exposes installation and installed plugins", async () => {
   const commands = [];
   const uninstalls = [];
+  let restarts = 0;
   const port = desktopPluginInstallerPort({
     minkeDesktop: {
       pluginInstaller: {
@@ -615,6 +827,9 @@ test("the renderer port exposes installation and installed plugins", async () =>
         },
         async uninstall(name) {
           uninstalls.push(name);
+        },
+        async restart() {
+          restarts += 1;
         },
         async readInstalled() {
           return {
@@ -637,6 +852,8 @@ test("the renderer port exposes installation and installed plugins", async () =>
   ]);
   await port.uninstall("dsh-status-rotator");
   assert.deepEqual(uninstalls, ["dsh-status-rotator"]);
+  await port.restart();
+  assert.equal(restarts, 1);
   assert.deepEqual(await port.readInstalled(), {
     plugins: [{
       name: "example-plugin",
@@ -661,6 +878,10 @@ test("the renderer port exposes installation and installed plugins", async () =>
     unavailable.uninstall("dsh-status-rotator"),
     /bridge is unavailable/u,
   );
+  await assert.rejects(
+    unavailable.restart(),
+    /bridge is unavailable/u,
+  );
 });
 
 test("the Plugins tab reports command installation outcomes", async () => {
@@ -670,6 +891,8 @@ test("the Plugins tab reports command installation outcomes", async () => {
   });
   const commands = [];
   const uninstalls = [];
+  let restarts = 0;
+  let restartFails = true;
   let pluginInstalled = true;
   let installedReads = 0;
   const externalUrls = [];
@@ -679,11 +902,15 @@ test("the Plugins tab reports command installation outcomes", async () => {
     async install(command) {
       commands.push(command);
     },
+    async restart() {
+      restarts += 1;
+      if (restartFails) throw new Error("restart unavailable");
+    },
     async uninstall(name) {
       uninstalls.push(name);
       pluginInstalled = false;
     },
-    async readInstalled() {
+    async read() {
       installedReads += 1;
       return {
         plugins: pluginInstalled
@@ -691,7 +918,7 @@ test("the Plugins tab reports command installation outcomes", async () => {
               name: "example-plugin",
               requested: "^1.0.0",
               version: "1.0.0",
-              state: "ready",
+              state: "active",
             }]
           : [],
       };
@@ -726,7 +953,7 @@ test("the Plugins tab reports command installation outcomes", async () => {
       name: "example-plugin",
       requested: "^1.0.0",
       version: "1.0.0",
-      state: "ready",
+      state: "active",
     }],
   );
   controller.setView(tabId, "discover");
@@ -800,6 +1027,23 @@ test("the Plugins tab reports command installation outcomes", async () => {
   assert.deepEqual(internalUrls, [
     "https://github.com/minke/example-plugin",
   ]);
+  await controller.restart(tabId);
+  assert.equal(restarts, 1);
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.restarting,
+    false,
+  );
+  assert.match(
+    tabs.getSnapshot().tabs[0].payload.restartError,
+    /restart unavailable/u,
+  );
+  restartFails = false;
+  await controller.restart(tabId);
+  assert.equal(restarts, 2);
+  assert.equal(
+    tabs.getSnapshot().tabs[0].payload.restarting,
+    true,
+  );
   controller.dispose();
   tabs.dispose();
 });

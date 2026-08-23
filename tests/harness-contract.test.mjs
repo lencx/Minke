@@ -251,6 +251,29 @@ function fixture(options = {}) {
       "",
     ].join("\n"),
   );
+  write(
+    harnessRoot,
+    "packages/host/plugin-inventory/src/index.ts",
+    [
+      "super(ctx, 'pluginInventory')",
+      ...(options.pluginInventoryRemote === false
+        ? []
+        : ["@Remote('list')"]),
+      "moduleName: entry.options.name",
+      "enabled: !entry.disabled",
+      "fiberPhase: entry.fiber === undefined ? null : FIBER_PHASE[entry.fiber.state]",
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/bundle/web-app/cordis.patch.yml",
+    [
+      "- id: plugin-inventory",
+      "  name: '@deepseek-ai/dsh-host-plugin-inventory'",
+      "",
+    ].join("\n"),
+  );
   git(harnessRoot, "add", ".");
   git(
     harnessRoot,
@@ -517,6 +540,17 @@ test("the Harness contract requires durable batch-image attachments", async () =
   await assert.rejects(
     verifyHarnessContract(projectRoot),
     /batch image attachment API changed/u,
+  );
+});
+
+test("the Harness contract requires the Loader inventory Remote", async () => {
+  const { projectRoot } = fixture({
+    pluginInventoryRemote: false,
+  });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /Loader inventory Remote changed/u,
   );
 });
 

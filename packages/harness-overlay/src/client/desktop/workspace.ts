@@ -54,6 +54,11 @@ export function desktopPluginInstallerPort(
           "Minke desktop plugin installer bridge is unavailable",
         );
       },
+      async restart() {
+        throw new Error(
+          "Minke desktop plugin installer bridge is unavailable",
+        );
+      },
       async uninstall() {
         throw new Error(
           "Minke desktop plugin installer bridge is unavailable",
@@ -70,6 +75,9 @@ export function desktopPluginInstallerPort(
     available: true,
     async install(command) {
       await bridge.install(command);
+    },
+    async restart() {
+      await bridge.restart();
     },
     async uninstall(name) {
       await bridge.uninstall(name);

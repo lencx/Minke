@@ -396,10 +396,21 @@
   );
 }
 
-.minke-plugins-installed__card[data-state="missing"] {
+.minke-plugins-installed__card[data-state="missing"],
+.minke-plugins-installed__card[data-state="pending"],
+.minke-plugins-installed__card[data-state="unobserved"],
+.minke-plugins-installed__card[data-state="unknown"] {
   border-color: color-mix(
     in srgb,
     var(--dsw-alias-state-warning-primary) 32%,
+    var(--dsw-alias-border-l2)
+  );
+}
+
+.minke-plugins-installed__card[data-state="failed"] {
+  border-color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 36%,
     var(--dsw-alias-border-l2)
   );
 }
@@ -427,6 +438,12 @@
 }
 
 .minke-plugins-installed__card[data-state="missing"]
+  .minke-plugins-installed__icon,
+.minke-plugins-installed__card[data-state="pending"]
+  .minke-plugins-installed__icon,
+.minke-plugins-installed__card[data-state="unobserved"]
+  .minke-plugins-installed__icon,
+.minke-plugins-installed__card[data-state="unknown"]
   .minke-plugins-installed__icon {
   background: color-mix(
     in srgb,
@@ -434,6 +451,22 @@
     var(--dsw-alias-interactive-bg-hover)
   );
   color: var(--dsw-alias-state-warning-primary);
+}
+
+.minke-plugins-installed__card[data-state="failed"]
+  .minke-plugins-installed__icon {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 10%,
+    var(--dsw-alias-interactive-bg-hover)
+  );
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.minke-plugins-installed__card[data-state="disabled"]
+  .minke-plugins-installed__icon {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .minke-plugins-installed__heading {
@@ -475,13 +508,30 @@
   line-height: 14px;
 }
 
-.minke-plugins-installed__heading > span > span[data-state="missing"] {
+.minke-plugins-installed__heading > span > span[data-state="missing"],
+.minke-plugins-installed__heading > span > span[data-state="pending"],
+.minke-plugins-installed__heading > span > span[data-state="unobserved"],
+.minke-plugins-installed__heading > span > span[data-state="unknown"] {
   background: color-mix(
     in srgb,
     var(--dsw-alias-state-warning-primary) 10%,
     transparent
   );
   color: var(--dsw-alias-state-warning-primary);
+}
+
+.minke-plugins-installed__heading > span > span[data-state="failed"] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 10%,
+    transparent
+  );
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.minke-plugins-installed__heading > span > span[data-state="disabled"] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .minke-plugins-installed__heading small {

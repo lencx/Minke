@@ -43,6 +43,8 @@ import {
 } from "./files/index.ts";
 import {
   createPluginTabRenderer,
+  createHarnessPluginInventoryPort,
+  createPluginLifecyclePort,
   installPluginStyles,
   pluginsEn,
   pluginsZh,
@@ -115,6 +117,10 @@ export function installTabs(
   const filesPort = workspacePorts.files;
   const terminalPort = workspacePorts.terminal;
   const pluginInstallerPort = desktopPluginInstallerPort();
+  const pluginLifecyclePort = createPluginLifecyclePort(
+    pluginInstallerPort,
+    createHarnessPluginInventoryPort(ctx.connection),
+  );
   const terminalSettingsStore = desktopTerminalSettingsStore();
   const sessionLogsPort = desktopSessionLogsPort();
   const terminalSettings = new TerminalSettingsRuntime(
@@ -272,7 +278,7 @@ export function installTabs(
       "minke-overlay: Web tab dictionaries",
     );
   }
-  if (pluginInstallerPort.available) {
+  if (pluginLifecyclePort.available) {
     ctx.effect(
       () =>
         ctx.locale.register(PLUGINS_NAMESPACE, {
@@ -352,10 +358,10 @@ export function installTabs(
       ? new WebTabsController(tabs, tabsPort)
       : undefined;
     const pluginTabs =
-      pluginInstallerPort.available && webTabs !== undefined
+      pluginLifecyclePort.available && webTabs !== undefined
       ? new PluginTabsController(
           tabs,
-          pluginInstallerPort,
+          pluginLifecyclePort,
           tabsPort,
           webTabs,
         )

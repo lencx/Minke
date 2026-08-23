@@ -1,5 +1,6 @@
 export const PLUGIN_INSTALL_CHANNEL = "minke:plugin:install";
 export const PLUGIN_UNINSTALL_CHANNEL = "minke:plugin:uninstall";
+export const PLUGIN_RESTART_CHANNEL = "minke:plugin:restart";
 export const PLUGIN_INSTALLED_READ_CHANNEL =
   "minke:plugin:installed:read";
 

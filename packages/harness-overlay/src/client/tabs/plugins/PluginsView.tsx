@@ -15,7 +15,6 @@ import type {
 import { TABS_WEB_PARTITION } from "@minke/harness-overlay/tabs/contract.ts";
 import {
   parsePluginInstallCommand,
-  type InstalledPlugin,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import githubCompactCss from "./github-compact.css";
 import githubSearchCss from "./github-search.css";
@@ -36,6 +35,10 @@ import {
   PluginWarningIcon,
 } from "./icons.tsx";
 import type { PluginTabsController } from "./controller.ts";
+import type {
+  PluginLifecyclePlugin,
+  PluginLifecycleState,
+} from "./lifecycle.ts";
 import type { PluginsTranslate } from "./locales.ts";
 import {
   PLUGIN_DISCOVERY_TOPIC_URL,
@@ -130,7 +133,7 @@ function BrowserAction(props: {
 
 function InstalledPluginCard(props: {
   readonly tabId: string;
-  readonly plugin: InstalledPlugin;
+  readonly plugin: PluginLifecyclePlugin;
   readonly busy: boolean;
   readonly uninstalling: boolean;
   readonly controller: PluginTabsController;
@@ -144,8 +147,33 @@ function InstalledPluginCard(props: {
     controller,
     t,
   } = props;
-  const missing = plugin.state === "missing";
   const repositoryUrl = plugin.repositoryUrl;
+  const stateLabels: Record<
+    PluginLifecycleState,
+    Parameters<PluginsTranslate>[0]
+  > = {
+    active: "plugins.installed.active",
+    disabled: "plugins.installed.disabled",
+    failed: "plugins.installed.failed",
+    pending: "plugins.installed.pending",
+    unobserved: "plugins.installed.unobserved",
+    missing: "plugins.installed.missing",
+    unknown: "plugins.installed.unknown",
+  };
+  const stateBodies: Partial<
+    Record<
+      PluginLifecycleState,
+      Parameters<PluginsTranslate>[0]
+    >
+  > = {
+    disabled: "plugins.installed.disabledBody",
+    failed: "plugins.installed.failedBody",
+    pending: "plugins.installed.pendingBody",
+    unobserved: "plugins.installed.unobservedBody",
+    missing: "plugins.installed.missingBody",
+    unknown: "plugins.installed.unknownBody",
+  };
+  const stateBody = stateBodies[plugin.state];
   const uninstallLabel = t(
     uninstalling
       ? "plugins.installed.uninstalling"
@@ -178,11 +206,7 @@ function InstalledPluginCard(props: {
           <strong title={plugin.name}>{plugin.name}</strong>
           <span>
             <span data-state={plugin.state}>
-              {t(
-                missing
-                  ? "plugins.installed.missing"
-                  : "plugins.installed.ready",
-              )}
+              {t(stateLabels[plugin.state])}
             </span>
             {plugin.version !== undefined && <small>v{plugin.version}</small>}
           </span>
@@ -216,9 +240,10 @@ function InstalledPluginCard(props: {
         </span>
       </header>
       <p>
-        {missing
-          ? t("plugins.installed.missingBody")
-          : (plugin.description ?? t("plugins.installed.noDescription"))}
+        {stateBody === undefined
+          ? (plugin.description ??
+            t("plugins.installed.noDescription"))
+          : t(stateBody)}
       </p>
       <footer>
         <span>{t("plugins.installed.requested")}</span>
@@ -262,7 +287,14 @@ export function PluginsView({
   const installError = feedbackMatches ? tab.payload.error : undefined;
   const mutating =
     tab.payload.installing ||
+    tab.payload.restarting ||
     tab.payload.uninstallingPlugin !== undefined;
+  const hasFailedPlugins = tab.payload.installedPlugins.some(
+    (plugin) => plugin.state === "failed",
+  );
+  const hasUnobservedPlugins = tab.payload.installedPlugins.some(
+    (plugin) => plugin.state === "unobserved",
+  );
 
   useEffect(() => {
     if (tab.payload.view !== "discover") return;
@@ -578,6 +610,7 @@ export function PluginsView({
             aria-label={t("plugins.installed.refresh")}
             disabled={
               tab.payload.loadingInstalled ||
+              tab.payload.restarting ||
               tab.payload.uninstallingPlugin !== undefined
             }
             data-spinning={tab.payload.loadingInstalled || undefined}
@@ -596,6 +629,7 @@ export function PluginsView({
           aria-labelledby={`minke-plugin-view-installed-${tab.id}`}
           aria-busy={
             tab.payload.loadingInstalled ||
+            tab.payload.restarting ||
             tab.payload.uninstallingPlugin !== undefined
           }
         >
@@ -625,6 +659,67 @@ export function PluginsView({
                   message: tab.payload.uninstallError,
                 })}
               </span>
+            </div>
+          )}
+          {tab.payload.restartError !== undefined && (
+            <div
+              className="minke-plugins-installed__notice"
+              data-state="error"
+              role="alert"
+            >
+              <PluginWarningIcon />
+              <span>
+                {t("plugins.installed.restartFailed", {
+                  message: tab.payload.restartError,
+                })}
+              </span>
+            </div>
+          )}
+          {tab.payload.runtimeError !== undefined && (
+            <div
+              className="minke-plugins-installed__notice"
+              role="status"
+            >
+              <PluginWarningIcon />
+              <span>
+                {t("plugins.installed.runtimeUnavailable", {
+                  message: tab.payload.runtimeError,
+                })}
+              </span>
+              <button
+                type="button"
+                disabled={mutating}
+                onClick={() => void controller.refreshInstalled(tab.id)}
+              >
+                {t("plugins.installed.retry")}
+              </button>
+            </div>
+          )}
+          {(hasFailedPlugins || hasUnobservedPlugins) && (
+            <div
+              className="minke-plugins-installed__notice"
+              data-state={hasFailedPlugins ? "error" : undefined}
+              role="status"
+            >
+              <PluginWarningIcon />
+              <span>
+                {t(
+                  hasFailedPlugins
+                    ? "plugins.installed.failedNotice"
+                    : "plugins.installed.unobservedNotice",
+                )}
+              </span>
+              <button
+                type="button"
+                disabled={mutating}
+                onClick={() => void controller.restart(tab.id)}
+              >
+                {t(
+                  tab.payload.restarting
+                    ? "plugins.installed.restarting"
+                    : "plugins.installed.restart",
+                )}
+              </button>
             </div>
           )}
           {tab.payload.installedError !== undefined &&
@@ -693,7 +788,7 @@ export function PluginsView({
                   key={plugin.name}
                   tabId={tab.id}
                   plugin={plugin}
-                  busy={tab.payload.uninstallingPlugin !== undefined}
+                  busy={mutating}
                   uninstalling={
                     tab.payload.uninstallingPlugin === plugin.name
                   }

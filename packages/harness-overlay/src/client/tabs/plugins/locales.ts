@@ -28,7 +28,22 @@ export const pluginsZh = {
   "plugins.installed.errorBody":
     "请重试；如果问题持续存在，请检查当前 web profile。",
   "plugins.installed.retry": "重试",
-  "plugins.installed.ready": "已安装",
+  "plugins.installed.active": "运行中",
+  "plugins.installed.failed": "加载失败",
+  "plugins.installed.failedBody":
+    "dsh 已隔离此次加载失败，Minke 可继续运行。请检查启动日志，修复或卸载后重启。",
+  "plugins.installed.disabled": "已禁用",
+  "plugins.installed.disabledBody":
+    "此插件当前在 dsh loader 中处于禁用状态。",
+  "plugins.installed.pending": "加载中",
+  "plugins.installed.pendingBody":
+    "dsh loader 尚未完成此插件的加载或卸载。",
+  "plugins.installed.unobserved": "未检测到",
+  "plugins.installed.unobservedBody":
+    "运行时清单中未发现同名插件入口；如果刚完成安装，请重启 Minke。",
+  "plugins.installed.unknown": "状态未知",
+  "plugins.installed.unknownBody":
+    "插件文件已安装，但当前无法确认 dsh loader 状态。",
   "plugins.installed.missing": "需修复",
   "plugins.installed.missingBody":
     "此插件已登记在 web profile 中，但本地文件缺失。请重新安装。",
@@ -43,6 +58,15 @@ export const pluginsZh = {
   "plugins.installed.uninstallSuccess":
     "已卸载 {name}，正在重启 Minke…",
   "plugins.installed.uninstallFailed": "卸载失败：{message}",
+  "plugins.installed.runtimeUnavailable":
+    "无法读取 dsh loader 运行状态：{message}",
+  "plugins.installed.failedNotice":
+    "一个或多个插件加载失败，但失败已被隔离，不会阻止 Minke 启动。",
+  "plugins.installed.unobservedNotice":
+    "部分已安装插件尚未出现在运行时清单中，可能需要重启后加载。",
+  "plugins.installed.restart": "重启 Minke",
+  "plugins.installed.restarting": "正在重启…",
+  "plugins.installed.restartFailed": "无法重启 Minke：{message}",
   "plugins.browser.title": "在 GitHub 上浏览插件",
   "plugins.browser.topic": "github.com/topics/dsh-plugin",
   "plugins.browser.searchLabel": "搜索 GitHub 插件仓库",
@@ -97,7 +121,22 @@ export const pluginsEn: Record<PluginsLocaleKey, string> = {
   "plugins.installed.errorBody":
     "Retry, or check the current web profile if the problem continues.",
   "plugins.installed.retry": "Retry",
-  "plugins.installed.ready": "Installed",
+  "plugins.installed.active": "Active",
+  "plugins.installed.failed": "Load failed",
+  "plugins.installed.failedBody":
+    "dsh isolated this load failure so Minke can keep running. Check the startup log, then fix or uninstall the plugin and restart.",
+  "plugins.installed.disabled": "Disabled",
+  "plugins.installed.disabledBody":
+    "This plugin is currently disabled in the dsh loader.",
+  "plugins.installed.pending": "Loading",
+  "plugins.installed.pendingBody":
+    "The dsh loader has not finished loading or unloading this plugin.",
+  "plugins.installed.unobserved": "Not observed",
+  "plugins.installed.unobservedBody":
+    "No same-name entry appears in the runtime inventory. Restart Minke if the plugin was just installed.",
+  "plugins.installed.unknown": "Status unknown",
+  "plugins.installed.unknownBody":
+    "The plugin files are installed, but the current dsh loader state could not be confirmed.",
   "plugins.installed.missing": "Needs repair",
   "plugins.installed.missingBody":
     "This plugin is registered in the web profile, but its local files are missing. Reinstall it to repair.",
@@ -113,6 +152,16 @@ export const pluginsEn: Record<PluginsLocaleKey, string> = {
   "plugins.installed.uninstallSuccess":
     "Uninstalled {name}. Restarting Minke…",
   "plugins.installed.uninstallFailed": "Uninstall failed: {message}",
+  "plugins.installed.runtimeUnavailable":
+    "The dsh loader state could not be read: {message}",
+  "plugins.installed.failedNotice":
+    "One or more plugins failed to load, but the failures were isolated and did not stop Minke.",
+  "plugins.installed.unobservedNotice":
+    "Some installed plugins are not yet visible in the runtime inventory and may need a restart.",
+  "plugins.installed.restart": "Restart Minke",
+  "plugins.installed.restarting": "Restarting…",
+  "plugins.installed.restartFailed":
+    "Minke could not restart: {message}",
   "plugins.browser.title": "Browse plugins on GitHub",
   "plugins.browser.topic": "github.com/topics/dsh-plugin",
   "plugins.browser.searchLabel": "Search GitHub plugin repositories",

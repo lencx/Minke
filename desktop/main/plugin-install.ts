@@ -1,6 +1,7 @@
 import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
+  PLUGIN_RESTART_CHANNEL,
   PLUGIN_UNINSTALL_CHANNEL,
   parseInstalledPluginsSnapshot,
   parsePluginInstallCommand,
@@ -68,8 +69,15 @@ export function bindPluginInstallIpc(
     await installer.uninstall(request.name);
     restartDesktop();
   };
+  const restart = (event: unknown): void => {
+    if (!authorize(event)) {
+      throw new Error("unauthorized plugin restart request");
+    }
+    restartDesktop();
+  };
 
   ipcMain.handle(PLUGIN_INSTALL_CHANNEL, install);
+  ipcMain.handle(PLUGIN_RESTART_CHANNEL, restart);
   ipcMain.handle(PLUGIN_UNINSTALL_CHANNEL, uninstall);
   ipcMain.handle(
     PLUGIN_INSTALLED_READ_CHANNEL,
@@ -82,6 +90,7 @@ export function bindPluginInstallIpc(
       if (disposed) return;
       disposed = true;
       ipcMain.removeHandler(PLUGIN_INSTALL_CHANNEL);
+      ipcMain.removeHandler(PLUGIN_RESTART_CHANNEL);
       ipcMain.removeHandler(PLUGIN_UNINSTALL_CHANNEL);
       ipcMain.removeHandler(PLUGIN_INSTALLED_READ_CHANNEL);
     },

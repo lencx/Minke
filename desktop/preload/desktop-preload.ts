@@ -3,6 +3,7 @@ import appManifest from "../../package.json";
 import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
+  PLUGIN_RESTART_CHANNEL,
   PLUGIN_UNINSTALL_CHANNEL,
   parseInstalledPluginsSnapshot,
   parsePluginInstallRequest,
@@ -445,6 +446,9 @@ const pluginInstaller = Object.freeze({
       PLUGIN_UNINSTALL_CHANNEL,
       parsePluginUninstallRequest({ name }),
     );
+  },
+  async restart(): Promise<void> {
+    await ipcRenderer.invoke(PLUGIN_RESTART_CHANNEL);
   },
   async readInstalled(): Promise<unknown> {
     return parseInstalledPluginsSnapshot(
