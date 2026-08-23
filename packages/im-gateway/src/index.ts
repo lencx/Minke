@@ -23,9 +23,11 @@ export {
   type GatewayUncertainResolution,
 } from "./contract.ts";
 export {
+  botEchoOnlyGatewayIngress,
   dispatchGatewayProviderOnce,
   pollGatewayProviderOnce,
   type GatewayDispatchResult,
+  type GatewayIngressPolicy,
   type GatewayMailboxPort,
   type GatewayProviderSession,
 } from "./provider.ts";

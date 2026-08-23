@@ -6,6 +6,7 @@ import {
   type GatewayDeliveryAttempt,
   type GatewayDeliveryPreparation,
   type GatewayInboundBatch,
+  type GatewayInboundEvent,
   type GatewayOutboxLease,
   type GatewayPreparationOutcome,
 } from "./contract.ts";
@@ -27,6 +28,20 @@ export interface GatewayProviderSession {
   ): Promise<GatewayInboundBatch>;
   start(options?: { readonly signal?: AbortSignal }): Promise<void>;
 }
+
+export type GatewayIngressPolicy = (input: {
+  readonly account: GatewayAccount;
+  readonly event: GatewayInboundEvent;
+}) => boolean;
+
+/**
+ * Safe preview policy used before sender and conversation authorization exist.
+ * Provider echoes may still reconcile uncertain outbound work, but no external
+ * message reaches the durable Agent inbox.
+ */
+export const botEchoOnlyGatewayIngress: GatewayIngressPolicy = ({
+  event,
+}) => event.kind === "bot-echo";
 
 export interface GatewayMailboxPort {
   admitBatch(input: GatewayInboundBatch): GatewayBatchAdmission;
@@ -68,6 +83,7 @@ export interface GatewayMailboxPort {
 }
 
 export async function pollGatewayProviderOnce(input: {
+  readonly ingressPolicy?: GatewayIngressPolicy;
   readonly mailbox: GatewayMailboxPort;
   readonly provider: GatewayProviderSession;
   readonly signal?: AbortSignal;
@@ -86,7 +102,20 @@ export async function pollGatewayProviderOnce(input: {
       "Provider returned a batch for another account generation",
     );
   }
-  return input.mailbox.admitBatch(batch);
+  const ingressPolicy = input.ingressPolicy;
+  const admittedBatch =
+    ingressPolicy === undefined
+      ? batch
+      : {
+          ...batch,
+          events: batch.events.filter((event) =>
+            ingressPolicy({
+              account: input.provider.account,
+              event,
+            })
+          ),
+        };
+  return input.mailbox.admitBatch(admittedBatch);
 }
 
 export type GatewayDispatchResult =

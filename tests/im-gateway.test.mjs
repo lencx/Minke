@@ -12,6 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import * as gatewayCore from "@lencx/minke-im-gateway";
 import {
+  botEchoOnlyGatewayIngress,
   dispatchGatewayProviderOnce,
   GatewayAccountConflictError,
   GatewayCheckpointConflictError,
@@ -465,6 +466,77 @@ test("the provider runner owns poll admission and the full delivery state transi
   assert.equal(
     mailbox.inspectOutbox("operation-2").attempts,
     0,
+  );
+});
+
+test("a fail-closed ingress policy advances checkpoints without persisting external messages", async (t) => {
+  const { mailbox, close } = await fixture();
+  t.after(close);
+  const observedKinds = [];
+  const provider = {
+    account,
+    async close() {},
+    async deliver() {
+      throw new Error("not exercised");
+    },
+    async prepare() {
+      throw new Error("not exercised");
+    },
+    async receive(checkpoint) {
+      return {
+        accountKey: account.accountKey,
+        events: [
+          userEvent(),
+          userEvent({
+            kind: "system",
+            nativeId: "system-1",
+          }),
+          userEvent({
+            correlationId: "unknown-operation",
+            deliveryContext: undefined,
+            kind: "bot-echo",
+            nativeId: "echo-1",
+          }),
+        ],
+        fromCheckpoint: checkpoint,
+        generation: account.generation,
+        nextCheckpoint: "checkpoint-after-denied-ingress",
+      };
+    },
+    async start() {},
+  };
+
+  const admission = await pollGatewayProviderOnce({
+    ingressPolicy(input) {
+      observedKinds.push(input.event.kind);
+      return botEchoOnlyGatewayIngress(input);
+    },
+    mailbox,
+    provider,
+  });
+
+  assert.deepEqual(observedKinds, [
+    "user-message",
+    "system",
+    "bot-echo",
+  ]);
+  assert.deepEqual(admission, {
+    admittedNativeIds: [],
+    confirmedOperationIds: [],
+    nextCheckpoint: "checkpoint-after-denied-ingress",
+  });
+  assert.equal(
+    mailbox.getCheckpoint(account.accountKey),
+    "checkpoint-after-denied-ingress",
+  );
+  assert.equal(
+    mailbox.claimInbox({
+      accountKey: account.accountKey,
+      leaseMs: 1_000,
+      now: 100,
+      workerId: "agent-worker",
+    }),
+    null,
   );
 });
 
