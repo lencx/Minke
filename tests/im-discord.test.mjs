@@ -114,6 +114,18 @@ class FakeTimers {
     this.#tasks.delete(id);
     task.callback();
   }
+
+  runDelay(delayMs) {
+    const entry = [...this.#tasks.entries()].find(
+      ([, task]) => task.delayMs === delayMs,
+    );
+    if (entry === undefined) {
+      throw new Error(`no pending ${delayMs}ms timer`);
+    }
+    const [id, task] = entry;
+    this.#tasks.delete(id);
+    task.callback();
+  }
 }
 
 class FakeSocket {
@@ -121,11 +133,16 @@ class FakeSocket {
     close: new Set(),
     error: new Set(),
     message: new Set(),
+    open: new Set(),
   };
 
   closes = [];
-  readyState = 1;
+  readyState;
   sent = [];
+
+  constructor(readyState = 1) {
+    this.readyState = readyState;
+  }
 
   addEventListener(type, listener) {
     this.#listeners[type].add(listener);
@@ -146,6 +163,12 @@ class FakeSocket {
     this.#emit("message", {
       data: JSON.stringify(value),
     });
+  }
+
+  emitOpen() {
+    if (this.readyState === 3) return;
+    this.readyState = 1;
+    this.#emit("open", {});
   }
 
   serverClose(code) {
@@ -420,6 +443,126 @@ test("a prevalidated bot identity skips /users/@me and determines the durable ac
       error instanceof DiscordTransportError &&
       error.code === "invalid-config",
   );
+  await assert.rejects(
+    createDiscordGatewayProvider({
+      accountKey: `discord:${bot.id}`,
+      bot,
+      fetch,
+      generation: 1,
+      maxPendingMessages: 0,
+      token: secretToken,
+    }),
+    (error) =>
+      error instanceof DiscordTransportError &&
+      error.code === "invalid-config",
+  );
+});
+
+test("socket open, Hello, and Ready startup phases each have a bounded deadline", async (t) => {
+  async function pendingStart({
+    helloTimeoutMs = 12,
+    openTimeoutMs = 11,
+    readyTimeoutMs = 13,
+    socket,
+  }) {
+    const timers = new FakeTimers();
+    let socketCreated = false;
+    const provider = await createDiscordGatewayProvider({
+      accountKey: `discord:${bot.id}`,
+      bot,
+      fetch: sequenceFetch([gatewayResponse()]),
+      gatewayHelloTimeoutMs: helloTimeoutMs,
+      gatewayOpenTimeoutMs: openTimeoutMs,
+      gatewayReadyTimeoutMs: readyTimeoutMs,
+      generation: 1,
+      random: () => 0,
+      timers,
+      token: secretToken,
+      webSocketFactory: () => {
+        socketCreated = true;
+        return socket;
+      },
+    });
+    const start = provider.start();
+    await waitFor(() => socketCreated);
+    return { provider, start, timers };
+  }
+
+  await t.test("socket open timeout", async () => {
+    const socket = new FakeSocket(0);
+    const fixture = await pendingStart({ socket });
+    const rejected = assert.rejects(
+      fixture.start,
+      (error) =>
+        error instanceof DiscordTransportError &&
+        error.code === "timeout" &&
+        error.retryable &&
+        error.message ===
+          "Discord socket open deadline expired",
+    );
+    fixture.timers.runDelay(11);
+    await rejected;
+    assert.equal(fixture.provider.getStatus().state, "fatal");
+    assert.deepEqual(socket.closes, [
+      { code: 1000, reason: "Fatal" },
+    ]);
+    assert.equal(fixture.timers.size, 0);
+    await fixture.provider.close();
+  });
+
+  await t.test("Gateway Hello timeout", async () => {
+    const socket = new FakeSocket();
+    const fixture = await pendingStart({ socket });
+    const rejected = assert.rejects(
+      fixture.start,
+      (error) =>
+        error instanceof DiscordTransportError &&
+        error.code === "timeout" &&
+        error.message ===
+          "Discord Gateway Hello deadline expired",
+    );
+    fixture.timers.runDelay(12);
+    await rejected;
+    assert.equal(fixture.provider.getStatus().state, "fatal");
+    assert.equal(socket.closes.at(-1).reason, "Fatal");
+    assert.equal(fixture.timers.size, 0);
+    await fixture.provider.close();
+  });
+
+  await t.test("Gateway Ready timeout", async () => {
+    const socket = new FakeSocket();
+    const fixture = await pendingStart({ socket });
+    hello(socket, 100);
+    const rejected = assert.rejects(
+      fixture.start,
+      (error) =>
+        error instanceof DiscordTransportError &&
+        error.code === "timeout" &&
+        error.message ===
+          "Discord Gateway Ready deadline expired",
+    );
+    fixture.timers.runDelay(13);
+    await rejected;
+    assert.equal(fixture.provider.getStatus().state, "fatal");
+    assert.equal(socket.closes.at(-1).reason, "Fatal");
+    assert.equal(fixture.timers.size, 0);
+    await fixture.provider.close();
+  });
+
+  await t.test("an asynchronous socket open advances every deadline", async () => {
+    const socket = new FakeSocket(0);
+    const fixture = await pendingStart({ socket });
+    assert.equal(fixture.timers.nextDelay(), 11);
+    socket.emitOpen();
+    assert.equal(fixture.timers.nextDelay(), 12);
+    hello(socket, 100);
+    assert.equal(fixture.timers.nextDelay(), 13);
+    ready(socket);
+    await fixture.start;
+    assert.equal(fixture.provider.getStatus().state, "ready");
+    await fixture.provider.close();
+    assert.equal(fixture.timers.size, 0);
+  });
 });
 
 test("Gateway v10 identifies, heartbeats, reconnects with Resume, and re-identifies an invalid session", async (t) => {
@@ -601,6 +744,42 @@ test("MESSAGE_CREATE normalizes attachment, embed, reply, and thread context int
     guildId: "500000000000000001",
     messageId: "900000000000000001",
   });
+});
+
+test("the pre-admission MESSAGE_CREATE queue fails closed at its configured limit", async (t) => {
+  const fixture = await startedProvider({
+    maxPendingMessages: 1,
+  });
+  t.after(() => fixture.provider.close());
+  fixture.socket.emitMessage({
+    d: message({ id: "600000000000000002" }),
+    op: 0,
+    s: 2,
+    t: "MESSAGE_CREATE",
+  });
+  assert.equal(fixture.provider.getStatus().state, "ready");
+
+  fixture.socket.emitMessage({
+    d: message({ id: "600000000000000003" }),
+    op: 0,
+    s: 3,
+    t: "MESSAGE_CREATE",
+  });
+
+  assert.equal(fixture.provider.getStatus().state, "fatal");
+  assert.deepEqual(fixture.socket.closes.at(-1), {
+    code: 1000,
+    reason: "Fatal",
+  });
+  assert.equal(fixture.timers.size, 0);
+  await assert.rejects(
+    fixture.provider.receive(null),
+    (error) =>
+      error instanceof DiscordTransportError &&
+      error.code === "inbound-overflow" &&
+      error.message ===
+        "Discord inbound queue reached its pre-admission limit",
+  );
 });
 
 test("a bot echo maps Discord's bounded nonce back to the Gateway operation id", async (t) => {
@@ -1010,7 +1189,7 @@ test("aborted work, malformed intent, close, and fatal Gateway codes fail closed
     pending,
     (error) =>
       error instanceof DiscordTransportError &&
-      error.code === "gateway-fatal" &&
+      error.code === "invalid-intent" &&
       error.gatewayCloseCode === 4014 &&
       !error.message.includes(secretToken),
   );

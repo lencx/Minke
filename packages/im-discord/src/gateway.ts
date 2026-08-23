@@ -6,7 +6,11 @@ import type {
   GatewayInboundEvent,
 } from "@lencx/minke-im-gateway";
 import {
+  DISCORD_DEFAULT_GATEWAY_HELLO_TIMEOUT_MS,
+  DISCORD_DEFAULT_GATEWAY_OPEN_TIMEOUT_MS,
+  DISCORD_DEFAULT_GATEWAY_READY_TIMEOUT_MS,
   DISCORD_DEFAULT_INTENTS,
+  DISCORD_DEFAULT_MAX_PENDING_MESSAGES,
   DISCORD_GATEWAY_VERSION,
   DiscordTransportError,
   type DiscordBotIdentity,
@@ -19,6 +23,7 @@ import {
   type DiscordWebSocketFactory,
   type DiscordWebSocketLike,
   type DiscordWebSocketMessageEvent,
+  type DiscordWebSocketOpenEvent,
 } from "./contract.ts";
 import {
   deliverDiscordAttempt,
@@ -71,6 +76,9 @@ interface ReconnectPlan {
 
 interface Connection {
   helloReceived: boolean;
+  opened: boolean;
+  startupDeadline?: unknown;
+  startupPhase?: "hello" | "open" | "ready";
   readonly resume: boolean;
   readonly socket: DiscordWebSocketLike;
   readonly onClose: (
@@ -79,6 +87,9 @@ interface Connection {
   readonly onError: () => void;
   readonly onMessage: (
     event: DiscordWebSocketMessageEvent,
+  ) => void;
+  readonly onOpen: (
+    event: DiscordWebSocketOpenEvent,
   ) => void;
 }
 
@@ -318,6 +329,13 @@ function fatalCloseError(code: number): DiscordTransportError {
       },
     );
   }
+  if (code === 4013 || code === 4014) {
+    return new DiscordTransportError(
+      "invalid-intent",
+      "Discord Gateway rejected the configured intents",
+      { gatewayCloseCode: code },
+    );
+  }
   return new DiscordTransportError(
     "gateway-fatal",
     "Discord Gateway rejected the connection configuration",
@@ -364,7 +382,11 @@ export class DiscordGatewayProviderSession
     string,
     DiscordChannelMetadata
   >();
+  readonly #gatewayHelloTimeoutMs: number;
+  readonly #gatewayOpenTimeoutMs: number;
+  readonly #gatewayReadyTimeoutMs: number;
   readonly #intents: number;
+  readonly #maxPendingMessages: number;
   readonly #now: () => number;
   readonly #operationByNonce = new Map<string, string>();
   readonly #queue: QueuedMessage[] = [];
@@ -414,6 +436,26 @@ export class DiscordGatewayProviderSession
         "intents must be a non-negative safe integer",
       );
     }
+    this.#maxPendingMessages = positiveInteger(
+      input.options.maxPendingMessages,
+      DISCORD_DEFAULT_MAX_PENDING_MESSAGES,
+      "maxPendingMessages",
+    );
+    this.#gatewayOpenTimeoutMs = positiveInteger(
+      input.options.gatewayOpenTimeoutMs,
+      DISCORD_DEFAULT_GATEWAY_OPEN_TIMEOUT_MS,
+      "gatewayOpenTimeoutMs",
+    );
+    this.#gatewayHelloTimeoutMs = positiveInteger(
+      input.options.gatewayHelloTimeoutMs,
+      DISCORD_DEFAULT_GATEWAY_HELLO_TIMEOUT_MS,
+      "gatewayHelloTimeoutMs",
+    );
+    this.#gatewayReadyTimeoutMs = positiveInteger(
+      input.options.gatewayReadyTimeoutMs,
+      DISCORD_DEFAULT_GATEWAY_READY_TIMEOUT_MS,
+      "gatewayReadyTimeoutMs",
+    );
     this.#now = input.options.now ?? Date.now;
     this.#random = input.options.random ?? Math.random;
     this.#reconnectBackoffMs =
@@ -724,16 +766,20 @@ export class DiscordGatewayProviderSession
     }
     const connection: Connection = {
       helloReceived: false,
+      opened: false,
       onClose: (event) =>
         this.#onClose(connection, event),
       onError: () => this.#onError(connection),
       onMessage: (event) =>
         this.#onMessage(connection, event),
+      onOpen: (event) =>
+        this.#onOpen(connection, event),
       resume: shouldResume,
       socket,
     };
     this.#connection = connection;
     try {
+      socket.addEventListener("open", connection.onOpen);
       socket.addEventListener("close", connection.onClose);
       socket.addEventListener("error", connection.onError);
       socket.addEventListener(
@@ -747,7 +793,40 @@ export class DiscordGatewayProviderSession
           "Discord WebSocket implementation is incompatible",
         ),
       );
+      return;
     }
+    this.#armStartupDeadline(
+      connection,
+      "open",
+      this.#gatewayOpenTimeoutMs,
+    );
+    if (socket.readyState === SOCKET_OPEN) {
+      this.#onOpen(connection, {});
+    }
+  }
+
+  #onOpen(
+    connection: Connection,
+    _event: DiscordWebSocketOpenEvent,
+  ): void {
+    if (this.#connection !== connection || connection.opened) {
+      return;
+    }
+    if (connection.socket.readyState !== SOCKET_OPEN) {
+      this.#fail(
+        new DiscordTransportError(
+          "protocol",
+          "Discord WebSocket emitted open before entering the open state",
+        ),
+      );
+      return;
+    }
+    connection.opened = true;
+    this.#armStartupDeadline(
+      connection,
+      "hello",
+      this.#gatewayHelloTimeoutMs,
+    );
   }
 
   #onMessage(
@@ -756,6 +835,18 @@ export class DiscordGatewayProviderSession
   ): void {
     if (this.#connection !== connection) return;
     try {
+      if (
+        !connection.opened &&
+        connection.socket.readyState === SOCKET_OPEN
+      ) {
+        this.#onOpen(connection, {});
+      }
+      if (!connection.opened) {
+        throw new DiscordTransportError(
+          "protocol",
+          "Discord Gateway sent a frame before the socket opened",
+        );
+      }
       const payload = parseGatewayPayload(event.data);
       this.#handlePayload(connection, payload);
     } catch (error) {
@@ -835,6 +926,11 @@ export class DiscordGatewayProviderSession
         "Gateway heartbeat interval must be positive",
       );
     }
+    this.#armStartupDeadline(
+      connection,
+      "ready",
+      this.#gatewayReadyTimeoutMs,
+    );
     this.#heartbeatIntervalMs = interval;
     this.#heartbeatAwaitingAck = false;
     this.#scheduleHeartbeat(
@@ -1012,6 +1108,10 @@ export class DiscordGatewayProviderSession
   }
 
   #markConnected(): void {
+    const connection = this.#connection;
+    if (connection !== undefined) {
+      this.#clearStartupDeadline(connection);
+    }
     this.#hasConnected = true;
     this.#state = "ready";
     this.#reconnectAttempt = 0;
@@ -1021,6 +1121,15 @@ export class DiscordGatewayProviderSession
   #enqueue(message: QueuedMessage): void {
     const waiter = this.#receiveWaiter;
     if (waiter === undefined) {
+      if (this.#queue.length >= this.#maxPendingMessages) {
+        this.#fail(
+          new DiscordTransportError(
+            "inbound-overflow",
+            "Discord inbound queue reached its pre-admission limit",
+          ),
+        );
+        return;
+      }
       this.#queue.push(message);
       return;
     }
@@ -1079,6 +1188,49 @@ export class DiscordGatewayProviderSession
       op: 1,
     });
     this.#heartbeatAwaitingAck = true;
+  }
+
+  #armStartupDeadline(
+    connection: Connection,
+    phase: "hello" | "open" | "ready",
+    delayMs: number,
+  ): void {
+    this.#clearStartupDeadline(connection);
+    const timer = this.#timers.setTimeout(() => {
+      if (
+        this.#connection !== connection ||
+        connection.startupDeadline !== timer ||
+        connection.startupPhase !== phase
+      ) {
+        return;
+      }
+      connection.startupDeadline = undefined;
+      connection.startupPhase = undefined;
+      const label =
+        phase === "open"
+          ? "socket open"
+          : phase === "hello"
+            ? "Gateway Hello"
+            : "Gateway Ready";
+      this.#fail(
+        new DiscordTransportError(
+          "timeout",
+          `Discord ${label} deadline expired`,
+          { retryable: true },
+        ),
+      );
+    }, delayMs);
+    connection.startupDeadline = timer;
+    connection.startupPhase = phase;
+    unrefTimer(timer);
+  }
+
+  #clearStartupDeadline(connection: Connection): void {
+    if (connection.startupDeadline !== undefined) {
+      this.#timers.clearTimeout(connection.startupDeadline);
+      connection.startupDeadline = undefined;
+    }
+    connection.startupPhase = undefined;
   }
 
   #scheduleHeartbeat(
@@ -1143,6 +1295,7 @@ export class DiscordGatewayProviderSession
       );
       return;
     }
+    this.#clearStartupDeadline(connection);
     try {
       connection.socket.close(4000, "Reconnect");
     } catch {
@@ -1284,7 +1437,12 @@ export class DiscordGatewayProviderSession
   }
 
   #detach(connection: Connection): void {
+    this.#clearStartupDeadline(connection);
     try {
+      connection.socket.removeEventListener(
+        "open",
+        connection.onOpen,
+      );
       connection.socket.removeEventListener(
         "close",
         connection.onClose,

@@ -9,6 +9,10 @@ export const DISCORD_GATEWAY_VERSION = 10;
 export const DISCORD_MAX_MESSAGE_CONTENT_CHARACTERS = 2_000;
 export const DISCORD_MAX_MESSAGE_REQUEST_BYTES =
   25 * 1024 * 1024;
+export const DISCORD_DEFAULT_MAX_PENDING_MESSAGES = 1_000;
+export const DISCORD_DEFAULT_GATEWAY_OPEN_TIMEOUT_MS = 10_000;
+export const DISCORD_DEFAULT_GATEWAY_HELLO_TIMEOUT_MS = 15_000;
+export const DISCORD_DEFAULT_GATEWAY_READY_TIMEOUT_MS = 30_000;
 export const DISCORD_PREPARED_DELIVERY_ENCODING =
   "application/vnd.minke.discord-prepared+json;v=1";
 
@@ -32,6 +36,7 @@ export type DiscordTransportErrorCode =
   | "gateway-closed"
   | "gateway-fatal"
   | "http"
+  | "inbound-overflow"
   | "invalid-config"
   | "invalid-intent"
   | "invalid-state"
@@ -252,12 +257,20 @@ export interface DiscordWebSocketMessageEvent {
   readonly data: unknown;
 }
 
+export interface DiscordWebSocketOpenEvent {
+  readonly type?: "open";
+}
+
 export interface DiscordWebSocketCloseEvent {
   readonly code?: number;
 }
 
 export interface DiscordWebSocketLike {
   readonly readyState: number;
+  addEventListener(
+    type: "open",
+    listener: (event: DiscordWebSocketOpenEvent) => void,
+  ): void;
   addEventListener(
     type: "close",
     listener: (event: DiscordWebSocketCloseEvent) => void,
@@ -271,6 +284,10 @@ export interface DiscordWebSocketLike {
     listener: (event: DiscordWebSocketMessageEvent) => void,
   ): void;
   close(code?: number, reason?: string): void;
+  removeEventListener(
+    type: "open",
+    listener: (event: DiscordWebSocketOpenEvent) => void,
+  ): void;
   removeEventListener(
     type: "close",
     listener: (event: DiscordWebSocketCloseEvent) => void,
@@ -321,8 +338,12 @@ export interface DiscordProviderOptions {
    */
   readonly bot?: DiscordBotIdentity;
   readonly fetch?: typeof globalThis.fetch;
+  readonly gatewayHelloTimeoutMs?: number;
+  readonly gatewayOpenTimeoutMs?: number;
+  readonly gatewayReadyTimeoutMs?: number;
   readonly generation: number;
   readonly intents?: number;
+  readonly maxPendingMessages?: number;
   readonly now?: () => number;
   readonly random?: () => number;
   readonly reconnectBackoffMs?: (attempt: number) => number;

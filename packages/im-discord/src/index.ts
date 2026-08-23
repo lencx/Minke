@@ -1,6 +1,10 @@
 export {
   DISCORD_API_BASE_URL,
+  DISCORD_DEFAULT_GATEWAY_HELLO_TIMEOUT_MS,
+  DISCORD_DEFAULT_GATEWAY_OPEN_TIMEOUT_MS,
+  DISCORD_DEFAULT_GATEWAY_READY_TIMEOUT_MS,
   DISCORD_DEFAULT_INTENTS,
+  DISCORD_DEFAULT_MAX_PENDING_MESSAGES,
   DISCORD_GATEWAY_INTENTS,
   DISCORD_GATEWAY_VERSION,
   DISCORD_MAX_MESSAGE_CONTENT_CHARACTERS,
@@ -32,6 +36,7 @@ export {
   type DiscordWebSocketFactory,
   type DiscordWebSocketLike,
   type DiscordWebSocketMessageEvent,
+  type DiscordWebSocketOpenEvent,
   type ValidateDiscordBotTokenOptions,
 } from "./contract.ts";
 export {

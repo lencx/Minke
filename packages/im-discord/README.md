@@ -35,7 +35,11 @@ await provider.close();
 
 `start()` fetches `/gateway/bot`, refuses an exhausted Identify quota, opens `wss://…?v=10&encoding=json`, and resolves only after `READY` or `RESUMED`. The connection sends Identify after Hello, starts the jittered heartbeat schedule, requires an ACK before the next scheduled heartbeat, reconnects on Opcode 7 or a missing ACK, resumes with the last sequence when Discord permits it, and starts a new session after a non-resumable Invalid Session or close code. Authentication failure, invalid intents, disallowed intents, invalid sharding, required sharding, and unsupported Gateway versions enter a fatal state instead of looping.
 
+Socket open, Gateway Hello, and Gateway Ready each have an independent startup deadline. The defaults are 10, 15, and 30 seconds and can be overridden with `gatewayOpenTimeoutMs`, `gatewayHelloTimeoutMs`, and `gatewayReadyTimeoutMs`; all use the injectable `timers` port. An expired deadline fails the provider and closes the half-started socket instead of leaving `start()` pending.
+
 `receive(checkpoint)` permits one outstanding receive and returns one normalized `MESSAGE_CREATE` per `GatewayInboundBatch`. `fromCheckpoint` is the caller's opaque checkpoint and `nextCheckpoint` is the decimal Discord dispatch sequence. Discord message IDs remain the durable native deduplication key. A Gateway session is resumable only while its in-memory `session_id`, `resume_gateway_url`, and sequence remain available; after a process restart, Minke identifies a new session and relies on native message ID deduplication rather than claiming historical replay.
+
+`MESSAGE_CREATE` events that arrive between host receive calls wait in a bounded pre-admission queue. `maxPendingMessages` defaults to 1,000 and must be a positive integer. Reaching the limit raises `inbound-overflow`, enters the fatal state, and closes the connection; the provider never evicts an unpersisted message silently.
 
 ## Inbound messages
 
