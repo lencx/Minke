@@ -1,0 +1,170 @@
+diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
+@@ -106,8 +106,9 @@
+ 		"--",
+ 		"true"
+ 	], {
+ 		timeout: timeoutMs,
+-		stdio: "ignore"
++		stdio: "ignore",
++		windowsHide: true
+ 	}).status === 0;
+ }
+ /**
+@@ -128,8 +129,9 @@
+ 		"--",
+ 		"true"
+ 	], {
+ 		timeout: timeoutMs,
+-		stdio: "ignore"
++		stdio: "ignore",
++		windowsHide: true
+ 	}).status === 0;
+ }
+ /**
+@@ -156,8 +158,9 @@
+ 		"exit",
+ 		"0"
+ 	], {
+ 		timeout: timeoutMs,
+-		stdio: "ignore"
++		stdio: "ignore",
++		windowsHide: true
+ 	}).status === 0;
+ }
+ /**
+diff --git a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/types-CNjZgO4h.js b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/types-CNjZgO4h.js
+--- a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/types-CNjZgO4h.js
++++ b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/types-CNjZgO4h.js
+@@ -855,6 +855,7 @@
+ 	encodeStartupInfo(startupInfo, {
+ 		cb: 104,
+-		dwFlags: 256,
++		dwFlags: 257,
++		wShowWindow: 0,
+ 		hStdInput: stdIn.read,
+ 		hStdOutput: stdOut.write,
+ 		hStdError: stdErr.write
+@@ -992,6 +993,7 @@
+ 	encodeStartupInfo(startupInfo, {
+ 		cb: 104,
+-		dwFlags: 256,
++		dwFlags: 257,
++		wShowWindow: 0,
+ 		hStdInput: stdIn,
+ 		hStdOutput: stdOut,
+ 		hStdError: stdErr
+diff --git a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/types-DE3U0cmQ.js b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/types-DE3U0cmQ.js
+--- a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/types-DE3U0cmQ.js
++++ b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/types-DE3U0cmQ.js
+@@ -855,6 +855,7 @@
+ 	encodeStartupInfo(startupInfo, {
+ 		cb: 104,
+-		dwFlags: 256,
++		dwFlags: 257,
++		wShowWindow: 0,
+ 		hStdInput: stdIn.read,
+ 		hStdOutput: stdOut.write,
+ 		hStdError: stdErr.write
+@@ -992,6 +993,7 @@
+ 	encodeStartupInfo(startupInfo, {
+ 		cb: 104,
+-		dwFlags: 256,
++		dwFlags: 257,
++		wShowWindow: 0,
+ 		hStdInput: stdIn,
+ 		hStdOutput: stdOut,
+ 		hStdError: stdErr
+diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
+@@ -104,9 +104,9 @@
+ 	spawnSync("taskkill", [
+ 		"/PID",
+ 		String(pid),
+ 		"/T",
+ 		...force ? ["/F"] : []
+-	], { stdio: "ignore" });
++	], { stdio: "ignore", windowsHide: true });
+ }
+ /**
+ * True for NULL and INVALID_HANDLE_VALUE returns from Win32 handle APIs.
+@@ -266,8 +266,8 @@
+ 	readDir: (path) => readdirSync(path),
+ 	open: (path) => openSync(path, "r"),
+ 	read: (fd, buffer, length, position) => readSync(fd, buffer, 0, length, position),
+ 	close: closeSync,
+-	exec: (file, args) => execFileSync(file, args, { encoding: "utf8" }),
++	exec: (file, args) => execFileSync(file, args, { encoding: "utf8", windowsHide: true }),
+ 	kill: (pid, signal) => process.kill(pid, signal)
+ };
+ /**
+@@ -744,9 +744,9 @@
+ 	spawnSync("taskkill", [
+ 		"/PID",
+ 		String(pid),
+ 		"/T",
+ 		"/F"
+-	], { stdio: "ignore" });
++	], { stdio: "ignore", windowsHide: true });
+ }
+ /**
+ * Signal a detached process tree with platform-correct semantics: POSIX
+@@ -800,7 +800,8 @@
+ 		stdio: [
+ 			stdinMode === "ignore" ? "ignore" : "pipe",
+ 			outMode === "inherit" ? "inherit" : "pipe",
+ 			errMode === "inherit" ? "inherit" : "pipe"
+ 		],
++		windowsHide: true,
+ 		detached: platform !== "win32"
+ 	});
+diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
+@@ -124,10 +124,11 @@
+ 	], {
+ 		env: scrubbedParentEnv(),
+ 		stdio: [
+ 			"ignore",
+ 			"inherit",
+ 			"pipe"
+-		]
++		],
++		windowsHide: true
+ 	});
+ }
+ /** Hand one URL to the operating system's default browser. */
+diff --git a/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js b/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js
+--- a/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js
++++ b/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js
+@@ -108,7 +108,8 @@
+ 	const result = spawnSync("pnpm", args.map((argument) => anchorPathSpec(argument, process.cwd())), {
+ 		cwd: dir,
+ 		stdio: "inherit",
+-		shell: process.platform === "win32"
++		shell: process.platform === "win32",
++		windowsHide: true
+ 	});
+ 	if (result.error !== void 0) {
+ 		if (result.error.code === "ENOENT") {
+diff --git a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
+--- a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
++++ b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
+@@ -117,4 +117,5 @@
+         cwd: dir,
+         stdio: 'inherit',
+         shell: process.platform === 'win32',
++        windowsHide: true,
+     });
+diff --git a/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js b/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js
+--- a/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js
++++ b/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js
+@@ -90,5 +90,6 @@
+     const result = spawnSync(launcher, ['--probe'], {
+         timeout: options.timeoutMs ?? 2000,
+         encoding: 'utf8',
+         stdio: ['ignore', 'pipe', 'ignore'],
++        windowsHide: true,
+     });

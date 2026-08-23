@@ -47,6 +47,9 @@ import {
   applyHarnessRuntimePatches,
   verifyHarnessRuntimePatchesApplied,
 } from "./runtime-patches.mjs";
+import {
+  verifyHarnessRuntimeProcessPolicy,
+} from "./runtime-process-policy.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const activeRuntimeRoot = join(projectRoot, "runtime", "host");
@@ -63,6 +66,7 @@ const runtimeFingerprintPaths = [
   "scripts/harness/runtime-entry.mjs",
   "scripts/harness/runtime-adapters.mjs",
   "scripts/harness/runtime-patches.mjs",
+  "scripts/harness/runtime-process-policy.mjs",
   "scripts/harness/runtime-prune.mjs",
   "scripts/harness/runtime-state.mjs",
   "scripts/harness/stage.mjs",
@@ -692,6 +696,7 @@ async function validateRuntime(
     }
   }
   await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
+  await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
   const installedProductBundleFingerprint = await fingerprintProductBundle(
     installedProductBundle(runtimeRoot, productBundle),
   );
@@ -825,6 +830,7 @@ async function validateReusableRuntime(
     }
   }
   await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
+  await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
   await inspectPrunedRuntime(runtimeRoot, contract);
   return metadata;
 }

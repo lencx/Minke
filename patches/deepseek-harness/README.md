@@ -9,6 +9,12 @@ The applicator accepts git unified diffs that modify existing text files below `
 - routes the directory dialog worker and Windows ACL sandbox runner through `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the dialog worker;
 - copies the COM-owned UTF-16 folder path with Koffi's dedicated `decode.string16` API instead of creating an external `ArrayBuffer` with `koffi.view`.
 
+`windows-background-processes.patch` is pinned to the same Harness commit. It:
+
+- makes every first-party non-terminal child process explicitly suppress native Windows console windows, including the unified subprocess runtime, its teardown helpers, sandbox probes, browser handoff, and plugin management;
+- hides restricted-token children with `STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES` and `SW_HIDE`, preserving the creation mode required by the Windows ACL sandbox;
+- leaves PTY/ConPTY terminal sessions on their dedicated `spawnTerminal` lifecycle path.
+
 `tabs-details-layout.patch` is pinned to the same Harness commit. It:
 
 - lets the details grid track reflow up to two thirds of the area remaining after the sidebar, so a wider Files reader compresses the conversation;

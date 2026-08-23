@@ -15,6 +15,10 @@ import {
   resolveHarnessRuntimePatches,
   verifyHarnessRuntimePatchesApplied,
 } from "../scripts/harness/runtime-patches.mjs";
+import {
+  inspectHarnessRuntimeProcessPolicy,
+  verifyHarnessRuntimeProcessPolicy,
+} from "../scripts/harness/runtime-process-policy.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -146,4 +150,108 @@ test("Harness runtime patch declarations are unique and convention-bound", async
       /must live under patches\/deepseek-harness/u,
     );
   });
+});
+
+async function withProcessPolicyFixture(
+  {
+    launchExtension = ".js",
+    launchSource,
+    startupFlags = 0x101,
+    showWindow = 0,
+  },
+  callback,
+) {
+  const runtimeRoot = await mkdtemp(
+    join(tmpdir(), "minke-runtime-process-policy-"),
+  );
+  const launchPath = join(
+    runtimeRoot,
+    "node_modules",
+    "@deepseek-ai",
+    "example",
+    "lib",
+    `index${launchExtension}`,
+  );
+  const aclPath = join(
+    runtimeRoot,
+    "node_modules",
+    "@deepseek-ai",
+    "dsh-sandbox-windows-acl",
+    "lib",
+    "index.js",
+  );
+  await mkdir(dirname(launchPath), { recursive: true });
+  await mkdir(dirname(aclPath), { recursive: true });
+  await writeFile(launchPath, launchSource);
+  await writeFile(
+    aclPath,
+    `function restricted(api, token, startupInfo, processInfo) {
+  encodeStartupInfo(startupInfo, {
+    dwFlags: ${String(startupFlags)},
+    wShowWindow: ${String(showWindow)},
+  });
+  return api.createProcessAsUserW(
+    token, null, "probe.exe", null, null, 1, 0, null, null,
+    startupInfo, processInfo
+  );
+}
+`,
+  );
+  try {
+    await callback(runtimeRoot);
+  } finally {
+    await rm(runtimeRoot, { recursive: true, force: true });
+  }
+}
+
+test("Harness runtime process policy rejects visible direct child processes", async () => {
+  await withProcessPolicyFixture(
+    {
+      launchSource: `import { spawn } from "node:child_process";
+spawn("probe.exe", [], { stdio: "ignore" });
+`,
+    },
+    async (runtimeRoot) => {
+      await assert.rejects(
+        verifyHarnessRuntimeProcessPolicy(runtimeRoot),
+        /spawn\(\) must set windowsHide: true/u,
+      );
+    },
+  );
+});
+
+test("Harness runtime process policy accepts hidden direct and restricted launches", async () => {
+  await withProcessPolicyFixture(
+    {
+      launchSource: `import { spawn as launch } from "node:child_process";
+launch("probe.exe", [], { stdio: "ignore", windowsHide: true });
+`,
+    },
+    async (runtimeRoot) => {
+      const inspection =
+        await inspectHarnessRuntimeProcessPolicy(runtimeRoot);
+      assert.equal(inspection.launches.length, 1);
+      assert.equal(inspection.restrictedLaunches.length, 1);
+      assert.deepEqual(inspection.violations, []);
+      await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+    },
+  );
+});
+
+test("Harness runtime process policy rejects visible restricted-token children", async () => {
+  await withProcessPolicyFixture(
+    {
+      launchSource: `const { spawnSync } = require("child_process");
+spawnSync("probe.exe", [], { windowsHide: true });
+`,
+      launchExtension: ".cjs",
+      startupFlags: 0x100,
+    },
+    async (runtimeRoot) => {
+      await assert.rejects(
+        verifyHarnessRuntimeProcessPolicy(runtimeRoot),
+        /STARTF_USESHOWWINDOW.*SW_HIDE/u,
+      );
+    },
+  );
 });
