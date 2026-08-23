@@ -126,9 +126,8 @@ test("Harness restarts without a window and a later window attaches to it", asyn
       },
     },
     remote: {
-      read: () => ({ state: "ready" }),
-      async stop() {
-        events.push("remote:stop");
+      async detach() {
+        events.push("remote:detach");
       },
       async start(url) {
         events.push(`remote:start:${url}`);
@@ -142,7 +141,7 @@ test("Harness restarts without a window and a later window attaches to it", asyn
     "http://127.0.0.1:43117",
   );
   assert.deepEqual(events, [
-    "remote:stop",
+    "remote:detach",
     "runtime:start",
     "remote:start:http://127.0.0.1:43117",
   ]);
@@ -171,9 +170,8 @@ test("Harness loads the local window before enabling remote access", async () =>
       },
     },
     remote: {
-      read: () => ({ state: "ready" }),
-      async stop() {
-        events.push("remote:stop");
+      async detach() {
+        events.push("remote:detach");
       },
       async start() {
         events.push("remote:start");
@@ -183,7 +181,7 @@ test("Harness loads the local window before enabling remote access", async () =>
 
   await lifecycle.start(harnessWindow(events));
   assert.deepEqual(events, [
-    "remote:stop",
+    "remote:detach",
     "runtime:start",
     "window:http://127.0.0.1:43117",
     "remote:start",

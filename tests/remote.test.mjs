@@ -27,8 +27,8 @@ import {
   parseRemoteRuntimeSnapshot,
   parseRemoteSettingsSnapshot,
   parseTailscaleStatusIpv4,
+  RemoteAccessRuntime,
   RemoteAccessService,
-  REMOTE_RESTART_CHANNEL,
   REMOTE_SETTINGS_READ_CHANNEL,
   REMOTE_SETTINGS_WRITE_CHANNEL,
 } from "@lencx/minke-remote-access";
@@ -38,9 +38,6 @@ import {
 import {
   MinkeConfigStore,
 } from "@minke/desktop/main/minke-config.ts";
-import {
-  harnessWebArguments,
-} from "@minke/desktop/main/harness-launch.ts";
 import {
   remoteEn,
   remoteZh,
@@ -332,21 +329,41 @@ test("remote host labels compactly encode 80 bits and custom names require expli
   );
 });
 
-test("optional remote access stays outside the local startup path", async () => {
-  const source = await readFile(
-    new URL("../desktop/main/application.ts", import.meta.url),
-    "utf8",
-  );
-  const bootstrapSource = source.slice(
-    source.indexOf("async start(): Promise<void>"),
-    source.indexOf("beforeQuit(event: BeforeQuitEvent)"),
-  );
+test("Tailscale status probes allow slow desktop startup and preserve preference failures", async () => {
+  let timeoutMs;
+  const service = new RemoteAccessService({
+    command: "/usr/local/bin/tailscale",
+    settings: remoteConfig({ enabled: true }),
+    async execute(_command, _args, options) {
+      timeoutMs = options.timeoutMs;
+      return {
+        stdout:
+          "The Tailscale CLI failed to start: " +
+          "Failed to load preferences.\n",
+        stderr: "",
+      };
+    },
+  });
 
-  assert.ok(
-    bootstrapSource.indexOf("await windows.create()") <
-      bootstrapSource.indexOf("await remoteAccess.prepare()"),
-    "the local bootstrap window must appear before Tailscale preparation",
+  await assert.rejects(
+    service.prepare(),
+    (error) => {
+      assert.equal(error?.kind, "status");
+      assert.match(
+        error?.message,
+        /Tailscale CLI failed to load preferences/u,
+      );
+      assert.ok(error?.cause instanceof TypeError);
+      return true;
+    },
   );
+  assert.equal(timeoutMs, 30_000);
+  assert.deepEqual(service.read(), {
+    method: "tailscale",
+    transport: "serve",
+    state: "error",
+    error: "status",
+  });
 });
 
 test("remote command discovery checks PATH without executing Tailscale", async () => {
@@ -491,18 +508,6 @@ test("Tailscale remote owns one foreground Serve process", async () => {
   assert.equal(
     executions[0].options.env.TAILSCALE_BE_CLI,
     "1",
-  );
-
-  const layout = {
-    entryPath: "/runtime/index.mjs",
-    productPatch: "/runtime/overlay/cordis.patch.yml",
-  };
-  assert.deepEqual(
-    harnessWebArguments(
-      layout,
-      (await service.prepare()).trustedHosts,
-    ).slice(-2),
-    ["--trusted-host", "minke.example-tailnet.ts.net"],
   );
 
   await service.start("http://127.0.0.1:43117");
@@ -910,7 +915,15 @@ test("remote settings IPC persists opt-in and reports live status", async () => 
   const root = await temporaryRoot();
   const config = new MinkeConfigStore(root);
   const handlers = new Map();
-  let restarts = 0;
+  const applied = [];
+  const published = [];
+  let runtimeListener;
+  let runtimeSnapshot = {
+    method: "tailscale",
+    transport: "serve",
+    state: "active",
+    url: "https://minke.example-tailnet.ts.net",
+  };
   const binding = bindRemoteSettingsIpc(
     {
       handle(channel, listener) {
@@ -921,16 +934,24 @@ test("remote settings IPC persists opt-in and reports live status", async () => 
       },
     },
     config.remote,
-    { tailscale: true, cloudflare: false },
-    () => ({
-      method: "tailscale",
-      transport: "serve",
-      state: "active",
-      url: "https://minke.example-tailnet.ts.net",
-    }),
-    () => {
-      restarts += 1;
+    {
+      async availability() {
+        return { tailscale: true, cloudflare: false };
+      },
+      async apply(settings) {
+        applied.push(settings);
+      },
+      read() {
+        return runtimeSnapshot;
+      },
+      subscribe(listener) {
+        runtimeListener = listener;
+        return () => {
+          runtimeListener = undefined;
+        };
+      },
     },
+    (snapshot) => published.push(snapshot),
     (event) => event === "allowed",
   );
 
@@ -970,23 +991,29 @@ test("remote settings IPC persists opt-in and reports live status", async () => 
     JSON.parse(await readFile(config.path, "utf8")).remote,
     remoteConfig({ enabled: true }),
   );
-  await handlers.get(REMOTE_RESTART_CHANNEL)("allowed");
-  assert.equal(restarts, 1);
+  assert.deepEqual(applied, [
+    remoteConfig({ enabled: true }),
+  ]);
+  runtimeSnapshot = {
+    method: "tailscale",
+    transport: "serve",
+    state: "starting",
+  };
+  runtimeListener();
+  assert.deepEqual(published, [runtimeSnapshot]);
   await assert.rejects(
     handlers.get(REMOTE_SETTINGS_READ_CHANNEL)("denied"),
     /unauthorized/u,
   );
-  assert.throws(
-    () => handlers.get(REMOTE_RESTART_CHANNEL)("denied"),
-    /unauthorized/u,
-  );
   binding.dispose();
   binding.dispose();
+  assert.equal(runtimeListener, undefined);
   assert.equal(handlers.size, 0);
 });
 
-test("remote settings runtime serializes changes and keeps locales aligned", async () => {
+test("remote settings runtime applies saved changes without requiring a restart", async () => {
   const writes = [];
+  let publishRuntime;
   const runtime = new RemoteSettingsRuntime({
     available: true,
     async read() {
@@ -1003,6 +1030,12 @@ test("remote settings runtime serializes changes and keeps locales aligned", asy
     async write(settings) {
       writes.push(settings);
     },
+    subscribe(listener) {
+      publishRuntime = listener;
+      return () => {
+        publishRuntime = undefined;
+      };
+    },
   });
 
   await runtime.initialize();
@@ -1011,7 +1044,19 @@ test("remote settings runtime serializes changes and keeps locales aligned", asy
   assert.deepEqual(writes, [
     remoteConfig({ enabled: true }),
   ]);
-  assert.equal(runtime.getSnapshot().restartRequired, true);
+  assert.deepEqual(runtime.getSnapshot().operation, {
+    kind: "idle",
+  });
+  publishRuntime({
+    method: "tailscale",
+    transport: "serve",
+    state: "active",
+    url: "https://minke.example-tailnet.ts.net",
+  });
+  assert.equal(
+    runtime.getSnapshot().data.runtime.state,
+    "active",
+  );
   assert.deepEqual(
     Object.keys(remoteEn).sort(),
     Object.keys(remoteZh).sort(),
@@ -1021,7 +1066,54 @@ test("remote settings runtime serializes changes and keeps locales aligned", asy
   runtime.dispose();
 });
 
-test("remote settings distinguish a saved disable from the stale runtime failure", async () => {
+test("remote settings keep a newer pushed runtime over an older read response", async () => {
+  let publishRuntime;
+  let resolveRead;
+  const runtime = new RemoteSettingsRuntime({
+    available: true,
+    read() {
+      return new Promise((resolve) => {
+        resolveRead = resolve;
+      });
+    },
+    async write() {},
+    subscribe(listener) {
+      publishRuntime = listener;
+      return () => {
+        publishRuntime = undefined;
+      };
+    },
+  });
+
+  const initialize = runtime.initialize();
+  publishRuntime({
+    method: "tailscale",
+    transport: "serve",
+    state: "active",
+    url: "https://minke.example-tailnet.ts.net",
+  });
+  resolveRead({
+    available: { tailscale: true, cloudflare: false },
+    settings: remoteConfig({ enabled: true }),
+    runtime: {
+      method: "tailscale",
+      transport: "serve",
+      state: "starting",
+    },
+  });
+  await initialize;
+
+  assert.deepEqual(runtime.getSnapshot().data.runtime, {
+    method: "tailscale",
+    transport: "serve",
+    state: "active",
+    url: "https://minke.example-tailnet.ts.net",
+  });
+  runtime.dispose();
+});
+
+test("remote settings show live disable progress instead of a restart prompt", async () => {
+  let publishRuntime;
   const runtime = new RemoteSettingsRuntime({
     available: true,
     async read() {
@@ -1037,27 +1129,174 @@ test("remote settings distinguish a saved disable from the stale runtime failure
       };
     },
     async write() {},
+    subscribe(listener) {
+      publishRuntime = listener;
+      return () => {
+        publishRuntime = undefined;
+      };
+    },
   });
 
   await runtime.initialize();
   runtime.setTailscaleEnabled(false);
   await runtime.flush();
 
-  assert.equal(
-    runtime.getSnapshot().pendingChange,
-    "disable",
-  );
+  publishRuntime({
+    method: "tailscale",
+    transport: "serve",
+    state: "stopping",
+  });
   assert.deepEqual(
     presentRemoteStatus(runtime.getSnapshot()),
     {
-      state: "pending",
-      statusKey: "statusPending",
-      helpKey: "pendingDisable",
-      canRefresh: false,
+      state: "stopping",
+      statusKey: "statusStopping",
+      helpKey: undefined,
+      canRefresh: true,
+      showAddress: false,
+    },
+  );
+  publishRuntime({
+    method: "tailscale",
+    transport: "serve",
+    state: "disabled",
+  });
+  assert.deepEqual(
+    presentRemoteStatus(runtime.getSnapshot()),
+    {
+      state: "disabled",
+      statusKey: "statusDisabled",
+      helpKey: undefined,
+      canRefresh: true,
       showAddress: false,
     },
   );
   runtime.dispose();
+});
+
+test("remote runtime retries Tailscale in the background before exposing Harness", async () => {
+  const child = foregroundProcess();
+  const events = [];
+  let attempts = 0;
+  const runtime = new RemoteAccessRuntime({
+    settings: remoteConfig({ enabled: true }),
+    async discoverCommands() {
+      events.push("discover");
+      return { tailscale: "/usr/bin/tailscale" };
+    },
+    async replaceTrustedHosts(trustedHosts) {
+      events.push(["trust", trustedHosts]);
+    },
+    async execute(_command, _args, options) {
+      attempts += 1;
+      events.push(["status", options.timeoutMs]);
+      if (attempts === 1) {
+        throw Object.assign(new Error("timed out"), {
+          code: "ETIMEDOUT",
+        });
+      }
+      return { stdout: tailscaleStatus(), stderr: "" };
+    },
+    spawn() {
+      events.push("serve");
+      setImmediate(() => {
+        child.stdout.write(
+          "Serve configured.\nPress Ctrl+C to exit.\n",
+        );
+      });
+      return child;
+    },
+    retryDelaysMs: [0],
+    startupTimeoutMs: 250,
+    shutdownTimeoutMs: 250,
+  });
+
+  await runtime.start("http://127.0.0.1:43117");
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(events, [
+    "discover",
+    ["status", 30_000],
+    "discover",
+    ["status", 30_000],
+    ["trust", ["minke.example-tailnet.ts.net"]],
+    "serve",
+  ]);
+  assert.deepEqual(runtime.read(), {
+    method: "tailscale",
+    transport: "serve",
+    state: "active",
+    url: "https://minke.example-tailnet.ts.net",
+  });
+
+  const disabling = runtime.apply(
+    remoteConfig({ enabled: false }),
+  );
+  assert.equal(runtime.read().state, "stopping");
+  await disabling;
+  assert.deepEqual(events.at(-1), ["trust", []]);
+  assert.deepEqual(runtime.read(), {
+    method: "tailscale",
+    transport: "serve",
+    state: "disabled",
+  });
+  await runtime.stop();
+});
+
+test("remote runtime retries a failed trusted-host revocation", async () => {
+  const child = foregroundProcess();
+  const replacements = [];
+  let revokeAttempts = 0;
+  const runtime = new RemoteAccessRuntime({
+    settings: remoteConfig({ enabled: true }),
+    async discoverCommands() {
+      return { tailscale: "/usr/bin/tailscale" };
+    },
+    async replaceTrustedHosts(trustedHosts) {
+      replacements.push([...trustedHosts]);
+      if (trustedHosts.length === 0 && revokeAttempts++ === 0) {
+        throw new Error("control channel unavailable");
+      }
+    },
+    async execute() {
+      return { stdout: tailscaleStatus(), stderr: "" };
+    },
+    spawn() {
+      setImmediate(() => {
+        child.stdout.write(
+          "Serve configured.\nPress Ctrl+C to exit.\n",
+        );
+      });
+      return child;
+    },
+    startupTimeoutMs: 250,
+    shutdownTimeoutMs: 250,
+  });
+
+  await runtime.start("http://127.0.0.1:43117");
+  await assert.rejects(
+    runtime.apply(remoteConfig({ enabled: false })),
+    /control channel unavailable/u,
+  );
+  assert.deepEqual(runtime.read(), {
+    method: "tailscale",
+    transport: "serve",
+    state: "error",
+    error: "harness-control",
+  });
+
+  await runtime.apply(remoteConfig({ enabled: false }));
+  assert.deepEqual(replacements, [
+    ["minke.example-tailnet.ts.net"],
+    [],
+    [],
+  ]);
+  assert.deepEqual(runtime.read(), {
+    method: "tailscale",
+    transport: "serve",
+    state: "disabled",
+  });
+  await runtime.stop();
 });
 
 test("remote addresses copy through the modern API or selection fallback", async () => {
@@ -1180,7 +1419,7 @@ test("remote settings runtime refreshes the live status on demand", async () => 
 });
 
 test("remote settings stay desktop-capability gated", async () => {
-  let restarted = 0;
+  let publishRuntime;
   assert.equal(
     desktopRemoteSettingsStore({}).available,
     false,
@@ -1188,9 +1427,6 @@ test("remote settings stay desktop-capability gated", async () => {
   const store = desktopRemoteSettingsStore({
     minkeDesktop: {
       remote: {
-        async restart() {
-          restarted += 1;
-        },
         async read() {
           return {
             available: {
@@ -1206,6 +1442,12 @@ test("remote settings stay desktop-capability gated", async () => {
             },
           };
         },
+        subscribe(listener) {
+          publishRuntime = listener;
+          return () => {
+            publishRuntime = undefined;
+          };
+        },
         async write() {},
       },
     },
@@ -1215,6 +1457,20 @@ test("remote settings stay desktop-capability gated", async () => {
     (await store.read()).runtime.url,
     "https://minke.example-tailnet.ts.net",
   );
-  await store.restart();
-  assert.equal(restarted, 1);
+  let observed;
+  const unsubscribe = store.subscribe((snapshot) => {
+    observed = snapshot;
+  });
+  publishRuntime({
+    method: "tailscale",
+    transport: "serve",
+    state: "starting",
+  });
+  assert.deepEqual(observed, {
+    method: "tailscale",
+    transport: "serve",
+    state: "starting",
+  });
+  unsubscribe();
+  assert.equal(publishRuntime, undefined);
 });

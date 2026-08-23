@@ -64,8 +64,6 @@ function LoadedRemoteSettings({
   );
   const [copyState, setCopyState] =
     useState<CopyState>("idle");
-  const [restarting, setRestarting] = useState(false);
-  const [restartFailed, setRestartFailed] = useState(false);
   const copyReset = useRef<number | undefined>(undefined);
   const data = snapshot.data;
   const settings = data.settings;
@@ -82,8 +80,7 @@ function LoadedRemoteSettings({
       : maskRemoteAddress(address);
   const providerLocked =
     !snapshot.editable ||
-    enabled ||
-    restarting;
+    enabled;
   const canEnable =
     enabled ||
     canEnableRemoteSettings(settings, data.available);
@@ -162,18 +159,6 @@ function LoadedRemoteSettings({
     scheduleCopyReset();
   };
 
-  const restart = async (): Promise<void> => {
-    if (restarting) return;
-    setRestartFailed(false);
-    setRestarting(true);
-    try {
-      await runtime.restart();
-    } catch {
-      setRestarting(false);
-      setRestartFailed(true);
-    }
-  };
-
   return (
     <section
       className="minke-remote"
@@ -223,13 +208,17 @@ function LoadedRemoteSettings({
               <button
                 type="button"
                 className="minke-remote__refresh"
-                disabled={snapshot.refreshing}
-                aria-busy={snapshot.refreshing}
+                disabled={
+                  snapshot.operation.kind === "refreshing"
+                }
+                aria-busy={
+                  snapshot.operation.kind === "refreshing"
+                }
                 onClick={() => {
                   void runtime.refresh();
                 }}
               >
-                {snapshot.refreshing
+                {snapshot.operation.kind === "refreshing"
                   ? t("refreshing")
                   : t("refresh")}
               </button>
@@ -286,9 +275,19 @@ function LoadedRemoteSettings({
             )}
           </p>
         )}
-        {snapshot.pendingChange === undefined &&
-          presentation.helpKey !== undefined && (
-          <div className="minke-remote__error" role="alert">
+        {presentation.helpKey !== undefined && (
+          <div
+            className={
+              presentation.state === "saving"
+                ? "minke-remote__help"
+                : "minke-remote__error"
+            }
+            role={
+              presentation.state === "saving"
+                ? "status"
+                : "alert"
+            }
+          >
             <p>{t(presentation.helpKey)}</p>
             {data.runtime.error === "serve-permission" && (
               <a
@@ -708,7 +707,6 @@ function LoadedRemoteSettings({
               checked={enabled}
               disabled={
                 !snapshot.editable ||
-                restarting ||
                 (!canEnable && !enabled)
               }
               aria-label={t("enable")}
@@ -720,32 +718,6 @@ function LoadedRemoteSettings({
           </span>
         </label>
 
-        {snapshot.pendingChange !== undefined &&
-          presentation.helpKey !== undefined && (
-          <div className="minke-remote__pending" role="status">
-            <p>{t(presentation.helpKey)}</p>
-            {!snapshot.saving && (
-              <button
-                type="button"
-                className="minke-remote__restart"
-                disabled={restarting}
-                aria-busy={restarting}
-                onClick={() => {
-                  void restart();
-                }}
-              >
-                {restarting
-                  ? t("restarting")
-                  : t("restartNow")}
-              </button>
-            )}
-          </div>
-        )}
-        {restartFailed && (
-          <p className="minke-remote__error" role="alert">
-            {t("restartError")}
-          </p>
-        )}
       </div>
 
       <aside className="minke-remote__security">

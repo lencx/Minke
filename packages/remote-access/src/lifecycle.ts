@@ -10,6 +10,7 @@ import type {
 export interface RemoteCommandExecutionOptions {
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
+  signal?: AbortSignal;
 }
 
 export interface RemoteCommandExecutionResult {
@@ -35,16 +36,20 @@ export interface RemoteLaunchPlan {
 
 export interface RemoteAccessLifecycle {
   read(): RemoteRuntimeSnapshot;
-  prepare(): Promise<RemoteLaunchPlan>;
-  start(target: string): Promise<void>;
+  prepare(signal?: AbortSignal): Promise<RemoteLaunchPlan>;
+  start(target: string, signal?: AbortSignal): Promise<void>;
   stop(): Promise<void>;
 }
 
 export class RemoteAccessError extends Error {
   readonly kind: RemoteRuntimeError;
 
-  constructor(kind: RemoteRuntimeError, message: string) {
-    super(message);
+  constructor(
+    kind: RemoteRuntimeError,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
     this.name = "RemoteAccessError";
     this.kind = kind;
   }

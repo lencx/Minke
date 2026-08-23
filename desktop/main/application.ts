@@ -10,7 +10,8 @@ import { join } from "node:path";
 import {
   DEFAULT_REMOTE_SETTINGS,
   discoverRemoteCommands,
-  RemoteAccessService,
+  RemoteAccessRuntime,
+  REMOTE_RUNTIME_CHANGED_CHANNEL,
   type RemoteSettings,
 } from "@lencx/minke-remote-access";
 import {
@@ -105,7 +106,7 @@ class DesktopApplication {
     | undefined;
   #runtime: HarnessRuntime | undefined;
   #harnessLifecycle: HarnessLifecycle | undefined;
-  #remoteAccess: RemoteAccessService | undefined;
+  #remoteAccess: RemoteAccessRuntime | undefined;
   #windows: MainWindowRuntime | undefined;
   #desktopLocale: DesktopLocaleRuntime | undefined;
   #activeDshEnvironment: NodeJS.ProcessEnv | undefined;
@@ -220,17 +221,18 @@ class DesktopApplication {
         ? {}
         : { localAppData: process.env.LOCALAPPDATA }),
     });
-    const remoteCommands = await discoverRemoteCommands({
-      homeDirectory: app.getPath("home"),
-      pathValue: process.env.PATH,
-      platform: process.platform,
-      ...(process.env.LOCALAPPDATA === undefined
-        ? {}
-        : { localAppData: process.env.LOCALAPPDATA }),
-      ...(process.env.ProgramFiles === undefined
-        ? {}
-        : { programFiles: process.env.ProgramFiles }),
-    });
+    const discoverRemote = () =>
+      discoverRemoteCommands({
+        homeDirectory: app.getPath("home"),
+        pathValue: process.env.PATH,
+        platform: process.platform,
+        ...(process.env.LOCALAPPDATA === undefined
+          ? {}
+          : { localAppData: process.env.LOCALAPPDATA }),
+        ...(process.env.ProgramFiles === undefined
+          ? {}
+          : { programFiles: process.env.ProgramFiles }),
+      });
     const modelRuntimeAvailability = {
       lmStudio: localModelCommands.lmStudio !== undefined,
       ollama: localModelCommands.ollama !== undefined,
@@ -295,20 +297,6 @@ class DesktopApplication {
       );
     }
 
-    const remoteAccess = new RemoteAccessService({
-      settings: remoteSettings,
-      commands: remoteCommands,
-    });
-    this.#remoteAccess = remoteAccess;
-    let remoteTrustedHosts: readonly string[] = [];
-    try {
-      remoteTrustedHosts = (
-        await remoteAccess.prepare()
-      ).trustedHosts;
-    } catch (error) {
-      console.error("Remote access preparation failed:", error);
-    }
-
     this.#shortcutMenuBinding = bindShortcutMenu(
       Menu,
       locale,
@@ -345,28 +333,6 @@ class DesktopApplication {
             candidate as IpcMainInvokeEvent,
           ),
       );
-    this.#remoteSettingsBinding = bindRemoteSettingsIpc(
-      ipcMain,
-      remoteSettingsStore,
-      {
-        tailscale: remoteCommands.tailscale !== undefined,
-        cloudflare: remoteCommands.cloudflared !== undefined,
-      },
-      () =>
-        this.#remoteAccess?.read() ?? {
-          method: remoteSettings.method,
-          transport:
-            remoteSettings.method === "cloudflare"
-              ? "access"
-              : remoteSettings.tailscale.transport,
-          state: "unavailable",
-        },
-      () => this.#scheduleDesktopRestart(),
-      (candidate) =>
-        windows.authorize(
-          candidate as IpcMainInvokeEvent,
-        ),
-    );
     this.#pluginInstallBinding = bindPluginInstallIpc(
       ipcMain,
       pluginInstallation,
@@ -425,12 +391,41 @@ class DesktopApplication {
         },
       },
       pluginManagement,
-      trustedHosts: remoteTrustedHosts,
       onUnexpectedExit: (exit) => {
         void this.#handleUnexpectedExit(exit);
       },
     });
     this.#runtime = runtime;
+    const remoteAccess = new RemoteAccessRuntime({
+      settings: remoteSettings,
+      discoverCommands: discoverRemote,
+      replaceTrustedHosts: (trustedHosts) =>
+        runtime.replaceTrustedHosts(trustedHosts),
+    });
+    this.#remoteAccess = remoteAccess;
+    this.#remoteSettingsBinding = bindRemoteSettingsIpc(
+      ipcMain,
+      remoteSettingsStore,
+      remoteAccess,
+      (snapshot) => {
+        const window = windows.current;
+        if (
+          window === undefined ||
+          window.isDestroyed() ||
+          window.webContents.isDestroyed()
+        ) {
+          return;
+        }
+        window.webContents.send(
+          REMOTE_RUNTIME_CHANGED_CHANNEL,
+          snapshot,
+        );
+      },
+      (candidate) =>
+        windows.authorize(
+          candidate as IpcMainInvokeEvent,
+        ),
+    );
     this.#harnessLifecycle = new HarnessLifecycle({
       runtime,
       remote: remoteAccess,
@@ -586,10 +581,10 @@ class DesktopApplication {
 
     try {
       try {
-        await this.#remoteAccess?.stop();
+        await this.#remoteAccess?.detach();
       } catch (error) {
         console.error(
-          "Remote access failed to stop:",
+          "Remote access failed to detach:",
           error,
         );
       }

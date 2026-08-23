@@ -27,13 +27,15 @@ import {
   type RemoteProcessSpawner,
 } from "./lifecycle.ts";
 
-const DEFAULT_STATUS_TIMEOUT_MS = 10_000;
+const DEFAULT_STATUS_TIMEOUT_MS = 30_000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 const MAX_COMMAND_OUTPUT = 1024 * 1024;
 const TAILSCALE_SERVE_READY_MARKER = "Press Ctrl+C to exit.";
 const TAILSCALE_HOSTNAME =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+const TAILSCALE_PREFERENCES_FAILURE =
+  /tailscale cli failed to start:\s*failed to load preferences/iu;
 
 type ServeError =
   | "serve"
@@ -89,6 +91,7 @@ function defaultExecute(
         encoding: "utf8",
         env: options.env,
         maxBuffer: MAX_COMMAND_OUTPUT,
+        signal: options.signal,
         timeout: options.timeoutMs,
         windowsHide: true,
       },
@@ -200,6 +203,28 @@ function parseTailscaleStatusSelf(
     throw new TypeError("Tailscale status is not connected");
   }
   return { status, self };
+}
+
+function tailscaleStatusFailureMessage(
+  output: string,
+  error: unknown,
+  expected: string,
+): string {
+  if (TAILSCALE_PREFERENCES_FAILURE.test(output)) {
+    return "Tailscale CLI failed to load preferences";
+  }
+  if (error instanceof TypeError) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    (
+      Reflect.get(error, "code") === "ETIMEDOUT" ||
+      Reflect.get(error, "killed") === true
+    )
+  ) {
+    return `Tailscale status timed out before providing ${expected}`;
+  }
+  return `Tailscale status command failed before providing ${expected}`;
 }
 
 /** Derive the one HTTPS hostname Tailscale Serve will publish. */
@@ -353,7 +378,7 @@ implements RemoteAccessLifecycle {
     return parseRemoteRuntimeSnapshot(this.#snapshot);
   }
 
-  async prepare(): Promise<RemoteLaunchPlan> {
+  async prepare(signal?: AbortSignal): Promise<RemoteLaunchPlan> {
     if (!this.#enabled) {
       this.#hostname = undefined;
       this.#publish("disabled");
@@ -369,31 +394,42 @@ implements RemoteAccessLifecycle {
       return { trustedHosts: [this.#hostname] };
     }
 
+    let statusOutput = "";
     try {
       const result = await this.#execute(
         command,
         ["status", "--json"],
         {
           env: this.#environment,
+          ...(signal === undefined ? {} : { signal }),
           timeoutMs: this.#statusTimeoutMs,
         },
       );
+      statusOutput = `${result.stdout}\n${result.stderr}`;
       const hostname =
         parseTailscaleStatusHostname(result.stdout);
       this.#hostname = hostname;
       this.#publish("ready", `https://${hostname}`);
       return { trustedHosts: [hostname] };
-    } catch {
+    } catch (error) {
       this.#hostname = undefined;
       this.#publishError("status");
       throw new RemoteAccessError(
         "status",
-        "Tailscale status could not provide a connected *.ts.net hostname",
+        tailscaleStatusFailureMessage(
+          statusOutput,
+          error,
+          "a connected *.ts.net hostname",
+        ),
+        { cause: error },
       );
     }
   }
 
-  async start(targetValue: string): Promise<void> {
+  async start(
+    targetValue: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (!this.#enabled || this.#command === undefined) return;
     if (this.#process !== undefined) {
       throw new Error("remote access is already running");
@@ -456,7 +492,7 @@ implements RemoteAccessLifecycle {
     });
 
     try {
-      await this.#waitUntilReady(child);
+      await this.#waitUntilReady(child, signal);
       this.#publish("active", `https://${hostname}`);
     } catch {
       const kind = classifyServeFailure(this.#output);
@@ -509,6 +545,7 @@ implements RemoteAccessLifecycle {
 
   async #waitUntilReady(
     child: ChildProcess,
+    signal?: AbortSignal,
   ): Promise<void> {
     await new Promise<void>((resolvePromise, reject) => {
       let settled = false;
@@ -520,6 +557,7 @@ implements RemoteAccessLifecycle {
         child.stderr?.off("data", inspect);
         child.off("error", onError);
         child.off("exit", onExit);
+        signal?.removeEventListener("abort", onAbort);
         if (error === undefined) resolvePromise();
         else reject(error);
       };
@@ -542,6 +580,16 @@ implements RemoteAccessLifecycle {
           ),
         );
       };
+      const onAbort = (): void => {
+        finish(
+          signal?.reason instanceof Error
+            ? signal.reason
+            : new DOMException(
+                "The operation was aborted",
+                "AbortError",
+              ),
+        );
+      };
       const timeout = setTimeout(() => {
         finish(
           new Error(
@@ -553,6 +601,10 @@ implements RemoteAccessLifecycle {
       child.stderr?.on("data", inspect);
       child.once("error", onError);
       child.once("exit", onExit);
+      signal?.addEventListener("abort", onAbort, {
+        once: true,
+      });
+      if (signal?.aborted === true) onAbort();
       inspect();
     });
   }
@@ -657,7 +709,7 @@ implements RemoteAccessLifecycle {
     return parseRemoteRuntimeSnapshot(this.#snapshot);
   }
 
-  async prepare(): Promise<RemoteLaunchPlan> {
+  async prepare(signal?: AbortSignal): Promise<RemoteLaunchPlan> {
     if (!this.#enabled) {
       this.#publish("disabled");
       return { trustedHosts: [] };
@@ -668,21 +720,29 @@ implements RemoteAccessLifecycle {
       return { trustedHosts: [] };
     }
     if (this.#ip === undefined) {
+      let statusOutput = "";
       try {
         const result = await this.#execute(
           command,
           ["status", "--json"],
           {
             env: this.#environment,
+            ...(signal === undefined ? {} : { signal }),
             timeoutMs: this.#statusTimeoutMs,
           },
         );
+        statusOutput = `${result.stdout}\n${result.stderr}`;
         this.#ip = parseTailscaleStatusIpv4(result.stdout);
-      } catch {
+      } catch (error) {
         this.#publishError("status");
         throw new RemoteAccessError(
           "status",
-          "Tailscale status could not provide a connected node IPv4 address",
+          tailscaleStatusFailureMessage(
+            statusOutput,
+            error,
+            "a connected node IPv4 address",
+          ),
+          { cause: error },
         );
       }
     }
@@ -700,7 +760,10 @@ implements RemoteAccessLifecycle {
     return { trustedHosts: [authority] };
   }
 
-  async start(targetValue: string): Promise<void> {
+  async start(
+    targetValue: string,
+    _signal?: AbortSignal,
+  ): Promise<void> {
     if (!this.#enabled || this.#command === undefined) return;
     if (this.#ip === undefined || this.#port === undefined) {
       throw new RemoteAccessError(

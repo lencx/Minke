@@ -15,8 +15,8 @@ export {
 } from "./presentation.ts";
 export {
   RemoteSettingsRuntime,
-  type RemotePendingChange,
   type RemoteSettingsErrorKind,
+  type RemoteSettingsOperation,
   type RemoteSettingsSnapshot,
 } from "./runtime.ts";
 export {

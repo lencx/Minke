@@ -2,6 +2,7 @@ import {
   createRemoteHostnameLabel,
   DEFAULT_REMOTE_SETTINGS,
   NO_REMOTE_AVAILABILITY,
+  parseRemoteRuntimeSnapshot,
   parseRemoteSettings,
   parseRemoteSettingsSnapshot,
   type RemoteMethodId,
@@ -18,18 +19,15 @@ export type RemoteSettingsErrorKind =
   | "read"
   | "write";
 
-export type RemotePendingChange =
-  | "enable"
-  | "disable"
-  | "configuration";
+export type RemoteSettingsOperation =
+  | { readonly kind: "idle" }
+  | { readonly kind: "refreshing" }
+  | { readonly kind: "saving" };
 
 export interface RemoteSettingsSnapshot {
   data: Readonly<RemoteDataSnapshot>;
   editable: boolean;
-  refreshing: boolean;
-  saving: boolean;
-  restartRequired: boolean;
-  pendingChange: RemotePendingChange | undefined;
+  operation: RemoteSettingsOperation;
   error: RemoteSettingsErrorKind | undefined;
   revision: number;
 }
@@ -115,24 +113,32 @@ export class RemoteSettingsRuntime {
   #snapshot: RemoteSettingsSnapshot = Object.freeze({
     data: Object.freeze(defaultData()),
     editable: false,
-    refreshing: false,
-    saving: false,
-    restartRequired: false,
-    pendingChange: undefined,
+    operation: Object.freeze({ kind: "idle" }),
     error: undefined,
     revision: 0,
   });
-  #initialSettings = copySettings(DEFAULT_REMOTE_SETTINGS);
   #persistedSettings = copySettings(DEFAULT_REMOTE_SETTINGS);
   #listeners = new Set<() => void>();
   #saveTail: Promise<void> = Promise.resolve();
   #saveGeneration = 0;
   #initializePromise: Promise<void> | undefined;
   #refreshPromise: Promise<void> | undefined;
+  #unsubscribeRuntime: (() => void) | undefined;
+  #runtimeRevision = 0;
   #disposed = false;
 
   constructor(store: RemoteSettingsStore) {
     this.store = store;
+    this.#unsubscribeRuntime = store.subscribe?.((snapshot) => {
+      if (this.#disposed) return;
+      this.#runtimeRevision += 1;
+      this.#publish({
+        data: {
+          ...this.#snapshot.data,
+          runtime: parseRemoteRuntimeSnapshot(snapshot),
+        },
+      });
+    });
   }
 
   getSnapshot = (): RemoteSettingsSnapshot => this.#snapshot;
@@ -223,14 +229,6 @@ export class RemoteSettingsRuntime {
     });
   }
 
-  async restart(): Promise<void> {
-    if (!this.store.available) {
-      throw new Error("remote settings are unavailable");
-    }
-    await this.#saveTail;
-    await this.store.restart();
-  }
-
   refresh(): Promise<void> {
     if (this.#disposed) return Promise.resolve();
     this.#refreshPromise ??= this.#refresh().finally(() => {
@@ -246,6 +244,8 @@ export class RemoteSettingsRuntime {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#unsubscribeRuntime?.();
+    this.#unsubscribeRuntime = undefined;
     this.#listeners.clear();
   }
 
@@ -266,15 +266,12 @@ export class RemoteSettingsRuntime {
     ) {
       return;
     }
-    const pendingChange = this.#pendingChange(settings);
     this.#publish({
       data: {
         ...this.#snapshot.data,
         settings,
       },
-      saving: true,
-      restartRequired: pendingChange !== undefined,
-      pendingChange,
+      operation: { kind: "saving" },
       error: undefined,
     });
     this.#persist(settings);
@@ -286,18 +283,20 @@ export class RemoteSettingsRuntime {
       return;
     }
     try {
-      const data = parseRemoteSettingsSnapshot(
+      const runtimeRevision = this.#runtimeRevision;
+      const response = parseRemoteSettingsSnapshot(
         await this.store.read(),
       );
       if (this.#disposed) return;
-      this.#initialSettings = copySettings(data.settings);
+      const data = this.#preserveNewerRuntime(
+        response,
+        runtimeRevision,
+      );
       this.#persistedSettings = copySettings(data.settings);
       this.#publish({
         data,
         editable: true,
-        saving: false,
-        restartRequired: false,
-        pendingChange: undefined,
+        operation: { kind: "idle" },
         error: data.error === "read" ? "read" : undefined,
       });
     } catch {
@@ -311,29 +310,32 @@ export class RemoteSettingsRuntime {
       this.#publish({ error: "unavailable" });
       return;
     }
-    this.#publish({ refreshing: true });
     await this.#saveTail;
+    this.#publish({
+      operation: { kind: "refreshing" },
+    });
     try {
-      const data = parseRemoteSettingsSnapshot(
+      const runtimeRevision = this.#runtimeRevision;
+      const response = parseRemoteSettingsSnapshot(
         await this.store.read(),
       );
       if (this.#disposed) return;
-      const settings = copySettings(data.settings);
-      this.#persistedSettings = settings;
-      const pendingChange = this.#pendingChange(settings);
+      const data = this.#preserveNewerRuntime(
+        response,
+        runtimeRevision,
+      );
+      this.#persistedSettings =
+        copySettings(data.settings);
       this.#publish({
         data,
         editable: true,
-        refreshing: false,
-        saving: false,
-        restartRequired: pendingChange !== undefined,
-        pendingChange,
+        operation: { kind: "idle" },
         error: data.error === "read" ? "read" : undefined,
       });
     } catch {
       if (this.#disposed) return;
       this.#publish({
-        refreshing: false,
+        operation: { kind: "idle" },
         error: "read",
       });
     }
@@ -354,11 +356,8 @@ export class RemoteSettingsRuntime {
         ) {
           return;
         }
-        const pendingChange = this.#pendingChange(payload);
         this.#publish({
-          saving: false,
-          restartRequired: pendingChange !== undefined,
-          pendingChange,
+          operation: { kind: "idle" },
           error: undefined,
         });
       },
@@ -372,34 +371,29 @@ export class RemoteSettingsRuntime {
         const persisted = copySettings(
           this.#persistedSettings,
         );
-        const pendingChange =
-          this.#pendingChange(persisted);
         this.#publish({
           data: {
             ...this.#snapshot.data,
             settings: persisted,
           },
-          saving: false,
-          restartRequired: pendingChange !== undefined,
-          pendingChange,
+          operation: { kind: "idle" },
           error: "write",
         });
       },
     );
   }
 
-  #pendingChange(
-    settings: Readonly<RemoteSettings>,
-  ): RemotePendingChange | undefined {
-    if (settingsEqual(settings, this.#initialSettings)) {
-      return undefined;
+  #preserveNewerRuntime(
+    response: RemoteDataSnapshot,
+    runtimeRevision: number,
+  ): RemoteDataSnapshot {
+    if (runtimeRevision === this.#runtimeRevision) {
+      return response;
     }
-    if (
-      settings.enabled !== this.#initialSettings.enabled
-    ) {
-      return settings.enabled ? "enable" : "disable";
-    }
-    return "configuration";
+    return {
+      ...response,
+      runtime: this.#snapshot.data.runtime,
+    };
   }
 
   #publish(

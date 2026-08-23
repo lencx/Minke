@@ -38,7 +38,6 @@ export interface HarnessRuntimeOptions {
   electronExecutable: string;
   modelRuntimes: LocalModelRuntimeLaunchOptions;
   pluginManagement: PluginManagementSettings;
-  trustedHosts?: readonly string[];
   onUnexpectedExit(exit: HarnessRuntimeExit): void;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
@@ -153,7 +152,7 @@ export class HarnessRuntime {
 
     const child = spawn(
       this.#options.electronExecutable,
-      harnessWebArguments(layout, this.#options.trustedHosts),
+      harnessWebArguments(layout),
       {
         cwd: this.#options.dshHome,
         detached: process.platform !== "win32",

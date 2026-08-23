@@ -132,12 +132,12 @@ implements RemoteAccessLifecycle {
     return this.#active.read();
   }
 
-  prepare(): Promise<RemoteLaunchPlan> {
-    return this.#active.prepare();
+  prepare(signal?: AbortSignal): Promise<RemoteLaunchPlan> {
+    return this.#active.prepare(signal);
   }
 
-  start(target: string): Promise<void> {
-    return this.#active.start(target);
+  start(target: string, signal?: AbortSignal): Promise<void> {
+    return this.#active.start(target, signal);
   }
 
   stop(): Promise<void> {

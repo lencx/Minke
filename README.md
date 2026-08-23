@@ -69,8 +69,9 @@ and does not enable the public Tailscale Funnel.
 1. Install Tailscale on the Minke computer and the phone, sign both into the
    same tailnet, and confirm the computer is connected.
 2. In Minke, open **Settings → Remote access**, enable
-   **Access through Tailscale**, then choose **Restart Minke** when prompted.
-3. Return to **Remote access**, then copy or open the displayed
+   **Access through Tailscale**. Minke connects in the background; no restart
+   is required.
+3. Copy or open the displayed
    `https://…ts.net` address on the phone.
 
 ### Install as a PWA

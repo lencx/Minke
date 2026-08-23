@@ -3,8 +3,8 @@ export const REMOTE_SETTINGS_READ_CHANNEL =
   "minke:remote:settings:read";
 export const REMOTE_SETTINGS_WRITE_CHANNEL =
   "minke:remote:settings:write";
-export const REMOTE_RESTART_CHANNEL =
-  "minke:remote:restart";
+export const REMOTE_RUNTIME_CHANGED_CHANNEL =
+  "minke:remote:runtime:changed";
 
 export const REMOTE_METHODS = Object.freeze([
   Object.freeze({
@@ -129,6 +129,9 @@ export const NO_REMOTE_AVAILABILITY:
 export type RemoteRuntimeState =
   | "disabled"
   | "unavailable"
+  | "starting"
+  | "stopping"
+  | "retrying"
   | "ready"
   | "active"
   | "error";
@@ -140,6 +143,7 @@ export type RemoteRuntimeError =
   | "serve-https"
   | "serve-permission"
   | "direct-bind"
+  | "harness-control"
   | "cloudflare-config"
   | "cloudflare-access"
   | "cloudflare-tunnel";
@@ -400,6 +404,7 @@ ReadonlySet<RemoteRuntimeError> = new Set([
   "serve-https",
   "serve-permission",
   "direct-bind",
+  "harness-control",
   "cloudflare-config",
   "cloudflare-access",
   "cloudflare-tunnel",
@@ -424,6 +429,9 @@ export function parseRemoteRuntimeSnapshot(
     ![
       "disabled",
       "unavailable",
+      "starting",
+      "stopping",
+      "retrying",
       "ready",
       "active",
       "error",
@@ -438,7 +446,12 @@ export function parseRemoteRuntimeSnapshot(
   const hasError = runtime.error !== undefined;
   if (
     ((state === "ready" || state === "active") !== hasUrl) ||
-    ((state === "error") !== hasError) ||
+    (
+      (
+        state === "error" ||
+        state === "retrying"
+      ) !== hasError
+    ) ||
     (
       hasError &&
       !REMOTE_RUNTIME_ERRORS.has(

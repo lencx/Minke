@@ -50,11 +50,7 @@ export async function readHarnessRuntimeLayout(
 
 export function harnessWebArguments(
   layout: Pick<HarnessRuntimeLayout, "entryPath" | "productPatch">,
-  trustedHosts: readonly string[] = [],
 ): string[] {
-  const authorities = [...new Set(
-    trustedHosts.map(parseTrustedHostAuthority),
-  )];
   return [
     "--expose-internals",
     layout.entryPath,
@@ -66,37 +62,5 @@ export function harnessWebArguments(
     "127.0.0.1",
     "--port",
     "0",
-    ...(authorities.length === 0
-      ? []
-      : ["--trusted-host", ...authorities]),
   ];
-}
-
-function parseTrustedHostAuthority(value: string): string {
-  if (typeof value !== "string" || value === "") {
-    throw new TypeError("invalid Harness trusted-host authority");
-  }
-  try {
-    const http = new URL(`http://${value}`);
-    const https = new URL(`https://${value}`);
-    if (
-      http.username !== "" ||
-      http.password !== "" ||
-      http.pathname !== "/" ||
-      http.search !== "" ||
-      http.hash !== ""
-    ) {
-      throw new TypeError("invalid Harness trusted-host authority");
-    }
-    const port = http.port !== "" ? http.port : https.port;
-    const canonical = port === ""
-      ? http.hostname
-      : `${http.hostname}:${port}`;
-    if (canonical !== value.toLowerCase()) {
-      throw new TypeError("invalid Harness trusted-host authority");
-    }
-    return canonical;
-  } catch {
-    throw new TypeError("invalid Harness trusted-host authority");
-  }
 }

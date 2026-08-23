@@ -52,10 +52,12 @@ export const remoteZh = {
     "Minke 只在应用运行期间持有前台代理；退出时会停止。切换方式不会自动降级到另一条链路。",
   statusDisabled: "未启用",
   statusUnavailable: "未安装",
+  statusStarting: "正在连接",
+  statusStopping: "正在断开",
+  statusRetrying: "等待重试",
   statusReady: "已就绪",
   statusActive: "运行中",
   statusError: "连接失败",
-  statusPending: "等待重启",
   statusSaving: "保存中",
   refresh: "刷新状态",
   refreshing: "检查中…",
@@ -66,9 +68,9 @@ export const remoteZh = {
   copiedAddress: "已复制",
   copyAddressError: "复制失败，请选中地址后手动复制。",
   unavailableTailscale:
-    "未检测到 Tailscale 命令。请安装并登录 Tailscale，然后重新启动 Minke。",
+    "未检测到 Tailscale 命令。安装并登录后请刷新状态；若已启用，Minke 会在后台继续探测。",
   unavailableCloudflare:
-    "未检测到 cloudflared 命令。请安装 cloudflared，并准备 Named Tunnel 配置后重新启动 Minke。",
+    "未检测到 cloudflared 命令。请安装 cloudflared，并准备 Named Tunnel 配置后刷新状态。",
   statusErrorHelp:
     "无法读取已连接的 Tailscale 节点。请确认 Tailscale 已登录且状态为 Running。",
   serveErrorHelp:
@@ -82,6 +84,8 @@ export const remoteZh = {
   servePermissionIssue: "查看 Tailscale 已知问题",
   directBindErrorHelp:
     "无法只在 Tailscale IPv4 上启动本地代理。请检查 Tailscale 是否在线，或该端口是否已被占用。",
+  harnessControlErrorHelp:
+    "Harness 未接受远程主机更新。远程链路保持关闭，请重新启动 Minke 后重试。",
   cloudflareConfigErrorHelp:
     "Cloudflare 配置无效，或 Origin 端口已被占用。请核对主机名、团队名、AUD、Tunnel 和配置文件。",
   cloudflareAccessErrorHelp:
@@ -89,14 +93,6 @@ export const remoteZh = {
   cloudflareTunnelErrorHelp:
     "cloudflared 未能建立 Named Tunnel。请检查配置文件、Tunnel 凭据和网络连接。",
   savingChange: "正在保存更改…",
-  pendingEnable: "设置已保存。重新启动 Minke 后将启用远程访问。",
-  pendingDisable:
-    "设置已保存。重新启动 Minke 后将关闭远程访问；重启前，本次会话仍可能可访问。",
-  pendingConfiguration:
-    "连接方式或配置已保存。重新启动 Minke 后生效。",
-  restartNow: "立即重启",
-  restarting: "正在重启…",
-  restartError: "无法重新启动 Minke，请完全退出后再重新打开。",
   securityTitle: "安全提示",
   securityBody:
     "远程页面可以启动代理任务并使用 Minke 已授权的本机工具。只允许你信任的 tailnet 成员或 Cloudflare Access 身份访问。",
@@ -160,10 +156,12 @@ export const remoteEn: Record<RemoteLocaleKey, string> = {
     "Minke owns the foreground proxy only while the app is open and stops it on exit. A failed method never silently falls back to another route.",
   statusDisabled: "Off",
   statusUnavailable: "Not installed",
+  statusStarting: "Connecting",
+  statusStopping: "Disconnecting",
+  statusRetrying: "Retrying",
   statusReady: "Ready",
   statusActive: "Active",
   statusError: "Connection failed",
-  statusPending: "Restart required",
   statusSaving: "Saving",
   refresh: "Refresh status",
   refreshing: "Checking…",
@@ -175,9 +173,9 @@ export const remoteEn: Record<RemoteLocaleKey, string> = {
   copyAddressError:
     "Could not copy the address. Select it and copy it manually.",
   unavailableTailscale:
-    "The Tailscale command was not found. Install and sign in to Tailscale, then restart Minke.",
+    "The Tailscale command was not found. Install and sign in, then refresh; if already enabled, Minke keeps detecting it in the background.",
   unavailableCloudflare:
-    "The cloudflared command was not found. Install cloudflared, prepare a Named Tunnel configuration, then restart Minke.",
+    "The cloudflared command was not found. Install cloudflared, prepare a Named Tunnel configuration, then refresh the status.",
   statusErrorHelp:
     "Minke could not read a connected Tailscale node. Confirm that Tailscale is signed in and Running.",
   serveErrorHelp:
@@ -191,6 +189,8 @@ export const remoteEn: Record<RemoteLocaleKey, string> = {
   servePermissionIssue: "View the known Tailscale issue",
   directBindErrorHelp:
     "Minke could not bind only to the Tailscale IPv4 address. Check that Tailscale is online and the port is available.",
+  harnessControlErrorHelp:
+    "Harness did not accept the remote-host update. The remote route remains closed; restart Minke and try again.",
   cloudflareConfigErrorHelp:
     "The Cloudflare profile is invalid or its origin port is occupied. Check the hostname, team, AUD, Tunnel, and config file.",
   cloudflareAccessErrorHelp:
@@ -198,16 +198,6 @@ export const remoteEn: Record<RemoteLocaleKey, string> = {
   cloudflareTunnelErrorHelp:
     "cloudflared could not establish the Named Tunnel. Check its config, Tunnel credentials, and network connection.",
   savingChange: "Saving your change…",
-  pendingEnable:
-    "Saved. Restart Minke to turn on remote access.",
-  pendingDisable:
-    "Saved. Restart Minke to turn off remote access. This session may remain reachable until then.",
-  pendingConfiguration:
-    "The access method or configuration was saved. Restart Minke to apply it.",
-  restartNow: "Restart Minke",
-  restarting: "Restarting…",
-  restartError:
-    "Minke could not restart. Fully quit the app, then open it again.",
   securityTitle: "Security",
   securityBody:
     "The remote page can start agent tasks and use local tools already authorized in Minke. Allow only trusted tailnet members or Cloudflare Access identities.",

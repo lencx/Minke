@@ -29,7 +29,6 @@
 .minke-remote__description,
 .minke-remote__help,
 .minke-remote__error,
-.minke-remote__pending,
 .minke-remote__security p {
   margin: 0;
 }
@@ -91,8 +90,7 @@
   gap: 8px;
 }
 .minke-remote__refresh,
-.minke-remote__copy,
-.minke-remote__restart {
+.minke-remote__copy {
   min-height: 24px;
   padding: 2px 9px;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -105,20 +103,17 @@
   line-height: 18px;
 }
 .minke-remote__refresh:hover:not(:disabled),
-.minke-remote__copy:hover:not(:disabled),
-.minke-remote__restart:hover:not(:disabled) {
+.minke-remote__copy:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 .minke-remote__refresh:focus-visible,
 .minke-remote__copy:focus-visible,
-.minke-remote__restart:focus-visible,
 .minke-remote__address-link:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 2px;
 }
 .minke-remote__refresh:disabled,
-.minke-remote__copy:disabled,
-.minke-remote__restart:disabled {
+.minke-remote__copy:disabled {
   cursor: default;
   opacity: 0.55;
 }
@@ -138,7 +133,9 @@
   );
   color: var(--dsw-alias-state-error-primary);
 }
-.minke-remote__status[data-state="pending"],
+.minke-remote__status[data-state="starting"],
+.minke-remote__status[data-state="stopping"],
+.minke-remote__status[data-state="retrying"],
 .minke-remote__status[data-state="saving"] {
   background: color-mix(
     in srgb,
@@ -256,35 +253,6 @@
 .minke-remote__switch input:disabled + span {
   cursor: default;
   opacity: 0.45;
-}
-.minke-remote__pending {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-brand-primary) 10%,
-    transparent
-  );
-  color: var(--dsw-alias-label-primary);
-  font-size: 12px;
-  line-height: 18px;
-}
-.minke-remote__pending p {
-  min-width: 0;
-}
-.minke-remote__restart {
-  flex: none;
-  border-color: color-mix(
-    in srgb,
-    var(--dsw-alias-brand-primary) 45%,
-    var(--dsw-alias-border-l2)
-  );
-  color: var(--dsw-alias-brand-primary);
 }
 .minke-remote__error {
   color: var(--dsw-alias-state-error-primary);
@@ -554,8 +522,7 @@
 }
 @media (max-width: 560px) {
   .minke-remote__card-header,
-  .minke-remote__toggle-row,
-  .minke-remote__pending {
+  .minke-remote__toggle-row {
     gap: 10px;
   }
   .minke-remote__card {

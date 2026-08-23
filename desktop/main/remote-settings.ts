@@ -3,7 +3,6 @@ import {
   parseRemoteAvailability,
   parseRemoteRuntimeSnapshot,
   parseRemoteSettings,
-  REMOTE_RESTART_CHANNEL,
   REMOTE_SETTINGS_READ_CHANNEL,
   REMOTE_SETTINGS_WRITE_CHANNEL,
   type RemoteAvailability,
@@ -32,26 +31,33 @@ export interface RemoteSettingsStore {
   write(value: unknown): Promise<void>;
 }
 
+export interface RemoteSettingsHostRuntime {
+  availability(): Promise<RemoteAvailability>;
+  apply(settings: RemoteSettings): Promise<void>;
+  read(): RemoteRuntimeSnapshot;
+  subscribe(listener: () => void): () => void;
+}
+
 /** Bind validated remote preferences and the current foreground runtime state. */
 export function bindRemoteSettingsIpc(
   ipcMain: IpcMainLike,
   store: RemoteSettingsStore,
-  availabilityValue: RemoteAvailability,
-  runtime: () => RemoteRuntimeSnapshot,
-  restartDesktop: () => void,
+  runtime: RemoteSettingsHostRuntime,
+  publishRuntime: (snapshot: RemoteRuntimeSnapshot) => void,
   authorize: (event: unknown) => boolean,
 ): RemoteSettingsBinding {
-  const available = parseRemoteAvailability(availabilityValue);
   const read = async (
     event: unknown,
   ): Promise<RemoteSettingsSnapshot> => {
     assertAuthorized(authorize, event);
-    const currentRuntime = parseRemoteRuntimeSnapshot(runtime());
+    const available = parseRemoteAvailability(
+      await runtime.availability(),
+    );
     try {
       return {
         available,
         settings: parseRemoteSettings(await store.read()),
-        runtime: currentRuntime,
+        runtime: parseRemoteRuntimeSnapshot(runtime.read()),
       };
     } catch {
       return {
@@ -64,7 +70,7 @@ export function bindRemoteSettingsIpc(
             ...DEFAULT_REMOTE_SETTINGS.cloudflare,
           },
         },
-        runtime: currentRuntime,
+        runtime: parseRemoteRuntimeSnapshot(runtime.read()),
         error: "read",
       };
     }
@@ -75,6 +81,9 @@ export function bindRemoteSettingsIpc(
   ): Promise<void> => {
     assertAuthorized(authorize, event);
     const settings = parseRemoteSettings(value);
+    const available = parseRemoteAvailability(
+      await runtime.availability(),
+    );
     if (settings.enabled && !available[settings.method]) {
       throw new Error(
         `${settings.method} remote command is unavailable`,
@@ -87,21 +96,27 @@ export function bindRemoteSettingsIpc(
       parseCloudflareAccessConfig(settings);
     }
     await store.write(settings);
+    void runtime.apply(settings).catch((error: unknown) => {
+      console.error(
+        "Remote access settings could not be applied:",
+        error,
+      );
+    });
   };
-  const restart = (event: unknown): void => {
-    assertAuthorized(authorize, event);
-    restartDesktop();
-  };
-  ipcMain.handle(REMOTE_RESTART_CHANNEL, restart);
   ipcMain.handle(REMOTE_SETTINGS_READ_CHANNEL, read);
   ipcMain.handle(REMOTE_SETTINGS_WRITE_CHANNEL, write);
+  const unsubscribeRuntime = runtime.subscribe(() => {
+    publishRuntime(
+      parseRemoteRuntimeSnapshot(runtime.read()),
+    );
+  });
 
   let disposed = false;
   return Object.freeze({
     dispose() {
       if (disposed) return;
       disposed = true;
-      ipcMain.removeHandler(REMOTE_RESTART_CHANNEL);
+      unsubscribeRuntime();
       ipcMain.removeHandler(REMOTE_SETTINGS_READ_CHANNEL);
       ipcMain.removeHandler(REMOTE_SETTINGS_WRITE_CHANNEL);
     },

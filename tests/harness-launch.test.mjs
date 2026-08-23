@@ -116,34 +116,6 @@ test("the staged layout contract rejects stale runtime metadata", async () => {
   );
 });
 
-test("the desktop adds only canonical explicit trusted hosts", () => {
-  const layout = {
-    entryPath: "/runtime/index.mjs",
-    productPatch: "/runtime/cordis.patch.yml",
-  };
-  assert.deepEqual(
-    harnessWebArguments(layout, [
-      "minke.example-tailnet.ts.net",
-      "minke.example-tailnet.ts.net",
-    ]).slice(-2),
-    [
-      "--trusted-host",
-      "minke.example-tailnet.ts.net",
-    ],
-  );
-  for (const authority of [
-    "minke.example-tailnet.ts.net/path",
-    "user@minke.example-tailnet.ts.net",
-    " minke.example-tailnet.ts.net",
-    "minke.example-tailnet.ts.net:",
-  ]) {
-    assert.throws(
-      () => harnessWebArguments(layout, [authority]),
-      /invalid Harness trusted-host authority/u,
-    );
-  }
-});
-
 test("the desktop runtime passes both explicit local-model opt-ins", () => {
   const layout = {
     pnpmEntry: "/runtime/node_modules/pnpm/bin/pnpm.cjs",
@@ -297,13 +269,10 @@ test("Harness window navigation cannot leave the bootstrap pending forever", asy
       },
     },
     remote: {
-      read() {
-        return { state: "ready" };
-      },
       async start() {
         remoteStarts += 1;
       },
-      async stop() {},
+      async detach() {},
     },
     navigationTimeoutMs: 10,
   });
@@ -343,4 +312,54 @@ test("Harness window navigation cannot leave the bootstrap pending forever", asy
   assert.equal(lifecycle.url, harnessUrl);
   assert.equal(navigationStops, 1);
   assert.equal(remoteStarts, 0);
+});
+
+test("remote exposure starts only after the Harness window has loaded", async () => {
+  const events = [];
+  const harnessUrl = "http://127.0.0.1:43117";
+  const lifecycle = new HarnessLifecycle({
+    runtime: {
+      async start() {
+        events.push("runtime");
+        return harnessUrl;
+      },
+    },
+    remote: {
+      async start(url) {
+        events.push(["remote", url]);
+      },
+      async detach() {
+        events.push("remote-detach");
+      },
+    },
+    navigationTimeoutMs: 50,
+  });
+
+  assert.equal(
+    await lifecycle.start({
+      isDestroyed() {
+        return false;
+      },
+      async loadURL(url) {
+        events.push(["window", url]);
+      },
+      webContents: {
+        isDestroyed() {
+          return false;
+        },
+        stop() {
+          events.push("window-stop");
+        },
+      },
+    }),
+    harnessUrl,
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(events, [
+    "remote-detach",
+    "runtime",
+    ["window", harnessUrl],
+    ["remote", harnessUrl],
+  ]);
 });

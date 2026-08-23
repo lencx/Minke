@@ -11,9 +11,9 @@ export {
   parseRemoteSettings,
   parseRemoteSettingsSnapshot,
   REMOTE_METHODS,
+  REMOTE_RUNTIME_CHANGED_CHANNEL,
   REMOTE_SETTINGS_READ_CHANNEL,
   REMOTE_SETTINGS_WRITE_CHANNEL,
-  REMOTE_RESTART_CHANNEL,
   type RemoteAvailability,
   type RemoteMethodId,
   type RemoteRuntimeError,
@@ -42,6 +42,10 @@ export {
   RemoteAccessService,
   type RemoteAccessServiceOptions,
 } from "./service.ts";
+export {
+  RemoteAccessRuntime,
+  type RemoteAccessRuntimeOptions,
+} from "./runtime.ts";
 export {
   parseLoopbackHarnessUrl,
   parseTailscaleStatusHostname,

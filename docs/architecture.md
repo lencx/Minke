@@ -13,9 +13,7 @@ compatibility gate.
 - `packages/harness-overlay` is composed through DSH's public Profile Bundle
   seam. Runtime patches are reserved for upstream behavior that no public seam
   can express.
-- `desktop/main/harness-lifecycle.ts` owns the live runtime URL and orders
-  runtime start, optional window attachment, and remote exposure. Runtime
-  recovery must work while macOS has no open window.
+- `desktop/main/harness-lifecycle.ts` owns the live runtime URL and orders old-target detachment, optional window attachment, and delivery of the ready URL to remote access. `packages/remote-access/src/runtime.ts` independently reconciles remote exposure against that URL, including command discovery, retry, transport teardown, and acknowledged trusted-host replacement. Runtime recovery must work while macOS has no open window.
 
 The main Harness renderer receives only
 `clipboard-sanitized-write`, only while it is the active main-window

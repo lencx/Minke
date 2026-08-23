@@ -9,7 +9,7 @@ import type {
 } from "./runtime.ts";
 
 export interface RemoteStatusPresentation {
-  state: RemoteRuntimeState | "pending" | "saving";
+  state: RemoteRuntimeState | "saving";
   statusKey: RemoteLocaleKey;
   helpKey: RemoteLocaleKey | undefined;
   canRefresh: boolean;
@@ -48,29 +48,20 @@ export function maskRemoteAddress(value: string): string {
   }
 }
 
-/** Prioritize a saved pending change over stale process state. */
+/** Project persistence and live provider state into one status presentation. */
 export function presentRemoteStatus(
   snapshot: RemoteSettingsSnapshot,
 ): RemoteStatusPresentation {
   const runtime = snapshot.data.runtime;
   const hasAddress =
     runtime.state === "ready" || runtime.state === "active";
-  if (snapshot.pendingChange !== undefined) {
+  if (snapshot.operation.kind === "saving") {
     return {
-      state: snapshot.saving ? "saving" : "pending",
-      statusKey: snapshot.saving
-        ? "statusSaving"
-        : "statusPending",
-      helpKey: snapshot.saving
-        ? "savingChange"
-        : snapshot.pendingChange === "enable"
-          ? "pendingEnable"
-          : snapshot.pendingChange === "disable"
-            ? "pendingDisable"
-            : "pendingConfiguration",
+      state: "saving",
+      statusKey: "statusSaving",
+      helpKey: "savingChange",
       canRefresh: false,
-      showAddress:
-        snapshot.pendingChange === "disable" && hasAddress,
+      showAddress: hasAddress,
     };
   }
 
@@ -78,7 +69,10 @@ export function presentRemoteStatus(
     state: runtime.state,
     statusKey: statusKey(runtime.state),
     helpKey:
-      runtime.state === "error"
+      (
+        runtime.state === "error" ||
+        runtime.state === "retrying"
+      )
         ? errorHelpKey(runtime.error)
         : undefined,
     canRefresh: true,
@@ -94,6 +88,12 @@ function statusKey(
       return "statusDisabled";
     case "unavailable":
       return "statusUnavailable";
+    case "starting":
+      return "statusStarting";
+    case "stopping":
+      return "statusStopping";
+    case "retrying":
+      return "statusRetrying";
     case "ready":
       return "statusReady";
     case "active":
@@ -117,6 +117,8 @@ function errorHelpKey(
       return "servePermissionErrorHelp";
     case "direct-bind":
       return "directBindErrorHelp";
+    case "harness-control":
+      return "harnessControlErrorHelp";
     case "cloudflare-config":
       return "cloudflareConfigErrorHelp";
     case "cloudflare-access":

@@ -225,11 +225,6 @@ export function desktopRemoteSettingsStore(
           },
         };
       },
-      async restart() {
-        throw new Error(
-          "Minke desktop remote settings bridge is unavailable",
-        );
-      },
       async write() {
         throw new Error(
           "Minke desktop remote settings bridge is unavailable",
@@ -242,9 +237,13 @@ export function desktopRemoteSettingsStore(
     async read() {
       return parseRemoteSettingsSnapshot(await bridge.read());
     },
-    async restart() {
-      await bridge.restart();
-    },
+    ...(bridge.subscribe === undefined
+      ? {}
+      : {
+          subscribe(listener) {
+            return bridge.subscribe?.(listener) ?? (() => {});
+          },
+        }),
     async write(settings) {
       await bridge.write(parseRemoteSettings(settings));
     },

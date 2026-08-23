@@ -49,6 +49,7 @@ import type {
   AppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
 import type {
+  RemoteRuntimeSnapshot,
   RemoteSettings,
   RemoteSettingsSnapshot,
 } from "@lencx/minke-remote-access/contract";
@@ -95,7 +96,9 @@ export interface ModelRuntimeSettingsStore {
 export interface RemoteSettingsStore {
   readonly available: boolean;
   read(): Promise<RemoteSettingsSnapshot>;
-  restart(): Promise<void>;
+  subscribe?(
+    listener: (snapshot: RemoteRuntimeSnapshot) => void,
+  ): () => void;
   write(settings: RemoteSettings): Promise<void>;
 }
 
@@ -262,7 +265,9 @@ export interface DesktopModelRuntimeBridge {
 
 export interface DesktopRemoteBridge {
   read(): Promise<unknown>;
-  restart(): Promise<void>;
+  subscribe?(
+    listener: (snapshot: RemoteRuntimeSnapshot) => void,
+  ): () => void;
   write(settings: RemoteSettings): Promise<void>;
 }
 

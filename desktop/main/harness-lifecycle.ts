@@ -3,9 +3,8 @@ export interface HarnessLifecycleRuntime {
 }
 
 export interface HarnessLifecycleRemote {
-  read(): { state: string };
+  detach(): Promise<unknown>;
   start(harnessUrl: string): Promise<unknown>;
-  stop(): Promise<unknown>;
 }
 
 export interface HarnessLifecycleWindow {
@@ -92,10 +91,10 @@ export class HarnessLifecycle {
   ): Promise<string> {
     if (this.#remote !== undefined) {
       try {
-        await this.#remote.stop();
+        await this.#remote.detach();
       } catch (error) {
         this.#reportError(
-          "Remote access failed to stop:",
+          "Remote access failed to detach:",
           error,
         );
       }
@@ -106,7 +105,7 @@ export class HarnessLifecycle {
     if (isUsableWindow(window)) {
       await this.#loadWindow(window, url);
     }
-    if (this.#remote?.read().state === "ready") {
+    if (this.#remote !== undefined) {
       void this.#remote.start(url).catch((error: unknown) => {
         this.#reportError(
           "Remote access failed to start:",

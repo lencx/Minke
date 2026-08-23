@@ -64,8 +64,8 @@ Minke 可以通过 [Tailscale Serve](https://tailscale.com/docs/reference/tailsc
 局域网，也不会启用公开的 Tailscale Funnel。
 
 1. 在运行 Minke 的电脑和手机上安装 Tailscale，登录同一个 tailnet，并确认电脑已连接。
-2. 打开 Minke 的 **设置 → 远程访问**，启用 **通过 Tailscale 访问**，然后完全退出并重新启动 Minke。
-3. 回到 **远程访问**，在手机上打开界面显示的 `https://…ts.net` 地址。
+2. 打开 Minke 的 **设置 → 远程访问**，启用 **通过 Tailscale 访问**。Minke 会在后台连接，无需重启应用。
+3. 在手机上打开界面显示的 `https://…ts.net` 地址。
 
 ### 安装为 PWA
 

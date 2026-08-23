@@ -134,11 +134,13 @@ import {
 } from "@minke/desktop/window-theme-contract.ts";
 import {
   parseRemoteSettings,
+  parseRemoteRuntimeSnapshot,
   parseRemoteSettingsSnapshot,
-  REMOTE_RESTART_CHANNEL,
+  REMOTE_RUNTIME_CHANGED_CHANNEL,
   REMOTE_SETTINGS_READ_CHANNEL,
   REMOTE_SETTINGS_WRITE_CHANNEL,
   type RemoteSettings,
+  type RemoteRuntimeSnapshot,
 } from "@lencx/minke-remote-access/contract";
 
 let observer: MutationObserver | undefined;
@@ -147,6 +149,7 @@ let hasAuthoritativeTheme = false;
 const shortcutUnsubscribers = new Set<() => void>();
 const fileWatchUnsubscribers = new Set<() => void>();
 const terminalUnsubscribers = new Set<() => void>();
+const remoteRuntimeUnsubscribers = new Set<() => void>();
 let nextFileWatchId = 0;
 
 function currentColorScheme(): WindowColorScheme | undefined {
@@ -455,14 +458,32 @@ const remote = Object.freeze({
       await ipcRenderer.invoke(REMOTE_SETTINGS_READ_CHANNEL),
     );
   },
-  async restart(): Promise<void> {
-    await ipcRenderer.invoke(REMOTE_RESTART_CHANNEL);
-  },
   async write(settings: RemoteSettings): Promise<void> {
     await ipcRenderer.invoke(
       REMOTE_SETTINGS_WRITE_CHANNEL,
       parseRemoteSettings(settings),
     );
+  },
+  subscribe(
+    listener: (snapshot: RemoteRuntimeSnapshot) => void,
+  ): () => void {
+    const wrapped = (_event: unknown, value: unknown): void => {
+      try {
+        listener(parseRemoteRuntimeSnapshot(value));
+      } catch {
+        // Only validated main-process runtime snapshots are delivered.
+      }
+    };
+    ipcRenderer.on(REMOTE_RUNTIME_CHANGED_CHANNEL, wrapped);
+    let active = true;
+    const unsubscribe = (): void => {
+      if (!active) return;
+      active = false;
+      remoteRuntimeUnsubscribers.delete(unsubscribe);
+      ipcRenderer.off(REMOTE_RUNTIME_CHANGED_CHANNEL, wrapped);
+    };
+    remoteRuntimeUnsubscribers.add(unsubscribe);
+    return unsubscribe;
   },
 });
 
@@ -597,6 +618,9 @@ window.addEventListener(
       unsubscribe();
     }
     for (const unsubscribe of [...terminalUnsubscribers]) {
+      unsubscribe();
+    }
+    for (const unsubscribe of [...remoteRuntimeUnsubscribers]) {
       unsubscribe();
     }
     observer?.disconnect();
