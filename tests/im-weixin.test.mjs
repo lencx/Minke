@@ -609,11 +609,47 @@ test("a stale response aborts concurrent work and prevents later requests", asyn
   await transport.close();
 });
 
-test("long polling requires explicit success and exposes remote codes", async () => {
+test("long polling accepts the official response without ret or errcode", async () => {
+  const fetch = sequenceFetch([
+    json({ ret: 0 }),
+    json({
+      get_updates_buf: "official-next-checkpoint",
+      msgs: [
+        {
+          message_id: 919,
+          from_user_id: "wx-owner",
+          to_user_id: "bot-account",
+          message_type: 1,
+          context_token: "private-context-token",
+          item_list: [
+            {
+              type: 1,
+              text_item: { text: "live owner message" },
+            },
+          ],
+        },
+      ],
+    }),
+    json({ ret: 0 }),
+  ]);
+  const transport = createWeixinTransport(
+    transportOptions(fetch),
+  );
+  await transport.start();
+
+  const batch = await transport.receive("previous-checkpoint");
+  assert.equal(batch.nextCheckpoint, "official-next-checkpoint");
+  assert.equal(batch.messages.length, 1);
+  assert.equal(batch.messages[0].senderId, "wx-owner");
+  assert.equal(batch.messages[0].text, "live owner message");
+  await transport.close();
+});
+
+test("long polling rejects malformed status fields and exposes remote codes", async () => {
   const replies = [
-    { body: {}, remoteCode: undefined },
     { body: { ret: "0" }, remoteCode: undefined },
     { body: { ret: 71 }, remoteCode: 71 },
+    { body: { errcode: 72 }, remoteCode: 72 },
   ];
   for (const { body, remoteCode } of replies) {
     const fetch = sequenceFetch([
@@ -1103,9 +1139,32 @@ test("a send timeout is classified as an unknown remote effect", async () => {
   assert.equal(requests.length, 3);
 });
 
-test("send requires an explicit numeric success and preserves ambiguous effect", async () => {
+test("send accepts the official empty success response and rejects ambiguous malformed responses", async () => {
+  const accepted = createWeixinTransport(
+    transportOptions(sequenceFetch([
+      json({ ret: 0 }),
+      json({}),
+      json({ ret: 0 }),
+    ])),
+  );
+  await accepted.start();
+  assert.deepEqual(
+    await accepted.deliver({
+      operationId: "empty-success-response",
+      recipientId: "wx-user",
+      contextToken: "private-context-token",
+      content: { kind: "text", text: "answer" },
+    }),
+    {
+      clientIds: ["empty-success-response"],
+      operationId: "empty-success-response",
+      outcome: "accepted",
+      retrySafety: "unconfirmed",
+    },
+  );
+  await accepted.close();
+
   const replies = [
-    json({}),
     json({ ret: "0" }),
     new Response("not-json", {
       headers: { "content-type": "application/json" },

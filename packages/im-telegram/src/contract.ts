@@ -270,6 +270,11 @@ export interface TelegramSendMessageInput
   readonly text: string;
 }
 
+export interface TelegramSendRichMarkdownInput
+  extends TelegramSendBase {
+  readonly markdown: string;
+}
+
 export interface TelegramSendPhotoInput
   extends TelegramSendBase {
   readonly caption?: string;
@@ -333,6 +338,9 @@ export interface TelegramSendContactInput
 
 export type TelegramDeliveryIntent =
   | ({ readonly kind: "text" } & TelegramSendMessageInput)
+  | ({
+      readonly kind: "rich-markdown";
+    } & TelegramSendRichMarkdownInput)
   | ({ readonly kind: "photo" } & TelegramSendPhotoInput)
   | ({ readonly kind: "document" } & TelegramSendDocumentInput)
   | ({ readonly kind: "audio" } & TelegramSendAudioInput)
@@ -415,6 +423,10 @@ export interface TelegramTransport {
   ): Promise<TelegramDeliveryReceipt>;
   sendMessage(
     input: TelegramSendMessageInput,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<TelegramDeliveryReceipt>;
+  sendRichMarkdown(
+    input: TelegramSendRichMarkdownInput,
     options?: { readonly signal?: AbortSignal },
   ): Promise<TelegramDeliveryReceipt>;
   sendPhoto(

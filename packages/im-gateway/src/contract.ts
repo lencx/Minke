@@ -40,6 +40,7 @@ export interface GatewayInboundBatch {
 export interface GatewayBatchAdmission {
   readonly admittedNativeIds: readonly string[];
   readonly confirmedOperationIds: readonly string[];
+  readonly droppedNativeIds?: readonly string[];
   readonly nextCheckpoint: string;
 }
 
@@ -169,6 +170,14 @@ export interface GatewayOutboxSnapshot {
   readonly outboxId: number;
   readonly recipientId: string;
   readonly state: GatewayOutboxState;
+}
+
+export interface GatewayOutboxHealth {
+  readonly accountKey: string;
+  readonly awaitingDeliveryContext: number;
+  readonly generation: number;
+  readonly terminalFailures: number;
+  readonly uncertain: number;
 }
 
 export interface GatewayRecoveryResult {

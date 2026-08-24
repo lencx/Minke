@@ -242,6 +242,20 @@ export function parseGetUpdatesResponse(
   if (!isRecord(value)) {
     throw protocolError("Weixin getUpdates response is invalid");
   }
+  for (const key of ["ret", "errcode"] as const) {
+    const status = value[key];
+    if (
+      status !== undefined &&
+      (
+        typeof status !== "number" ||
+        !Number.isFinite(status)
+      )
+    ) {
+      throw protocolError(
+        `Weixin getUpdates ${key} is invalid`,
+      );
+    }
+  }
   if (value.msgs !== undefined && !Array.isArray(value.msgs)) {
     throw protocolError("Weixin getUpdates msgs is not an array");
   }
@@ -277,6 +291,15 @@ export function parseRetResponse(
 ): { readonly ret?: number } {
   if (!isRecord(value)) {
     throw protocolError(`Weixin ${label} response is invalid`);
+  }
+  if (
+    value.ret !== undefined &&
+    (
+      typeof value.ret !== "number" ||
+      !Number.isFinite(value.ret)
+    )
+  ) {
+    throw protocolError(`Weixin ${label} ret is invalid`);
   }
   return { ret: optionalNumber(value, "ret") };
 }

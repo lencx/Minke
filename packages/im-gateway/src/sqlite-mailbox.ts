@@ -22,6 +22,7 @@ import {
   type GatewayInboundBatch,
   type GatewayInboundKind,
   type GatewayOutboxIntent,
+  type GatewayOutboxHealth,
   type GatewayOutboxLease,
   type GatewayOutboxSnapshot,
   type GatewayOutboxState,
@@ -35,8 +36,10 @@ import {
   sealGatewayValue,
 } from "./value-codec.ts";
 
-interface SqliteGatewayMailboxOptions {
+export interface SqliteGatewayMailboxOptions {
   readonly cipher: GatewayCipher;
+  readonly consumedInboxRetentionMs?: number;
+  readonly maxPendingInboxPerAccount?: number;
   readonly now?: () => number;
   readonly path: string;
 }
@@ -447,7 +450,9 @@ function purpose(
 
 export class SqliteGatewayMailbox {
   readonly #cipher: GatewayCipher;
+  readonly #consumedInboxRetentionMs: number | undefined;
   readonly #database: DatabaseSync;
+  readonly #maxPendingInboxPerAccount: number | undefined;
   readonly #now: () => number;
   readonly #path: string;
   #closed = false;
@@ -465,6 +470,20 @@ export class SqliteGatewayMailbox {
       throw new TypeError("Gateway cipher must implement seal() and open()");
     }
     this.#cipher = options.cipher;
+    this.#consumedInboxRetentionMs =
+      options.consumedInboxRetentionMs === undefined
+        ? undefined
+        : timestamp(
+            options.consumedInboxRetentionMs,
+            "consumedInboxRetentionMs",
+          );
+    this.#maxPendingInboxPerAccount =
+      options.maxPendingInboxPerAccount === undefined
+        ? undefined
+        : positiveDuration(
+            options.maxPendingInboxPerAccount,
+            "maxPendingInboxPerAccount",
+          );
     this.#now = options.now ?? Date.now;
     this.#path = options.path;
     const directory = dirname(options.path);
@@ -765,47 +784,115 @@ export class SqliteGatewayMailbox {
           actualCheckpoint,
         );
       }
-      const admittedNativeIds: string[] = [];
-      const confirmedOperationIds: string[] = [];
-      for (const event of events) {
-        const eventTime = this.#time(event.occurredAt ?? observedAt);
-        const inserted = this.#database
+      if (this.#consumedInboxRetentionMs !== undefined) {
+        this.#database
           .prepare(`
-            INSERT INTO inbox (
-              account_key,
-              generation,
-              native_id,
-              kind,
-              conversation_id,
-              peer_id,
-              sender_id,
-              occurred_at,
-              payload_cipher,
-              state,
-              admitted_at,
-              consumed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(account_key, native_id) DO NOTHING
+            DELETE FROM inbox
+            WHERE
+              account_key = ?
+              AND generation = ?
+              AND state = 'consumed'
+              AND consumed_at < ?
           `)
           .run(
             accountKey,
             expectedGeneration,
-            event.nativeId,
-            event.kind,
-            event.conversationId,
-            event.peerId,
-            event.senderId,
-            event.occurredAt ?? null,
-            event.payloadCipher,
-            event.kind === "bot-echo" ? "consumed" : "pending",
-            observedAt,
-            event.kind === "bot-echo" ? observedAt : null,
+            observedAt - this.#consumedInboxRetentionMs,
           );
+      }
+      const admittedNativeIds: string[] = [];
+      const confirmedOperationIds: string[] = [];
+      const droppedNativeIds: string[] = [];
+      const droppedNativeIdSet = new Set<string>();
+      const maxPendingInboxPerAccount =
+        this.#maxPendingInboxPerAccount;
+      let pendingInboxCount: number | undefined;
+      if (maxPendingInboxPerAccount !== undefined) {
+        const row = this.#database
+          .prepare(`
+            SELECT COUNT(*) AS pending_count
+            FROM inbox
+            WHERE
+              account_key = ?
+              AND state IN ('leased', 'pending')
+          `)
+          .get(accountKey);
+        if (row === undefined) {
+          throw new Error("Gateway inbox count query returned no row");
+        }
+        pendingInboxCount = requiredNumber(row, "pending_count");
+      }
+      for (const event of events) {
+        const eventTime = this.#time(event.occurredAt ?? observedAt);
+        let shouldInsertInbox = true;
         if (
+          event.kind !== "bot-echo" &&
+          pendingInboxCount !== undefined &&
+          maxPendingInboxPerAccount !== undefined &&
+          pendingInboxCount >= maxPendingInboxPerAccount
+        ) {
+          const alreadyPersisted =
+            this.#database
+              .prepare(`
+                SELECT 1
+                FROM inbox
+                WHERE account_key = ? AND native_id = ?
+              `)
+              .get(accountKey, event.nativeId) !== undefined;
+          shouldInsertInbox = false;
+          if (
+            !alreadyPersisted &&
+            !droppedNativeIdSet.has(event.nativeId)
+          ) {
+            droppedNativeIdSet.add(event.nativeId);
+            droppedNativeIds.push(event.nativeId);
+          }
+        }
+        const inserted = shouldInsertInbox
+          ? this.#database
+              .prepare(`
+                INSERT INTO inbox (
+                  account_key,
+                  generation,
+                  native_id,
+                  kind,
+                  conversation_id,
+                  peer_id,
+                  sender_id,
+                  occurred_at,
+                  payload_cipher,
+                  state,
+                  admitted_at,
+                  consumed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_key, native_id) DO NOTHING
+              `)
+              .run(
+                accountKey,
+                expectedGeneration,
+                event.nativeId,
+                event.kind,
+                event.conversationId,
+                event.peerId,
+                event.senderId,
+                event.occurredAt ?? null,
+                event.payloadCipher,
+                event.kind === "bot-echo"
+                  ? "consumed"
+                  : "pending",
+                observedAt,
+                event.kind === "bot-echo" ? observedAt : null,
+              )
+          : undefined;
+        if (
+          inserted !== undefined &&
           count(inserted.changes) === 1 &&
           event.kind !== "bot-echo"
         ) {
           admittedNativeIds.push(event.nativeId);
+          if (pendingInboxCount !== undefined) {
+            pendingInboxCount += 1;
+          }
         }
         if (event.deliveryContext !== undefined) {
           const contextCipher = sealGatewayValue(
@@ -934,6 +1021,9 @@ export class SqliteGatewayMailbox {
       return {
         admittedNativeIds,
         confirmedOperationIds,
+        ...(droppedNativeIds.length > 0
+          ? { droppedNativeIds }
+          : {}),
         nextCheckpoint,
       };
     });
@@ -1090,6 +1180,71 @@ export class SqliteGatewayMailbox {
         senderId: row.sender_id,
       };
     });
+  }
+
+  renewInboxLease(input: {
+    readonly inboxId: number;
+    readonly leaseMs: number;
+    readonly leaseToken: string;
+    readonly now?: number;
+  }): boolean {
+    const leaseToken = nonempty(input.leaseToken, "leaseToken");
+    const now = this.#time(input.now);
+    const leaseUntil =
+      now + positiveDuration(input.leaseMs, "leaseMs");
+    if (!Number.isSafeInteger(input.inboxId) || input.inboxId <= 0) {
+      throw new TypeError("inboxId must be a positive safe integer");
+    }
+    return this.#transaction(
+      () =>
+        count(
+          this.#database
+            .prepare(`
+              UPDATE inbox
+              SET lease_until = ?
+              WHERE
+                inbox_id = ?
+                AND state = 'leased'
+                AND lease_token = ?
+                AND lease_until > ?
+            `)
+            .run(
+              leaseUntil,
+              input.inboxId,
+              leaseToken,
+              now,
+            ).changes,
+        ) === 1,
+    );
+  }
+
+  releaseInboxLease(input: {
+    readonly inboxId: number;
+    readonly leaseToken: string;
+  }): boolean {
+    const leaseToken = nonempty(input.leaseToken, "leaseToken");
+    if (!Number.isSafeInteger(input.inboxId) || input.inboxId <= 0) {
+      throw new TypeError("inboxId must be a positive safe integer");
+    }
+    return this.#transaction(
+      () =>
+        count(
+          this.#database
+            .prepare(`
+              UPDATE inbox
+              SET
+                state = 'pending',
+                lease_owner = NULL,
+                lease_token = NULL,
+                lease_until = NULL
+              WHERE
+                inbox_id = ?
+                AND state = 'leased'
+                AND lease_token = ?
+            `)
+            .run(input.inboxId, leaseToken).changes,
+        ) === 1,
+    );
   }
 
   ackInbox(input: {
@@ -2110,7 +2265,76 @@ export class SqliteGatewayMailbox {
     });
   }
 
-  inspectOutbox(operationId: string): GatewayOutboxSnapshot {
+  inspectOutboxHealth(input: {
+    readonly accountKey: string;
+    readonly generation: number;
+  }): GatewayOutboxHealth {
+    this.#assertOpen();
+    const accountKey = nonempty(input.accountKey, "accountKey");
+    const expectedGeneration = generation(input.generation);
+    this.#assertGeneration(accountKey, expectedGeneration);
+    const value = this.#database
+      .prepare(`
+        SELECT
+          COALESCE(SUM(
+            CASE WHEN state = 'uncertain' THEN 1 ELSE 0 END
+          ), 0) AS uncertain,
+          COALESCE(SUM(
+            CASE
+              WHEN state IN ('abandoned', 'rejected')
+                OR (
+                  state IN ('pending', 'retry-wait')
+                  AND attempts >= max_attempts
+                )
+              THEN 1
+              ELSE 0
+            END
+          ), 0) AS terminal_failures,
+          COALESCE(SUM(
+            CASE
+              WHEN
+                state IN ('pending', 'retry-wait')
+                AND attempts < max_attempts
+                AND requires_context = 1
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM delivery_contexts AS context
+                  WHERE
+                    context.account_key = outbox.account_key
+                    AND context.generation = outbox.generation
+                    AND context.peer_id = outbox.recipient_id
+                )
+              THEN 1
+              ELSE 0
+            END
+          ), 0) AS awaiting_delivery_context
+        FROM outbox
+        WHERE account_key = ? AND generation = ?
+      `)
+      .get(accountKey, expectedGeneration) as
+        | Record<string, unknown>
+        | undefined;
+    if (value === undefined) {
+      throw new Error("Gateway outbox health query returned no row");
+    }
+    return {
+      accountKey,
+      awaitingDeliveryContext: requiredNumber(
+        value,
+        "awaiting_delivery_context",
+      ),
+      generation: expectedGeneration,
+      terminalFailures: requiredNumber(
+        value,
+        "terminal_failures",
+      ),
+      uncertain: requiredNumber(value, "uncertain"),
+    };
+  }
+
+  findOutbox(
+    operationId: string,
+  ): GatewayOutboxSnapshot | undefined {
     this.#assertOpen();
     const normalizedOperationId = nonempty(
       operationId,
@@ -2133,9 +2357,7 @@ export class SqliteGatewayMailbox {
         `)
         .get(normalizedOperationId),
     );
-    if (row === undefined) {
-      throw new Error(`Unknown Gateway operation ${operationId}`);
-    }
+    if (row === undefined) return undefined;
     return {
       accountKey: row.account_key,
       attempts: row.attempts,
@@ -2146,6 +2368,14 @@ export class SqliteGatewayMailbox {
       recipientId: row.recipient_id,
       state: row.state,
     };
+  }
+
+  inspectOutbox(operationId: string): GatewayOutboxSnapshot {
+    const snapshot = this.findOutbox(operationId);
+    if (snapshot === undefined) {
+      throw new Error(`Unknown Gateway operation ${operationId}`);
+    }
+    return snapshot;
   }
 
   listUncertain(

@@ -706,6 +706,117 @@ test("sendMessage preserves reply and thread targeting and returns a stable rece
   await transport.close();
 });
 
+test("rich Markdown delivery uses Telegram Rich Message instead of plain sendMessage", async () => {
+  const markdown =
+    "# Status\n\n**Ready**\n\n- one\n- two";
+  const requests = [];
+  const fetch = sequenceFetch(
+    [
+      success(botIdentity()),
+      success(sentMessage({ message_id: 778 })),
+    ],
+    requests,
+  );
+  const transport = createTelegramTransport(
+    transportOptions(fetch),
+  );
+  await transport.start();
+
+  const receipt = await transport.send({
+    chatId: "-10042",
+    kind: "rich-markdown",
+    markdown,
+  });
+
+  assert.equal(requests.length, 2);
+  assert.equal(
+    requests[1].url,
+    `https://api.telegram.org/bot${TOKEN}/sendRichMessage`,
+  );
+  assert.deepEqual(requests[1].body, {
+    chat_id: "-10042",
+    rich_message: { markdown },
+  });
+  assert.deepEqual(receipt, {
+    chatId: "-10042",
+    messageId: "778",
+    occurredAt: 1_723_456_789_000,
+    threadId: undefined,
+  });
+  await transport.close();
+});
+
+test("rich Markdown falls back to plain text only after a definite Telegram rejection", async () => {
+  const markdown = "**Keep this reply**";
+  const requests = [];
+  const fetch = sequenceFetch(
+    [
+      success(botIdentity()),
+      json(
+        {
+          description: "rich format rejected",
+          error_code: 400,
+          ok: false,
+        },
+        { status: 400 },
+      ),
+      success(sentMessage({ message_id: 779 })),
+    ],
+    requests,
+  );
+  const transport = createTelegramTransport(
+    transportOptions(fetch),
+  );
+  await transport.start();
+
+  const receipt = await transport.send({
+    chatId: "-10042",
+    kind: "rich-markdown",
+    markdown,
+  });
+
+  assert.deepEqual(
+    requests.slice(1).map(({ url }) =>
+      url.slice(url.lastIndexOf("/") + 1)
+    ),
+    ["sendRichMessage", "sendMessage"],
+  );
+  assert.deepEqual(requests[2].body, {
+    chat_id: "-10042",
+    text: markdown,
+  });
+  assert.equal(receipt.messageId, "779");
+  await transport.close();
+});
+
+test("rich Markdown never falls back after an ambiguous send failure", async () => {
+  let sends = 0;
+  const transport = createTelegramTransport(
+    transportOptions(async (input) => {
+      if (String(input).endsWith("/getMe")) {
+        return success(botIdentity());
+      }
+      sends += 1;
+      throw new Error("socket failed");
+    }),
+  );
+  await transport.start();
+
+  await assert.rejects(
+    transport.send({
+      chatId: "-10042",
+      kind: "rich-markdown",
+      markdown: "**Do not duplicate this reply**",
+    }),
+    (error) =>
+      error instanceof TelegramTransportError &&
+      error.code === "network" &&
+      error.effect === "unknown",
+  );
+  assert.equal(sends, 1);
+  await transport.close();
+});
+
 test("common media sends use file IDs or bounded multipart byte uploads", async () => {
   const requests = [];
   const fetch = sequenceFetch(
@@ -1148,6 +1259,31 @@ test("Gateway provider preserves Telegram payloads and binds prepared delivery t
     },
   );
   assert.equal(sends.length, 1);
+});
+
+test("Gateway preserves Telegram rich Markdown through durable preparation", async () => {
+  const markdown =
+    "# Minke\n\n| State | Value |\n| --- | --- |\n| IM | ready |";
+  const preparation = await prepareTelegramDelivery(
+    gatewayPreparation({
+      payload: {
+        kind: "rich-markdown",
+        markdown,
+      },
+    }),
+  );
+
+  assert.equal(preparation.status, "ready");
+  assert.deepEqual(preparation.preparedPayload.intent, {
+    allowSendingWithoutReply: undefined,
+    chatId: "-10042",
+    disableNotification: undefined,
+    kind: "rich-markdown",
+    markdown,
+    messageThreadId: undefined,
+    protectContent: undefined,
+    replyToMessageId: undefined,
+  });
 });
 
 test("Gateway delivery maps rate limits, credentials, cancellation, and ambiguous remote effects conservatively", async () => {

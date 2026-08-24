@@ -232,6 +232,15 @@ function normalizeDeliveryIntent(
         kind,
         text: requiredString(payload.text, "payload.text"),
       };
+    case "rich-markdown":
+      return {
+        ...base,
+        kind,
+        markdown: requiredString(
+          payload.markdown,
+          "payload.markdown",
+        ),
+      };
     case "photo":
       return {
         ...base,

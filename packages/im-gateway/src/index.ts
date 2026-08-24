@@ -15,6 +15,7 @@ export {
   type GatewayInboundEvent,
   type GatewayInboundKind,
   type GatewayOutboxIntent,
+  type GatewayOutboxHealth,
   type GatewayOutboxLease,
   type GatewayOutboxSnapshot,
   type GatewayOutboxState,
@@ -31,3 +32,11 @@ export {
   type GatewayMailboxPort,
   type GatewayProviderSession,
 } from "./provider.ts";
+export {
+  routeGatewayInboxOnce,
+  type GatewayAgentMailboxPort,
+  type GatewayAgentRouteHandler,
+  type GatewayAgentRouteOutcome,
+  type GatewayAgentRouteRequest,
+  type GatewayAgentRouteResult,
+} from "./agent-route.ts";

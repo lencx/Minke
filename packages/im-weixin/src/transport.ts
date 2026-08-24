@@ -668,13 +668,6 @@ class WeixinTransportImplementation implements WeixinTransport {
           { remoteCode: errorCode },
         );
       }
-      if (response.ret !== 0 && response.errcode !== 0) {
-        throw new WeixinTransportError(
-          "protocol",
-          "Weixin getUpdates did not confirm success",
-        );
-      }
-
       const nextCheckpoint =
         response.get_updates_buf !== undefined &&
         response.get_updates_buf !== ""
@@ -869,7 +862,10 @@ class WeixinTransportImplementation implements WeixinTransport {
         token: this.#token,
       });
       const response = parseRetResponse(raw, "sendMessage");
-      if (response.ret !== 0) {
+      if (
+        response.ret !== undefined &&
+        response.ret !== 0
+      ) {
         throw new WeixinTransportError(
           "protocol",
           "Weixin did not confirm the message",

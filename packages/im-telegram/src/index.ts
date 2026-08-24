@@ -27,6 +27,7 @@ export {
   type TelegramSendLocationInput,
   type TelegramSendMessageInput,
   type TelegramSendPhotoInput,
+  type TelegramSendRichMarkdownInput,
   type TelegramSendStickerInput,
   type TelegramSendVideoInput,
   type TelegramSendVoiceInput,

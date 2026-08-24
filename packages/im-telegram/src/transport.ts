@@ -13,6 +13,7 @@ import {
   type TelegramSendLocationInput,
   type TelegramSendMessageInput,
   type TelegramSendPhotoInput,
+  type TelegramSendRichMarkdownInput,
   type TelegramSendStickerInput,
   type TelegramSendVideoInput,
   type TelegramSendVoiceInput,
@@ -33,6 +34,7 @@ const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 35_000;
 const MAX_TEXT_CHARACTERS = 4_096;
+const MAX_RICH_MARKDOWN_CHARACTERS = 32_768;
 const MAX_CAPTION_CHARACTERS = 1_024;
 const MAX_FILE_NAME_CHARACTERS = 255;
 
@@ -157,6 +159,23 @@ function optionalCaption(
     );
   }
   return value;
+}
+
+function canFallbackRichMarkdown(
+  error: unknown,
+  markdown: string,
+): boolean {
+  return (
+    [...markdown].length <= MAX_TEXT_CHARACTERS &&
+    error instanceof TelegramTransportError &&
+    error.code === "api" &&
+    error.effect === "none" &&
+    error.migrateToChatId === undefined &&
+    (
+      error.apiErrorCode === 400 ||
+      error.apiErrorCode === 404
+    )
+  );
 }
 
 function positiveOptionalInteger(
@@ -713,6 +732,44 @@ class TelegramTransportImplementation
     );
   }
 
+  async sendRichMarkdown(
+    input: TelegramSendRichMarkdownInput,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<TelegramDeliveryReceipt> {
+    const markdown = requiredText(
+      input.markdown,
+      "markdown",
+      MAX_RICH_MARKDOWN_CHARACTERS,
+    );
+    try {
+      return await this.#sendMethod(
+        "sendRichMessage",
+        compactParameters({
+          ...commonParameters(input),
+          rich_message: { markdown },
+        }),
+        options.signal,
+      );
+    } catch (error) {
+      if (!canFallbackRichMarkdown(error, markdown)) {
+        throw error;
+      }
+      return await this.sendMessage(
+        {
+          allowSendingWithoutReply:
+            input.allowSendingWithoutReply,
+          chatId: input.chatId,
+          disableNotification: input.disableNotification,
+          messageThreadId: input.messageThreadId,
+          protectContent: input.protectContent,
+          replyToMessageId: input.replyToMessageId,
+          text: markdown,
+        },
+        options,
+      );
+    }
+  }
+
   async sendPhoto(
     input: TelegramSendPhotoInput,
     options: { readonly signal?: AbortSignal } = {},
@@ -926,6 +983,8 @@ class TelegramTransportImplementation
     switch (intent.kind) {
       case "text":
         return await this.sendMessage(intent, options);
+      case "rich-markdown":
+        return await this.sendRichMarkdown(intent, options);
       case "photo":
         return await this.sendPhoto(intent, options);
       case "document":

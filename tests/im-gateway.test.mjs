@@ -20,6 +20,7 @@ import {
   GatewayLeaseConflictError,
   GatewayOutboxConflictError,
   pollGatewayProviderOnce,
+  routeGatewayInboxOnce,
 } from "@lencx/minke-im-gateway";
 import {
   createSqliteGatewayMailbox,
@@ -636,6 +637,335 @@ test("the provider runner renews its lease throughout a long preparation", async
   assert.equal(deliveries, 1);
 });
 
+test("inbox leases can be renewed and explicitly released", async (t) => {
+  const { mailbox, close } = await fixture();
+  t.after(close);
+  mailbox.admitBatch({
+    accountKey: account.accountKey,
+    events: [userEvent()],
+    fromCheckpoint: null,
+    generation: account.generation,
+    nextCheckpoint: "checkpoint-1",
+  });
+  const lease = mailbox.claimInbox({
+    accountKey: account.accountKey,
+    leaseMs: 100,
+    now: 100,
+    workerId: "agent-worker",
+  });
+
+  assert.equal(
+    mailbox.renewInboxLease({
+      inboxId: lease.inboxId,
+      leaseMs: 100,
+      leaseToken: lease.leaseToken,
+      now: 150,
+    }),
+    true,
+  );
+  assert.equal(
+    mailbox.claimInbox({
+      accountKey: account.accountKey,
+      leaseMs: 100,
+      now: 201,
+      workerId: "competing-worker",
+    }),
+    null,
+  );
+  assert.equal(
+    mailbox.releaseInboxLease({
+      inboxId: lease.inboxId,
+      leaseToken: lease.leaseToken,
+    }),
+    true,
+  );
+  const reclaimed = mailbox.claimInbox({
+    accountKey: account.accountKey,
+    leaseMs: 100,
+    now: 202,
+    workerId: "competing-worker",
+  });
+  assert.equal(reclaimed?.nativeId, lease.nativeId);
+  assert.notEqual(reclaimed?.leaseToken, lease.leaseToken);
+  assert.equal(
+    mailbox.releaseInboxLease({
+      inboxId: lease.inboxId,
+      leaseToken: lease.leaseToken,
+    }),
+    false,
+  );
+});
+
+test("the Agent route durably enqueues a provider reply before acknowledging inbox", async (t) => {
+  const { mailbox, close } = await fixture();
+  t.after(close);
+  mailbox.admitBatch({
+    accountKey: account.accountKey,
+    events: [userEvent()],
+    fromCheckpoint: null,
+    generation: account.generation,
+    nextCheckpoint: "checkpoint-1",
+  });
+  const calls = [];
+  const operationIds = [];
+  const enqueue = mailbox.enqueue.bind(mailbox);
+  mailbox.enqueue = (intent) => {
+    calls.push("enqueue");
+    assert.deepEqual(intent.payload, {
+      kind: "text",
+      text: "Agent reply",
+    });
+    return enqueue(intent);
+  };
+  const ackInbox = mailbox.ackInbox.bind(mailbox);
+  mailbox.ackInbox = (input) => {
+    calls.push("ack");
+    return ackInbox(input);
+  };
+
+  const routed = await routeGatewayInboxOnce({
+    account,
+    async handler(input) {
+      calls.push("handler");
+      operationIds.push(input.operationId);
+      assert.equal(input.lease.nativeId, "message-1");
+      assert.equal(input.signal.aborted, false);
+      return {
+        payload: {
+          kind: "text",
+          text: "Agent reply",
+        },
+        status: "reply",
+      };
+    },
+    leaseMs: 1_000,
+    mailbox,
+    now: () => 100,
+    workerId: "agent-worker",
+  });
+
+  assert.deepEqual(calls, ["handler", "enqueue", "ack"]);
+  assert.equal(routed.status, "replied");
+  assert.equal(routed.created, true);
+  assert.equal(routed.operationId, operationIds[0]);
+  assert.match(routed.operationId, /^minke-im-agent-reply:/u);
+  assert.equal(
+    mailbox.inspectOutbox(routed.operationId).state,
+    "pending",
+  );
+  assert.equal(
+    mailbox.claimInbox({
+      accountKey: account.accountKey,
+      leaseMs: 1_000,
+      now: 101,
+      workerId: "competing-worker",
+    }),
+    null,
+  );
+});
+
+test("the Agent route reuses its durable outbox after an ack fence", async (t) => {
+  const { mailbox, close } = await fixture();
+  t.after(close);
+  mailbox.admitBatch({
+    accountKey: account.accountKey,
+    events: [userEvent()],
+    fromCheckpoint: null,
+    generation: account.generation,
+    nextCheckpoint: "checkpoint-1",
+  });
+  const operationIds = [];
+  let replyText = "first reply";
+  const ackInbox = mailbox.ackInbox.bind(mailbox);
+  mailbox.ackInbox = () => false;
+  const route = () =>
+    routeGatewayInboxOnce({
+      account,
+      async handler(input) {
+        operationIds.push(input.operationId);
+        return {
+          payload: {
+            kind: "text",
+            text: replyText,
+          },
+          status: "reply",
+        };
+      },
+      leaseMs: 1_000,
+      mailbox,
+      now: () => 100,
+      workerId: "agent-worker",
+    });
+
+  await assert.rejects(route(), GatewayLeaseConflictError);
+  assert.equal(
+    mailbox.inspectOutbox(operationIds[0]).state,
+    "pending",
+  );
+  replyText = "must not replace the durable reply";
+  mailbox.ackInbox = ackInbox;
+  const retried = await route();
+
+  assert.equal(retried.status, "replied");
+  assert.equal(retried.created, false);
+  assert.deepEqual(operationIds, [operationIds[0]]);
+});
+
+test("the Agent route releases its inbox lease when the handler throws", async (t) => {
+  const { mailbox, close } = await fixture();
+  t.after(close);
+  mailbox.admitBatch({
+    accountKey: account.accountKey,
+    events: [userEvent()],
+    fromCheckpoint: null,
+    generation: account.generation,
+    nextCheckpoint: "checkpoint-1",
+  });
+
+  await assert.rejects(
+    routeGatewayInboxOnce({
+      account,
+      async handler({ signal }) {
+        assert.equal(signal.aborted, false);
+        throw new Error("Agent route failed");
+      },
+      leaseMs: 1_000,
+      mailbox,
+      now: () => 100,
+      workerId: "agent-worker",
+    }),
+    /Agent route failed/u,
+  );
+  assert.equal(
+    mailbox.claimInbox({
+      accountKey: account.accountKey,
+      leaseMs: 1_000,
+      now: 100,
+      workerId: "competing-worker",
+    })?.nativeId,
+    "message-1",
+  );
+});
+
+test("the Agent route renews its inbox lease throughout a long handler", async (t) => {
+  const { mailbox, close } = await fixture();
+  t.after(close);
+  mailbox.admitBatch({
+    accountKey: account.accountKey,
+    events: [userEvent()],
+    fromCheckpoint: null,
+    generation: account.generation,
+    nextCheckpoint: "checkpoint-1",
+  });
+  let releaseHandler;
+  const handlerGate = new Promise((resolve) => {
+    releaseHandler = resolve;
+  });
+  t.after(() => releaseHandler());
+  let handlerStarted;
+  const started = new Promise((resolve) => {
+    handlerStarted = resolve;
+  });
+  let heartbeatObserved;
+  const heartbeat = new Promise((resolve) => {
+    heartbeatObserved = resolve;
+  });
+  const renew = mailbox.renewInboxLease.bind(mailbox);
+  mailbox.renewInboxLease = (input) => {
+    const renewed = renew(input);
+    heartbeatObserved(renewed);
+    return renewed;
+  };
+  let now = 100;
+  const routed = routeGatewayInboxOnce({
+    account,
+    async handler() {
+      handlerStarted();
+      await handlerGate;
+      return { status: "ack" };
+    },
+    leaseMs: 100,
+    mailbox,
+    now: () => now,
+    workerId: "agent-worker",
+  });
+  await started;
+  now = 150;
+  assert.equal(
+    await Promise.race([
+      heartbeat,
+      new Promise((_, reject) => {
+        setTimeout(
+          () => reject(new Error("inbox lease heartbeat was not observed")),
+          500,
+        ).unref();
+      }),
+    ]),
+    true,
+  );
+
+  now = 201;
+  assert.equal(
+    mailbox.claimInbox({
+      accountKey: account.accountKey,
+      leaseMs: 100,
+      now,
+      workerId: "competing-worker",
+    }),
+    null,
+  );
+  now = 202;
+  releaseHandler();
+  assert.equal((await routed).status, "acked");
+});
+
+test("a failed Agent route heartbeat aborts without enqueuing a reply", async (t) => {
+  const { mailbox, close } = await fixture();
+  t.after(close);
+  mailbox.admitBatch({
+    accountKey: account.accountKey,
+    events: [userEvent()],
+    fromCheckpoint: null,
+    generation: account.generation,
+    nextCheckpoint: "checkpoint-1",
+  });
+  mailbox.renewInboxLease = () => false;
+  let operationId;
+  let abortReason;
+
+  await assert.rejects(
+    routeGatewayInboxOnce({
+      account,
+      async handler(input) {
+        operationId = input.operationId;
+        await new Promise((resolve) => {
+          input.signal.addEventListener("abort", resolve, {
+            once: true,
+          });
+        });
+        abortReason = input.signal.reason;
+        return {
+          payload: {
+            kind: "text",
+            text: "must not be enqueued",
+          },
+          status: "reply",
+        };
+      },
+      leaseMs: 3,
+      mailbox,
+      now: () => 100,
+      workerId: "agent-worker",
+    }),
+    GatewayLeaseConflictError,
+  );
+  assert.ok(abortReason instanceof GatewayLeaseConflictError);
+  assert.throws(
+    () => mailbox.inspectOutbox(operationId),
+    /Unknown Gateway operation/u,
+  );
+});
+
 test("a failed preparation heartbeat aborts before delivery begins", async (t) => {
   const { mailbox, close } = await fixture();
   t.after(close);
@@ -819,6 +1149,19 @@ test("delivery context is a dispatch precondition and does not consume attempts 
   const outbox = mailbox.inspectOutbox("operation-1");
   assert.equal(outbox.attempts, 0);
   assert.equal(outbox.state, "pending");
+  assert.deepEqual(
+    mailbox.inspectOutboxHealth({
+      accountKey: account.accountKey,
+      generation: account.generation,
+    }),
+    {
+      accountKey: account.accountKey,
+      awaitingDeliveryContext: 1,
+      generation: account.generation,
+      terminalFailures: 0,
+      uncertain: 0,
+    },
+  );
 });
 
 test("a prepared delivery survives restart before the provider-visible attempt begins", async (t) => {
@@ -980,6 +1323,19 @@ test("a crash after dispatch begins becomes uncertain and is never silently repl
     reopened.inspectOutbox("operation-1").state,
     "uncertain",
   );
+  assert.deepEqual(
+    reopened.inspectOutboxHealth({
+      accountKey: account.accountKey,
+      generation: account.generation,
+    }),
+    {
+      accountKey: account.accountKey,
+      awaitingDeliveryContext: 0,
+      generation: account.generation,
+      terminalFailures: 0,
+      uncertain: 1,
+    },
+  );
   assert.equal(
     reopened.claimOutbox({
       account,
@@ -1068,6 +1424,13 @@ test("manual retry at the attempt limit abandons and clears prepared media", asy
   assert.equal(
     mailbox.inspectOutbox("operation-at-limit").state,
     "abandoned",
+  );
+  assert.equal(
+    mailbox.inspectOutboxHealth({
+      accountKey: account.accountKey,
+      generation: account.generation,
+    }).terminalFailures,
+    1,
   );
   mailbox.close();
 
