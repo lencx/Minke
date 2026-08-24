@@ -1,0 +1,211 @@
+/* Loaded-message outline: a compact, vertically centered cluster beside the chat flow. */
+
+[data-minke-conversation-outline] {
+  position: fixed;
+  z-index: 9;
+  width: 44px;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-secondary);
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+[data-minke-conversation-outline][data-visible="false"] {
+  display: none;
+}
+
+[data-minke-conversation-outline-hitbox] {
+  position: absolute;
+  top: -12px;
+  right: -8px;
+  bottom: -12px;
+  left: -4px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+[data-minke-conversation-outline-track] {
+  position: relative;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  width: 44px;
+  height: calc(100% - 24px);
+  min-height: 0;
+  pointer-events: auto;
+}
+
+[data-minke-conversation-outline][data-overflow="true"]
+  [data-minke-conversation-outline-track] {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 12px;
+  scrollbar-width: none;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 10px,
+    black calc(100% - 10px),
+    transparent
+  );
+}
+
+[data-minke-conversation-outline][data-overflow="true"]
+  [data-minke-conversation-outline-track]::-webkit-scrollbar {
+  display: none;
+}
+
+[data-minke-conversation-outline-marker] {
+  position: relative;
+  left: 0;
+  width: 44px;
+  height: 24px;
+  flex: 0 0 24px;
+  margin-top: -12px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  pointer-events: none;
+  touch-action: manipulation;
+}
+
+[data-minke-conversation-outline-marker]::before {
+  content: "";
+  position: absolute;
+  top: 17px;
+  left: 2px;
+  width: 28px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.42;
+  transform: scaleX(
+    var(--minke-outline-marker-scale, 0.3)
+  );
+  transform-origin: left center;
+  transition:
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 120ms ease-out,
+    opacity 120ms ease-out;
+}
+
+[data-minke-conversation-outline-marker][data-staircase-center="true"]::before {
+  color: var(--dsw-alias-label-secondary);
+  opacity: 0.96;
+  transition-duration: 80ms, 80ms, 80ms;
+}
+
+[data-minke-conversation-outline-marker][aria-current="location"]::before {
+  color: var(--dsw-alias-label-primary);
+  opacity: 0.92;
+}
+
+[data-minke-conversation-outline-marker]:focus-visible::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  right: 3px;
+  bottom: 1px;
+  left: 3px;
+  border: 2px solid var(--dsw-alias-state-business-primary);
+  border-radius: 5px;
+}
+
+[data-minke-conversation-outline-history] {
+  position: absolute;
+  top: -18px;
+  left: 0;
+  width: 24px;
+  height: 18px;
+  pointer-events: auto;
+  outline: none;
+}
+
+[data-minke-conversation-outline-history]::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 4px;
+  width: 12px;
+  border-top: 2px dotted var(--dsw-alias-label-secondary);
+  opacity: 0.86;
+}
+
+[data-minke-conversation-outline-history]:focus-visible {
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 2px
+    var(--dsw-alias-state-business-primary);
+}
+
+[data-minke-conversation-outline-tooltip] {
+  position: absolute;
+  left: 37px;
+  width: min(320px, calc(100vw - 80px));
+  max-width: 320px;
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--dsw-alias-tooltip-bg);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-static-neutral-bluish-00);
+  pointer-events: auto;
+  user-select: text;
+  animation: minke-conversation-outline-tooltip-in 160ms
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-minke-conversation-outline-tooltip-title] {
+  display: block;
+  margin: 0 0 5px;
+  color: var(--dsw-static-neutral-bluish-00);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+[data-minke-conversation-outline-tooltip-body] {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--dsw-static-neutral-bluish-300);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+@keyframes minke-conversation-outline-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+
+@container (max-width: 899px) {
+  [data-minke-conversation-outline] {
+    display: none;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  [data-minke-conversation-outline] {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-minke-conversation-outline-marker]::before {
+    transition: none;
+  }
+
+  [data-minke-conversation-outline-tooltip] {
+    animation: none;
+  }
+}

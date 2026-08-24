@@ -1,5 +1,6 @@
 import { installAbout } from "./about/install.tsx";
 import { installWebBrand } from "./brand/install.tsx";
+import { installConversationOutline } from "./conversation-outline/install.tsx";
 import type {
   HarnessClientContext,
 } from "./core/context.ts";
@@ -27,6 +28,7 @@ export const inject = [
 /** Compose Minke features through Harness's public services and slots. */
 export function apply(ctx: HarnessClientContext): void {
   installDesktopClient(ctx);
+  installConversationOutline(ctx);
   installAbout(ctx);
   installDataHome(ctx);
   installWebBrand(ctx);
