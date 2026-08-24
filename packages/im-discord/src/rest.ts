@@ -3,7 +3,7 @@ import {
   DiscordTransportError,
   type DiscordBotIdentity,
   type DiscordDeliveryReceipt,
-  type DiscordPreparedDelivery,
+  type DiscordPreparedMessage,
   type DiscordRemoteEffect,
   type DiscordTimerPort,
   type ValidateDiscordBotTokenOptions,
@@ -456,18 +456,19 @@ export class DiscordRestClient {
   }
 
   async createMessage(
-    delivery: DiscordPreparedDelivery,
+    channelId: string,
+    message: DiscordPreparedMessage,
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<DiscordDeliveryReceipt> {
     const messageReference =
-      delivery.replyTo === undefined
+      message.replyTo === undefined
         ? undefined
         : {
-            channel_id: delivery.replyTo.channelId,
+            channel_id: message.replyTo.channelId,
             fail_if_not_exists:
-              delivery.replyTo.failIfNotExists ?? false,
-            guild_id: delivery.replyTo.guildId,
-            message_id: delivery.replyTo.messageId,
+              message.replyTo.failIfNotExists ?? false,
+            guild_id: message.replyTo.guildId,
+            message_id: message.replyTo.messageId,
             type: 0,
           };
     const payload: Record<string, unknown> = {
@@ -475,18 +476,18 @@ export class DiscordRestClient {
         parse: [],
         replied_user: false,
       },
-      content: delivery.text,
+      content: message.text,
       enforce_nonce: true,
       message_reference: messageReference,
-      nonce: delivery.nonce,
+      nonce: message.nonce,
     };
     let body: BodyInit;
     let headers: Readonly<Record<string, string>> | undefined;
-    if (delivery.attachments.length === 0) {
+    if (message.attachments.length === 0) {
       body = JSON.stringify(payload);
       headers = { "Content-Type": "application/json" };
     } else {
-      payload.attachments = delivery.attachments.map(
+      payload.attachments = message.attachments.map(
         (attachment, index) => ({
           description: attachment.description,
           filename: attachment.fileName,
@@ -495,7 +496,7 @@ export class DiscordRestClient {
       );
       const form = new FormData();
       form.append("payload_json", JSON.stringify(payload));
-      delivery.attachments.forEach((attachment, index) => {
+      message.attachments.forEach((attachment, index) => {
         form.append(
           `files[${index}]`,
           new Blob(
@@ -518,9 +519,9 @@ export class DiscordRestClient {
       method: "POST",
       path:
         `/channels/${encodeURIComponent(
-          delivery.channelId,
+          channelId,
         )}/messages`,
-      routeKey: `POST /channels/${delivery.channelId}/messages`,
+      routeKey: `POST /channels/${channelId}/messages`,
       signal: options.signal,
     });
     const response = asRecord(
@@ -538,11 +539,11 @@ export class DiscordRestClient {
         { effect: "unknown" },
       );
     }
-    const channelId = requiredString(
+    const responseChannelId = requiredString(
       response.channel_id,
       "Discord response channel id",
     );
-    if (channelId !== delivery.channelId) {
+    if (responseChannelId !== channelId) {
       throw new DiscordTransportError(
         "protocol",
         "Discord response channel does not match the request",
@@ -550,9 +551,9 @@ export class DiscordRestClient {
       );
     }
     return Object.freeze({
-      channelId,
+      channelId: responseChannelId,
       messageId,
-      nonce: delivery.nonce,
+      nonce: message.nonce,
       outcome: "accepted",
     });
   }

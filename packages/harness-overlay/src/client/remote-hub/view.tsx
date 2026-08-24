@@ -1,7 +1,6 @@
 import {
-  MessageCircle,
+  Cast,
   RadioTower,
-  ScanQrCode,
   ShieldCheck,
   X,
 } from "@lucide/icons";
@@ -14,6 +13,7 @@ import {
   useState,
   useSyncExternalStore,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 import {
@@ -27,6 +27,9 @@ import {
 import {
   RemoteSettingsSection,
 } from "../remote/RemoteSettingsSection.tsx";
+import {
+  presentRemoteStatus,
+} from "../remote/presentation.ts";
 import type {
   RemoteTranslate,
 } from "../remote/locales.ts";
@@ -38,6 +41,7 @@ import type {
 } from "./locales.ts";
 import type {
   RemoteHubRuntime,
+  RemoteHubView,
 } from "./runtime.ts";
 
 const FOCUSABLE_SELECTOR = [
@@ -46,6 +50,45 @@ const FOCUSABLE_SELECTOR = [
   '[href]:not([aria-disabled="true"])',
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
+
+type MessagingProvider = "weixin" | "telegram" | "discord";
+
+const MESSAGING_PROVIDER_ICON_PATHS: Readonly<
+  Record<MessagingProvider, readonly string[]>
+> = Object.freeze({
+  weixin: Object.freeze([
+    "M15.85 8.14c.39 0 .77.03 1.14.08C16.31 5.25 13.19 3 9.44 3c-4.25 0-7.7 2.88-7.7 6.43c0 2.05 1.15 3.86 2.94 5.04L3.67 16.5l2.76-1.19c.59.21 1.21.38 1.87.47c-.09-.39-.14-.79-.14-1.21c-.01-3.54 3.44-6.43 7.69-6.43M12 5.89a.96.96 0 1 1 0 1.92a.96.96 0 0 1 0-1.92M6.87 7.82a.96.96 0 1 1 0-1.92a.96.96 0 0 1 0 1.92",
+    "M22.26 14.57c0-2.84-2.87-5.14-6.41-5.14s-6.41 2.3-6.41 5.14s2.87 5.14 6.41 5.14c.58 0 1.14-.08 1.67-.2L20.98 21l-1.2-2.4c1.5-.94 2.48-2.38 2.48-4.03m-8.34-.32a.96.96 0 1 1 .96-.96c.01.53-.43.96-.96.96m3.85 0a.96.96 0 1 1 0-1.92a.96.96 0 0 1 0 1.92",
+  ]),
+  telegram: Object.freeze([
+    "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10s10-4.48 10-10S17.52 2 12 2m4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19c-.14.75-.42 1-.68 1.03c-.58.05-1.02-.38-1.58-.75c-.88-.58-1.38-.94-2.23-1.5c-.99-.65-.35-1.01.22-1.59c.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02c-.09.02-1.49.95-4.22 2.79c-.4.27-.76.41-1.08.4c-.36-.01-1.04-.2-1.55-.37c-.63-.2-1.12-.31-1.08-.66c.02-.18.27-.36.74-.55c2.92-1.27 4.86-2.11 5.83-2.51c2.78-1.16 3.35-1.36 3.73-1.36c.08 0 .27.02.39.12c.1.08.13.19.14.27c-.01.06.01.24 0 .38",
+  ]),
+  discord: Object.freeze([
+    "M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.1.1 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.1 16.1 0 0 0-4.8 0c-.14-.34-.35-.76-.54-1.09c-.01-.02-.04-.03-.07-.03c-1.5.26-2.93.71-4.27 1.33c-.01 0-.02.01-.03.02c-2.72 4.07-3.47 8.03-3.1 11.95c0 .02.01.04.03.05c1.8 1.32 3.53 2.12 5.24 2.65c.03.01.06 0 .07-.02c.4-.55.76-1.13 1.07-1.74c.02-.04 0-.08-.04-.09c-.57-.22-1.11-.48-1.64-.78c-.04-.02-.04-.08-.01-.11c.11-.08.22-.17.33-.25c.02-.02.05-.02.07-.01c3.44 1.57 7.15 1.57 10.55 0c.02-.01.05-.01.07.01c.11.09.22.17.33.26c.04.03.04.09-.01.11c-.52.31-1.07.56-1.64.78c-.04.01-.05.06-.04.09c.32.61.68 1.19 1.07 1.74c.03.01.06.02.09.01c1.72-.53 3.45-1.33 5.25-2.65c.02-.01.03-.03.03-.05c.44-4.53-.73-8.46-3.1-11.95c-.01-.01-.02-.02-.04-.02M8.52 14.91c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12c0 1.17-.84 2.12-1.89 2.12m6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12c0 1.17-.83 2.12-1.89 2.12",
+  ]),
+});
+
+function MessagingProviderIcon({
+  provider,
+}: {
+  readonly provider: MessagingProvider;
+}): ReactNode {
+  return (
+    <svg
+      className="minke-remote-hub__brand-icon"
+      xmlns="http://www.w3.org/2000/svg"
+      width="1em"
+      height="1em"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {MESSAGING_PROVIDER_ICON_PATHS[provider].map((path) => (
+        <path key={path} fill="currentColor" d={path} />
+      ))}
+    </svg>
+  );
+}
 
 interface SessionListSelection {
   readonly current: string | undefined;
@@ -82,6 +125,20 @@ function hubState(
     snapshot.channels.channels.discord,
   ];
   if (
+    weixin.state === "connected" ||
+    weixin.state === "degraded" ||
+    botChannels.some(
+      (channel) =>
+        channel.state === "pairing" ||
+        channel.state === "connected" ||
+        channel.state === "degraded",
+    ) ||
+    remoteState === "active" ||
+    remoteState === "ready"
+  ) {
+    return "active";
+  }
+  if (
     weixin.state === "error" ||
     weixin.state === "session-stale" ||
     botChannels.some((channel) => channel.state === "error") ||
@@ -89,21 +146,6 @@ function hubState(
     snapshot.remote.error === "read" ||
     snapshot.remote.error === "write" ||
     remoteState === "error"
-  ) {
-    return "attention";
-  }
-  if (
-    weixin.state === "degraded" &&
-    weixin.issue !== "agent-route-pending"
-  ) {
-    return "attention";
-  }
-  if (
-    botChannels.some(
-      (channel) =>
-        channel.state === "degraded" &&
-        channel.issue !== "agent-route-pending",
-    )
   ) {
     return "attention";
   }
@@ -116,8 +158,7 @@ function hubState(
     botChannels.some(
       (channel) =>
         channel.state === "loading" ||
-        channel.state === "connecting" ||
-        channel.state === "pairing",
+        channel.state === "connecting",
     ) ||
     remoteState === "starting" ||
     remoteState === "stopping" ||
@@ -125,20 +166,17 @@ function hubState(
   ) {
     return "working";
   }
-  if (
-    weixin.state === "connected" ||
-    weixin.state === "degraded" ||
-    botChannels.some(
-      (channel) =>
-        channel.state === "connected" ||
-        channel.state === "degraded",
-    ) ||
-    remoteState === "active" ||
-    remoteState === "ready"
-  ) {
-    return "active";
-  }
   return "idle";
+}
+
+function connectionTone(
+  state: string,
+): "success" | undefined {
+  return state === "connected" ||
+    state === "active" ||
+    state === "pairing"
+    ? "success"
+    : undefined;
 }
 
 /** One top-bar entry shared by active and blank Session chrome. */
@@ -154,15 +192,12 @@ export function RemoteHubAction({
   );
   const triggerRef = useRef<HTMLButtonElement>(null);
   const state = hubState(snapshot);
-  const accessibleLabel = t(
-    state === "idle"
-      ? "triggerIdle"
-      : state === "working"
-        ? "triggerWorking"
-        : state === "active"
-          ? "triggerActive"
-          : "triggerAttention",
-  );
+  const accessibleLabel = t(({
+    active: "triggerActive",
+    attention: "triggerAttention",
+    idle: "triggerIdle",
+    working: "triggerWorking",
+  } as const)[state]);
   useLayoutEffect(() => {
     if (location !== "session") return;
     return runtime.registerSessionTrigger();
@@ -180,7 +215,7 @@ export function RemoteHubAction({
       title={t("trigger")}
       onClick={() => runtime.open(triggerRef.current ?? undefined)}
     >
-      <LucideIcon icon={RadioTower} size={16} />
+      <LucideIcon icon={Cast} size={16} />
       <span aria-hidden="true" data-minke-remote-hub-indicator />
     </button>
   );
@@ -451,34 +486,71 @@ function WeixinChannel({
   const resetGateway =
     weixin.state === "error" &&
     weixin.issue === "gateway-store";
+  const accountSummary =
+    weixin.state === "connecting" ||
+    weixin.state === "connected" ||
+    weixin.state === "degraded"
+      ? t("account").replace(
+          "{label}",
+          weixin.accountLabel,
+        )
+      : undefined;
+  const startLink = (): void => {
+    void runtime.dispatch({
+      kind: "weixin/link/start",
+    });
+  };
 
   return (
     <section
       ref={channelRef}
-      className="minke-remote-hub__weixin"
+      className="minke-remote-hub__channel-panel minke-remote-hub__weixin"
       data-state={weixin.state}
       aria-labelledby="minke-remote-hub-weixin-title"
     >
       <div className="minke-remote-hub__channel-heading">
         <span className="minke-remote-hub__channel-icon">
-          <LucideIcon icon={ScanQrCode} size={18} />
+          <MessagingProviderIcon provider="weixin" />
         </span>
         <span className="minke-remote-hub__channel-copy">
           <strong id="minke-remote-hub-weixin-title">
             {t("weixinTitle")}
           </strong>
-          <span>{t("weixinDescription")}</span>
+          <span>
+            {accountSummary ?? t("weixinDescription")}
+          </span>
         </span>
-        <span
-          className="minke-remote-hub__channel-status"
-          data-state={weixin.state}
-          role="status"
-          aria-live="polite"
-        >
-          {statusLabel(weixin, t)}
+        <span className="minke-remote-hub__channel-controls">
+          <span
+            className="minke-remote-hub__channel-status"
+            data-state={weixin.state}
+            data-tone={connectionTone(weixin.state)}
+            role="status"
+            aria-live="polite"
+          >
+            {statusLabel(weixin, t)}
+          </span>
+          {weixin.state === "unlinked" && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={startLink}
+            >
+              {busy ? t("busy") : t("connectWeixin")}
+            </button>
+          )}
         </span>
       </div>
 
+      {weixin.state !== "unlinked" && (
+        <div className="minke-remote-hub__channel-body">
+      {(weixin.state === "connecting" ||
+        weixin.state === "connected" ||
+        weixin.state === "degraded") && (
+        <p className="minke-remote-hub__channel-description">
+          {t("weixinDescription")}
+        </p>
+      )}
       {weixin.state === "linking" && (
         <div className="minke-remote-hub__link-flow">
           <div className="minke-remote-hub__qr-frame">
@@ -552,19 +624,9 @@ function WeixinChannel({
         </div>
       )}
 
-      {(weixin.state === "connecting" ||
-        weixin.state === "connected" ||
-        weixin.state === "degraded") && (
+      {weixin.state === "degraded" && (
         <div className="minke-remote-hub__channel-detail">
-          <strong>
-            {t("account").replace(
-              "{label}",
-              weixin.accountLabel,
-            )}
-          </strong>
-          {weixin.state === "degraded" && (
-            <p>{issueText(weixin.issue, t)}</p>
-          )}
+          <p>{issueText(weixin.issue, t)}</p>
         </div>
       )}
 
@@ -581,11 +643,7 @@ function WeixinChannel({
           <button
             type="button"
             disabled={busy}
-            onClick={() => {
-              void runtime.dispatch({
-                kind: "weixin/link/start",
-              });
-            }}
+            onClick={startLink}
           >
             {busy ? t("busy") : t("connectWeixin")}
           </button>
@@ -620,7 +678,7 @@ function WeixinChannel({
         {canUnlink && (
           <button
             type="button"
-            className="minke-remote-hub__button--quiet"
+            className="minke-remote-hub__button--danger"
             disabled={busy}
             onClick={() => {
               void runtime.dispatch({
@@ -687,6 +745,8 @@ function WeixinChannel({
           </div>
         </div>
       )}
+        </div>
+      )}
     </section>
   );
 }
@@ -707,8 +767,8 @@ function botStatusLabel(
     case "pairing":
       return t(
         value.request === undefined
-          ? "telegramPairingWaiting"
-          : "telegramPairingApprovalRequired",
+          ? "botPairingWaiting"
+          : "botPairingApprovalRequired",
       );
     case "connected":
       return t("connected");
@@ -814,10 +874,7 @@ function BotChannel({
   }
   const proxyChanged =
     proxyUrl.trim() !== savedProxyUrl;
-  const isTelegramPairing =
-    provider === "telegram" &&
-    channel.state === "pairing";
-  const telegramPairingRequest = isTelegramPairing
+  const pairingRequest = channel.state === "pairing"
     ? channel.request
     : undefined;
   const canConfigure =
@@ -866,7 +923,16 @@ function BotChannel({
   const resetGateway =
     channel.state === "error" &&
     channel.issue === "gateway-store";
-
+  const accountSummary =
+    channel.state === "connecting" ||
+    channel.state === "pairing" ||
+    channel.state === "connected" ||
+    channel.state === "degraded"
+      ? t("account").replace(
+          "{label}",
+          channel.accountLabel,
+        )
+      : undefined;
   useEffect(() => {
     setConfirmReset(false);
   }, [
@@ -956,17 +1022,19 @@ function BotChannel({
   };
 
   const approvePairing = (requestId: string): void => {
-    if (provider !== "telegram" || busy) return;
+    if (busy) return;
     void runtime.dispatch({
-      kind: "telegram/pairing/approve",
+      kind: "bot/pairing/approve",
+      provider,
       requestId,
     });
   };
 
   const dismissPairing = (requestId: string): void => {
-    if (provider !== "telegram" || busy) return;
+    if (busy) return;
     void runtime.dispatch({
-      kind: "telegram/pairing/dismiss",
+      kind: "bot/pairing/dismiss",
+      provider,
       requestId,
     });
   };
@@ -984,40 +1052,44 @@ function BotChannel({
   return (
     <section
       ref={channelRef}
-      className="minke-remote-hub__weixin minke-remote-hub__bot"
+      className="minke-remote-hub__channel-panel minke-remote-hub__weixin minke-remote-hub__bot"
       data-provider={provider}
       data-state={channel.state}
       aria-labelledby={titleId}
     >
       <div className="minke-remote-hub__channel-heading">
         <span className="minke-remote-hub__channel-icon">
-          <LucideIcon icon={MessageCircle} size={18} />
+          <MessagingProviderIcon provider={provider} />
         </span>
         <span className="minke-remote-hub__channel-copy">
           <strong id={titleId}>{providerLabel}</strong>
-          <span>{description}</span>
+          <span>{accountSummary ?? description}</span>
         </span>
-        <span
-          className="minke-remote-hub__channel-status"
-          data-state={channel.state}
-          role="status"
-          aria-live="polite"
-        >
-          {botStatusLabel(channel, t)}
+        <span className="minke-remote-hub__channel-controls">
+          <span
+            className="minke-remote-hub__channel-status"
+            data-state={channel.state}
+            data-tone={connectionTone(channel.state)}
+            role="status"
+            aria-live="polite"
+          >
+            {botStatusLabel(channel, t)}
+          </span>
         </span>
       </div>
 
+      <div className="minke-remote-hub__channel-body">
       {(channel.state === "connecting" ||
         channel.state === "pairing" ||
         channel.state === "connected" ||
         channel.state === "degraded") && (
+        <p className="minke-remote-hub__channel-description">
+          {description}
+        </p>
+      )}
+      {(channel.state === "pairing" ||
+        channel.state === "degraded") && (
         <div className="minke-remote-hub__channel-detail">
-          <strong>
-            {t("account").replace(
-              "{label}",
-              channel.accountLabel,
-            )}
-          </strong>
           {channel.state === "degraded" && (
             <p>
               {botIssueText(
@@ -1027,48 +1099,48 @@ function BotChannel({
               )}
             </p>
           )}
-          {isTelegramPairing &&
-            (telegramPairingRequest === undefined ? (
+          {channel.state === "pairing" &&
+            (pairingRequest === undefined ? (
               <p>
-                {t("telegramPairingInstruction").replace(
-                  "{account}",
-                  channel.accountLabel,
-                )}
+                {t("botPairingInstruction")
+                  .replace("{account}", channel.accountLabel)
+                  .replace("{provider}", providerLabel)}
               </p>
             ) : (
               <div
                 role="group"
-                aria-label={t(
-                  "telegramPairingRequestLabel",
+                aria-label={t("botPairingRequestLabel").replace(
+                  "{provider}",
+                  providerLabel,
                 )}
               >
                 <p>
-                  {t("telegramPairingRequestFrom").replace(
+                  {t("botPairingRequestFrom").replace(
                     "{label}",
-                    telegramPairingRequest.senderLabel,
+                    pairingRequest.senderLabel,
                   )}
                 </p>
                 <p>
                   <strong>
-                    {t("telegramPairingCode").replace(
+                    {t("botPairingCode").replace(
                       "{code}",
-                      telegramPairingRequest.code,
+                      pairingRequest.code,
                     )}
                   </strong>
                 </p>
                 <p>
                   <time
                     dateTime={new Date(
-                      telegramPairingRequest.expiresAt,
+                      pairingRequest.expiresAt,
                     ).toISOString()}
                   >
-                    {t("telegramPairingExpires").replace(
+                    {t("botPairingExpires").replace(
                       "{time}",
                       new Intl.DateTimeFormat(undefined, {
                         hour: "2-digit",
                         minute: "2-digit",
                       }).format(
-                        telegramPairingRequest.expiresAt,
+                        pairingRequest.expiresAt,
                       ),
                     )}
                   </time>
@@ -1079,12 +1151,12 @@ function BotChannel({
                     disabled={busy}
                     onClick={() =>
                       approvePairing(
-                        telegramPairingRequest.requestId,
+                        pairingRequest.requestId,
                       )}
                   >
                     {busy
                       ? t("busy")
-                      : t("approveTelegramPairing")}
+                      : t("approveBotPairing")}
                   </button>
                   <button
                     type="button"
@@ -1092,10 +1164,10 @@ function BotChannel({
                     disabled={busy}
                     onClick={() =>
                       dismissPairing(
-                        telegramPairingRequest.requestId,
+                        pairingRequest.requestId,
                       )}
                   >
-                    {t("dismissTelegramPairing")}
+                    {t("dismissBotPairing")}
                   </button>
                 </div>
               </div>
@@ -1210,7 +1282,7 @@ function BotChannel({
         {canUnlink && (
           <button
             type="button"
-            className="minke-remote-hub__button--quiet"
+            className="minke-remote-hub__button--danger"
             disabled={busy}
             onClick={unlink}
           >
@@ -1269,6 +1341,7 @@ function BotChannel({
           </div>
         </div>
       )}
+        </div>
     </section>
   );
 }
@@ -1285,8 +1358,127 @@ function RemoteHubDialog({
   );
   const titleId = useId();
   const descriptionId = useId();
+  const detailPanelId = useId();
+  const weixinNavigationId = useId();
+  const telegramNavigationId = useId();
+  const discordNavigationId = useId();
+  const accessNavigationId = useId();
   const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const weixinNavigationRef = useRef<HTMLButtonElement>(null);
+  const telegramNavigationRef = useRef<HTMLButtonElement>(null);
+  const discordNavigationRef = useRef<HTMLButtonElement>(null);
+  const accessNavigationRef = useRef<HTMLButtonElement>(null);
+  const remotePresentation = presentRemoteStatus(snapshot.remote);
+  const dependenciesReady =
+    snapshot.channels.dependencies.credentialVault === "ready" &&
+    snapshot.channels.dependencies.agentRoute === "ready";
+
+  const navigationIds: Record<RemoteHubView, string> = {
+    weixin: weixinNavigationId,
+    telegram: telegramNavigationId,
+    discord: discordNavigationId,
+    access: accessNavigationId,
+  };
+  const navigationRefs = {
+    weixin: weixinNavigationRef,
+    telegram: telegramNavigationRef,
+    discord: discordNavigationRef,
+    access: accessNavigationRef,
+  };
+  const navigationOrder: readonly RemoteHubView[] = [
+    "weixin",
+    "telegram",
+    "discord",
+    "access",
+  ];
+
+  const selectView = (
+    view: RemoteHubView,
+    focus = false,
+  ): void => {
+    runtime.setView(view);
+    if (focus) {
+      window.requestAnimationFrame(() => {
+        navigationRefs[view].current?.focus();
+      });
+    }
+  };
+
+  const handleNavigationKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    view: RemoteHubView,
+  ): void => {
+    const currentIndex = navigationOrder.indexOf(view);
+    let nextIndex: number | undefined;
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowRight"
+    ) {
+      nextIndex = (currentIndex + 1) % navigationOrder.length;
+    } else if (
+      event.key === "ArrowUp" ||
+      event.key === "ArrowLeft"
+    ) {
+      nextIndex =
+        (currentIndex - 1 + navigationOrder.length) %
+        navigationOrder.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = navigationOrder.length - 1;
+    }
+    if (nextIndex === undefined) return;
+    event.preventDefault();
+    selectView(navigationOrder[nextIndex], true);
+  };
+
+  const navigationButton = ({
+    icon,
+    kind,
+    label,
+    state,
+    status,
+    view,
+  }: {
+    readonly icon: ReactNode;
+    readonly kind: "messaging" | "access";
+    readonly label: string;
+    readonly state: string;
+    readonly status: string;
+    readonly view: RemoteHubView;
+  }): ReactNode => (
+    <button
+      ref={navigationRefs[view]}
+      id={navigationIds[view]}
+      type="button"
+      className="minke-remote-hub__navigation-item"
+      data-kind={kind}
+      data-state={state}
+      aria-controls={detailPanelId}
+      aria-current={
+        snapshot.view === view ? "page" : undefined
+      }
+      tabIndex={snapshot.view === view ? 0 : -1}
+      onClick={() => selectView(view)}
+      onKeyDown={(event) =>
+        handleNavigationKeyDown(event, view)}
+    >
+      <span className="minke-remote-hub__navigation-icon">
+        {icon}
+      </span>
+      <span className="minke-remote-hub__navigation-copy">
+        <strong>{label}</strong>
+        <small>{status}</small>
+      </span>
+      <span
+        className="minke-remote-hub__navigation-indicator"
+        data-state={state}
+        data-tone={connectionTone(state)}
+        aria-hidden="true"
+      />
+    </button>
+  );
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -1389,41 +1581,132 @@ function RemoteHubDialog({
           </button>
         </header>
 
-        <div
-          className="minke-remote-hub__dependencies"
-          aria-label={t("dependencyTitle")}
-        >
-          <span
-            data-state={
-              snapshot.channels.dependencies
-                  .credentialVault
-            }
-          >
-            <LucideIcon icon={ShieldCheck} size={14} />
-            {snapshot.channels.dependencies
-                .credentialVault === "ready"
-              ? t("vaultReady")
-              : snapshot.channels.dependencies
-                    .credentialVault === "pending"
-                ? t("vaultChecking")
-                : t("vaultMissing")}
-          </span>
-          <span
-            data-state={
-              snapshot.channels.dependencies.agentRoute
-            }
-          >
-            <LucideIcon icon={RadioTower} size={14} />
-            {snapshot.channels.dependencies.agentRoute ===
-              "ready"
-              ? t("agentRouteReadyShort")
-              : t("agentRoutePendingShort")}
-          </span>
-        </div>
-
         <div className="minke-remote-hub__body">
-          <div className="minke-remote-hub__channels">
-            <h2>{t("channelsTitle")}</h2>
+          <aside className="minke-remote-hub__sidebar">
+            <nav
+              className="minke-remote-hub__navigation"
+              aria-label={t("title")}
+            >
+              <div className="minke-remote-hub__navigation-group">
+                <h2>{t("channelsTitle")}</h2>
+                {navigationButton({
+                  view: "weixin",
+                  kind: "messaging",
+                  label: t("weixinTitle"),
+                  status: statusLabel(
+                    snapshot.channels.channels.weixin,
+                    t,
+                  ),
+                  state:
+                    snapshot.channels.channels.weixin.state,
+                  icon: (
+                    <MessagingProviderIcon provider="weixin" />
+                  ),
+                })}
+                {navigationButton({
+                  view: "telegram",
+                  kind: "messaging",
+                  label: t("telegramTitle"),
+                  status: botStatusLabel(
+                    snapshot.channels.channels.telegram,
+                    t,
+                  ),
+                  state:
+                    snapshot.channels.channels.telegram.state,
+                  icon: (
+                    <MessagingProviderIcon provider="telegram" />
+                  ),
+                })}
+                {navigationButton({
+                  view: "discord",
+                  kind: "messaging",
+                  label: t("discordTitle"),
+                  status: botStatusLabel(
+                    snapshot.channels.channels.discord,
+                    t,
+                  ),
+                  state:
+                    snapshot.channels.channels.discord.state,
+                  icon: (
+                    <MessagingProviderIcon provider="discord" />
+                  ),
+                })}
+              </div>
+
+              <div
+                className="minke-remote-hub__navigation-group minke-remote-hub__navigation-group--access"
+              >
+                <h2>{t("deviceAccessTitle")}</h2>
+                {navigationButton({
+                  view: "access",
+                  kind: "access",
+                  label: t("accessTitle"),
+                  status: remoteT(
+                    remotePresentation.statusKey,
+                  ),
+                  state: remotePresentation.state,
+                  icon: (
+                    <LucideIcon icon={RadioTower} size={18} />
+                  ),
+                })}
+              </div>
+            </nav>
+
+            <div
+              className="minke-remote-hub__dependencies"
+              aria-label={t("dependencyTitle")}
+            >
+              {dependenciesReady ? (
+                <span data-state="ready">
+                  <LucideIcon icon={ShieldCheck} size={14} />
+                  {t("systemReady")}
+                </span>
+              ) : (
+                <>
+                  {snapshot.channels.dependencies
+                      .credentialVault !== "ready" && (
+                    <span
+                      data-state={
+                        snapshot.channels.dependencies
+                            .credentialVault
+                      }
+                    >
+                      <LucideIcon
+                        icon={ShieldCheck}
+                        size={14}
+                      />
+                      {snapshot.channels.dependencies
+                          .credentialVault === "pending"
+                        ? t("vaultChecking")
+                        : t("vaultMissing")}
+                    </span>
+                  )}
+                  {snapshot.channels.dependencies.agentRoute !==
+                    "ready" && (
+                    <span
+                      data-state={
+                        snapshot.channels.dependencies.agentRoute
+                      }
+                    >
+                      <LucideIcon
+                        icon={RadioTower}
+                        size={14}
+                      />
+                      {t("agentRoutePendingShort")}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          </aside>
+
+          <section
+            id={detailPanelId}
+            className="minke-remote-hub__detail"
+            role="region"
+            aria-labelledby={navigationIds[snapshot.view]}
+            tabIndex={0}
+          >
             {snapshot.error !== undefined && (
               <p
                 className="minke-remote-hub__global-issue"
@@ -1436,33 +1719,36 @@ function RemoteHubDialog({
                 )}
               </p>
             )}
-            <WeixinChannel
-              runtime={runtime}
-              snapshot={snapshot}
-              t={t}
-            />
-            <BotChannel
-              provider="telegram"
-              runtime={runtime}
-              snapshot={snapshot}
-              t={t}
-            />
-            <BotChannel
-              provider="discord"
-              runtime={runtime}
-              snapshot={snapshot}
-              t={t}
-            />
-          </div>
-          <div
-            className="minke-remote-hub__access"
-            aria-label={t("accessTitle")}
-          >
-            <RemoteSettingsSection
-              runtime={runtime.remote}
-              t={remoteT}
-            />
-          </div>
+            {snapshot.view === "weixin" ? (
+              <WeixinChannel
+                runtime={runtime}
+                snapshot={snapshot}
+                t={t}
+              />
+            ) : snapshot.view === "telegram" ? (
+              <BotChannel
+                provider="telegram"
+                runtime={runtime}
+                snapshot={snapshot}
+                t={t}
+              />
+            ) : snapshot.view === "discord" ? (
+              <BotChannel
+                provider="discord"
+                runtime={runtime}
+                snapshot={snapshot}
+                t={t}
+              />
+            ) : (
+              <div className="minke-remote-hub__access">
+                <RemoteSettingsSection
+                  runtime={runtime.remote}
+                  t={remoteT}
+                  variant="hub"
+                />
+              </div>
+            )}
+          </section>
         </div>
       </section>
     </div>

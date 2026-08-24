@@ -13,12 +13,14 @@ import {
   DISCORD_DEFAULT_INTENTS,
   DISCORD_DEFAULT_MAX_PENDING_MESSAGES,
   DISCORD_GATEWAY_VERSION,
+  DISCORD_MAX_DELIVERY_MESSAGES,
   DiscordTransportError,
   type DiscordBotIdentity,
   type DiscordConnectionState,
   type DiscordGatewayProvider,
   type DiscordProviderOptions,
   type DiscordProviderStatus,
+  type DiscordPreparedDelivery,
   type DiscordTimerPort,
   type DiscordWebSocketCloseEvent,
   type DiscordWebSocketFactory,
@@ -335,6 +337,7 @@ function parseGatewayPayload(data: unknown): GatewayPayload {
       : gatewayInteger(input.s, "Gateway sequence");
   if (
     input.t !== undefined &&
+    input.t !== null &&
     typeof input.t !== "string"
   ) {
     throw new DiscordTransportError(
@@ -346,7 +349,10 @@ function parseGatewayPayload(data: unknown): GatewayPayload {
     d: input.d,
     op,
     s: sequence,
-    t: input.t as string | undefined,
+    t:
+      input.t === null
+        ? undefined
+        : input.t as string | undefined,
   };
 }
 
@@ -635,7 +641,12 @@ export class DiscordGatewayProviderSession
       options,
     );
     if (outcome.status === "ready") {
-      this.#rememberOperation(delivery.operationId);
+      const prepared =
+        outcome.preparedPayload as DiscordPreparedDelivery;
+      this.#rememberOperation(
+        delivery.operationId,
+        prepared.messages.length,
+      );
     }
     return outcome;
   }
@@ -645,7 +656,10 @@ export class DiscordGatewayProviderSession
     options: { readonly signal?: AbortSignal } = {},
   ) {
     try {
-      this.#rememberOperation(attempt.operationId);
+      this.#rememberOperation(
+        attempt.operationId,
+        DISCORD_MAX_DELIVERY_MESSAGES,
+      );
     } catch {
       return {
         errorCode: "invalid-intent",
@@ -1146,13 +1160,35 @@ export class DiscordGatewayProviderSession
     }
   }
 
-  #rememberOperation(operationId: string): void {
-    const nonce = discordNonceForOperation(operationId);
-    this.#operationByNonce.delete(nonce);
-    this.#operationByNonce.set(nonce, operationId);
-    if (this.#operationByNonce.size <= 10_000) return;
-    const oldest = this.#operationByNonce.keys().next().value;
-    if (oldest !== undefined) {
+  #rememberOperation(
+    operationId: string,
+    messageCount: number,
+  ): void {
+    if (
+      !Number.isSafeInteger(messageCount) ||
+      messageCount <= 0 ||
+      messageCount > DISCORD_MAX_DELIVERY_MESSAGES
+    ) {
+      throw new TypeError(
+        "Discord prepared message count is invalid",
+      );
+    }
+    for (
+      let messageIndex = 0;
+      messageIndex < messageCount;
+      messageIndex += 1
+    ) {
+      const nonce = discordNonceForOperation(
+        operationId,
+        messageIndex,
+      );
+      this.#operationByNonce.delete(nonce);
+      this.#operationByNonce.set(nonce, operationId);
+    }
+    while (this.#operationByNonce.size > 10_000) {
+      const oldest =
+        this.#operationByNonce.keys().next().value;
+      if (oldest === undefined) break;
       this.#operationByNonce.delete(oldest);
     }
   }

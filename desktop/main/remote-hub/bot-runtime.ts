@@ -82,7 +82,7 @@ type BotHubSnapshotInput =
       readonly issue: BotHubErrorIssue;
     };
 
-export interface BotDirectMessageInput {
+export interface BotInboundMessageInput {
   readonly accountKey?: string;
   readonly conversationId: string;
   readonly kind: GatewayInboundKind;
@@ -92,7 +92,8 @@ export interface BotDirectMessageInput {
   readonly senderId: string;
 }
 
-export interface BotDirectMessage {
+export interface BotInboundMessage {
+  readonly conversationKind: "direct" | "group";
   readonly senderLabel: string;
   readonly text?: string;
 }
@@ -131,7 +132,13 @@ export interface BotAgentRoutePort {
 
 export interface BotProviderDriver<Identity> {
   readonly provider: BotCredentialProvider;
-  agentReplyPayload?(markdown: string): unknown;
+  agentReplyPayload?(
+    markdown: string,
+    context: {
+      readonly input: BotInboundMessageInput;
+      readonly message: BotInboundMessage;
+    },
+  ): unknown;
   candidateHealthIssue?(
     provider: GatewayProviderSession,
   ): BotProviderIssue | undefined;
@@ -144,9 +151,12 @@ export interface BotProviderDriver<Identity> {
   }): Promise<GatewayProviderSession>;
   identityId(identity: Identity): string;
   identityLabel(identity: Identity): string;
-  inspectDirectMessage?(
-    input: BotDirectMessageInput,
-  ): BotDirectMessage | undefined;
+  inspectMessage?(
+    input: BotInboundMessageInput,
+    context: {
+      readonly providerAccountId: string;
+    },
+  ): BotInboundMessage | undefined;
   isAborted(error: unknown, signal: AbortSignal): boolean;
   issue(
     error: unknown,
@@ -730,7 +740,7 @@ export class BotCapabilityRuntime<Identity> {
       pairing.requestId !== requestId
     ) {
       throw new TypeError(
-        "Telegram pairing request is no longer active",
+        `${this.#providerLabel()} pairing request is no longer active`,
       );
     }
     const operation = this.#operationController;
@@ -742,7 +752,9 @@ export class BotCapabilityRuntime<Identity> {
       provider === undefined ||
       !this.#ownsOperation(operation)
     ) {
-      throw new Error("Telegram provider is not active");
+      throw new Error(
+        `${this.#providerLabel()} provider is not active`,
+      );
     }
     const next: StoredBotCredential = {
       ...credential,
@@ -778,7 +790,7 @@ export class BotCapabilityRuntime<Identity> {
       pairing.requestId !== requestId
     ) {
       throw new TypeError(
-        "Telegram pairing request is no longer active",
+        `${this.#providerLabel()} pairing request is no longer active`,
       );
     }
     this.#pairing = undefined;
@@ -1585,7 +1597,10 @@ export class BotCapabilityRuntime<Identity> {
   }
 
   async #routeInboxMessage(input: {
-    readonly lease: BotDirectMessageInput;
+    readonly account: {
+      readonly providerAccountId: string;
+    };
+    readonly lease: BotInboundMessageInput;
     readonly operationId: string;
     readonly signal: AbortSignal;
   }): Promise<
@@ -1596,7 +1611,9 @@ export class BotCapabilityRuntime<Identity> {
       }
   > {
     const message =
-      this.#driver.inspectDirectMessage?.(input.lease);
+      this.#driver.inspectMessage?.(input.lease, {
+        providerAccountId: input.account.providerAccountId,
+      });
     if (message === undefined) {
       return { status: "ack" };
     }
@@ -1609,10 +1626,11 @@ export class BotCapabilityRuntime<Identity> {
       if (sourceText.length === 0) {
         return {
           status: "reply",
-          payload: {
-            kind: "text",
-            text: "Minke 当前仅支持文本消息。",
-          },
+          payload: this.#agentReplyPayload(
+            "Minke 当前需要文本内容。",
+            input.lease,
+            message,
+          ),
         };
       }
       const route = this.#agentRoute;
@@ -1643,10 +1661,11 @@ export class BotCapabilityRuntime<Identity> {
       ) {
         return {
           status: "reply",
-          payload: {
-            kind: "text",
-            text: "Minke 未能生成回复，请稍后再试。",
-          },
+          payload: this.#agentReplyPayload(
+            "Minke 未能生成回复，请稍后再试。",
+            input.lease,
+            message,
+          ),
         };
       }
       const reply = botAgentReplyText(
@@ -1655,11 +1674,11 @@ export class BotCapabilityRuntime<Identity> {
       );
       return {
         status: "reply",
-        payload:
-          this.#driver.agentReplyPayload?.(reply) ?? {
-            kind: "text",
-            text: reply,
-          },
+        payload: this.#agentReplyPayload(
+          reply,
+          input.lease,
+          message,
+        ),
       };
     }
     const pairing = this.#activePairing();
@@ -1675,11 +1694,25 @@ export class BotCapabilityRuntime<Identity> {
       payload: {
         kind: "text",
         text:
-          "Minke 收到了你的私聊配对请求。\n"
+          `Minke 收到了你的 ${this.#providerLabel()} 私聊配对请求。\n`
           + `配对码：${pairing.code}\n`
-          + "请在 Minke 的「远端 → Telegram」中确认。"
+          + `请在 Minke 的「远端 → ${this.#providerLabel()}」中确认。`
           + "这条消息尚未交给 Agent。",
       },
+    };
+  }
+
+  #agentReplyPayload(
+    text: string,
+    input: BotInboundMessageInput,
+    message: BotInboundMessage,
+  ): unknown {
+    return this.#driver.agentReplyPayload?.(text, {
+      input,
+      message,
+    }) ?? {
+      kind: "text",
+      text,
     };
   }
 
@@ -1692,7 +1725,10 @@ export class BotCapabilityRuntime<Identity> {
     return (input) => {
       if (botEchoOnlyGatewayIngress(input)) return true;
       const message =
-        this.#driver.inspectDirectMessage?.(input.event);
+        this.#driver.inspectMessage?.(input.event, {
+          providerAccountId:
+            input.account.providerAccountId,
+        });
       if (message === undefined) return false;
       const authorizedUserId =
         this.#credential?.authorizedUserId;
@@ -1705,6 +1741,9 @@ export class BotCapabilityRuntime<Identity> {
       if (this.#activePairing() !== undefined) {
         return false;
       }
+      if (message.conversationKind !== "direct") {
+        return false;
+      }
       const code = this.#createPairingCode();
       const requestId = this.#createPairingRequestId();
       if (
@@ -1713,7 +1752,7 @@ export class BotCapabilityRuntime<Identity> {
         requestId.length > 128
       ) {
         throw new TypeError(
-          "Telegram pairing generator returned invalid data",
+          `${this.#providerLabel()} pairing generator returned invalid data`,
         );
       }
       this.#pairing = {
@@ -1784,7 +1823,7 @@ export class BotCapabilityRuntime<Identity> {
       });
       return;
     }
-    if (this.#driver.inspectDirectMessage === undefined) {
+    if (this.#driver.inspectMessage === undefined) {
       this.#publish({
         state: "degraded",
         accountLabel,
@@ -1831,6 +1870,12 @@ export class BotCapabilityRuntime<Identity> {
     return controller;
   }
 
+  #providerLabel(): "Discord" | "Telegram" {
+    return this.#driver.provider === "telegram"
+      ? "Telegram"
+      : "Discord";
+  }
+
   #ownsOperation(controller: AbortController): boolean {
     return (
       !this.#disposed &&
@@ -1857,7 +1902,7 @@ export class BotCapabilityRuntime<Identity> {
         this.#receiveTask = Promise.resolve();
       }
     });
-    if (this.#driver.inspectDirectMessage === undefined) {
+    if (this.#driver.inspectMessage === undefined) {
       return;
     }
     const routeTask = this.#routeLoop(

@@ -28,6 +28,8 @@
 
 [data-minke-remote-hub-action]:focus-visible,
 .minke-remote-hub__close:focus-visible,
+.minke-remote-hub__navigation-item:focus-visible,
+.minke-remote-hub__channel-controls button:focus-visible,
 .minke-remote-hub__channel-actions button:focus-visible,
 .minke-remote-hub__verify input:focus-visible,
 .minke-remote-hub__verify button:focus-visible,
@@ -56,12 +58,12 @@
 
 [data-minke-remote-hub-action][data-state="working"]
   [data-minke-remote-hub-indicator] {
-  background: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-state-warning-primary);
 }
 
 [data-minke-remote-hub-action][data-state="attention"]
   [data-minke-remote-hub-indicator] {
-  background: var(--dsw-alias-state-warning-primary);
+  background: var(--dsw-alias-state-error-primary);
 }
 
 [data-minke-new-session-remote-hub-action] {
@@ -72,6 +74,15 @@
   );
   z-index: 6;
   pointer-events: none !important;
+}
+
+/* Remote is a global action, not part of the right Tabs panel. Keep it just
+   outside the panel while preserving the incumbent position when closed. */
+[data-minke-tabs-right-open]
+  [data-minke-new-session-remote-hub-action] {
+  right: calc(
+    var(--minke-tabs-panel-width, 360px) + 8px
+  );
 }
 
 [data-minke-new-session-remote-hub-action]
@@ -102,7 +113,8 @@
   z-index: 1;
   box-sizing: border-box;
   display: flex;
-  width: min(980px, calc(100vw - 48px));
+  width: min(900px, calc(100vw - 48px));
+  height: min(640px, calc(100vh - 48px));
   max-height: calc(100vh - 48px);
   flex-direction: column;
   overflow: hidden;
@@ -129,7 +141,6 @@
 
 .minke-remote-hub__header h1,
 .minke-remote-hub__header p,
-.minke-remote-hub__channels h2,
 .minke-remote-hub__channel-detail p,
 .minke-remote-hub__issue,
 .minke-remote-hub__reset-confirmation p,
@@ -174,41 +185,31 @@
 
 .minke-remote-hub__dependencies {
   display: flex;
-  flex: none;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding: 0 24px 16px;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  padding: 13px 14px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
 .minke-remote-hub__dependencies > span {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
   gap: 5px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  padding: 0;
   color: var(--dsw-alias-label-secondary);
   font-size: 10px;
-  line-height: 17px;
+  line-height: 16px;
 }
 
 .minke-remote-hub__dependencies > span[data-state="ready"] {
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-state-success-primary) 11%,
-    transparent
-  );
   color: var(--dsw-alias-state-success-primary);
 }
 
 .minke-remote-hub__dependencies
   > span[data-state="unavailable"] {
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-state-warning-primary) 11%,
-    transparent
-  );
   color: var(--dsw-alias-state-warning-primary);
 }
 
@@ -216,60 +217,185 @@
   display: grid;
   min-height: 0;
   flex: 1;
-  grid-template-columns: minmax(280px, 0.78fr) minmax(440px, 1.22fr);
-  overflow: hidden;
+  grid-template-columns: 212px minmax(0, 1fr);
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
-.minke-remote-hub__channels,
-.minke-remote-hub__access {
+.minke-remote-hub__sidebar {
+  display: flex;
   min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.minke-remote-hub__navigation {
+  min-height: 0;
   overflow: auto;
-  padding: 22px 24px 28px;
+  padding: 14px 10px;
   scrollbar-color:
     var(--dsw-alias-scrollbar-bg-l2) transparent;
   scrollbar-width: thin;
 }
 
-.minke-remote-hub__channels {
-  border-right: 1px solid var(--dsw-alias-border-l2);
+.minke-remote-hub__navigation-group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.minke-remote-hub__channels h2 {
-  margin-bottom: 12px;
-  font-size: 14px;
-  font-weight: 650;
-  line-height: 21px;
+.minke-remote-hub__navigation-group--access {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
-.minke-remote-hub__weixin {
+.minke-remote-hub__navigation-group h2 {
+  margin: 0;
+  padding: 0 8px 5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 16px;
+}
+
+.minke-remote-hub__navigation-item {
+  display: grid;
   box-sizing: border-box;
-  padding: 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 14px;
-  background: var(--dsw-alias-bg-module-platform);
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  grid-template-columns: 28px minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
 
-.minke-remote-hub__weixin + .minke-remote-hub__weixin {
-  margin-top: 12px;
+.minke-remote-hub__navigation-item:hover {
+  background: var(--dsw-specific-sidebar-nav-item-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-remote-hub__navigation-item[aria-current="page"] {
+  background: var(--dsw-specific-sidebar-nav-item-active);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-remote-hub__navigation-icon {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.minke-remote-hub__navigation-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.minke-remote-hub__navigation-copy strong,
+.minke-remote-hub__navigation-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-remote-hub__navigation-copy strong {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+}
+
+.minke-remote-hub__navigation-copy small {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 9px;
+  line-height: 14px;
+}
+
+.minke-remote-hub__navigation-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-quaternary);
+}
+
+.minke-remote-hub__navigation-indicator[data-state="connected"],
+.minke-remote-hub__navigation-indicator[data-state="active"],
+.minke-remote-hub__navigation-indicator[data-tone="success"] {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.minke-remote-hub__navigation-indicator[data-state="connecting"],
+.minke-remote-hub__navigation-indicator[data-state="linking"] {
+  background: var(--dsw-alias-brand-primary);
+}
+
+.minke-remote-hub__navigation-indicator[data-state="degraded"],
+.minke-remote-hub__navigation-indicator[data-state="error"],
+.minke-remote-hub__navigation-indicator[data-state="retrying"],
+.minke-remote-hub__navigation-indicator[data-state="session-stale"],
+.minke-remote-hub__navigation-indicator[data-state="unavailable"] {
+  background: var(--dsw-alias-state-warning-primary);
+}
+
+.minke-remote-hub__detail {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 26px 28px 32px;
+  scrollbar-color:
+    var(--dsw-alias-scrollbar-bg-l2) transparent;
+  scrollbar-width: thin;
+}
+
+.minke-remote-hub__channel-panel,
+.minke-remote-hub__access {
+  width: 100%;
+  max-width: 620px;
+  min-width: 0;
+  margin: 0 auto;
 }
 
 .minke-remote-hub__channel-heading {
   display: flex;
   min-width: 0;
   align-items: flex-start;
-  gap: 10px;
+  gap: 12px;
 }
 
 .minke-remote-hub__channel-icon {
   display: inline-grid;
-  width: 30px;
-  height: 30px;
+  width: 40px;
+  height: 40px;
   flex: none;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 11px;
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
+}
+
+.minke-remote-hub__brand-icon {
+  display: block;
+  width: 1em;
+  height: 1em;
+  font-size: 21px;
 }
 
 .minke-remote-hub__channel-copy {
@@ -283,23 +409,55 @@
 .minke-remote-hub__channel-copy strong,
 .minke-remote-hub__channel-detail strong {
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 650;
-  line-height: 19px;
+  line-height: 22px;
 }
 
 .minke-remote-hub__channel-copy > span,
 .minke-remote-hub__channel-detail p,
-.minke-remote-hub__link-copy p {
+.minke-remote-hub__link-copy p,
+.minke-remote-hub__channel-description {
   overflow-wrap: anywhere;
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
-  line-height: 17px;
+  line-height: 18px;
+}
+
+.minke-remote-hub__channel-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-left: auto;
+}
+
+.minke-remote-hub__channel-controls button {
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.minke-remote-hub__channel-controls button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.minke-remote-hub__channel-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .minke-remote-hub__channel-status {
   flex: none;
-  max-width: 45%;
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--dsw-alias-interactive-bg-hover);
@@ -307,6 +465,26 @@
   font-size: 9px;
   font-weight: 600;
   line-height: 16px;
+}
+
+.minke-remote-hub__channel-body {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-remote-hub__channel-description {
+  max-width: 68ch;
+  margin: 0 0 16px;
+}
+
+.minke-remote-hub__channel-status[data-tone="success"] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 14%,
+    transparent
+  );
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .minke-remote-hub__channel-status[data-state="degraded"] {
@@ -344,9 +522,7 @@
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--dsw-alias-border-l2);
+  margin-top: 0;
 }
 
 .minke-remote-hub__qr-frame {
@@ -468,11 +644,31 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+.minke-remote-hub__channel-actions
+  .minke-remote-hub__button--danger {
+  border-color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.minke-remote-hub__channel-actions
+  .minke-remote-hub__button--danger:hover:not(:disabled) {
+  border-color: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 84%,
+    var(--dsw-alias-label-primary) 16%
+  );
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 84%,
+    var(--dsw-alias-label-primary) 16%
+  );
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
 .minke-remote-hub__channel-detail,
 .minke-remote-hub__issue {
-  margin-top: 13px;
-  padding-top: 12px;
-  border-top: 1px solid var(--dsw-alias-border-l2);
+  margin-top: 0;
 }
 
 .minke-remote-hub__global-issue {
@@ -558,6 +754,7 @@
 @media (max-width: 780px) {
   .minke-remote-hub__dialog {
     width: calc(100vw - 20px);
+    height: calc(100vh - 20px);
     max-height: calc(100vh - 20px);
     border-radius: 16px;
   }
@@ -566,48 +763,110 @@
     padding: 18px 18px 14px;
   }
 
-  .minke-remote-hub__dependencies {
-    padding: 0 18px 14px;
-  }
-
-  .minke-remote-hub__body {
-    display: block;
-    overflow: auto;
-  }
-
-  .minke-remote-hub__channels,
-  .minke-remote-hub__access {
-    overflow: visible;
-    padding: 18px;
-  }
-
-  .minke-remote-hub__channels {
-    border-right: 0;
-    border-bottom: 1px solid var(--dsw-alias-border-l2);
+  .minke-remote-hub__detail {
+    padding: 22px 24px 28px;
   }
 }
 
-@media (max-width: 520px) {
+@media (max-width: 680px) {
   .minke-remote-hub__header p {
     display: none;
   }
 
+  .minke-remote-hub__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .minke-remote-hub__sidebar {
+    max-height: 238px;
+    border-right: 0;
+    border-bottom: 1px solid var(--dsw-alias-border-l2);
+  }
+
+  .minke-remote-hub__navigation {
+    display: grid;
+    flex: none;
+    grid-template-columns: minmax(0, 3fr) minmax(150px, 1fr);
+    gap: 12px;
+    overflow: visible;
+    padding: 10px 12px;
+  }
+
+  .minke-remote-hub__navigation-group {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .minke-remote-hub__navigation-group h2 {
+    grid-column: 1 / -1;
+    padding: 0 6px 4px;
+  }
+
+  .minke-remote-hub__navigation-group--access {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 0;
+    padding-top: 0;
+    padding-left: 12px;
+    border-top: 0;
+    border-left: 1px solid var(--dsw-alias-border-l2);
+  }
+
+  .minke-remote-hub__navigation-item {
+    grid-template-columns: 24px minmax(0, 1fr) 7px;
+    gap: 7px;
+    min-height: 42px;
+    padding: 6px;
+  }
+
+  .minke-remote-hub__navigation-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+  }
+
+  .minke-remote-hub__navigation-icon
+    .minke-remote-hub__brand-icon {
+    font-size: 16px;
+  }
+
   .minke-remote-hub__dependencies {
-    align-items: stretch;
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 0;
+    padding: 8px 14px;
   }
 
   .minke-remote-hub__dependencies > span {
-    width: max-content;
     max-width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .minke-remote-hub__navigation {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .minke-remote-hub__navigation-group--access {
+    padding-top: 8px;
+    padding-left: 0;
+    border-top: 1px solid var(--dsw-alias-border-l2);
+    border-left: 0;
+  }
+
+  .minke-remote-hub__detail {
+    padding: 18px;
   }
 
   .minke-remote-hub__channel-heading {
     flex-wrap: wrap;
   }
 
-  .minke-remote-hub__channel-status {
+  .minke-remote-hub__channel-controls {
+    width: calc(100% - 40px);
     margin-left: 40px;
+    flex-wrap: wrap;
   }
 
   .minke-remote-hub__verify > div,

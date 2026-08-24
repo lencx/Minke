@@ -48,6 +48,9 @@ export const remoteZh = {
   cloudflareAccessRequired:
     "Cloudflare 中必须先为最终主机名创建 Access 应用与身份策略。Minke 会在本机再次验证 Access JWT 的签名、Issuer 和 AUD。",
   enable: "启用远程访问",
+  disable: "停用远程访问",
+  advancedSettings: "高级设置",
+  hideAdvancedSettings: "收起高级设置",
   lifecycle:
     "Minke 只在应用运行期间持有前台代理；退出时会停止。切换方式不会自动降级到另一条链路。",
   statusDisabled: "未启用",
@@ -152,6 +155,9 @@ export const remoteEn: Record<RemoteLocaleKey, string> = {
   cloudflareAccessRequired:
     "Create an Access application and identity policy for the final hostname first. Minke also verifies the Access JWT signature, issuer, and AUD at the origin.",
   enable: "Enable remote access",
+  disable: "Disable remote access",
+  advancedSettings: "Advanced settings",
+  hideAdvancedSettings: "Hide advanced settings",
   lifecycle:
     "Minke owns the foreground proxy only while the app is open and stops it on exit. A failed method never silently falls back to another route.",
   statusDisabled: "Off",

@@ -490,6 +490,22 @@ function normalizeReply(
   });
 }
 
+function normalizeMentionedUserIds(
+  value: unknown,
+): readonly string[] {
+  return Object.freeze(
+    array(value, "message.mentions").map(
+      (rawMention, index) => {
+        const label = `message.mentions[${index}]`;
+        return snowflake(
+          record(rawMention, label).id,
+          `${label}.id`,
+        );
+      },
+    ),
+  );
+}
+
 function conversationContext(
   channelId: string,
   guildId: string | undefined,
@@ -589,6 +605,9 @@ export function normalizeDiscordMessage(
       ) ?? 0,
     guildId,
     id: snowflake(input.id, "message.id"),
+    mentionedUserIds: normalizeMentionedUserIds(
+      input.mentions,
+    ),
     messageType: nonNegativeInteger(
       input.type,
       "message.type",

@@ -11,6 +11,7 @@ export {
   RemoteHubRuntime,
   type RemoteHubClientOperation,
   type RemoteHubClientSnapshot,
+  type RemoteHubView,
 } from "./runtime.ts";
 export {
   NewSessionRemoteHubAction,

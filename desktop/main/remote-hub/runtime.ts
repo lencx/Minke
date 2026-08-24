@@ -4,6 +4,7 @@ import {
   DiscordTransportError,
   type DiscordBotIdentity,
   type DiscordGatewayProvider,
+  type DiscordInboundMessage,
   validateDiscordBotToken,
 } from "@lencx/minke-im-discord";
 import {
@@ -26,8 +27,8 @@ import {
 import {
   BotCapabilityRuntime,
   type BotAgentRoutePort,
-  type BotDirectMessage,
-  type BotDirectMessageInput,
+  type BotInboundMessage,
+  type BotInboundMessageInput,
   type BotProviderDriver,
 } from "./bot-runtime.ts";
 import {
@@ -214,8 +215,8 @@ function telegramSenderLabel(
 }
 
 function inspectTelegramDirectMessage(
-  input: BotDirectMessageInput,
-): BotDirectMessage | undefined {
+  input: BotInboundMessageInput,
+): BotInboundMessage | undefined {
   if (input.kind !== "user-message") return undefined;
   const payload = record(input.payload);
   const chat = record(payload?.chat);
@@ -240,11 +241,117 @@ function inspectTelegramDirectMessage(
   }
   const message = payload as unknown as TelegramInboundMessage;
   return {
+    conversationKind: "direct",
     senderLabel: telegramSenderLabel(sender),
     ...(message.content.kind === "text" &&
     typeof message.content.text === "string"
       ? { text: message.content.text }
       : {}),
+  };
+}
+
+function discordSenderLabel(
+  author: Record<string, unknown>,
+): string {
+  const username =
+    typeof author.username === "string"
+      ? author.username.trim()
+      : "";
+  const globalName =
+    typeof author.globalName === "string"
+      ? author.globalName.trim()
+      : "";
+  const source =
+    globalName === ""
+      ? username === ""
+        ? "Discord user"
+        : `@${username}`
+      : username === ""
+        ? globalName
+        : `${globalName} (@${username})`;
+  const normalized = source
+    .replace(/[\u0000-\u001f\u007f]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return [...(normalized || "Discord user")]
+    .slice(0, 128)
+    .join("");
+}
+
+function stripDiscordBotMention(
+  text: string,
+  botId: string,
+): string {
+  return text
+    .replaceAll(`<@${botId}>`, " ")
+    .replaceAll(`<@!${botId}>`, " ")
+    .replace(/[ \t]{2,}/gu, " ")
+    .replace(/[ \t]+\n/gu, "\n")
+    .trim();
+}
+
+function inspectDiscordMessage(
+  input: BotInboundMessageInput,
+  options: {
+    readonly providerAccountId: string;
+  },
+): BotInboundMessage | undefined {
+  if (input.kind !== "user-message") return undefined;
+  const payload = record(input.payload);
+  const author = record(payload?.author);
+  const context = record(payload?.context);
+  if (
+    payload === undefined ||
+    author === undefined ||
+    context === undefined ||
+    context.channelId !== input.peerId ||
+    input.conversationId !== input.peerId ||
+    payload.channelId !== input.peerId ||
+    payload.id !== input.nativeId ||
+    author.id !== input.senderId ||
+    author.bot !== false ||
+    (
+      payload.messageType !== 0 &&
+      payload.messageType !== 19
+    )
+  ) {
+    return undefined;
+  }
+  const message = payload as unknown as DiscordInboundMessage;
+  if (context.kind === "direct") {
+    return {
+      conversationKind: "direct",
+      senderLabel: discordSenderLabel(author),
+      text: message.content,
+    };
+  }
+  if (
+    (
+      context.kind !== "guild-channel" &&
+      context.kind !== "guild-thread"
+    ) ||
+    typeof context.guildId !== "string" ||
+    context.guildId !== message.guildId ||
+    !Array.isArray(message.mentionedUserIds)
+  ) {
+    return undefined;
+  }
+  const mentioned =
+    message.mentionedUserIds.includes(
+      options.providerAccountId,
+    );
+  const repliedToBot =
+    message.reply?.authorId === options.providerAccountId;
+  if (!mentioned && !repliedToBot) return undefined;
+  return {
+    conversationKind: "group",
+    senderLabel: discordSenderLabel(author),
+    text: mentioned
+      ? stripDiscordBotMention(
+          message.content,
+          options.providerAccountId,
+        )
+      : message.content,
   };
 }
 
@@ -261,7 +368,7 @@ export function createTelegramBotDriver(
         markdown,
       };
     },
-    inspectDirectMessage: inspectTelegramDirectMessage,
+    inspectMessage: inspectTelegramDirectMessage,
     async validate(token, { signal }) {
       return await validateTelegramBotToken(
         {
@@ -352,6 +459,24 @@ export function createDiscordBotDriver(): BotProviderDriver<
 > {
   const driver: BotProviderDriver<DiscordBotIdentity> = {
     provider: "discord",
+    agentReplyPayload(markdown, { input, message }) {
+      const payload = input.payload as DiscordInboundMessage;
+      return {
+        kind: "text",
+        text: markdown.trim(),
+        ...(message.conversationKind === "group"
+          ? {
+              replyTo: {
+                channelId: input.peerId,
+                failIfNotExists: false,
+                guildId: payload.guildId,
+                messageId: input.nativeId,
+              },
+            }
+          : {}),
+      };
+    },
+    inspectMessage: inspectDiscordMessage,
     candidateHealthIssue(provider) {
       const state = (
         provider as DiscordGatewayProvider
@@ -520,6 +645,7 @@ export class RemoteHubCapabilityRuntime {
         driver: createDiscordBotDriver(),
         mailboxPath,
         vault: options.vault,
+        agentRoute: options.agentRoute,
         recoverMailbox,
         onSnapshot: () => this.#publish(),
       });
@@ -645,15 +771,19 @@ export class RemoteHubCapabilityRuntime {
       case "telegram/reconnect":
         await this.#telegram.reconnect();
         return;
-      case "telegram/pairing/approve":
-        await this.#telegram.approvePairing(
-          command.requestId,
-        );
+      case "bot/pairing/approve":
+        await (
+          command.provider === "telegram"
+            ? this.#telegram
+            : this.#discord
+        ).approvePairing(command.requestId);
         return;
-      case "telegram/pairing/dismiss":
-        await this.#telegram.dismissPairing(
-          command.requestId,
-        );
+      case "bot/pairing/dismiss":
+        await (
+          command.provider === "telegram"
+            ? this.#telegram
+            : this.#discord
+        ).dismissPairing(command.requestId);
         return;
       case "telegram/reset-local":
         await this.#telegram.resetLocal();

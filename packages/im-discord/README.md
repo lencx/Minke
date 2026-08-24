@@ -43,7 +43,7 @@ Socket open, Gateway Hello, and Gateway Ready each have an independent startup d
 
 ## Inbound messages
 
-Each `GatewayInboundEvent.payload` is a `DiscordInboundMessage` containing normalized text, author, attachments, embeds, reply metadata, timestamps, flags, and a discriminated conversation context:
+Each `GatewayInboundEvent.payload` is a `DiscordInboundMessage` containing normalized text, author, attachments, embeds, structural user-mention IDs, reply metadata, timestamps, flags, and a discriminated conversation context:
 
 - `direct` contains the DM channel ID.
 - `guild-channel` contains channel and guild IDs.
@@ -84,7 +84,7 @@ const attachmentPayload = {
 };
 ```
 
-Preparation validates Discord snowflakes, the 2,000-character content limit, attachment metadata, and the 25 MiB request ceiling, then copies all caller-owned byte arrays into the durable prepared payload. Delivery suppresses all mentions by default with `allowed_mentions.parse = []`, derives a stable 25-character nonce from the Gateway operation ID, and sends `enforce_nonce: true`. Attachments use Discord's `payload_json` plus `files[n]` multipart contract, with attachment metadata IDs matching their file indices.
+Preparation validates Discord snowflakes and attachment metadata, splits long Markdown into independently renderable messages within Discord's 2,000-character limit, balances fenced code blocks across boundaries, and applies the 25 MiB request ceiling to each prepared message. The first message carries the source reply reference and caller attachments. A logical reply uses at most eight Discord messages; when more would be required, the eighth message attaches the complete response as `minke-response.md` instead of silently dropping it. Delivery suppresses all mentions by default with `allowed_mentions.parse = []`, derives a stable 25-character nonce for every prepared message from the Gateway operation ID and message index, and sends `enforce_nonce: true`. Attachments use Discord's `payload_json` plus `files[n]` multipart contract, with attachment metadata IDs matching their file indices.
 
 Discord's nonce uniqueness window is only a few minutes, so an ambiguous network, timeout, abort-after-dispatch, malformed-success, or 5xx result is reported as `uncertain`, not silently replayed. Explicit 429 responses and locally known rate-limit windows are retryable with `retryAfterMs`; 401 is a terminal `credential-invalid`; 403, 404, and other 4xx responses are rejected. The implementation reads Discord's dynamic rate-limit headers and never hard-codes request quotas.
 

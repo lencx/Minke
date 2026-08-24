@@ -6,6 +6,7 @@ import type {
   GatewayPreparationOutcome,
 } from "@lencx/minke-im-gateway";
 import {
+  DISCORD_MAX_DELIVERY_MESSAGES,
   DISCORD_MAX_MESSAGE_CONTENT_CHARACTERS,
   DISCORD_MAX_MESSAGE_REQUEST_BYTES,
   DISCORD_PREPARED_DELIVERY_ENCODING,
@@ -14,10 +15,15 @@ import {
   type DiscordOutboundMessage,
   type DiscordOutboundReply,
   type DiscordPreparedDelivery,
+  type DiscordPreparedMessage,
 } from "./contract.ts";
+import { splitDiscordMessageText } from "./chunk.ts";
 import { DiscordRestClient } from "./rest.ts";
 
 type UnknownRecord = Record<string, unknown>;
+const COMPLETE_RESPONSE_FILE_NAME = "minke-response.md";
+const COMPLETE_RESPONSE_NOTICE =
+  "⚠️ This reply is too long for Discord. The complete response is attached as `minke-response.md`.";
 
 function record(
   value: unknown,
@@ -212,9 +218,22 @@ function outboundMessage(
       "payload.kind must be text or message",
     );
   }
+  return Object.freeze({
+    attachments,
+    replyTo,
+    text,
+  });
+}
+
+function assertPreparedMessageBounds(
+  message: {
+    readonly attachments: readonly DiscordOutboundAttachment[];
+    readonly text?: string;
+  },
+): void {
   if (
-    text !== undefined &&
-    characterCount(text) >
+    message.text !== undefined &&
+    characterCount(message.text) >
       DISCORD_MAX_MESSAGE_CONTENT_CHARACTERS
   ) {
     throw new TypeError(
@@ -223,8 +242,10 @@ function outboundMessage(
   }
   const encoder = new TextEncoder();
   let estimatedBytes =
-    text === undefined ? 0 : encoder.encode(text).byteLength;
-  for (const attachment of attachments) {
+    message.text === undefined
+      ? 0
+      : encoder.encode(message.text).byteLength;
+  for (const attachment of message.attachments) {
     estimatedBytes +=
       attachment.bytes.byteLength +
       encoder.encode(attachment.fileName).byteLength +
@@ -239,15 +260,11 @@ function outboundMessage(
       "Discord message exceeds the 25 MiB request limit",
     );
   }
-  return Object.freeze({
-    attachments,
-    replyTo,
-    text,
-  });
 }
 
 export function discordNonceForOperation(
   operationId: string,
+  messageIndex = 0,
 ): string {
   if (
     typeof operationId !== "string" ||
@@ -255,10 +272,87 @@ export function discordNonceForOperation(
   ) {
     throw new TypeError("operationId must not be empty");
   }
+  if (
+    !Number.isSafeInteger(messageIndex) ||
+    messageIndex < 0 ||
+    messageIndex >= DISCORD_MAX_DELIVERY_MESSAGES
+  ) {
+    throw new TypeError(
+      "messageIndex must identify a Discord delivery message",
+    );
+  }
   return `minke_${createHash("sha256")
+    .update("minke-discord-message\u0000", "utf8")
+    .update(
+      String(Buffer.byteLength(operationId, "utf8")),
+      "utf8",
+    )
+    .update("\u0000", "utf8")
     .update(operationId, "utf8")
+    .update("\u0000", "utf8")
+    .update(String(messageIndex), "utf8")
     .digest("base64url")
     .slice(0, 19)}`;
+}
+
+function preparedMessages(
+  content: ReturnType<typeof outboundMessage>,
+  operationId: string,
+): readonly DiscordPreparedMessage[] {
+  const sourceText = content.text;
+  const sourceChunks =
+    sourceText === undefined
+      ? [undefined]
+      : [...splitDiscordMessageText(sourceText)];
+  const overflow =
+    sourceChunks.length > DISCORD_MAX_DELIVERY_MESSAGES;
+  const textChunks: readonly (string | undefined)[] =
+    overflow
+      ? Object.freeze([
+          ...sourceChunks.slice(
+            0,
+            DISCORD_MAX_DELIVERY_MESSAGES - 1,
+          ),
+          COMPLETE_RESPONSE_NOTICE,
+        ])
+      : Object.freeze(sourceChunks);
+  const completeResponseAttachment:
+    | DiscordOutboundAttachment
+    | undefined =
+    overflow && sourceText !== undefined
+      ? Object.freeze({
+          bytes: new TextEncoder().encode(sourceText),
+          contentType: "text/markdown; charset=utf-8",
+          description: "Complete Minke response",
+          fileName: COMPLETE_RESPONSE_FILE_NAME,
+        })
+      : undefined;
+  return Object.freeze(
+    textChunks.map((text, index) => {
+      const attachments: readonly DiscordOutboundAttachment[] =
+        Object.freeze([
+          ...(index === 0 ? content.attachments : []),
+          ...(completeResponseAttachment !== undefined &&
+          index === textChunks.length - 1
+            ? [completeResponseAttachment]
+            : []),
+        ]);
+      const message: DiscordPreparedMessage = Object.freeze({
+        attachments,
+        nonce: discordNonceForOperation(
+          operationId,
+          index,
+        ),
+        ...(index === 0 &&
+        content.replyTo !== undefined
+          ? { replyTo: content.replyTo }
+          : {}),
+        ...(text === undefined ? {} : { text }),
+      });
+      assertPreparedMessageBounds(message);
+      return message;
+    }),
+  );
 }
 
 export function prepareDiscordPayload(
@@ -272,12 +366,12 @@ export function prepareDiscordPayload(
     delivery.payload as DiscordOutboundMessage,
   );
   return Object.freeze({
-    attachments: content.attachments,
     channelId,
     encoding: DISCORD_PREPARED_DELIVERY_ENCODING,
-    nonce: discordNonceForOperation(delivery.operationId),
-    replyTo: content.replyTo,
-    text: content.text,
+    messages: preparedMessages(
+      content,
+      delivery.operationId,
+    ),
   });
 }
 
@@ -302,36 +396,70 @@ function preparedDiscordPayload(
       "prepared Discord channel does not match recipientId",
     );
   }
-  const nonce = requiredString(
-    input.nonce,
-    "preparedPayload.nonce",
-  );
+  const rawMessages = input.messages;
   if (
-    nonce !== discordNonceForOperation(attempt.operationId)
+    !Array.isArray(rawMessages) ||
+    rawMessages.length === 0 ||
+    rawMessages.length > DISCORD_MAX_DELIVERY_MESSAGES
   ) {
     throw new TypeError(
-      "prepared Discord nonce does not match operationId",
+      "preparedPayload.messages must contain 1 to 8 messages",
     );
   }
-  const rawAttachments = input.attachments;
-  if (!Array.isArray(rawAttachments)) {
-    throw new TypeError(
-      "preparedPayload.attachments must be an array",
-    );
-  }
-  const content = outboundMessage({
-    attachments: rawAttachments,
-    kind: "message",
-    replyTo: input.replyTo,
-    text: input.text,
-  });
+  const messages = Object.freeze(
+    rawMessages.map((value, index) => {
+      const message = record(
+        value,
+        `preparedPayload.messages[${index}]`,
+      );
+      const nonce = requiredString(
+        message.nonce,
+        `preparedPayload.messages[${index}].nonce`,
+      );
+      if (
+        nonce !==
+        discordNonceForOperation(
+          attempt.operationId,
+          index,
+        )
+      ) {
+        throw new TypeError(
+          "prepared Discord nonce does not match operationId",
+        );
+      }
+      const content = outboundMessage({
+        attachments: message.attachments,
+        kind: "message",
+        replyTo: message.replyTo,
+        text: message.text,
+      });
+      if (
+        index > 0 &&
+        content.replyTo !== undefined
+      ) {
+        throw new TypeError(
+          "only the first Discord message may reference the source message",
+        );
+      }
+      const preparedMessage: DiscordPreparedMessage =
+        Object.freeze({
+          attachments: content.attachments,
+          nonce,
+          ...(content.replyTo === undefined
+            ? {}
+            : { replyTo: content.replyTo }),
+          ...(content.text === undefined
+            ? {}
+            : { text: content.text }),
+        });
+      assertPreparedMessageBounds(preparedMessage);
+      return preparedMessage;
+    }),
+  );
   return Object.freeze({
-    attachments: content.attachments,
     channelId,
     encoding: DISCORD_PREPARED_DELIVERY_ENCODING,
-    nonce,
-    replyTo: content.replyTo,
-    text: content.text,
+    messages,
   });
 }
 
@@ -376,12 +504,17 @@ export async function deliverDiscordAttempt(
     };
   }
   try {
-    const receipt = await rest.createMessage(
-      prepared,
-      options,
-    );
+    let providerReceiptId: string | undefined;
+    for (const message of prepared.messages) {
+      const receipt = await rest.createMessage(
+        prepared.channelId,
+        message,
+        options,
+      );
+      providerReceiptId = receipt.messageId;
+    }
     return {
-      providerReceiptId: receipt.messageId,
+      providerReceiptId,
       status: "accepted",
     };
   } catch (error) {

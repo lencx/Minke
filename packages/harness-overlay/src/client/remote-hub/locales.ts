@@ -4,12 +4,13 @@ export const remoteHubZh = {
   triggerWorking: "远端：正在处理",
   triggerActive: "远端：已有能力运行",
   triggerAttention: "远端：需要处理",
-  title: "远端能力",
-  description:
-    "管理设备访问与消息通道。它们共享 Minke 运行时，但彼此不构成启用前置条件。",
-  close: "关闭远端能力",
-  channelsTitle: "消息通道",
-  accessTitle: "远程连接",
+  title: "连接",
+  description: "连接消息应用，或从其他设备访问 Minke。",
+  close: "关闭连接设置",
+  channelsTitle: "消息",
+  deviceAccessTitle: "设备访问",
+  accessTitle: "远程访问",
+  systemReady: "系统就绪",
   weixinTitle: "微信",
   weixinDescription:
     "扫码连接微信；仅扫码账号的一对一消息会进入 Minke Agent。",
@@ -17,7 +18,7 @@ export const remoteHubZh = {
   telegramDescription: "使用 Bot Token 连接 Telegram Bot API。",
   discordTitle: "Discord",
   discordDescription:
-    "使用 Bot Token 连接 Discord Gateway；Agent 授权接通前仅验证传输，不保存外部消息。",
+    "连接 Discord Bot；完成私聊配对后，可在服务器中 @Bot 或回复 Bot 触发 Minke。需启用 Message Content Intent。",
   botTokenLabel: "{provider} Bot Token",
   botTokenPlaceholder: "粘贴 Bot Token",
   telegramTokenHelp:
@@ -28,20 +29,20 @@ export const remoteHubZh = {
     "可选的 HTTP CONNECT 代理；必须填写 http://主机:端口，留空则使用系统网络设置。Minke 不会自动探测本机代理。",
   applyTelegramProxy: "应用代理",
   discordTokenHelp:
-    "Token 来自 Discord Developer Portal；Bot 还需启用 Message Content Intent。",
+    "Token 来自 Discord Developer Portal；Bot 还需启用 Message Content Intent。服务器使用需要查看频道、发送消息和读取消息历史权限。",
   connectBot: "连接 {provider}",
   reconnectBot: "重新连接",
   unlinkBot: "解除连接",
-  telegramPairingWaiting: "等待私聊配对",
-  telegramPairingApprovalRequired: "配对待确认",
-  telegramPairingInstruction:
-    "请先在 Telegram 中给 {account} 发送一条私聊消息。收到请求后，可在此核对配对码并批准。",
-  telegramPairingRequestLabel: "Telegram 私聊配对请求",
-  telegramPairingRequestFrom: "来自 {label} 的配对请求",
-  telegramPairingCode: "配对码 {code}",
-  telegramPairingExpires: "请求有效至 {time}",
-  approveTelegramPairing: "批准配对",
-  dismissTelegramPairing: "忽略",
+  botPairingWaiting: "等待私聊配对",
+  botPairingApprovalRequired: "配对待确认",
+  botPairingInstruction:
+    "请先在 {provider} 中给 {account} 发送一条私聊消息。收到请求后，可在此核对配对码并批准。",
+  botPairingRequestLabel: "{provider} 私聊配对请求",
+  botPairingRequestFrom: "来自 {label} 的配对请求",
+  botPairingCode: "配对码 {code}",
+  botPairingExpires: "请求有效至 {time}",
+  approveBotPairing: "批准配对",
+  dismissBotPairing: "忽略",
   loading: "正在读取",
   unavailable: "不可用",
   unlinked: "未连接",
@@ -113,7 +114,7 @@ export const remoteHubZh = {
   botTransportFatal:
     "{provider} 接收连接因协议错误或本地队列超限而停止。请检查消息流量与 Bot 配置后重新连接。",
   botTransportStart:
-    "{provider} 凭据已保存，但接收连接启动失败。请检查 Bot 权限与 Intent 配置。",
+    "{provider} Token 已验证，但接收连接启动失败。请检查 Bot 权限与 Intent 配置。",
   alreadyBound:
     "该微信账号已在服务端绑定，但本机没有收到可用凭据。请重新发起连接。",
   credentialRead: "无法读取本机保存的微信凭据。",
@@ -143,20 +144,21 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   triggerWorking: "Remote: working",
   triggerActive: "Remote: capability active",
   triggerAttention: "Remote: needs attention",
-  title: "Remote capabilities",
-  description:
-    "Manage device access and messaging channels. They share the Minke runtime without blocking one another.",
-  close: "Close remote capabilities",
-  channelsTitle: "Messaging channels",
-  accessTitle: "Remote connection",
-  weixinTitle: "Weixin",
+  title: "Connections",
+  description: "Connect Minke to messaging apps and other devices.",
+  close: "Close connection settings",
+  channelsTitle: "Messaging",
+  deviceAccessTitle: "Device access",
+  accessTitle: "Remote access",
+  systemReady: "System ready",
+  weixinTitle: "WeChat",
   weixinDescription:
-    "Connect Weixin. Only direct messages from the account that scanned the QR code reach Minke Agent.",
+    "Connect WeChat. Only direct messages from the account that scanned the QR code reach Minke Agent.",
   telegramTitle: "Telegram",
   telegramDescription: "Connect Telegram through a Bot API token.",
   discordTitle: "Discord",
   discordDescription:
-    "Connect a bot token to Discord Gateway. External messages are not stored until Agent authorization is available.",
+    "Connect a Discord bot. After DM pairing, mention or reply to the bot in a server. Message Content Intent is required.",
   botTokenLabel: "{provider} Bot Token",
   botTokenPlaceholder: "Paste Bot Token",
   telegramTokenHelp:
@@ -167,22 +169,21 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
     "Optional HTTP CONNECT proxy. Enter http://host:port, or leave it blank to use system network settings. Minke never auto-detects local proxies.",
   applyTelegramProxy: "Apply proxy",
   discordTokenHelp:
-    "Get this token from the Discord Developer Portal and enable Message Content Intent for the bot.",
+    "Get this token from the Discord Developer Portal and enable Message Content Intent. Server use also needs View Channels, Send Messages, and Read Message History.",
   connectBot: "Connect {provider}",
   reconnectBot: "Reconnect",
   unlinkBot: "Disconnect",
-  telegramPairingWaiting: "Waiting for a direct message",
-  telegramPairingApprovalRequired: "Pairing approval required",
-  telegramPairingInstruction:
-    "First, send {account} a direct message in Telegram. The pairing request and code will appear here for approval.",
-  telegramPairingRequestLabel:
-    "Telegram direct-message pairing request",
-  telegramPairingRequestFrom:
-    "Pairing request from {label}",
-  telegramPairingCode: "Pairing code {code}",
-  telegramPairingExpires: "Request expires at {time}",
-  approveTelegramPairing: "Approve pairing",
-  dismissTelegramPairing: "Ignore",
+  botPairingWaiting: "Waiting for a direct message",
+  botPairingApprovalRequired: "Pairing approval required",
+  botPairingInstruction:
+    "First, send {account} a direct message in {provider}. The pairing request and code will appear here for approval.",
+  botPairingRequestLabel:
+    "{provider} direct-message pairing request",
+  botPairingRequestFrom: "Pairing request from {label}",
+  botPairingCode: "Pairing code {code}",
+  botPairingExpires: "Request expires at {time}",
+  approveBotPairing: "Approve pairing",
+  dismissBotPairing: "Ignore",
   loading: "Reading",
   unavailable: "Unavailable",
   unlinked: "Not connected",
@@ -193,13 +194,13 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   connected: "Connected",
   linkedLimited: "Connected · ingress disabled",
   attention: "Needs attention",
-  connectWeixin: "Connect Weixin",
+  connectWeixin: "Connect WeChat",
   reconnectWeixin: "Reconnect",
   cancelLink: "Cancel",
   unlinkWeixin: "Disconnect",
   resetLocal: "Reset local data",
   resetLocalWarning:
-    "This permanently deletes the saved Weixin credential, inbox, and pending deliveries on this device.",
+    "This permanently deletes the saved WeChat credential, inbox, and pending deliveries on this device.",
   resetBotLocalWarning:
     "This permanently deletes the saved {provider} credential, inbox, and pending deliveries on this device.",
   confirmResetLocal: "Reset now",
@@ -211,24 +212,24 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   verifyCode: "Submit code",
   verificationCodeLabel: "Code shown on your phone",
   verificationCodePlaceholder: "Enter the numeric code",
-  qrAlt: "Weixin QR code for connecting Minke",
+  qrAlt: "WeChat QR code for connecting Minke",
   qrPreparing: "Generating QR code…",
   qrRenderError:
     "Minke could not render this QR code. Cancel and start linking again.",
-  qrInstruction: "Scan with Weixin, then confirm on your phone.",
+  qrInstruction: "Scan with WeChat, then confirm on your phone.",
   scannedInstruction: "Scanned. Continue the confirmation on your phone.",
   verificationInstruction:
-    "Weixin requires another check. Enter the numeric code shown on your phone.",
+    "WeChat requires another check. Enter the numeric code shown on your phone.",
   qrExpires: "QR code valid until {time}",
   account: "Account {label}",
   agentRoutePending:
     "Transport is connected. Until Agent authorization and routing are available, external messages are denied by default and never stored locally.",
   authorizationMissing:
-    "Weixin did not return the scanning user's identity, so ingress remains closed. Disconnect and scan again.",
+    "WeChat did not return the scanning user's identity, so ingress remains closed. Disconnect and scan again.",
   agentIssue:
     "The message is safely retained, but Minke Agent is unavailable and will retry in the background.",
   deliveryIssue:
-    "Agent produced a reply, but Weixin delivery did not complete. Gateway retained the pending delivery.",
+    "Agent produced a reply, but WeChat delivery did not complete. Gateway retained the pending delivery.",
   receiveIssue:
     "Gateway kept the connection, but the latest receive failed and is retrying.",
   botReceiveIssue:
@@ -238,7 +239,7 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   botDeliveryIssue:
     "Agent produced a reply, but {provider} delivery did not complete. Gateway retained the pending delivery.",
   vaultUnavailable:
-    "Protected credential storage is unavailable on this system, so Weixin stays off.",
+    "Protected credential storage is unavailable on this system, so WeChat stays off.",
   botVaultUnavailable:
     "Protected credential storage is unavailable on this system, so {provider} stays off.",
   botCredentialInvalid:
@@ -256,21 +257,21 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   botTransportFatal:
     "{provider} receiving stopped after a protocol or local queue failure. Review bot traffic and configuration, then reconnect.",
   botTransportStart:
-    "The {provider} credential is saved, but its receive connection could not start. Check the bot permissions and intents.",
+    "The {provider} token was verified, but its receive connection could not start. Check the bot permissions and intents.",
   alreadyBound:
-    "This Weixin account is already bound remotely, but this device received no usable credential. Start linking again.",
-  credentialRead: "Minke could not read the saved Weixin credential.",
+    "This WeChat account is already bound remotely, but this device received no usable credential. Start linking again.",
+  credentialRead: "Minke could not read the saved WeChat credential.",
   credentialStore:
-    "Weixin authorized the device, but Minke could not save the credential safely. Scan again.",
+    "WeChat authorized the device, but Minke could not save the credential safely. Scan again.",
   gatewayStore:
     "The shared IM Gateway storage cannot be opened. You can recreate it after confirming the impact on every messaging channel.",
   loginNetwork:
-    "The Weixin login service is temporarily unreachable. Check the network and retry.",
+    "The WeChat login service is temporarily unreachable. Check the network and retry.",
   loginProtocol:
-    "Minke could not understand the Weixin login response. Scan again.",
+    "Minke could not understand the WeChat login response. Scan again.",
   transportStart:
-    "The Weixin credential is saved, but the receive connection could not start.",
-  sessionStale: "The Weixin session expired. Scan again.",
+    "The WeChat credential is saved, but the receive connection could not start.",
+  sessionStale: "The WeChat session expired. Scan again.",
   commandError: "The operation did not complete. Try again.",
   readError: "Minke could not read messaging-channel status.",
   busy: "Working…",

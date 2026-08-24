@@ -31,6 +31,7 @@ export interface RemoteSettingsSectionProps {
   runtime?: RemoteSettingsRuntime;
   t?: RemoteTranslate;
   copyAddress?: CopyAddress;
+  variant?: "settings" | "hub";
 }
 
 /** Desktop-only Settings page for controlled mobile access. */
@@ -38,6 +39,7 @@ export function RemoteSettingsSection({
   runtime,
   t,
   copyAddress = copyRemoteAddress,
+  variant = "settings",
 }: RemoteSettingsSectionProps): ReactNode {
   if (runtime === undefined || t === undefined) return null;
   return (
@@ -45,6 +47,7 @@ export function RemoteSettingsSection({
       runtime={runtime}
       t={t}
       copyAddress={copyAddress}
+      variant={variant}
     />
   );
 }
@@ -53,10 +56,12 @@ function LoadedRemoteSettings({
   runtime,
   t,
   copyAddress,
+  variant,
 }: {
   runtime: RemoteSettingsRuntime;
   t: RemoteTranslate;
   copyAddress: CopyAddress;
+  variant: "settings" | "hub";
 }): ReactNode {
   const snapshot = useSyncExternalStore(
     runtime.subscribe,
@@ -69,6 +74,7 @@ function LoadedRemoteSettings({
   const cloudflareHostnameName = useId();
   const [copyState, setCopyState] =
     useState<CopyState>("idle");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const copyReset = useRef<number | undefined>(undefined);
   const data = snapshot.data;
   const settings = data.settings;
@@ -101,6 +107,12 @@ function LoadedRemoteSettings({
       : cloudflare.customHostname;
   const originAddress =
     `http://127.0.0.1:${String(cloudflare.originPort)}`;
+  const compact = variant === "hub";
+  const methodBlocked = !available;
+  const showTailscaleConfiguration =
+    method === "tailscale" && (!compact || advancedOpen);
+  const showCloudflareConfiguration =
+    method === "cloudflare";
 
   useEffect(() => {
     setCopyState("idle");
@@ -166,9 +178,14 @@ function LoadedRemoteSettings({
 
   return (
     <section
-      className="minke-remote"
+      className={
+        compact
+          ? "minke-remote minke-remote--hub"
+          : "minke-remote"
+      }
       aria-labelledby={titleId}
       data-minke-remote
+      data-variant={variant}
     >
       <div className="minke-remote__intro">
         <h2 id={titleId} className="minke-remote__title">
@@ -185,53 +202,58 @@ function LoadedRemoteSettings({
       </div>
 
       <div className="minke-remote__card">
-        <div className="minke-remote__card-header">
-          <div className="minke-remote__method">
-            <span className="minke-remote__method-name">
-              {t(
-                method === "tailscale"
-                  ? "tailscaleTitle"
-                  : "cloudflareTitle",
-              )}
-            </span>
-            <span className="minke-remote__method-description">
-              {t(
-                method === "tailscale"
-                  ? "tailscaleDescription"
-                  : "cloudflareDescription",
-              )}
-            </span>
-          </div>
-          <div className="minke-remote__status-actions">
-            <span
-              className="minke-remote__status"
-              data-state={presentation.state}
-              role="status"
-              aria-live="polite"
-            >
-              {t(presentation.statusKey)}
-            </span>
-            {presentation.canRefresh && (
-              <button
-                type="button"
-                className="minke-remote__refresh"
-                disabled={
-                  snapshot.operation.kind === "refreshing"
-                }
-                aria-busy={
-                  snapshot.operation.kind === "refreshing"
-                }
-                onClick={() => {
-                  void runtime.refresh();
-                }}
+        {(!compact ||
+          enabled ||
+          methodBlocked ||
+          presentation.helpKey !== undefined) && (
+          <div className="minke-remote__card-header">
+            <div className="minke-remote__method">
+              <span className="minke-remote__method-name">
+                {t(
+                  method === "tailscale"
+                    ? "tailscaleTitle"
+                    : "cloudflareTitle",
+                )}
+              </span>
+              <span className="minke-remote__method-description">
+                {t(
+                  method === "tailscale"
+                    ? "tailscaleDescription"
+                    : "cloudflareDescription",
+                )}
+              </span>
+            </div>
+            <div className="minke-remote__status-actions">
+              <span
+                className="minke-remote__status"
+                data-state={presentation.state}
+                role="status"
+                aria-live="polite"
               >
-                {snapshot.operation.kind === "refreshing"
-                  ? t("refreshing")
-                  : t("refresh")}
-              </button>
-            )}
+                {t(presentation.statusKey)}
+              </span>
+              {presentation.canRefresh && (
+                <button
+                  type="button"
+                  className="minke-remote__refresh"
+                  disabled={
+                    snapshot.operation.kind === "refreshing"
+                  }
+                  aria-busy={
+                    snapshot.operation.kind === "refreshing"
+                  }
+                  onClick={() => {
+                    void runtime.refresh();
+                  }}
+                >
+                  {snapshot.operation.kind === "refreshing"
+                    ? t("refreshing")
+                    : t("refresh")}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {address !== undefined && (
           <div className="minke-remote__address">
@@ -309,11 +331,12 @@ function LoadedRemoteSettings({
           </div>
         )}
 
-        <fieldset className="minke-remote__fieldset">
-          <legend className="minke-remote__fieldset-title">
-            {t("methodTitle")}
-          </legend>
-          <div className="minke-remote__choices">
+        {(!compact || !enabled) && (
+          <fieldset className="minke-remote__fieldset">
+            <legend className="minke-remote__fieldset-title">
+              {t("methodTitle")}
+            </legend>
+            <div className="minke-remote__choices">
             <label
               className="minke-remote__choice"
               data-selected={method === "tailscale"}
@@ -366,10 +389,31 @@ function LoadedRemoteSettings({
                 </span>
               </span>
             </label>
-          </div>
-        </fieldset>
+            </div>
+          </fieldset>
+        )}
 
-        {method === "tailscale" ? (
+        {compact &&
+          !enabled &&
+          !methodBlocked &&
+          method === "tailscale" && (
+            <button
+              type="button"
+              className="minke-remote__advanced-toggle"
+              aria-expanded={advancedOpen}
+              onClick={() => setAdvancedOpen((value) => !value)}
+            >
+              {t(
+                advancedOpen
+                  ? "hideAdvancedSettings"
+                  : "advancedSettings",
+              )}
+            </button>
+          )}
+
+        {(!compact || (!enabled && !methodBlocked)) &&
+        method === "tailscale" &&
+        showTailscaleConfiguration ? (
           <fieldset className="minke-remote__fieldset">
             <legend className="minke-remote__fieldset-title">
               {t("tailscaleTransportTitle")}
@@ -440,7 +484,8 @@ function LoadedRemoteSettings({
               </label>
             </div>
           </fieldset>
-        ) : (
+        ) : (!compact || (!enabled && !methodBlocked)) &&
+          showCloudflareConfiguration ? (
           <div className="minke-remote__cloudflare">
             <div className="minke-remote__notice">
               <strong>{t("cloudflareSetupTitle")}</strong>
@@ -697,42 +742,74 @@ function LoadedRemoteSettings({
               {t("cloudflareAccessRequired")}
             </p>
           </div>
-        )}
+        ) : null}
 
-        <label className="minke-remote__toggle-row">
-          <span className="minke-remote__toggle-copy">
-            <span className="minke-remote__label">
-              {t("enable")}
+        {compact ? (
+          (enabled || !methodBlocked) && (
+            <div className="minke-remote__action-row">
+              <p className="minke-remote__help">
+                {t("lifecycle")}
+              </p>
+              <button
+                type="button"
+                className="minke-remote__primary-action"
+                disabled={
+                  !snapshot.editable ||
+                  (!canEnable && !enabled)
+                }
+                onClick={() => {
+                  runtime.setEnabled(!enabled);
+                }}
+              >
+                {t(enabled ? "disable" : "enable")}
+              </button>
+            </div>
+          )
+        ) : (
+          <label className="minke-remote__toggle-row">
+            <span className="minke-remote__toggle-copy">
+              <span className="minke-remote__label">
+                {t("enable")}
+              </span>
+              <span className="minke-remote__help">
+                {t("lifecycle")}
+              </span>
             </span>
-            <span className="minke-remote__help">
-              {t("lifecycle")}
+            <span className="minke-remote__switch">
+              <input
+                type="checkbox"
+                checked={enabled}
+                disabled={
+                  !snapshot.editable ||
+                  (!canEnable && !enabled)
+                }
+                aria-label={t("enable")}
+                onChange={(event) => {
+                  runtime.setEnabled(
+                    event.currentTarget.checked,
+                  );
+                }}
+              />
+              <span aria-hidden="true" />
             </span>
-          </span>
-          <span className="minke-remote__switch">
-            <input
-              type="checkbox"
-              checked={enabled}
-              disabled={
-                !snapshot.editable ||
-                (!canEnable && !enabled)
-              }
-              aria-label={t("enable")}
-              onChange={(event) => {
-                runtime.setEnabled(event.currentTarget.checked);
-              }}
-            />
-            <span aria-hidden="true" />
-          </span>
-        </label>
+          </label>
+        )}
 
       </div>
 
-      <aside className="minke-remote__security">
-        <span className="minke-remote__security-title">
-          {t("securityTitle")}
-        </span>
-        <p>{t("securityBody")}</p>
-      </aside>
+      {compact ? (
+        <details className="minke-remote__security-disclosure">
+          <summary>{t("securityTitle")}</summary>
+          <p>{t("securityBody")}</p>
+        </details>
+      ) : (
+        <aside className="minke-remote__security">
+          <span className="minke-remote__security-title">
+            {t("securityTitle")}
+          </span>
+          <p>{t("securityBody")}</p>
+        </aside>
+      )}
     </section>
   );
 }

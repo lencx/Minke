@@ -183,11 +183,10 @@ export type RemoteHubCommand =
       readonly settings: TelegramNetworkSettings;
     }
   | {
-      readonly kind: "telegram/pairing/approve";
-      readonly requestId: string;
-    }
-  | {
-      readonly kind: "telegram/pairing/dismiss";
+      readonly kind:
+        | "bot/pairing/approve"
+        | "bot/pairing/dismiss";
+      readonly provider: "telegram" | "discord";
       readonly requestId: string;
     }
   | { readonly kind: "telegram/reconnect" }
@@ -751,18 +750,27 @@ export function parseRemoteHubCommand(
           candidate.settings,
         ),
       };
-    case "telegram/pairing/approve":
-    case "telegram/pairing/dismiss":
+    case "bot/pairing/approve":
+    case "bot/pairing/dismiss":
       exactKeys(
         candidate,
-        ["kind", "requestId"],
-        "Remote Hub Telegram pairing command",
+        ["kind", "provider", "requestId"],
+        "Remote Hub bot pairing command",
       );
+      if (
+        candidate.provider !== "telegram" &&
+        candidate.provider !== "discord"
+      ) {
+        throw new TypeError(
+          "Remote Hub pairing provider is invalid",
+        );
+      }
       return {
         kind: candidate.kind,
+        provider: candidate.provider,
         requestId: boundedText(
           candidate.requestId,
-          "Telegram pairing request id",
+          "Bot pairing request id",
           128,
         ),
       };

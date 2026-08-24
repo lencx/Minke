@@ -3973,11 +3973,11 @@ test("Tabs placement controls keep independent panels open", () => {
 
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-shell-overlay\]\s*\{[\s\S]*?--minke-tabs-layout-actions-clearance:\s*88px;[\s\S]*?--minke-tabs-primary-row-top:\s*6px;/u,
+    /\[data-shell-overlay\]\s*\{[\s\S]*?--minke-tabs-layout-actions-clearance:\s*70px;[\s\S]*?--minke-tabs-primary-row-top:\s*6px;/u,
   );
   assert.match(
     SESSION_HEADER_ACTION_STYLES,
-    /\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?height:\s*32px;[\s\S]*?-webkit-app-region:\s*no-drag;[\s\S]*?app-region:\s*no-drag;/u,
+    /\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?height:\s*32px;[\s\S]*?gap:\s*2px;[\s\S]*?-webkit-app-region:\s*no-drag;[\s\S]*?app-region:\s*no-drag;/u,
   );
   const sessionActionGroupRule =
     SESSION_HEADER_ACTION_STYLES.match(
@@ -4018,7 +4018,7 @@ test("Tabs placement controls keep independent panels open", () => {
   );
   assert.match(
     TABS_STYLES,
-    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-tabbar\s*\{[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*var\(\s*--minke-tabs-layout-actions-clearance,\s*88px\s*\);/u,
+    /\.minke-tabs-panel\[data-placement="right"\]\s+\.minke-tabs-tabbar\s*\{[\s\S]*?top:\s*var\(\s*--minke-tabs-primary-row-top,\s*6px\s*\);[\s\S]*?right:\s*var\(\s*--minke-tabs-layout-actions-clearance,\s*70px\s*\);/u,
   );
   assert.match(
     TABS_STYLES,
@@ -4051,6 +4051,140 @@ test("Tabs placement controls keep independent panels open", () => {
 
   bottomTabs.dispose();
   rightTabs.dispose();
+});
+
+test("right Tabs top actions use compact hit areas and spacing", () => {
+  const layoutClearance = Number(
+    SESSION_HEADER_ACTION_STYLES.match(
+      /--minke-tabs-layout-actions-clearance:\s*(\d+)px/u,
+    )?.[1],
+  );
+  const actionGroupRule = SESSION_HEADER_ACTION_STYLES.match(
+    /\[data-minke-tabs-layout-actions\]\s*\{([^}]*)\}/u,
+  )?.[1];
+  const tabsActionRule = [
+    ...SESSION_HEADER_ACTION_STYLES.matchAll(
+      /\[data-minke-tabs-header-action\]\s*\{([^}]*)\}/gu,
+    ),
+  ].at(-1)?.[1];
+  assert.ok(actionGroupRule);
+  assert.ok(tabsActionRule);
+
+  const groupHeight = Number(
+    actionGroupRule.match(/height:\s*(\d+)px/u)?.[1],
+  );
+  const groupGap = Number(
+    actionGroupRule.match(/gap:\s*(\d+)px/u)?.[1],
+  );
+  const actionWidth = Number(
+    tabsActionRule.match(/width:\s*(\d+)px/u)?.[1],
+  );
+  const actionHeight = Number(
+    tabsActionRule.match(/height:\s*(\d+)px/u)?.[1],
+  );
+  const actionRadius = Number(
+    tabsActionRule.match(/border-radius:\s*(\d+)px/u)?.[1],
+  );
+  const rightInset = Number(
+    SESSION_HEADER_ACTION_STYLES.match(
+      /\[data-minke-tabs-right-open\][\s\S]*?\[data-minke-tabs-layout-actions\]\s*\{[\s\S]*?right:\s*(\d+)px/u,
+    )?.[1],
+  );
+  assert.deepEqual(
+    {
+      actionHeight,
+      actionRadius,
+      actionWidth,
+      groupGap,
+      groupHeight,
+      layoutClearance,
+      rightInset,
+    },
+    {
+      actionHeight: 28,
+      actionRadius: 8,
+      actionWidth: 28,
+      groupGap: 2,
+      groupHeight: 32,
+      layoutClearance: 70,
+      rightInset: 8,
+    },
+  );
+  assert.equal(
+    (groupHeight - actionHeight) / 2,
+    2,
+    "compact buttons must stay centered in the 32px primary row",
+  );
+
+  const layoutGroupWidth = actionWidth * 2 + groupGap;
+  assert.equal(
+    layoutClearance - rightInset - layoutGroupWidth,
+    4,
+    "New Tab must keep a compact 4px gap from the layout group",
+  );
+});
+
+test("blank-session Remote stays outside open right Tabs", () => {
+  const remoteHubStyles = readFileSync(
+    new URL(
+      "../packages/harness-overlay/src/client/remote-hub/styles.css",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const panelWidth = Number(
+    TABS_STYLES.match(
+      /--minke-tabs-panel-width:\s*(\d+)px/u,
+    )?.[1],
+  );
+  const openRemoteRule = remoteHubStyles.match(
+    /\[data-minke-tabs-right-open\]\s+\[data-minke-new-session-remote-hub-action\]\s*\{[\s\S]*?right:\s*calc\(\s*var\(\s*--minke-tabs-panel-width,\s*(\d+)px\s*\)\s*\+\s*(\d+)px\s*\);/u,
+  );
+  assert.ok(
+    openRemoteRule,
+    "the open right panel must move Remote beyond its left edge",
+  );
+  const remotePanelFallback = Number(openRemoteRule[1]);
+  const remotePanelGap = Number(openRemoteRule[2]);
+  const remoteWidth = Number(
+    remoteHubStyles.match(
+      /\[data-minke-remote-hub-action\]\s*\{[\s\S]*?width:\s*(\d+)px/u,
+    )?.[1],
+  );
+  assert.deepEqual(
+    {
+      panelWidth,
+      remotePanelFallback,
+      remotePanelGap,
+      remoteWidth,
+    },
+    {
+      panelWidth: 360,
+      remotePanelFallback: 360,
+      remotePanelGap: 8,
+      remoteWidth: 32,
+    },
+  );
+
+  const rightPanel = {
+    near: 0,
+    far: panelWidth,
+  };
+  const remoteButton = {
+    near: panelWidth + remotePanelGap,
+    far: panelWidth + remotePanelGap + remoteWidth,
+  };
+  const overlap = Math.max(
+    0,
+    Math.min(remoteButton.far, rightPanel.far) -
+      Math.max(remoteButton.near, rightPanel.near),
+  );
+  assert.equal(overlap, 0);
+  assert.equal(
+    remoteButton.near - rightPanel.far,
+    8,
+    "Remote must keep an 8px gap outside the right panel",
+  );
 });
 
 test("Tabs bottom placement has independent height and resize affordances", () => {
@@ -4472,7 +4606,7 @@ test("right Tabs window dragging covers populated and empty panels without claim
   );
   assert.match(
     TABS_STYLES,
-    /\.minke-tabs-empty__window-drag\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0\s+var\(\s*--minke-tabs-layout-actions-clearance,\s*88px\s*\)\s+0\s+0;/u,
+    /\.minke-tabs-empty__window-drag\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0\s+var\(\s*--minke-tabs-layout-actions-clearance,\s*70px\s*\)\s+0\s+0;/u,
     "the empty-panel drag surface must stop before the fixed layout actions",
   );
   assert.match(

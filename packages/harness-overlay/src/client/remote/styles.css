@@ -508,6 +508,97 @@
   font-size: 12px;
   line-height: 18px;
 }
+
+.minke-remote--hub {
+  gap: 16px;
+}
+
+.minke-remote--hub .minke-remote__card {
+  gap: 16px;
+}
+
+.minke-remote__advanced-toggle {
+  align-self: flex-start;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.minke-remote__advanced-toggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-remote__advanced-toggle:focus-visible,
+.minke-remote__primary-action:focus-visible,
+.minke-remote__security-disclosure summary:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.minke-remote__action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-remote__action-row > p {
+  max-width: 58ch;
+}
+
+.minke-remote__primary-action {
+  min-height: 34px;
+  flex: none;
+  padding: 7px 12px;
+  border: 1px solid var(--dsw-alias-brand-primary);
+  border-radius: 8px;
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.minke-remote__primary-action:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.minke-remote__primary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.minke-remote__security-disclosure {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.minke-remote__security-disclosure summary {
+  width: max-content;
+  border-radius: 4px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.minke-remote__security-disclosure p {
+  max-width: 68ch;
+  margin: 7px 0 0;
+}
+
 @media (max-width: 560px) {
   .minke-remote__card-header,
   .minke-remote__toggle-row {
@@ -529,5 +620,13 @@
   }
   .minke-remote__field--wide {
     grid-column: auto;
+  }
+  .minke-remote__action-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .minke-remote__primary-action {
+    width: 100%;
   }
 }

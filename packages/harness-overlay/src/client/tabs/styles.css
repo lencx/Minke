@@ -412,7 +412,7 @@ body:has(
   top: var(--minke-tabs-primary-row-top, 6px);
   right: var(
     --minke-tabs-layout-actions-clearance,
-    88px
+    70px
   );
 }
 
@@ -735,7 +735,7 @@ body:has(
 .minke-tabs-empty__window-drag {
   position: absolute;
   inset: 0
-    var(--minke-tabs-layout-actions-clearance, 88px)
+    var(--minke-tabs-layout-actions-clearance, 70px)
     0 0;
 }
 

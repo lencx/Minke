@@ -21,6 +21,9 @@ import {
   WeixinTransportError,
 } from "@lencx/minke-im-weixin";
 import {
+  prepareDiscordPayload,
+} from "@lencx/minke-im-discord";
+import {
   WeixinCapabilityRuntime,
 } from "@minke/desktop/main/remote-hub/weixin-runtime.ts";
 import {
@@ -33,6 +36,7 @@ import {
   createGatewayMailboxRecovery,
 } from "@minke/desktop/main/remote-hub/mailbox-recovery.ts";
 import {
+  createDiscordBotDriver,
   createTelegramBotDriver,
   RemoteHubCapabilityRuntime,
 } from "@minke/desktop/main/remote-hub/runtime.ts";
@@ -63,6 +67,9 @@ import {
 import {
   RemoteSettingsRuntime,
 } from "@minke/harness-overlay/client/remote/runtime.ts";
+import {
+  inspectCssContract,
+} from "./support/css-contract.mjs";
 
 function snapshot(weixin = { state: "unlinked" }) {
   return {
@@ -122,6 +129,224 @@ function telegramDirectMessageInput() {
   };
 }
 
+function discordDirectMessageInput() {
+  const channelId = "400000000000000001";
+  const messageId = "600000000000000001";
+  const senderId = "300000000000000001";
+  return {
+    conversationId: channelId,
+    kind: "user-message",
+    nativeId: messageId,
+    payload: {
+      attachments: [],
+      author: {
+        bot: false,
+        discriminator: "0",
+        globalName: "Ada Lovelace",
+        id: senderId,
+        username: "ada",
+      },
+      channelId,
+      content: "hello from Discord",
+      context: {
+        channelId,
+        kind: "direct",
+      },
+      embeds: [],
+      flags: 0,
+      id: messageId,
+      mentionedUserIds: [],
+      messageType: 0,
+      timestamp: 1_800_000_000_000,
+    },
+    peerId: channelId,
+    senderId,
+  };
+}
+
+function discordGuildMessageInput(options = {}) {
+  const botId =
+    options.botId ?? "100000000000000001";
+  const channelId =
+    options.channelId ?? "400000000000000002";
+  const guildId =
+    options.guildId ?? "500000000000000001";
+  const messageId =
+    options.messageId ?? "600000000000000002";
+  const senderId =
+    options.senderId ?? "300000000000000001";
+  const mentionedUserIds =
+    options.mentionedUserIds ?? [botId];
+  const replyAuthorId = options.replyAuthorId;
+  return {
+    conversationId: channelId,
+    kind: "user-message",
+    nativeId: messageId,
+    payload: {
+      attachments: [],
+      author: {
+        bot: false,
+        discriminator: "0",
+        globalName: "Ada Lovelace",
+        id: senderId,
+        username: "ada",
+      },
+      channelId,
+      content:
+        options.content ?? `<@${botId}> server status`,
+      context: {
+        channelId,
+        guildId,
+        kind: options.contextKind ?? "guild-channel",
+        ...(options.contextKind === "guild-thread"
+          ? {
+              parentChannelId: "700000000000000001",
+              threadType: 11,
+            }
+          : {}),
+      },
+      embeds: [],
+      flags: 0,
+      guildId,
+      id: messageId,
+      mentionedUserIds,
+      messageType: options.messageType ?? 0,
+      ...(replyAuthorId === undefined
+        ? {}
+        : {
+            reply: {
+              authorId: replyAuthorId,
+              channelId,
+              guildId,
+              messageId: "600000000000000000",
+            },
+          }),
+      timestamp: 1_800_000_000_000,
+    },
+    peerId: channelId,
+    senderId,
+  };
+}
+
+test("Discord driver recognizes only internally consistent direct user messages", () => {
+  const inspect = createDiscordBotDriver().inspectMessage;
+  assert.equal(typeof inspect, "function");
+  const direct = discordDirectMessageInput();
+  assert.deepEqual(
+    inspect(direct, {
+      providerAccountId: "100000000000000001",
+    }),
+    {
+      conversationKind: "direct",
+      senderLabel: "Ada Lovelace (@ada)",
+      text: "hello from Discord",
+    },
+  );
+  assert.equal(
+    inspect(
+      {
+        ...direct,
+        payload: {
+          ...direct.payload,
+          context: {
+            channelId: direct.peerId,
+            guildId: "500000000000000001",
+            kind: "guild-channel",
+          },
+        },
+      },
+      {
+        providerAccountId: "100000000000000001",
+      },
+    ),
+    undefined,
+  );
+});
+
+test("Discord driver gates server messages on a bot mention or reply and removes the trigger mention", () => {
+  const botId = "100000000000000001";
+  const driver = createDiscordBotDriver();
+  const inspect = driver.inspectMessage;
+  assert.equal(typeof inspect, "function");
+
+  const mentioned = discordGuildMessageInput({ botId });
+  assert.deepEqual(
+    inspect(mentioned, { providerAccountId: botId }),
+    {
+      conversationKind: "group",
+      senderLabel: "Ada Lovelace (@ada)",
+      text: "server status",
+    },
+  );
+
+  const reply = discordGuildMessageInput({
+    botId,
+    content: "continue in this thread",
+    mentionedUserIds: [],
+    replyAuthorId: botId,
+  });
+  assert.deepEqual(
+    inspect(reply, { providerAccountId: botId }),
+    {
+      conversationKind: "group",
+      senderLabel: "Ada Lovelace (@ada)",
+      text: "continue in this thread",
+    },
+  );
+
+  assert.equal(
+    inspect(
+      discordGuildMessageInput({
+        botId,
+        content: "ordinary server chatter",
+        mentionedUserIds: [],
+      }),
+      { providerAccountId: botId },
+    ),
+    undefined,
+  );
+  assert.equal(
+    inspect(
+      discordGuildMessageInput({
+        botId,
+        messageType: 7,
+      }),
+      { providerAccountId: botId },
+    ),
+    undefined,
+  );
+});
+
+test("Discord driver preserves Agent markdown for provider-owned chunking", () => {
+  const botId = "100000000000000001";
+  const input = discordGuildMessageInput({ botId });
+  const driver = createDiscordBotDriver();
+  const message = driver.inspectMessage(input, {
+    providerAccountId: botId,
+  });
+  assert.ok(message);
+  const longReply = "x".repeat(2_100);
+  const delivery = {
+    accountKey: `discord:${botId}`,
+    generation: 1,
+    operationId: "discord-long-agent-reply",
+    outboxId: 1,
+    recipientId: input.peerId,
+  };
+
+  const payload = driver.agentReplyPayload(longReply, {
+    input,
+    message,
+  });
+  assert.equal(payload.text, longReply);
+  assert.doesNotThrow(() =>
+    prepareDiscordPayload({
+      ...delivery,
+      payload,
+    })
+  );
+});
+
 test("Telegram driver uses the injected desktop network stack throughout startup", async () => {
   const token = "123456789:telegram-private-token-value";
   const requests = [];
@@ -176,14 +401,20 @@ test("Telegram driver uses the injected desktop network stack throughout startup
 
 test("Telegram direct-message inspection rejects groups, bots, and forged event relationships", () => {
   const inspect =
-    createTelegramBotDriver().inspectDirectMessage;
+    createTelegramBotDriver().inspectMessage;
   assert.equal(typeof inspect, "function");
   const valid = telegramDirectMessageInput();
 
-  assert.deepEqual(inspect(valid), {
-    senderLabel: "@owner",
-    text: "hello from Telegram",
-  });
+  assert.deepEqual(
+    inspect(valid, {
+      providerAccountId: "123456789",
+    }),
+    {
+      conversationKind: "direct",
+      senderLabel: "@owner",
+      text: "hello from Telegram",
+    },
+  );
 
   const violatingInputs = [
     ["non-message event", (input) => {
@@ -221,7 +452,13 @@ test("Telegram direct-message inspection rejects groups, bots, and forged event 
   for (const [label, violate] of violatingInputs) {
     const input = structuredClone(valid);
     violate(input);
-    assert.equal(inspect(input), undefined, label);
+    assert.equal(
+      inspect(input, {
+        providerAccountId: "123456789",
+      }),
+      undefined,
+      label,
+    );
   }
 });
 
@@ -434,24 +671,29 @@ test("Remote Hub commands are finite and validate verification input", () => {
     /unauthenticated/u,
   );
   for (const kind of [
-    "telegram/pairing/approve",
-    "telegram/pairing/dismiss",
+    "bot/pairing/approve",
+    "bot/pairing/dismiss",
   ]) {
-    assert.deepEqual(
-      parseRemoteHubCommand({
-        kind,
-        requestId: "pairing-request-1",
-      }),
-      {
-        kind,
-        requestId: "pairing-request-1",
-      },
-    );
+    for (const provider of ["telegram", "discord"]) {
+      assert.deepEqual(
+        parseRemoteHubCommand({
+          kind,
+          provider,
+          requestId: "pairing-request-1",
+        }),
+        {
+          kind,
+          provider,
+          requestId: "pairing-request-1",
+        },
+      );
+    }
   }
   assert.throws(
     () =>
       parseRemoteHubCommand({
-        kind: "telegram/pairing/approve",
+        kind: "bot/pairing/approve",
+        provider: "discord",
         requestId: "",
       }),
     /pairing request id/u,
@@ -644,6 +886,7 @@ function stalledBotPoll({ ingressPolicy, signal }) {
 }
 
 function transactionalBotHarness(options = {}) {
+  const providerName = options.provider ?? "telegram";
   const state = {
     deletes: 0,
     mailboxes: [],
@@ -687,7 +930,7 @@ function transactionalBotHarness(options = {}) {
       },
     },
     driver: {
-      provider: "telegram",
+      provider: providerName,
       agentReplyPayload: options.agentReplyPayload,
       candidateHealthIssue(provider) {
         return options.candidateHealthIssue?.(
@@ -728,7 +971,7 @@ function transactionalBotHarness(options = {}) {
           account: {
             accountKey: input.accountKey,
             generation: input.generation,
-            provider: "telegram",
+            provider: providerName,
             providerAccountId: input.identity.id,
             requiresDeliveryContext: false,
           },
@@ -752,8 +995,7 @@ function transactionalBotHarness(options = {}) {
         record.provider = provider;
         return provider;
       },
-      inspectDirectMessage:
-        options.inspectDirectMessage,
+      inspectMessage: options.inspectMessage,
     },
     createMailbox() {
       const mailbox = {
@@ -769,7 +1011,8 @@ function transactionalBotHarness(options = {}) {
         },
         inspectOutboxHealth() {
           return {
-            accountKey: "telegram:transactional-bot-id",
+            accountKey:
+              `${providerName}:transactional-bot-id`,
             awaitingDeliveryContext: 0,
             generation: 1,
             terminalFailures: 0,
@@ -821,8 +1064,7 @@ test("an unknown Telegram DM creates a pairing reply and approval authorizes onl
       generation: 1,
       token: "123456789:telegram-private-token-value",
     },
-    inspectDirectMessage:
-      telegramDriver.inspectDirectMessage,
+    inspectMessage: telegramDriver.inspectMessage,
     agentReplyPayload:
       telegramDriver.agentReplyPayload,
     now: () => now,
@@ -907,7 +1149,7 @@ test("an unknown Telegram DM creates a pairing reply and approval authorizes onl
     payload: {
       kind: "text",
       text:
-        "Minke 收到了你的私聊配对请求。\n"
+        "Minke 收到了你的 Telegram 私聊配对请求。\n"
         + "配对码：ABCDEFGH\n"
         + "请在 Minke 的「远端 → Telegram」中确认。"
         + "这条消息尚未交给 Agent。",
@@ -929,6 +1171,183 @@ test("an unknown Telegram DM creates a pairing reply and approval authorizes onl
   });
 });
 
+test("an unknown Discord DM creates an approvable pairing request", async (t) => {
+  const now = 1_800_000_000_000;
+  const directMessage = discordDirectMessageInput();
+  const pairingCreated = deferred();
+  const ingressDecision = deferred();
+  const routeResult = deferred();
+  let routeCalls = 0;
+  const discordDriver = createDiscordBotDriver();
+  const { runtime, state } = transactionalBotHarness({
+    provider: "discord",
+    stored: {
+      accountId: "transactional-bot-id",
+      accountLabel: "Minke (@minke)",
+      generation: 1,
+      token: "discord-private-token-value-123456789",
+    },
+    inspectMessage: discordDriver.inspectMessage,
+    now: () => now,
+    createPairingCode: () => "ABCDEFGH",
+    createPairingRequestId: () =>
+      "discord-pairing-request-1",
+    async pollProviderOnce({
+      ingressPolicy,
+      provider,
+      signal,
+    }) {
+      ingressDecision.resolve(
+        ingressPolicy({
+          account: provider.account,
+          event: directMessage,
+        }),
+      );
+      pairingCreated.resolve();
+      await abortableWait(signal);
+    },
+    async routeInboxOnce({ handler, signal }) {
+      routeCalls += 1;
+      if (routeCalls > 1) {
+        await abortableWait(signal);
+        return { status: "idle" };
+      }
+      await pairingCreated.promise;
+      const result = await handler({
+        account: {
+          accountKey: "discord:transactional-bot-id",
+          generation: 1,
+          provider: "discord",
+          providerAccountId: "transactional-bot-id",
+          requiresDeliveryContext: false,
+        },
+        lease: {
+          ...directMessage,
+          accountKey: "discord:transactional-bot-id",
+          inboxId: 9,
+          leaseToken: "lease-discord-pairing",
+        },
+        operationId: "gateway-discord-pairing-reply-1",
+        signal,
+      });
+      routeResult.resolve(result);
+      return {
+        operationId: "gateway-discord-pairing-reply-1",
+        status: "reply-enqueued",
+      };
+    },
+    async dispatchProviderOnce({ signal }) {
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    agentRoute: {
+      async runAgentTurn() {
+        throw new Error(
+          "the unapproved Discord message must not reach Agent",
+        );
+      },
+    },
+  });
+  t.after(async () => {
+    await runtime.dispose();
+  });
+
+  await runtime.initialize();
+  assert.equal(await ingressDecision.promise, true);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "pairing",
+    accountLabel: "Minke (@minke)",
+    request: {
+      code: "ABCDEFGH",
+      expiresAt: now + 60 * 60 * 1_000,
+      requestId: "discord-pairing-request-1",
+      senderLabel: "Ada Lovelace (@ada)",
+    },
+  });
+  assert.deepEqual(await routeResult.promise, {
+    status: "reply",
+    payload: {
+      kind: "text",
+      text:
+        "Minke 收到了你的 Discord 私聊配对请求。\n"
+        + "配对码：ABCDEFGH\n"
+        + "请在 Minke 的「远端 → Discord」中确认。"
+        + "这条消息尚未交给 Agent。",
+    },
+  });
+
+  await runtime.approvePairing(
+    "discord-pairing-request-1",
+  );
+  assert.equal(
+    state.writes.at(-1).authorizedUserId,
+    directMessage.senderId,
+  );
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "connected",
+    accountLabel: "Minke (@minke)",
+  });
+});
+
+test("an unpaired Discord server mention cannot create an authorization request", async (t) => {
+  const botId = "100000000000000001";
+  const guildMessage = discordGuildMessageInput({ botId });
+  const ingressDecision = deferred();
+  const discordDriver = createDiscordBotDriver();
+  const { runtime } = transactionalBotHarness({
+    provider: "discord",
+    stored: {
+      accountId: botId,
+      accountLabel: "Minke (@minke)",
+      generation: 1,
+      token: "discord-private-token-value-123456789",
+    },
+    validate: async () => ({
+      id: botId,
+      label: "Minke (@minke)",
+    }),
+    inspectMessage: discordDriver.inspectMessage,
+    async pollProviderOnce({
+      ingressPolicy,
+      provider,
+      signal,
+    }) {
+      ingressDecision.resolve(
+        ingressPolicy({
+          account: provider.account,
+          event: guildMessage,
+        }),
+      );
+      await abortableWait(signal);
+    },
+    async routeInboxOnce({ signal }) {
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    async dispatchProviderOnce({ signal }) {
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    agentRoute: {
+      async runAgentTurn() {
+        throw new Error(
+          "an unpaired server message must not reach Agent",
+        );
+      },
+    },
+  });
+  t.after(async () => {
+    await runtime.dispose();
+  });
+
+  await runtime.initialize();
+  assert.equal(await ingressDecision.promise, false);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "pairing",
+    accountLabel: "Minke (@minke)",
+  });
+});
+
 test("authorized Telegram DMs route through Agent and durable reply dispatch", async (t) => {
   const ingressDecision = deferred();
   const routeResult = deferred();
@@ -946,7 +1365,7 @@ test("authorized Telegram DMs route through Agent and durable reply dispatch", a
     },
     agentReplyPayload:
       telegramDriver.agentReplyPayload,
-    inspectDirectMessage(input) {
+    inspectMessage(input) {
       const payload = input.payload;
       if (
         input.kind !== "user-message" ||
@@ -955,6 +1374,7 @@ test("authorized Telegram DMs route through Agent and durable reply dispatch", a
         return undefined;
       }
       return {
+        conversationKind: "direct",
         senderLabel: "@owner",
         text:
           payload.content?.kind === "text"
@@ -1066,6 +1486,269 @@ test("authorized Telegram DMs route through Agent and durable reply dispatch", a
   assert.match(
     agentInputs[0].sessionId,
     /^minke-im-telegram-[a-f0-9]{32}$/u,
+  );
+});
+
+test("authorized Discord DMs route through Agent and durable reply dispatch", async (t) => {
+  const directMessage = discordDirectMessageInput();
+  const ingressDecision = deferred();
+  const routeResult = deferred();
+  const dispatchStarted = deferred();
+  const agentInputs = [];
+  let routeCalls = 0;
+  const discordDriver = createDiscordBotDriver();
+  const { runtime } = transactionalBotHarness({
+    provider: "discord",
+    stored: {
+      accountId: "transactional-bot-id",
+      accountLabel: "Minke (@minke)",
+      authorizedUserId: directMessage.senderId,
+      generation: 1,
+      token: "discord-private-token-value-123456789",
+    },
+    inspectMessage: discordDriver.inspectMessage,
+    async pollProviderOnce({
+      ingressPolicy,
+      provider,
+      signal,
+    }) {
+      ingressDecision.resolve(
+        ingressPolicy({
+          account: provider.account,
+          event: directMessage,
+        }),
+      );
+      await abortableWait(signal);
+    },
+    async routeInboxOnce({ handler, signal }) {
+      routeCalls += 1;
+      if (routeCalls > 1) {
+        await abortableWait(signal);
+        return { status: "idle" };
+      }
+      const result = await handler({
+        account: {
+          accountKey: "discord:transactional-bot-id",
+          generation: 1,
+          provider: "discord",
+          providerAccountId: "transactional-bot-id",
+          requiresDeliveryContext: false,
+        },
+        lease: {
+          ...directMessage,
+          accountKey: "discord:transactional-bot-id",
+          inboxId: 10,
+          leaseToken: "lease-discord-agent",
+        },
+        operationId: "gateway-discord-reply-1",
+        signal,
+      });
+      routeResult.resolve(result);
+      return {
+        operationId: "gateway-discord-reply-1",
+        status: "reply-enqueued",
+      };
+    },
+    async dispatchProviderOnce({ signal }) {
+      dispatchStarted.resolve();
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    agentRoute: {
+      async runAgentTurn(input) {
+        agentInputs.push(input);
+        return {
+          outcome: "completed",
+          sessionId: input.sessionId,
+          text: "**Discord ready**",
+          turn: 1,
+          endReason: "completed",
+        };
+      },
+    },
+  });
+  t.after(async () => {
+    await runtime.dispose();
+  });
+
+  await runtime.initialize();
+  assert.equal(await ingressDecision.promise, true);
+  await dispatchStarted.promise;
+  assert.deepEqual(await routeResult.promise, {
+    status: "reply",
+    payload: {
+      kind: "text",
+      text: "**Discord ready**",
+    },
+  });
+  assert.equal(agentInputs.length, 1);
+  assert.equal(
+    agentInputs[0].operationId,
+    "gateway-discord-reply-1",
+  );
+  assert.equal(
+    agentInputs[0].text,
+    "hello from Discord",
+  );
+  assert.match(
+    agentInputs[0].sessionId,
+    /^minke-im-discord-[a-f0-9]{32}$/u,
+  );
+});
+
+test("authorized Discord server mentions route in the channel and reply to the triggering message", async (t) => {
+  const botId = "100000000000000001";
+  const guildMessage = discordGuildMessageInput({ botId });
+  const threadMessage = discordGuildMessageInput({
+    botId,
+    channelId: "400000000000000003",
+    contextKind: "guild-thread",
+    content: `<@${botId}> thread status`,
+    messageId: "600000000000000005",
+  });
+  const ingressDecisions = deferred();
+  const routeResults = deferred();
+  const routedResults = [];
+  const agentInputs = [];
+  let routeCalls = 0;
+  const discordDriver = createDiscordBotDriver();
+  const inspectMessage = discordDriver.inspectMessage;
+  const { runtime } = transactionalBotHarness({
+    provider: "discord",
+    stored: {
+      accountId: botId,
+      accountLabel: "Minke (@minke)",
+      authorizedUserId: guildMessage.senderId,
+      generation: 1,
+      token: "discord-private-token-value-123456789",
+    },
+    validate: async () => ({
+      id: botId,
+      label: "Minke (@minke)",
+    }),
+    inspectMessage,
+    agentReplyPayload: discordDriver.agentReplyPayload,
+    async pollProviderOnce({
+      ingressPolicy,
+      provider,
+      signal,
+    }) {
+      const unmentioned = discordGuildMessageInput({
+        botId,
+        content: "ordinary server chatter",
+        messageId: "600000000000000003",
+        mentionedUserIds: [],
+      });
+      const anotherUser = discordGuildMessageInput({
+        botId,
+        messageId: "600000000000000004",
+        senderId: "300000000000000009",
+      });
+      ingressDecisions.resolve([
+        ingressPolicy({
+          account: provider.account,
+          event: guildMessage,
+        }),
+        ingressPolicy({
+          account: provider.account,
+          event: threadMessage,
+        }),
+        ingressPolicy({
+          account: provider.account,
+          event: unmentioned,
+        }),
+        ingressPolicy({
+          account: provider.account,
+          event: anotherUser,
+        }),
+      ]);
+      await abortableWait(signal);
+    },
+    async routeInboxOnce({ handler, signal }) {
+      routeCalls += 1;
+      if (routeCalls > 2) {
+        await abortableWait(signal);
+        return { status: "idle" };
+      }
+      const incoming =
+        routeCalls === 1 ? guildMessage : threadMessage;
+      const result = await handler({
+        account: {
+          accountKey: `discord:${botId}`,
+          generation: 1,
+          provider: "discord",
+          providerAccountId: botId,
+          requiresDeliveryContext: false,
+        },
+        lease: {
+          ...incoming,
+          accountKey: `discord:${botId}`,
+          inboxId: 10 + routeCalls,
+          leaseToken:
+            `lease-discord-guild-agent-${routeCalls}`,
+        },
+        operationId:
+          `gateway-discord-guild-reply-${routeCalls}`,
+        signal,
+      });
+      routedResults.push(result);
+      if (routedResults.length === 2) {
+        routeResults.resolve(routedResults);
+      }
+      return {
+        operationId:
+          `gateway-discord-guild-reply-${routeCalls}`,
+        status: "reply-enqueued",
+      };
+    },
+    async dispatchProviderOnce({ signal }) {
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    agentRoute: {
+      async runAgentTurn(input) {
+        agentInputs.push(input);
+        return {
+          outcome: "completed",
+          sessionId: input.sessionId,
+          text: "x".repeat(2_100),
+          turn: 1,
+          endReason: "completed",
+        };
+      },
+    },
+  });
+  t.after(async () => {
+    await runtime.dispose();
+  });
+
+  await runtime.initialize();
+  assert.deepEqual(await ingressDecisions.promise, [
+    true,
+    true,
+    false,
+    false,
+  ]);
+  const routed = (await routeResults.promise)[0];
+  assert.equal(routed.status, "reply");
+  assert.equal(routed.payload.kind, "text");
+  assert.equal(routed.payload.text, "x".repeat(2_100));
+  assert.deepEqual(routed.payload.replyTo, {
+    channelId: guildMessage.peerId,
+    failIfNotExists: false,
+    guildId: guildMessage.payload.guildId,
+    messageId: guildMessage.nativeId,
+  });
+  assert.equal(agentInputs.length, 2);
+  assert.equal(agentInputs[0].text, "server status");
+  assert.equal(agentInputs[1].text, "thread status");
+  assert.match(
+    agentInputs[0].sessionId,
+    /^minke-im-discord-[a-f0-9]{32}$/u,
+  );
+  assert.notEqual(
+    agentInputs[0].sessionId,
+    agentInputs[1].sessionId,
   );
 });
 
@@ -4695,6 +5378,43 @@ test("an absent Remote bridge does not mark a healthy IM-only Hub as failed", as
   remote.dispose();
 });
 
+test("Remote Hub trigger maps transitional and failed states to semantic colors", async () => {
+  const contract = inspectCssContract(
+    await readFile(
+      join(
+        process.cwd(),
+        "packages",
+        "harness-overlay",
+        "src",
+        "client",
+        "remote-hub",
+        "styles.css",
+      ),
+      "utf8",
+    ),
+  );
+  const indicator =
+    "[data-minke-remote-hub-indicator]";
+  assert.deepEqual(
+    {
+      attention: contract.declaration(
+        `[data-minke-remote-hub-action][data-state="attention"] ${indicator}`,
+        "background",
+      ),
+      working: contract.declaration(
+        `[data-minke-remote-hub-action][data-state="working"] ${indicator}`,
+        "background",
+      ),
+    },
+    {
+      attention:
+        "var(--dsw-alias-state-error-primary)",
+      working:
+        "var(--dsw-alias-state-warning-primary)",
+    },
+  );
+});
+
 test("blank-session Remote fallback yields to the live Session header trigger", async () => {
   const remote = new RemoteSettingsRuntime({
     available: false,
@@ -4756,7 +5476,7 @@ test("blank-session Remote fallback yields to the live Session header trigger", 
   remote.dispose();
 });
 
-test("Remote entry surfaces Remote Settings work and write failures", async () => {
+test("Remote entry keeps connection presence green through settings work and write failures", async () => {
   let rejectWrite;
   const remote = new RemoteSettingsRuntime({
     available: true,
@@ -4817,8 +5537,9 @@ test("Remote entry surfaces Remote Settings work and write failures", async () =
   );
   assert.match(
     working,
-    /aria-label="Remote: working"/u,
+    /aria-label="Remote: capability active"/u,
   );
+  assert.match(working, /data-state="active"/u);
 
   await Promise.resolve();
   rejectWrite(new Error("write failed"));
@@ -4831,13 +5552,14 @@ test("Remote entry surfaces Remote Settings work and write failures", async () =
   );
   assert.match(
     failed,
-    /aria-label="Remote: needs attention"/u,
+    /aria-label="Remote: capability active"/u,
   );
+  assert.match(failed, /data-state="active"/u);
   await hub.dispose();
   remote.dispose();
 });
 
-test("Remote Hub renders one accessible entry and a dialog containing IM and Tailscale controls", async () => {
+test("Remote Hub uses grouped sidebar navigation and stable detail panels", async () => {
   const remote = new RemoteSettingsRuntime({
     available: true,
     async read() {
@@ -4900,10 +5622,12 @@ test("Remote Hub renders one accessible entry and a dialog containing IM and Tai
   );
   assert.match(trigger, /aria-haspopup="dialog"/u);
   assert.match(trigger, /aria-expanded="false"/u);
+  assert.match(trigger, /d="M2 8V6a2 2 0 0 1 2-2h16/u);
   assert.match(
     trigger,
     /aria-label="Remote: needs attention"/u,
   );
+  assert.match(trigger, /data-state="attention"/u);
   assert.equal(
     (trigger.match(/data-minke-remote-hub-action/g) ?? [])
       .length,
@@ -4920,23 +5644,83 @@ test("Remote Hub renders one accessible entry and a dialog containing IM and Tai
   );
   assert.match(dialog, /role="dialog"/u);
   assert.match(dialog, /aria-modal="true"/u);
-  assert.match(dialog, />Weixin</u);
+  assert.match(
+    dialog,
+    /<nav[^>]*class="minke-remote-hub__navigation"/u,
+  );
+  assert.doesNotMatch(dialog, /role="tablist"/u);
+  assert.match(
+    dialog,
+    /<button[^>]*aria-current="page"[^>]*>[\s\S]*WeChat/u,
+  );
+  assert.match(dialog, />Messaging</u);
+  assert.match(dialog, />Device access</u);
+  assert.ok(
+    dialog.indexOf(">Messaging<") <
+      dialog.indexOf(">Device access<"),
+  );
+  assert.match(dialog, />WeChat</u);
+  assert.doesNotMatch(dialog, /Weixin/u);
+  assert.equal(
+    Object.values(remoteHubEn).some((value) =>
+      value.includes("Weixin")
+    ),
+    false,
+  );
   assert.match(dialog, />Telegram</u);
   assert.match(dialog, />Discord</u);
+  assert.match(dialog, /d="M15\.85 8\.14c\.39/u);
+  assert.match(dialog, /d="M12 2C6\.48 2 2 6\.48/u);
+  assert.match(dialog, /d="M19\.27 5\.33C17\.94/u);
+  assert.match(dialog, /role="region"/u);
   assert.equal(
     (dialog.match(/type="password"/gu) ?? []).length,
-    2,
+    0,
+  );
+  assert.doesNotMatch(dialog, />Manage</u);
+  assert.doesNotMatch(dialog, />Done</u);
+  assert.doesNotMatch(dialog, /data-expanded=/u);
+  assert.doesNotMatch(dialog, /planned/iu);
+  assert.match(dialog, /role="status"/u);
+  assert.match(dialog, />Reset local data</u);
+  assert.doesNotMatch(dialog, /Enable remote access/u);
+  assert.doesNotMatch(dialog, /Tailscale connection/u);
+
+  hub.setView("telegram");
+  const telegramDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    telegramDialog,
+    /<button[^>]*aria-current="page"[^>]*>[\s\S]*Telegram/u,
   );
   assert.equal(
-    (dialog.match(/aria-describedby=/gu) ?? []).length >= 3,
-    true,
+    (telegramDialog.match(/type="password"/gu) ?? []).length,
+    1,
   );
-  assert.doesNotMatch(dialog, /planned/iu);
-  assert.match(dialog, /Tailscale connection/u);
-  assert.match(dialog, /role="status"/u);
-  assert.match(dialog, /Enable remote access/u);
-  assert.match(dialog, />Disconnect</u);
-  assert.match(dialog, />Reset local data</u);
+  assert.match(telegramDialog, />Connect Telegram</u);
+  assert.doesNotMatch(telegramDialog, />Connect Discord</u);
+
+  hub.setView("access");
+  const remoteDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    remoteDialog,
+    /<button[^>]*aria-current="page"[^>]*>[\s\S]*Remote access/u,
+  );
+  assert.match(remoteDialog, /Access method/u);
+  assert.match(remoteDialog, /Enable remote access/u);
+  assert.match(remoteDialog, /Advanced settings/u);
+  assert.doesNotMatch(remoteDialog, /Tailscale connection/u);
 
   channels = {
     ...snapshot({
@@ -4946,6 +5730,7 @@ test("Remote Hub renders one accessible entry and a dialog containing IM and Tai
     revision: 4,
   };
   await hub.dispatch({ kind: "refresh" });
+  hub.setView("weixin");
   const recoveryDialog = renderToStaticMarkup(
     createElement(RemoteHubDialogHost, {
       runtime: hub,
@@ -4958,6 +5743,242 @@ test("Remote Hub renders one accessible entry and a dialog containing IM and Tai
     recoveryDialog,
     />Reset local data</u,
   );
+
+  await hub.dispose();
+  remote.dispose();
+});
+
+test("Remote Hub prioritizes recovery for a blocked active remote route", async () => {
+  const remote = new RemoteSettingsRuntime({
+    available: true,
+    async read() {
+      return {
+        available: { tailscale: true, cloudflare: false },
+        settings: {
+          enabled: true,
+          method: "tailscale",
+          tailscale: { transport: "serve" },
+          cloudflare: {
+            hostnameMode: "generated",
+            domain: "",
+            generatedLabel: "m-0123456789abcdef",
+            customHostname: "",
+            teamName: "",
+            audience: "",
+            tunnel: "",
+            configPath: "",
+            originPort: 49_321,
+          },
+        },
+        runtime: {
+          method: "tailscale",
+          transport: "serve",
+          state: "retrying",
+          error: "status",
+        },
+      };
+    },
+    async write() {},
+  });
+  await remote.initialize();
+  const channels = snapshot();
+  const hub = new RemoteHubRuntime(remote, {
+    available: true,
+    async read() {
+      return channels;
+    },
+    async dispatch() {
+      return channels;
+    },
+    subscribe() {
+      return () => {};
+    },
+  });
+  await hub.initialize();
+  const trigger = renderToStaticMarkup(
+    createElement(RemoteHubAction, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+    }),
+  );
+  assert.match(
+    trigger,
+    /aria-label="Remote: working"/u,
+  );
+  assert.match(trigger, /data-state="working"/u);
+  hub.open();
+  hub.setView("access");
+
+  const dialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(dialog, />Retrying</u);
+  assert.match(
+    dialog,
+    /Minke could not read a connected Tailscale node/u,
+  );
+  assert.match(dialog, />Refresh status</u);
+  assert.match(dialog, />Disable remote access</u);
+  assert.doesNotMatch(dialog, /Access method/u);
+  assert.doesNotMatch(dialog, /Advanced settings/u);
+  assert.doesNotMatch(dialog, /Tailscale connection/u);
+  assert.doesNotMatch(dialog, />Enable remote access</u);
+  assert.equal(
+    (dialog.match(/>Private network</gu) ?? []).length,
+    1,
+  );
+
+  await hub.dispose();
+  remote.dispose();
+});
+
+test("Remote Hub keeps channel navigation compact and actions in the detail panel", async () => {
+  const remote = new RemoteSettingsRuntime({
+    available: false,
+    async read() {
+      throw new Error("remote access unavailable");
+    },
+    async write() {},
+  });
+  const channels = {
+    ...snapshot({
+      state: "connected",
+      accountLabel: "•• 931D53",
+    }),
+    dependencies: {
+      credentialVault: "ready",
+      agentRoute: "ready",
+    },
+    channels: {
+      weixin: {
+        state: "connected",
+        accountLabel: "•• 931D53",
+      },
+      telegram: {
+        state: "pairing",
+        accountLabel: "@minke_dsh_bot",
+      },
+      discord: {
+        state: "pairing",
+        accountLabel: "Minke (@minke_bot)",
+        request: {
+          code: "ABCDEFGH",
+          expiresAt: 1_900_000_000_000,
+          requestId: "discord-pairing-request",
+          senderLabel: "Ada Lovelace (@ada)",
+        },
+      },
+    },
+  };
+  const hub = new RemoteHubRuntime(remote, {
+    available: true,
+    async read() {
+      return channels;
+    },
+    async dispatch() {
+      return channels;
+    },
+    subscribe() {
+      return () => {};
+    },
+  });
+  await hub.initialize();
+  const trigger = renderToStaticMarkup(
+    createElement(RemoteHubAction, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+    }),
+  );
+  assert.match(
+    trigger,
+    /aria-label="Remote: capability active"/u,
+  );
+  assert.match(trigger, /data-state="active"/u);
+  hub.open();
+
+  const dialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(dialog, />System ready</u);
+  assert.match(dialog, /Account •• 931D53/u);
+  assert.doesNotMatch(dialog, />Manage</u);
+  assert.doesNotMatch(dialog, />Done</u);
+  assert.match(dialog, />Reconnect</u);
+  assert.match(dialog, />Disconnect</u);
+  assert.match(
+    dialog,
+    /minke-remote-hub__navigation-indicator" data-state="connected" data-tone="success"/u,
+  );
+  assert.match(
+    dialog,
+    /minke-remote-hub__navigation-indicator" data-state="pairing" data-tone="success"/u,
+  );
+  assert.match(
+    dialog,
+    /class="minke-remote-hub__button--danger"[^>]*>Disconnect<\/button>/u,
+  );
+  assert.equal(
+    (dialog.match(/type="password"/gu) ?? []).length,
+    0,
+  );
+
+  hub.setView("telegram");
+  const telegramDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(telegramDialog, /Account @minke_dsh_bot/u);
+  assert.doesNotMatch(telegramDialog, />Reconnect</u);
+  assert.match(telegramDialog, />Disconnect</u);
+  assert.match(
+    telegramDialog,
+    /minke-remote-hub__channel-status" data-state="pairing" data-tone="success"/u,
+  );
+  assert.match(
+    telegramDialog,
+    /class="minke-remote-hub__button--danger"[^>]*>Disconnect<\/button>/u,
+  );
+
+  hub.setView("discord");
+  const discordDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    discordDialog,
+    /aria-label="Discord direct-message pairing request"/u,
+  );
+  assert.match(
+    discordDialog,
+    /After DM pairing, mention or reply to the bot in a server/u,
+  );
+  assert.match(
+    discordDialog,
+    />Pairing request from Ada Lovelace \(@ada\)</u,
+  );
+  assert.match(discordDialog, />Pairing code ABCDEFGH</u);
+  assert.match(discordDialog, />Approve pairing</u);
+  assert.match(discordDialog, />Ignore</u);
+  assert.equal(
+    (discordDialog.match(/type="password"/gu) ?? []).length,
+    0,
+  );
+  assert.doesNotMatch(discordDialog, />Reconnect</u);
+  assert.match(discordDialog, />Disconnect</u);
 
   await hub.dispose();
   remote.dispose();
@@ -5000,6 +6021,7 @@ test("Telegram network error does not render the Agent route-pending description
   });
   await hub.initialize();
   hub.open();
+  hub.setView("telegram");
 
   const dialog = renderToStaticMarkup(
     createElement(RemoteHubDialogHost, {

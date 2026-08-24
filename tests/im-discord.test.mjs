@@ -263,6 +263,8 @@ function hello(socket, interval = 100) {
   socket.emitMessage({
     d: { heartbeat_interval: interval },
     op: 10,
+    s: null,
+    t: null,
   });
 }
 
@@ -789,6 +791,13 @@ test("MESSAGE_CREATE normalizes attachment, embed, reply, and thread context int
         message_id: "900000000000000001",
         type: 0,
       },
+      mentions: [
+        {
+          bot: true,
+          id: bot.id,
+          username: bot.username,
+        },
+      ],
       nonce: "minke-correlation",
       referenced_message: {
         author: {
@@ -837,6 +846,10 @@ test("MESSAGE_CREATE normalizes attachment, embed, reply, and thread context int
   assert.equal(
     batch.events[0].payload.embeds[0].fields[0].value,
     "v",
+  );
+  assert.deepEqual(
+    batch.events[0].payload.mentionedUserIds,
+    [bot.id],
   );
   assert.deepEqual(batch.events[0].payload.reply, {
     authorId: "300000000000000002",
@@ -1204,6 +1217,45 @@ test("a bot echo maps Discord's bounded nonce back to the Gateway operation id",
   );
 });
 
+test("a split-message bot echo maps every stable nonce back to one Gateway operation", async (t) => {
+  const fixture = await startedProvider();
+  t.after(() => fixture.provider.close());
+  const preparation = await fixture.provider.prepare(
+    deliveryPreparation({
+      kind: "text",
+      text: "x".repeat(2_100),
+    }),
+  );
+  assert.equal(preparation.status, "ready");
+  const receive = fixture.provider.receive(
+    gatewayCheckpoint(1),
+  );
+  fixture.socket.emitMessage({
+    d: message({
+      author: {
+        avatar: null,
+        bot: true,
+        discriminator: "0",
+        global_name: bot.globalName,
+        id: bot.id,
+        username: bot.username,
+      },
+      channel_type: 1,
+      guild_id: undefined,
+      nonce: discordNonceForOperation("operation-1", 1),
+    }),
+    op: 0,
+    s: 2,
+    t: "MESSAGE_CREATE",
+  });
+  const batch = await receive;
+  assert.equal(batch.events[0].kind, "bot-echo");
+  assert.equal(
+    batch.events[0].correlationId,
+    "operation-1",
+  );
+});
+
 test("normalization distinguishes direct context and rejects executable attachment URLs", () => {
   assert.deepEqual(
     normalizeDiscordMessage(
@@ -1321,6 +1373,187 @@ test("REST delivery suppresses mentions, enforces a stable nonce, and returns th
     requests[0].url,
     "https://discord.com/api/v10/channels/400000000000000001/messages",
   );
+});
+
+test("long Discord REST delivery preserves the complete reply across bounded messages", async (t) => {
+  const requests = [];
+  const fetch = sequenceFetch(
+    [
+      json({
+        channel_id: "400000000000000001",
+        id: "600000000000000098",
+      }),
+      json({
+        channel_id: "400000000000000001",
+        id: "600000000000000099",
+      }),
+    ],
+    requests,
+  );
+  const provider = await createDiscordGatewayProvider({
+    accountKey: `discord:${bot.id}`,
+    bot,
+    fetch,
+    generation: 1,
+    token: secretToken,
+  });
+  t.after(() => provider.close());
+  const text = "x".repeat(2_100);
+  const preparation = await provider.prepare(
+    deliveryPreparation({
+      kind: "text",
+      replyTo: {
+        messageId: "900000000000000001",
+      },
+      text,
+    }),
+  );
+  assert.equal(preparation.status, "ready");
+
+  const outcome = await provider.deliver(
+    deliveryAttempt(preparation.preparedPayload),
+  );
+
+  assert.deepEqual(outcome, {
+    providerReceiptId: "600000000000000099",
+    status: "accepted",
+  });
+  assert.equal(requests.length, 2);
+  const bodies = requests.map((request) =>
+    JSON.parse(request.body)
+  );
+  assert.equal(
+    bodies.map((body) => body.content).join(""),
+    text,
+  );
+  assert.equal(
+    bodies.every(
+      (body) => [...body.content].length <= 2_000,
+    ),
+    true,
+  );
+  assert.deepEqual(
+    bodies.map((body) => [...body.content].length),
+    [2_000, 100],
+  );
+  assert.deepEqual(bodies[0].message_reference, {
+    fail_if_not_exists: false,
+    message_id: "900000000000000001",
+    type: 0,
+  });
+  assert.equal(bodies[1].message_reference, undefined);
+  assert.notEqual(bodies[0].nonce, bodies[1].nonce);
+});
+
+test("long Discord REST delivery keeps fenced code blocks balanced", async (t) => {
+  const requests = [];
+  const fetch = sequenceFetch(
+    [
+      json({
+        channel_id: "400000000000000001",
+        id: "600000000000000098",
+      }),
+      json({
+        channel_id: "400000000000000001",
+        id: "600000000000000099",
+      }),
+    ],
+    requests,
+  );
+  const provider = await createDiscordGatewayProvider({
+    accountKey: `discord:${bot.id}`,
+    bot,
+    fetch,
+    generation: 1,
+    token: secretToken,
+  });
+  t.after(() => provider.close());
+  const text =
+    "```ts\nconst value = \"" +
+    "x".repeat(2_050) +
+    "\";\n```";
+  const preparation = await provider.prepare(
+    deliveryPreparation({ kind: "text", text }),
+  );
+  assert.equal(preparation.status, "ready");
+
+  assert.equal(
+    (await provider.deliver(
+      deliveryAttempt(preparation.preparedPayload),
+    )).status,
+    "accepted",
+  );
+
+  assert.equal(requests.length, 2);
+  const contents = requests.map(
+    (request) => JSON.parse(request.body).content,
+  );
+  for (const content of contents) {
+    assert.equal([...content].length <= 2_000, true);
+    assert.equal(
+      (content.match(/```/gu) ?? []).length % 2,
+      0,
+    );
+  }
+  assert.match(contents[0], /^```ts\n/u);
+  assert.match(contents[0], /\n```$/u);
+  assert.match(contents[1], /^```ts\n/u);
+  assert.match(contents[1], /\n```$/u);
+});
+
+test("extreme Discord replies use eight messages and attach the complete Markdown", async (t) => {
+  const requests = [];
+  const fetch = sequenceFetch(
+    Array.from({ length: 8 }, (_, index) =>
+      json({
+        channel_id: "400000000000000001",
+        id: `6000000000000001${String(index).padStart(2, "0")}`,
+      })
+    ),
+    requests,
+  );
+  const provider = await createDiscordGatewayProvider({
+    accountKey: `discord:${bot.id}`,
+    bot,
+    fetch,
+    generation: 1,
+    token: secretToken,
+  });
+  t.after(() => provider.close());
+  const text = "x".repeat(16_001);
+  const preparation = await provider.prepare(
+    deliveryPreparation({ kind: "text", text }),
+  );
+  assert.equal(preparation.status, "ready");
+
+  assert.equal(
+    (await provider.deliver(
+      deliveryAttempt(preparation.preparedPayload),
+    )).status,
+    "accepted",
+  );
+
+  assert.equal(requests.length, 8);
+  const finalBody = requests.at(-1).body;
+  assert.equal(finalBody instanceof FormData, true);
+  const finalPayload = JSON.parse(
+    finalBody.get("payload_json"),
+  );
+  assert.match(
+    finalPayload.content,
+    /complete response is attached/u,
+  );
+  const file = finalBody.get("files[0]");
+  assert.equal(file.name, "minke-response.md");
+  assert.equal(await file.text(), text);
+  const nonces = requests.map((request) => {
+    const body =
+      request.body instanceof FormData
+        ? JSON.parse(request.body.get("payload_json"))
+        : JSON.parse(request.body);
+    return body.nonce;
+  });
+  assert.equal(new Set(nonces).size, 8);
 });
 
 test("attachment delivery uses Discord multipart indices and copies caller-owned bytes", async (t) => {
@@ -1543,7 +1776,7 @@ test("aborted work, malformed intent, close, and fatal Gateway codes fail closed
     await fixture.provider.prepare(
       deliveryPreparation({
         kind: "text",
-        text: "x".repeat(2_001),
+        text: "",
       }),
     ),
     {

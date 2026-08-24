@@ -22,8 +22,15 @@ export type RemoteHubClientOperation =
   | "resetting"
   | "unlinking";
 
+export type RemoteHubView =
+  | "weixin"
+  | "telegram"
+  | "discord"
+  | "access";
+
 export interface RemoteHubClientSnapshot {
   readonly open: boolean;
+  readonly view: RemoteHubView;
   readonly remote: RemoteSettingsSnapshot;
   readonly channels: RemoteHubSnapshot;
   readonly operation: RemoteHubClientOperation;
@@ -86,10 +93,10 @@ function operationFor(
     case "weixin/link/start":
       return "starting-link";
     case "weixin/link/verify":
-    case "telegram/pairing/approve":
+    case "bot/pairing/approve":
       return "verifying";
     case "weixin/link/cancel":
-    case "telegram/pairing/dismiss":
+    case "bot/pairing/dismiss":
       return "cancelling";
     case "telegram/unlink":
     case "discord/unlink":
@@ -120,6 +127,7 @@ export class RemoteHubRuntime {
     this.#port = port;
     this.#snapshot = Object.freeze({
       open: false,
+      view: "weixin",
       remote: remote.getSnapshot(),
       channels: initialChannels(port.available),
       operation: "idle",
@@ -195,6 +203,11 @@ export class RemoteHubRuntime {
         )
         ?.focus();
     });
+  }
+
+  setView(view: RemoteHubView): void {
+    if (this.#disposed || this.#snapshot.view === view) return;
+    this.#publish({ view });
   }
 
   dispatch(command: RemoteHubCommand): Promise<void> {

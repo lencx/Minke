@@ -7,6 +7,7 @@ export const DISCORD_API_BASE_URL =
   "https://discord.com/api/v10";
 export const DISCORD_GATEWAY_VERSION = 10;
 export const DISCORD_MAX_MESSAGE_CONTENT_CHARACTERS = 2_000;
+export const DISCORD_MAX_DELIVERY_MESSAGES = 8;
 export const DISCORD_MAX_MESSAGE_REQUEST_BYTES =
   25 * 1024 * 1024;
 export const DISCORD_DEFAULT_MAX_PENDING_MESSAGES = 1_000;
@@ -206,6 +207,7 @@ export interface DiscordInboundMessage {
   readonly flags: number;
   readonly guildId?: string;
   readonly id: string;
+  readonly mentionedUserIds: readonly string[];
   readonly messageType: number;
   readonly nonce?: string;
   readonly reply?: DiscordInboundReply;
@@ -240,9 +242,13 @@ export type DiscordOutboundMessage =
     };
 
 export interface DiscordPreparedDelivery {
-  readonly attachments: readonly DiscordOutboundAttachment[];
   readonly channelId: string;
   readonly encoding: typeof DISCORD_PREPARED_DELIVERY_ENCODING;
+  readonly messages: readonly DiscordPreparedMessage[];
+}
+
+export interface DiscordPreparedMessage {
+  readonly attachments: readonly DiscordOutboundAttachment[];
   readonly nonce: string;
   readonly replyTo?: DiscordOutboundReply;
   readonly text?: string;

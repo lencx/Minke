@@ -1,5 +1,5 @@
 [data-shell-overlay] {
-  --minke-tabs-layout-actions-clearance: 88px;
+  --minke-tabs-layout-actions-clearance: 70px;
   --minke-tabs-primary-row-top: 6px;
 }
 
@@ -9,7 +9,7 @@
   height: 32px;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   pointer-events: auto;
   -webkit-app-region: no-drag;
   app-region: no-drag;
@@ -62,10 +62,10 @@ header:has([data-minke-tabs-layout-actions]) {
 }
 
 [data-minke-tabs-header-action] {
-  width: 32px;
-  min-width: 32px !important;
-  height: 32px;
-  border-radius: 10px;
+  width: 28px;
+  min-width: 28px !important;
+  height: 28px;
+  border-radius: 8px;
   color: var(--dsw-alias-label-tertiary);
 }
 

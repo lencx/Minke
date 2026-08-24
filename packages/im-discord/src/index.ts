@@ -8,6 +8,7 @@ export {
   DISCORD_DEFAULT_MAX_PENDING_MESSAGES,
   DISCORD_GATEWAY_INTENTS,
   DISCORD_GATEWAY_VERSION,
+  DISCORD_MAX_DELIVERY_MESSAGES,
   DISCORD_MAX_MESSAGE_CONTENT_CHARACTERS,
   DISCORD_MAX_MESSAGE_REQUEST_BYTES,
   DISCORD_PREPARED_DELIVERY_ENCODING,
@@ -27,6 +28,7 @@ export {
   type DiscordOutboundMessage,
   type DiscordOutboundReply,
   type DiscordPreparedDelivery,
+  type DiscordPreparedMessage,
   type DiscordProviderOptions,
   type DiscordProviderStatus,
   type DiscordRemoteEffect,
@@ -40,6 +42,9 @@ export {
   type DiscordWebSocketOpenEvent,
   type ValidateDiscordBotTokenOptions,
 } from "./contract.ts";
+export {
+  splitDiscordMessageText,
+} from "./chunk.ts";
 export {
   deliverDiscordAttempt,
   discordNonceForOperation,
