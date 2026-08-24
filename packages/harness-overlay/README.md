@@ -4,7 +4,7 @@ This package is Minke's product-owned extension layer for DeepSeek Harness. It i
 
 The host composition mounts the separate `@lencx/minke-model-runtime/dsh` adapter:
 
-- `model-runtime` is a DSH plugin that owns local model discovery and optional service lifecycle for exactly two product runtimes: LM Studio and Ollama. LM Studio uses `lms server status --json` / `lms server start` and enriches its OpenAI-compatible catalog with LM Studio's v1 loaded-instance metadata. Before dispatch, it verifies that the selected instance has the configured context window. An externally started service is never reconfigured: Minke reports the current and required context lengths and asks the user to reload the model in LM Studio. If Minke started the service itself, it may load or reload the default model instance with the configured context while preserving its supported load parameters. Ollama uses its OpenAI-compatible `/v1/models` endpoint and starts through `ollama serve`. A generic `openAICompatible` adapter remains available for manually configured loopback servers; it does not gain command discovery or process management.
+- `model-runtime` is a DSH plugin that owns local model discovery and optional service lifecycle for exactly two product runtimes: LM Studio and Ollama. LM Studio uses `lms server status --json` / `lms server start` and enriches its OpenAI-compatible catalog with LM Studio's v1 loaded-instance metadata. Before dispatch, it verifies that the selected instance has the configured context window. Selecting an unloaded model explicitly authorizes Minke to load that model with the configured context, even when LM Studio was started externally; Minke still never unloads or reconfigures an existing external instance. If Minke started the service itself, it may also reload an undersized default model instance while preserving its supported load parameters. Ollama uses its OpenAI-compatible `/v1/models` endpoint and starts through `ollama serve`. A generic `openAICompatible` adapter remains available for manually configured loopback servers; it does not gain command discovery or process management.
 
 Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.1.1-rc.2` runtime and are not embedded in Minke's base runtime. Install one into the `web` Profile:
 
@@ -15,18 +15,36 @@ Then restart Minke and enable the matching disabled tool row in a copied Agent P
 
 The model runtime executes CLIs through `ctx.subprocess`, resolves credential references through `ctx.credentials`, and mounts the upstream `@deepseek-ai/dsh-llm-pi-ai` plugin after service preparation. Discovered provider metadata is only the composition base layer; it is never serialized to `settings.yaml`, and user model settings continue to override it. Secrets are resolved for discovery but never copied into provider profiles.
 
+The independent `@lencx/minke-harness-overlay/web-search` Host entry can
+register Minke's credential-free `minke-public-search` provider into `ctx.web`.
+`webSearch.fallbackEnabled` in Minke's desktop configuration defaults to
+`true`; Harness startup maps it to the product-owned
+`MINKE_WEB_SEARCH_FALLBACK_ENABLED` launch flag. The product patch clears the
+upstream fixed search selection and keeps the upstream DeepSeek provider
+disabled. It deliberately does not select Minke by id: an explicit
+`web.searchProvider` or `DSH_WEB_SEARCH_PROVIDER` remains authoritative, while
+the native DSH sole-provider rule selects Minke when it is the only available
+provider. Disabling the fallback unregisters that default rather than creating
+a hidden retry chain. `standard`, `code`, and `cordis` Agent Presets continue
+to own the scoped `web_search` tool. The built-in Bing RSS endpoint is a
+bounded best-effort fallback with no stability guarantee.
+`MINKE_WEB_SEARCH_BASE_URL` may select a compatible RSS endpoint. The provider
+sends no cookies or credentials, follows only same-origin or controlled Bing
+country redirects, rejects HTML/challenge responses, and caps response,
+title, snippet, URL, and time budgets.
+
 Service policy is explicit:
 
 - `external` only discovers an already-running service;
 - `ensure-running` starts a missing service. LM Studio's one-shot CLI leaves the shared service running; an `ollama serve` process started by Minke is owned by the Harness process and stopped with it;
 - `managed` stops the service on plugin disposal only when this plugin proved it started that service.
 
-Both auto-start preferences default to `false` under `modelRuntime.{lmStudio,ollama}.enabled` in `~/.minke/desktop/minke.config.json`. Electron checks known installation paths and `PATH` without executing either CLI. The Models page always keeps both provider rows available for configuration, while an auto-start switch appears on a row only when its command was found. Changes take effect after restarting Minke. `LM_STUDIO_BASE_URL` and `OLLAMA_BASE_URL` can select explicit loopback endpoints and are also applied to services Minke starts. Without an override, Minke follows the runtimes' official defaults: LM Studio uses `http://127.0.0.1:1234/v1` and Ollama uses `http://127.0.0.1:11434/v1`. Port `0` is rejected because a client Base URL must contain the service's resolved, connectable port. `LM_API_TOKEN` is used for LM Studio when configured.
+Both auto-start preferences default to `false` under `modelRuntime.{lmStudio,ollama}.enabled` in `~/.minke/desktop/minke.config.json`. Electron checks known installation paths and `PATH` without executing either CLI. The DSH Models page keeps service lifecycle and provider configuration together: each LM Studio and Ollama provider row owns its auto-start switch alongside Configure, while the same row owns its service URL, models, and credentials. An unavailable local command leaves its switch visible but disabled. Auto-start changes reconcile against the running Harness immediately and persist only after its provider registry acknowledges the update. Turning off auto-start does not kill an Ollama server Minke already started for the current Harness; it remains usable until Harness exits, while every later Harness launch honors the disabled preference. `LM_STUDIO_BASE_URL` and `OLLAMA_BASE_URL` can select explicit loopback endpoints and are also applied to services Minke starts. Without an override, Minke follows the runtimes' official defaults: LM Studio uses `http://127.0.0.1:1234/v1` and Ollama uses `http://127.0.0.1:11434/v1`. Port `0` is rejected because a client Base URL must contain the service's resolved, connectable port. `LM_API_TOKEN` is used for LM Studio when configured.
 
 The browser half owns Minke's product policy, configurable keyboard shortcuts, and post-boot desktop surface adaptation. It uses:
 
 - `settings.onboarding` slot shadowing to bypass Harness's developer-only internal-testing notice without changing the upstream plugin;
-- `settings.section` to render its settings page;
+- one `settings.section` entry with compact horizontal secondary tabs, keeping every Minke-owned setting in the existing DSH Settings dialog;
 - `ctx.workspaces.startSession()` for the New Session action;
 - the Settings trigger's accessible DOM contract for the Settings action;
 - Harness's `ctx.locale` registry and revision source for synchronized zh/en copy;
@@ -39,6 +57,6 @@ Third-party Profile plugins cross the trusted extension boundary. Their package 
 
 The Plugins workspace combines desktop-owned Profile installation metadata with the current `pluginInventory/list` projection from DSH's Loader. Installed files and runtime activation are separate facts: a plugin can be active, disabled, pending, isolated after a load failure, missing locally, or have an unknown runtime state when inventory cannot be read. Inventory failure never hides the installed package list. The upstream inventory has no bundle provenance, so Minke correlates Profile bundles to Loader entries by exact package/module name; a bundle that inserts differently named entries is reported as unobserved instead of being assumed healthy. Loader failure details remain in the Host startup log; the workspace offers refresh, restart, repository access, and removal without duplicating the Loader state machine.
 
-The Remote access section is backed by the separate `@lencx/minke-remote-access` package. It persists a default-off Tailscale opt-in, subscribes to live runtime state, shows the active private HTTPS URL, and keeps command execution, retries, trusted-host updates, and process lifecycle in the desktop host rather than the browser bundle. Saving the enable switch applies the change to the running Harness without restarting Minke.
+The unified Minke section contains icon tabs for Preferences, Keyboard shortcuts, Data & Storage, and Remote access without opening a second modal. Model-related configuration remains under the existing DSH Models entry, so users do not need to switch between two settings directories for one task. The Remote access page is backed by the separate `@lencx/minke-remote-access` package. It persists a default-off Tailscale opt-in, subscribes to live runtime state, shows the active private HTTPS URL, and keeps command execution, retries, trusted-host updates, and process lifecycle in the desktop host rather than the browser bundle. Saving the enable switch applies the change to the running Harness without restarting Minke.
 
 The separate document-start extension remains CSS-only. It exists solely because first-paint transparency and Electron drag regions must be present before Harness initializes; it does not traverse or modify the Harness DOM.

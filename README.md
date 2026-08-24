@@ -68,7 +68,7 @@ and does not enable the public Tailscale Funnel.
 
 1. Install Tailscale on the Minke computer and the phone, sign both into the
    same tailnet, and confirm the computer is connected.
-2. In Minke, open **Settings → Remote access**, enable
+2. In Minke, open **Settings → Minke → Remote access**, enable
    **Access through Tailscale**. Minke connects in the background; no restart
    is required.
 3. Copy or open the displayed
@@ -106,11 +106,11 @@ automatically. Minke selects the fixed DMG, EXE, DEB, RPM, or AppImage asset
 for the running system, verifies the immutable GitHub Release, URL chain,
 exact size, SHA-256 digest, and available OS provenance marker, then asks
 before opening it. Disable background downloads under
-**Settings → Personal preferences → Application updates** to require a
+**Settings → Minke → Preferences → Application updates** to require a
 **Download update** confirmation first, or use **About Minke → Check for
 updates** at any time. Installation always remains explicit. See
-[desktop application updates](./docs/app-updates.md) for the security model
-and platform behavior.
+[desktop application updates](./docs/app-updates.md) for the user flow and
+platform behavior.
 
 ### macOS
 

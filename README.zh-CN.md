@@ -64,7 +64,7 @@ Minke 可以通过 [Tailscale Serve](https://tailscale.com/docs/reference/tailsc
 局域网，也不会启用公开的 Tailscale Funnel。
 
 1. 在运行 Minke 的电脑和手机上安装 Tailscale，登录同一个 tailnet，并确认电脑已连接。
-2. 打开 Minke 的 **设置 → 远程访问**，启用 **通过 Tailscale 访问**。Minke 会在后台连接，无需重启应用。
+2. 打开 Minke 的 **设置 → Minke → 远程访问**，启用 **通过 Tailscale 访问**。Minke 会在后台连接，无需重启应用。
 3. 在手机上打开界面显示的 `https://…ts.net` 地址。
 
 ### 安装为 PWA
@@ -94,9 +94,9 @@ Minke 只在应用运行期间持有前台代理，并会在退出时停止。�
 打包后的 macOS、Windows 和 Linux 版本都会自动检查稳定更新。Minke 会为当前系统
 选择名称固定的 DMG、EXE、DEB、RPM 或 AppImage，校验 GitHub 不可变 Release、
 下载地址链、精确大小、SHA-256 和系统可用的来源属性，再询问是否打开。可在
-**设置 → 个人偏好 → 应用更新** 中关闭后台下载；关闭后必须先确认“下载更新”。
+**设置 → Minke → 个人偏好 → 应用更新** 中关闭后台下载；关闭后必须先确认“下载更新”。
 也可随时在 **关于 Minke → 检查更新** 中手动触发。安装过程始终需要用户明确确认。
-完整安全边界和各平台行为见[桌面应用更新说明](./docs/app-updates.md)。
+用户操作和各平台行为见[桌面应用更新说明](./docs/app-updates.md)。
 
 ### macOS
 
