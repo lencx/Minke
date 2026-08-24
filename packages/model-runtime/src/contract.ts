@@ -3,6 +3,11 @@ export const MODEL_RUNTIME_SETTINGS_READ_CHANNEL =
   "minke:model-runtime-settings:read";
 export const MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL =
   "minke:model-runtime-settings:write";
+export const MINKE_MODEL_RUNTIME_CONTROL_CHANNEL =
+  "minke:model-runtime-control";
+export const MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION = 1;
+
+const MAX_MODEL_RUNTIME_CONTROL_ERROR_LENGTH = 1_024;
 
 export const LOCAL_MODEL_RUNTIMES = [
   {
@@ -47,6 +52,37 @@ export interface ModelRuntimeSettingsSnapshot {
   error?: ModelRuntimeSettingsReadError;
 }
 
+export interface ReconfigureModelRuntimesRequest {
+  readonly channel: typeof MINKE_MODEL_RUNTIME_CONTROL_CHANNEL;
+  readonly protocolVersion:
+    typeof MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION;
+  readonly requestId: number;
+  readonly type: "model-runtimes/reconfigure";
+  readonly mode: ModelRuntimeReconfigureMode;
+  readonly settings: ModelRuntimeSettings;
+}
+
+export type ModelRuntimeReconfigureMode =
+  | "apply"
+  | "rollback";
+
+export type ModelRuntimeControlResponse =
+  | {
+      readonly channel: typeof MINKE_MODEL_RUNTIME_CONTROL_CHANNEL;
+      readonly protocolVersion:
+        typeof MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION;
+      readonly requestId: number;
+      readonly type: "model-runtimes/reconfigured";
+    }
+  | {
+      readonly channel: typeof MINKE_MODEL_RUNTIME_CONTROL_CHANNEL;
+      readonly protocolVersion:
+        typeof MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION;
+      readonly requestId: number;
+      readonly type: "model-runtimes/error";
+      readonly message: string;
+    };
+
 export const DEFAULT_MODEL_RUNTIME_SETTINGS: Readonly<
   ModelRuntimeSettings
 > = Object.freeze({
@@ -88,6 +124,28 @@ function exactRuntimeRecord(
     );
   }
   return record;
+}
+
+function exactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean {
+  return (
+    Object.keys(value).length === keys.length &&
+    Object.keys(value).every((key) => keys.includes(key))
+  );
+}
+
+function parseControlRequestId(value: unknown): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    Number(value) <= 0
+  ) {
+    throw new TypeError(
+      "model runtime control requestId must be a positive safe integer",
+    );
+  }
+  return Number(value);
 }
 
 /** Validate one runtime's exact auto-start preference. */
@@ -196,5 +254,186 @@ export function parseModelRuntimeSettingsSnapshot(
     ...(record.error === undefined
       ? {}
       : { error: record.error }),
+  };
+}
+
+/** Build one validated desktop-to-Harness live reconciliation request. */
+export function createReconfigureModelRuntimesRequest(
+  requestId: number,
+  settings: unknown,
+  mode: ModelRuntimeReconfigureMode = "apply",
+): ReconfigureModelRuntimesRequest {
+  if (mode !== "apply" && mode !== "rollback") {
+    throw new TypeError(
+      "invalid model runtime reconciliation mode",
+    );
+  }
+  return {
+    channel: MINKE_MODEL_RUNTIME_CONTROL_CHANNEL,
+    protocolVersion:
+      MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION,
+    requestId: parseControlRequestId(requestId),
+    type: "model-runtimes/reconfigure",
+    mode,
+    settings: parseModelRuntimeSettings(settings),
+  };
+}
+
+/** Whether a process message belongs to the model-runtime control channel. */
+export function isMinkeModelRuntimeControlMessage(
+  value: unknown,
+): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Reflect.get(value, "channel") ===
+      MINKE_MODEL_RUNTIME_CONTROL_CHANNEL
+  );
+}
+
+/** Validate one live reconciliation request inside Harness. */
+export function parseReconfigureModelRuntimesRequest(
+  value: unknown,
+): ReconfigureModelRuntimesRequest {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    throw new TypeError(
+      "model runtime control request must be an object",
+    );
+  }
+  const request = value as Record<string, unknown>;
+  if (
+    !exactKeys(request, [
+      "channel",
+      "protocolVersion",
+      "requestId",
+      "type",
+      "mode",
+      "settings",
+    ]) ||
+    request.channel !== MINKE_MODEL_RUNTIME_CONTROL_CHANNEL ||
+    request.protocolVersion !==
+      MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION ||
+    request.type !== "model-runtimes/reconfigure" ||
+    (
+      request.mode !== "apply" &&
+      request.mode !== "rollback"
+    )
+  ) {
+    throw new TypeError("invalid model runtime control request");
+  }
+  return createReconfigureModelRuntimesRequest(
+    parseControlRequestId(request.requestId),
+    request.settings,
+    request.mode,
+  );
+}
+
+/** Build the acknowledgement sent after provider reconciliation commits. */
+export function modelRuntimesReconfiguredResponse(
+  requestId: number,
+): ModelRuntimeControlResponse {
+  return {
+    channel: MINKE_MODEL_RUNTIME_CONTROL_CHANNEL,
+    protocolVersion:
+      MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION,
+    requestId: parseControlRequestId(requestId),
+    type: "model-runtimes/reconfigured",
+  };
+}
+
+/** Build a bounded reconciliation failure response. */
+export function modelRuntimeReconfigureErrorResponse(
+  requestId: number,
+  error: unknown,
+): ModelRuntimeControlResponse {
+  const raw =
+    error instanceof Error ? error.message : String(error);
+  const message =
+    raw === ""
+      ? "model runtime reconciliation failed"
+      : raw;
+  return {
+    channel: MINKE_MODEL_RUNTIME_CONTROL_CHANNEL,
+    protocolVersion:
+      MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION,
+    requestId: parseControlRequestId(requestId),
+    type: "model-runtimes/error",
+    message: message.slice(
+      0,
+      MAX_MODEL_RUNTIME_CONTROL_ERROR_LENGTH,
+    ),
+  };
+}
+
+/** Validate one live reconciliation response in Electron main. */
+export function parseModelRuntimeControlResponse(
+  value: unknown,
+): ModelRuntimeControlResponse {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    throw new TypeError(
+      "model runtime control response must be an object",
+    );
+  }
+  const response = value as Record<string, unknown>;
+  const common =
+    response.channel === MINKE_MODEL_RUNTIME_CONTROL_CHANNEL &&
+    response.protocolVersion ===
+      MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION;
+  if (
+    !common ||
+    (
+      response.type !== "model-runtimes/reconfigured" &&
+      response.type !== "model-runtimes/error"
+    )
+  ) {
+    throw new TypeError("invalid model runtime control response");
+  }
+  const requestId = parseControlRequestId(response.requestId);
+  if (response.type === "model-runtimes/reconfigured") {
+    if (
+      !exactKeys(response, [
+        "channel",
+        "protocolVersion",
+        "requestId",
+        "type",
+      ])
+    ) {
+      throw new TypeError(
+        "invalid model runtime control response",
+      );
+    }
+    return modelRuntimesReconfiguredResponse(requestId);
+  }
+  if (
+    !exactKeys(response, [
+      "channel",
+      "protocolVersion",
+      "requestId",
+      "type",
+      "message",
+    ]) ||
+    typeof response.message !== "string" ||
+    response.message === "" ||
+    response.message.length >
+      MAX_MODEL_RUNTIME_CONTROL_ERROR_LENGTH
+  ) {
+    throw new TypeError("invalid model runtime control response");
+  }
+  return {
+    channel: MINKE_MODEL_RUNTIME_CONTROL_CHANNEL,
+    protocolVersion:
+      MINKE_MODEL_RUNTIME_CONTROL_PROTOCOL_VERSION,
+    requestId,
+    type: "model-runtimes/error",
+    message: response.message,
   };
 }

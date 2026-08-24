@@ -183,6 +183,38 @@ await Promise.all([
   }),
   build({
     entryPoints: [
+      join(
+        modelRuntimePackageRoot,
+        "src",
+        "process-environment.ts",
+      ),
+    ],
+    outfile: join(
+      modelRuntimeOutputRoot,
+      "process-environment.js",
+    ),
+    bundle: false,
+    format: "esm",
+    platform: "node",
+    target: "es2022",
+    tsconfig: tsconfigPath,
+    sourcemap: true,
+  }),
+  build({
+    entryPoints: [
+      join(modelRuntimePackageRoot, "src", "live.ts"),
+    ],
+    outfile: join(modelRuntimeOutputRoot, "live.js"),
+    bundle: true,
+    packages: "external",
+    format: "esm",
+    platform: "node",
+    target: "es2022",
+    tsconfig: tsconfigPath,
+    sourcemap: true,
+  }),
+  build({
+    entryPoints: [
       join(modelRuntimePackageRoot, "src", "dsh.ts"),
     ],
     outfile: join(modelRuntimeOutputRoot, "dsh.js"),

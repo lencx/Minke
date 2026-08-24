@@ -2,7 +2,7 @@
  * DeepSeek Harness adapter for the Minke model-runtime module.
  * @module @lencx/minke-model-runtime/dsh
  */
-import type { Context } from "@deepseek-ai/cordis";
+import type { Context, Fiber } from "@deepseek-ai/cordis";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import type {
@@ -28,6 +28,14 @@ import {
   type OllamaRuntimeConfig,
   type RunningCommand,
 } from "./core";
+import {
+  installModelRuntimeControl,
+  LiveModelRuntime,
+  type CommitModelRuntimeProviders,
+} from "./live.ts";
+import {
+  externalRuntimeEnvironment,
+} from "./process-environment.ts";
 
 const COMMAND_OUTPUT_BYTES = 16 * 1024;
 const COMMAND_GRACE_MS = 500;
@@ -197,7 +205,7 @@ function createHost(
             },
             graceMs: COMMAND_GRACE_MS,
             signal: controller.signal,
-            env: {},
+            env: externalRuntimeEnvironment(),
           });
           const outcome = await handle.done;
           return {
@@ -240,7 +248,7 @@ function createHost(
                 stderr: { maxBytes: COMMAND_OUTPUT_BYTES },
               },
               graceMs: COMMAND_GRACE_MS,
-              env: { ...environment },
+              env: externalRuntimeEnvironment(environment),
             }),
           );
         } catch {
@@ -255,7 +263,10 @@ function createHost(
 }
 
 function preparedStream(
-  prepared: Awaited<ReturnType<typeof prepareModelRuntime>>,
+  prepared: Pick<
+    Awaited<ReturnType<typeof prepareModelRuntime>>,
+    "prepareRequest"
+  >,
   options: GenerateOptions,
   next: () => AsyncIterable<StreamChunk>,
 ): AsyncIterable<StreamChunk> {
@@ -294,12 +305,25 @@ function preparedStream(
   })();
 }
 
+async function updatePiAiProviders(
+  fiber: Fiber,
+  providers: LiveModelRuntime["providers"],
+): Promise<void> {
+  await Promise.resolve(
+    fiber.update({ providers }, true),
+  );
+  await fiber.await();
+}
+
 /**
  * Prepare local model services, mount the upstream configurable LLM adapter,
  * and bind only plugin-owned processes to this DSH fiber's lifetime.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const prepared = await prepareModelRuntime(config, createHost(ctx, config));
+  const prepared = await LiveModelRuntime.create(
+    config,
+    createHost(ctx, config),
+  );
   ctx.effect(
     () => async () => await prepared.dispose(),
     "model-runtime service cleanup",
@@ -307,5 +331,28 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.on("llm/stream", (options, next) =>
     preparedStream(prepared, options, next)
   );
-  await ctx.plugin(LlmPiAi, { providers: prepared.providers });
+  let committedProviders = prepared.providers;
+  const adapterFiber = ctx.plugin(LlmPiAi, {
+    providers: committedProviders,
+  });
+  await adapterFiber;
+  const commit: CommitModelRuntimeProviders =
+    async (providers) => {
+      const previous = committedProviders;
+      try {
+        await updatePiAiProviders(adapterFiber, providers);
+      } catch (error) {
+        try {
+          await updatePiAiProviders(adapterFiber, previous);
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            "model-runtime: provider update and rollback both failed",
+          );
+        }
+        throw error;
+      }
+      committedProviders = providers;
+    };
+  installModelRuntimeControl(ctx, prepared, commit);
 }

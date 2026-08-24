@@ -9,7 +9,7 @@ const DEFAULT_MAX_TOKENS = 8_192;
 const MODEL_REQUEST_TIMEOUT_MS = 1_500;
 const MODEL_LOAD_TIMEOUT_MS = 10 * 60 * 1_000;
 const CLI_STATUS_TIMEOUT_MS = 2_000;
-const CLI_LIFECYCLE_TIMEOUT_MS = 15_000;
+const CLI_LIFECYCLE_TIMEOUT_MS = 60_000;
 const STARTUP_ATTEMPTS = 8;
 const STARTUP_RETRY_DELAY_MS = 250;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -162,8 +162,11 @@ interface LmStudioLoadedInstance {
 
 interface LmStudioModelState {
   key: string;
+  modelType?: string;
+  displayName?: string;
   maxContextLength?: number;
   loadedInstances: LmStudioLoadedInstance[];
+  loadedInstancesComplete: boolean;
 }
 
 interface PreparedAdapter {
@@ -380,60 +383,74 @@ function parseLmStudioModelStates(
     const model = objectRecord(value);
     const key = nonEmptyText(model?.key);
     if (model === undefined || key === undefined) continue;
-    const loaded = Array.isArray(model.loaded_instances)
-      ? model.loaded_instances
-      : [];
-    const loadedInstances = loaded.flatMap(
-      (value): LmStudioLoadedInstance[] => {
-        const instance = objectRecord(value);
-        const config = objectRecord(instance?.config);
-        const id = nonEmptyText(instance?.id);
-        const contextLength = positiveInteger(config?.context_length);
-        if (
-          instance === undefined ||
-          config === undefined ||
-          id === undefined ||
-          contextLength === undefined
-        ) {
-          return [];
-        }
-        const evalBatchSize = positiveInteger(config.eval_batch_size);
-        const flashAttention = optionalBoolean(config.flash_attention);
-        const numExperts = positiveInteger(config.num_experts);
-        const offloadKvCacheToGpu = optionalBoolean(
-          config.offload_kv_cache_to_gpu,
-        );
-        return [
-          {
-            id,
-            contextLength,
-            loadConfig: {
-              ...(evalBatchSize === undefined
-                ? {}
-                : { eval_batch_size: evalBatchSize }),
-              ...(flashAttention === undefined
-                ? {}
-                : { flash_attention: flashAttention }),
-              ...(numExperts === undefined
-                ? {}
-                : { num_experts: numExperts }),
-              ...(offloadKvCacheToGpu === undefined
-                ? {}
-                : {
-                    offload_kv_cache_to_gpu: offloadKvCacheToGpu,
-                  }),
-            },
-          },
-        ];
-      },
-    );
+    const loaded = model.loaded_instances;
+    let loadedInstancesComplete = Array.isArray(loaded);
+    const loadedInstances: LmStudioLoadedInstance[] = [];
+    for (const value of Array.isArray(loaded) ? loaded : []) {
+      const instance = objectRecord(value);
+      const config = objectRecord(instance?.config);
+      const id = nonEmptyText(instance?.id);
+      const contextLength = positiveInteger(config?.context_length);
+      if (
+        instance === undefined ||
+        config === undefined ||
+        id === undefined ||
+        contextLength === undefined
+      ) {
+        loadedInstancesComplete = false;
+        continue;
+      }
+      const evalBatchSize = positiveInteger(config.eval_batch_size);
+      const flashAttention = optionalBoolean(config.flash_attention);
+      const numExperts = positiveInteger(config.num_experts);
+      const offloadKvCacheToGpu = optionalBoolean(
+        config.offload_kv_cache_to_gpu,
+      );
+      if (
+        (config.eval_batch_size !== undefined &&
+          evalBatchSize === undefined) ||
+        (config.flash_attention !== undefined &&
+          flashAttention === undefined) ||
+        (config.num_experts !== undefined && numExperts === undefined) ||
+        (config.offload_kv_cache_to_gpu !== undefined &&
+          offloadKvCacheToGpu === undefined)
+      ) {
+        loadedInstancesComplete = false;
+        continue;
+      }
+      loadedInstances.push({
+        id,
+        contextLength,
+        loadConfig: {
+          ...(evalBatchSize === undefined
+            ? {}
+            : { eval_batch_size: evalBatchSize }),
+          ...(flashAttention === undefined
+            ? {}
+            : { flash_attention: flashAttention }),
+          ...(numExperts === undefined
+            ? {}
+            : { num_experts: numExperts }),
+          ...(offloadKvCacheToGpu === undefined
+            ? {}
+            : {
+                offload_kv_cache_to_gpu: offloadKvCacheToGpu,
+              }),
+        },
+      });
+    }
+    const modelType = nonEmptyText(model.type)?.toLowerCase();
+    const displayName = nonEmptyText(model.display_name, model.name);
     const maxContextLength = positiveInteger(model.max_context_length);
     states.push({
       key,
+      ...(modelType === undefined ? {} : { modelType }),
+      ...(displayName === undefined ? {} : { displayName }),
       ...(maxContextLength === undefined
         ? {}
         : { maxContextLength }),
       loadedInstances,
+      loadedInstancesComplete,
     });
   }
   return states;
@@ -528,6 +545,21 @@ async function mutateLmStudioModel(
   );
 }
 
+function isLmStudioGenerativeModel(state: LmStudioModelState): boolean {
+  return state.modelType === "llm" || state.modelType === "vlm";
+}
+
+function unsafeLmStudioModelStateError(
+  model: string,
+): ModelRuntimeRequestError {
+  return new ModelRuntimeRequestError(
+    `LM Studio did not report model "${model}" as a single, explicitly unloaded `
+      + "LLM or VLM. Minke left LM Studio untouched. Update LM Studio or load the "
+      + "model manually, then retry.",
+    "LM_STUDIO_CONTEXT_STATE_UNSAFE",
+  );
+}
+
 function contextTooSmallError(
   model: string,
   currentContext: number | undefined,
@@ -551,20 +583,20 @@ class LmStudioContextGate {
   private readonly origin: string;
   private readonly token: string | undefined;
   private readonly targetContext: number;
-  private readonly canManageModels: boolean;
+  private readonly canReloadModels: boolean;
 
   constructor(
     host: ModelRuntimeHost,
     origin: string,
     token: string | undefined,
     targetContext: number,
-    canManageModels: boolean,
+    canReloadModels: boolean,
   ) {
     this.host = host;
     this.origin = origin;
     this.token = token;
     this.targetContext = targetContext;
-    this.canManageModels = canManageModels;
+    this.canReloadModels = canReloadModels;
   }
 
   async prepare(model: string, signal?: AbortSignal): Promise<void> {
@@ -611,19 +643,39 @@ class LmStudioContextGate {
     ) {
       return;
     }
-    if (!this.canManageModels) {
+    if (resolved.instance === undefined) {
+      const explicitlyUnloaded =
+        resolved.state.key === model &&
+        isLmStudioGenerativeModel(resolved.state) &&
+        resolved.state.loadedInstancesComplete &&
+        resolved.state.loadedInstances.length === 0;
+      if (!explicitlyUnloaded) {
+        throw unsafeLmStudioModelStateError(model);
+      }
+      // Selecting a canonical model that LM Studio explicitly reports as
+      // unloaded authorizes one additive load. Existing instances remain
+      // untouched, including when LM Studio was started externally.
+      await this.ensureManagedContext(
+        resolved.state,
+        undefined,
+        requiredContext,
+        signal,
+      );
+      return;
+    }
+    if (!resolved.state.loadedInstancesComplete) {
+      throw unsafeLmStudioModelStateError(model);
+    }
+    if (!this.canReloadModels) {
       throw contextTooSmallError(
         model,
-        resolved.instance?.contextLength,
+        resolved.instance.contextLength,
         requiredContext,
       );
     }
     if (
-      resolved.instance !== undefined &&
-      (
-        resolved.instance.id !== resolved.state.key ||
-        model !== resolved.state.key
-      )
+      resolved.instance.id !== resolved.state.key ||
+      model !== resolved.state.key
     ) {
       throw new ModelRuntimeRequestError(
         `LM Studio model "${model}" uses a custom instance identifier. Minke cannot `
@@ -655,22 +707,32 @@ class LmStudioContextGate {
     };
     if (instance === undefined) {
       try {
-        const loaded = lmStudioLoadResult(
-          await mutateLmStudioModel(
-            this.host,
-            this.origin,
-            this.token,
-            "load",
-            desiredBody,
-            signal,
-          ),
+        await mutateLmStudioModel(
+          this.host,
+          this.origin,
+          this.token,
+          "load",
+          desiredBody,
+          signal,
         );
+        const confirmedStates = await fetchLmStudioModelStates(
+          this.host,
+          this.origin,
+          this.token,
+          signal,
+        );
+        const confirmed = confirmedStates === undefined
+          ? undefined
+          : lmStudioStateForModel(confirmedStates, state.key);
         if (
-          loaded.contextLength !== undefined &&
-          loaded.contextLength < requiredContext
+          confirmed === undefined ||
+          confirmed.state.key !== state.key ||
+          !confirmed.state.loadedInstancesComplete ||
+          confirmed.instance === undefined ||
+          confirmed.instance.contextLength < requiredContext
         ) {
           throw new Error(
-            `LM Studio loaded only ${String(loaded.contextLength)} context tokens`,
+            "LM Studio did not confirm the requested loaded context",
           );
         }
       } catch (error) {
@@ -807,23 +869,70 @@ function modelProfile(
   };
 }
 
+function lmStudioStateListingEntry(
+  state: LmStudioModelState,
+): ModelListingEntry {
+  return {
+    id: state.key,
+    ...(state.modelType === undefined ? {} : { type: state.modelType }),
+    ...(state.displayName === undefined
+      ? {}
+      : { display_name: state.displayName }),
+    ...(state.maxContextLength === undefined
+      ? {}
+      : { max_context_length: state.maxContextLength }),
+  };
+}
+
+function lmStudioListingMetadata(
+  state: LmStudioModelState | undefined,
+  detailed: ModelListingEntry | undefined,
+): ModelListingEntry | undefined {
+  if (state === undefined) return detailed;
+  const native = lmStudioStateListingEntry(state);
+  if (detailed === undefined) return native;
+  const type = nonEmptyText(detailed.type, native.type);
+  return {
+    ...native,
+    ...detailed,
+    ...(type === undefined ? {} : { type }),
+  };
+}
+
 function mergeLmStudioListings(
   openAI: ModelListingEntry[] | undefined,
   detailed: ModelListingEntry[] | undefined,
+  states: readonly LmStudioModelState[] | undefined,
 ): ModelProfile[] {
-  if (openAI === undefined) return [];
+  if (openAI === undefined && states === undefined) return [];
   const detailedById = new Map<string, ModelListingEntry>();
   for (const entry of detailed ?? []) {
     const id = nonEmptyText(entry.id);
     if (id !== undefined) detailedById.set(id, entry);
   }
+  const stateById = new Map(
+    (states ?? []).map((state) => [state.key, state] as const),
+  );
 
   const models = new Map<string, ModelProfile>();
-  for (const entry of openAI) {
+  for (const entry of openAI ?? []) {
     const id = nonEmptyText(entry.id);
+    const state = id === undefined ? undefined : stateById.get(id);
     const profile = modelProfile(
       entry,
-      id === undefined ? undefined : detailedById.get(id),
+      id === undefined
+        ? undefined
+        : lmStudioListingMetadata(state, detailedById.get(id)),
+    );
+    if (profile !== undefined && !models.has(profile.id)) {
+      models.set(profile.id, profile);
+    }
+  }
+  for (const state of states ?? []) {
+    if (!isLmStudioGenerativeModel(state)) continue;
+    const profile = modelProfile(
+      lmStudioStateListingEntry(state),
+      lmStudioListingMetadata(state, detailedById.get(state.key)),
     );
     if (profile !== undefined && !models.has(profile.id)) {
       models.set(profile.id, profile);
@@ -863,7 +972,7 @@ async function discoverLmStudioModels(
     fetchListing(host, `${endpoint.origin}/api/v0/models`, token),
     fetchLmStudioModelStates(host, endpoint.origin, token),
   ]);
-  return mergeLmStudioListings(openAI, detailed).map((profile) =>
+  return mergeLmStudioListings(openAI, detailed, states).map((profile) =>
     effectiveLmStudioContext(profile, states, targetContext)
   );
 }
@@ -1009,7 +1118,7 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
     };
     const preparedProvider = (
       selected: { baseURL: string; models: ModelProfile[] },
-      canManageModels: boolean,
+      canReloadModels: boolean,
       dispose: () => Promise<void>,
     ): PreparedAdapter => {
       const contextGate = new LmStudioContextGate(
@@ -1017,7 +1126,7 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
         new URL(selected.baseURL).origin,
         nonEmptyText(token),
         targetContext,
-        canManageModels,
+        canReloadModels,
       );
       return {
         provider: providerProfile(

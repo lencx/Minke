@@ -21,6 +21,14 @@
       "types": "./src/dsh.ts",
       "default": "./lib/dsh.js"
     },
+    "./live": {
+      "types": "./src/live.ts",
+      "default": "./lib/live.js"
+    },
+    "./process-environment": {
+      "types": "./src/process-environment.ts",
+      "default": "./lib/process-environment.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
