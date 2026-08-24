@@ -28,6 +28,9 @@ import {
 import {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
+import {
+  inspectCssContract,
+} from "./support/css-contract.mjs";
 
 function projection(
   sessionId,
@@ -1001,6 +1004,15 @@ test("Agent Browser renderer shields agent input and exposes takeover", () => {
   assert.match(agentMarkup, /aria-hidden="true"/u);
   assert.match(agentMarkup, /data-phase="moving"/u);
   assert.match(agentMarkup, /data-sequence="1"/u);
+  assert.doesNotMatch(agentMarkup, /data-click-sequence/u);
+  assert.doesNotMatch(agentMarkup, /agent-cursor-particle/u);
+  assert.match(agentMarkup, /<linearGradient/u);
+  assert.match(agentMarkup, /stop-color="#4cecff"/u);
+  assert.match(agentMarkup, /stop-color="#ff6fc6"/u);
+  assert.match(
+    agentMarkup,
+    /agent-cursor-body" d="M3[\s\S]*l-6\.1\.3[\s\S]*l-2\.18/u,
+  );
   assert.match(
     agentMarkup,
     /--minke-agent-cursor-duration:180ms/u,
@@ -1028,6 +1040,15 @@ test("Agent Browser renderer shields agent input and exposes takeover", () => {
   assert.doesNotMatch(clickingMarkup, /data-flip-x="true"/u);
   assert.match(clickingMarkup, /data-click-sequence="2"/u);
   assert.match(clickingMarkup, /data-pressed="true"/u);
+  assert.match(clickingMarkup, /agent-cursor-bloom/u);
+  assert.equal(
+    [
+      ...clickingMarkup.matchAll(
+        /class="minke-agent-browser__agent-cursor-particle"/gu,
+      ),
+    ].length,
+    8,
+  );
   assert.match(
     clickingMarkup,
     /--minke-agent-cursor-duration:260ms/u,
@@ -1145,6 +1166,7 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
     ),
     "utf8",
   );
+  const contract = inspectCssContract(source);
 
   assert.match(
     source,
@@ -1204,15 +1226,73 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
         /animation-delay:\s*var\(--minke-agent-cursor-feedback-delay\)/gu,
       ),
     ].length,
-    2,
+    3,
+  );
+  assert.equal(
+    contract.hasSelector(
+      ".minke-agent-browser__agent-cursor-beacon::before",
+    ),
+    false,
   );
   assert.match(
     source,
-    /\.minke-agent-browser__agent-cursor-beacon\[data-pressed\]\s*\{[\s\S]*animation:\s*minke-agent-browser-cursor-press/u,
+    /\.minke-agent-browser__agent-cursor-beacon\s*\{[^}]*z-index:\s*2[\s\S]*\.minke-agent-browser__agent-cursor-beacon\[data-pressed\]\s*\{[\s\S]*animation:\s*minke-agent-browser-cursor-press/u,
   );
   assert.match(
     source,
-    /\.minke-agent-browser__agent-cursor-ripple\s*\{[\s\S]*animation:\s*minke-agent-browser-cursor-ripple/u,
+    /\.minke-agent-browser__agent-cursor-ripple\s*\{[^}]*z-index:\s*1[^}]*width:\s*0[^}]*height:\s*0/u,
+  );
+  const bloomSelector =
+    ".minke-agent-browser__agent-cursor-bloom";
+  const particleSelector =
+    ".minke-agent-browser__agent-cursor-particle";
+  assert.deepEqual(
+    {
+      bloomAnimation:
+        contract.declaration(bloomSelector, "animation")
+          ?.split(/\s/u)[0],
+      bloomBackground:
+        contract.declaration(bloomSelector, "background")
+          ?.split("(", 1)[0],
+      particleAnimation:
+        contract.declaration(particleSelector, "animation")
+          ?.split(/\s/u)[0],
+      particleBackground:
+        contract.declaration(particleSelector, "background"),
+    },
+    {
+      bloomAnimation:
+        "minke-agent-browser-cursor-bloom",
+      bloomBackground: "linear-gradient",
+      particleAnimation:
+        "minke-agent-browser-cursor-scatter",
+      particleBackground:
+        "var(--minke-agent-cursor-particle-fill)",
+    },
+  );
+  assert.equal(
+    contract.hasSelector(
+      '.minke-agent-browser__agent-cursor-particle[data-particle="8"]',
+    ),
+    true,
+  );
+  assert.deepEqual(
+    {
+      rippleAfter: contract.hasSelector(
+        ".minke-agent-browser__agent-cursor-ripple::after",
+      ),
+      rippleBefore: contract.hasSelector(
+        ".minke-agent-browser__agent-cursor-ripple::before",
+      ),
+      wave: contract.hasKeyframes(
+        "minke-agent-browser-cursor-wave",
+      ),
+    },
+    {
+      rippleAfter: false,
+      rippleBefore: false,
+      wave: false,
+    },
   );
   assert.match(
     source,
@@ -1220,7 +1300,7 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
   );
   assert.match(
     source,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.minke-agent-browser__agent-cursor-ripple\s*\{[^}]*opacity:\s*0/u,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.minke-agent-browser__agent-cursor-bloom\s*\{[^}]*animation:\s*minke-agent-browser-cursor-bloom-reduced[\s\S]*\.minke-agent-browser__agent-cursor-particle\s*\{[^}]*display:\s*none/u,
   );
   assert.match(
     source,
