@@ -31,6 +31,19 @@ import {
 import {
   createReplaceTrustedHostsRequest,
 } from "@minke/harness-overlay/trusted-host-control-contract.ts";
+import {
+  createAgentTurnCancelRequest,
+  createAgentTurnRunRequest,
+  parseAgentTurnProcessResponse,
+} from "@minke/harness-overlay/agent-turn-contract.ts";
+import {
+  installAgentTurnControl,
+  runAgentTurnInHarness,
+} from "@minke/harness-overlay/host/agent-turn-control.ts";
+import {
+  MINKE_REMOTE_PREVIEW_ROUTE,
+  RemotePreviewRuntime,
+} from "@minke/harness-overlay/host/remote-preview.ts";
 
 function memoryStorage() {
   const values = new Map();
@@ -112,6 +125,1077 @@ test("Minke Host applies trusted-host replacements over its private process chan
   assert.equal(port.listenerCount("message"), 0);
 });
 
+function agentTurnHistory(operationId, {
+  answer = "Minke answer",
+  endReason = { kind: "completed" },
+  turn = 2,
+  userText = "incoming",
+} = {}) {
+  return [
+    {
+      event: {
+        type: "turn/start",
+        seq: 10,
+        time: 10,
+        data: { turn },
+      },
+    },
+    {
+      event: {
+        type: "step/start",
+        seq: 11,
+        time: 11,
+        data: { turn, step: 1 },
+      },
+    },
+    {
+      event: {
+        type: "user/message",
+        seq: 12,
+        time: 12,
+        data: {
+          role: "user",
+          content: [{ type: "text", text: userText }],
+          source: { kind: "user", rpcId: operationId },
+        },
+      },
+    },
+    {
+      event: {
+        type: "assistant/message",
+        seq: 13,
+        time: 13,
+        data: {
+          turn,
+          step: 1,
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "stale answer" },
+            ],
+          },
+        },
+      },
+    },
+    {
+      event: {
+        type: "assistant/message",
+        seq: 14,
+        time: 14,
+        data: {
+          turn,
+          step: 2,
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: answer.slice(0, 3) },
+              { type: "tool-call", id: "ignored" },
+              { type: "text", text: answer.slice(3) },
+            ],
+          },
+        },
+      },
+    },
+    {
+      event: {
+        type: "turn/end",
+        seq: 15,
+        time: 15,
+        data: { turn, reason: endReason },
+      },
+    },
+  ];
+}
+
+function agentTurnHistoryWithProducedFiles(operationId) {
+  const turn = 3;
+  const resultMessage = (callId, isError = false) => ({
+    role: "tool",
+    source: { callId },
+    content: [{
+      type: "tool-result",
+      toolCallId: callId,
+      content: [{ type: "text", text: "settled" }],
+      isError,
+    }],
+  });
+  return [
+    {
+      event: {
+        type: "turn/start",
+        seq: 20,
+        time: 20,
+        data: { turn },
+      },
+    },
+    {
+      event: {
+        type: "user/message",
+        seq: 21,
+        time: 21,
+        data: {
+          role: "user",
+          content: [{ type: "text", text: "build it" }],
+          source: { kind: "user", rpcId: operationId },
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/call",
+        seq: 22,
+        time: 22,
+        data: {
+          turn,
+          step: 1,
+          callId: "write-ok",
+          name: "write",
+          arguments: "{}",
+        },
+      },
+      view: {
+        for: "call",
+        view: {
+          card: "diff",
+          locations: [
+            { path: "demo.html" },
+            { path: "notes.txt" },
+          ],
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/result",
+        seq: 23,
+        time: 23,
+        data: {
+          turn,
+          step: 1,
+          message: resultMessage("write-ok"),
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/call",
+        seq: 24,
+        time: 24,
+        data: {
+          turn,
+          step: 2,
+          callId: "read-only",
+          name: "read",
+          arguments: "{}",
+        },
+      },
+      view: {
+        for: "call",
+        view: {
+          card: "generic",
+          kind: "read",
+          locations: [{ path: "not-produced.html" }],
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/result",
+        seq: 25,
+        time: 25,
+        data: {
+          turn,
+          step: 2,
+          message: resultMessage("read-only"),
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/call",
+        seq: 26,
+        time: 26,
+        data: {
+          turn,
+          step: 3,
+          callId: "write-failed",
+          name: "write",
+          arguments: "{}",
+        },
+      },
+      view: {
+        for: "call",
+        view: {
+          card: "generic",
+          kind: "edit",
+          locations: [{ path: "failed.html" }],
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/result",
+        seq: 27,
+        time: 27,
+        data: {
+          turn,
+          step: 3,
+          message: resultMessage("write-failed", true),
+        },
+      },
+    },
+    {
+      event: {
+        type: "assistant/message",
+        seq: 28,
+        time: 28,
+        data: {
+          turn,
+          step: 4,
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Built the page." }],
+          },
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/call",
+        seq: 29,
+        time: 29,
+        data: {
+          turn,
+          step: 5,
+          callId: "after-closing",
+          name: "write",
+          arguments: "{}",
+        },
+      },
+      view: {
+        for: "call",
+        view: {
+          card: "diff",
+          locations: [{ path: "after-closing.html" }],
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/result",
+        seq: 30,
+        time: 30,
+        data: {
+          turn,
+          step: 5,
+          message: resultMessage("after-closing"),
+        },
+      },
+    },
+    {
+      event: {
+        type: "turn/end",
+        seq: 31,
+        time: 31,
+        data: { turn, reason: { kind: "completed" } },
+      },
+    },
+  ];
+}
+
+function okRpc(request, value) {
+  return {
+    rpcId: request.rpcId,
+    result: { ok: true, value },
+  };
+}
+
+async function nextAgentTurnResponse(responses) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (responses.length > 0) return responses.shift();
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error("Agent turn control did not respond");
+}
+
+async function agentTurnResponseFor(responses, requestId) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const index = responses.findIndex(
+      (response) => response.requestId === requestId,
+    );
+    if (index >= 0) return responses.splice(index, 1)[0];
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error(
+    `Agent turn control did not respond to ${String(requestId)}`,
+  );
+}
+
+async function waitUntil(predicate) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error("condition did not become true");
+}
+
+test("Minke Host recovers a completed Agent turn before prompting again", async () => {
+  const operationId = "weixin:account-1:message-7";
+  const calls = [];
+  const port = new EventEmitter();
+  port.connected = true;
+  const responses = [];
+  port.send = (message, callback) => {
+    responses.push(message);
+    callback?.(null);
+    return true;
+  };
+  let dispose;
+  const context = {
+    agents: {
+      get() {
+        return undefined;
+      },
+    },
+    effect(callback) {
+      dispose = callback();
+    },
+    apiProxy: {
+      sessions: {
+        create(request) {
+          calls.push(["create", request]);
+          return Promise.resolve(okRpc(request, {
+            sessionId: request.payload.sessionId,
+          }));
+        },
+        history(request) {
+          calls.push(["history", request]);
+          return Promise.resolve(okRpc(request, {
+            events: agentTurnHistory(operationId),
+            hasMore: false,
+          }));
+        },
+        prompt(request) {
+          calls.push(["prompt", request]);
+          return Promise.resolve(okRpc(request, { accepted: true }));
+        },
+        cancel(request) {
+          calls.push(["cancel", request]);
+          return Promise.resolve(okRpc(request, { accepted: true }));
+        },
+      },
+    },
+  };
+  assert.equal(
+    installAgentTurnControl(context, port, {
+      pollIntervalMs: 0,
+    }),
+    true,
+  );
+
+  port.emit("message", createAgentTurnRunRequest(9, {
+    operationId,
+    sessionId: "session-im-account-1-peer-2",
+    text: "incoming",
+  }));
+  const response = parseAgentTurnProcessResponse(
+    await nextAgentTurnResponse(responses),
+  );
+  port.emit("message", createAgentTurnRunRequest(10, {
+    operationId,
+    sessionId: "session-im-account-1-peer-2",
+    text: "incoming",
+  }));
+  const retried = parseAgentTurnProcessResponse(
+    await nextAgentTurnResponse(responses),
+  );
+  port.emit("message", createAgentTurnRunRequest(11, {
+    operationId,
+    sessionId: "session-im-account-1-peer-2",
+    text: "different input",
+  }));
+  const conflict = parseAgentTurnProcessResponse(
+    await nextAgentTurnResponse(responses),
+  );
+
+  assert.deepEqual(response.result, {
+    outcome: "completed",
+    sessionId: "session-im-account-1-peer-2",
+    text: "Minke answer",
+    turn: 2,
+    endReason: "completed",
+  });
+  assert.deepEqual(retried.result, response.result);
+  assert.equal(conflict.type, "agent-turn/error");
+  assert.equal(conflict.code, "operation-conflict");
+  assert.deepEqual(
+    calls.map(([method]) => method),
+    [
+      "create",
+      "history",
+      "create",
+      "history",
+    ],
+  );
+  assert.equal(
+    calls[0][1].payload.sessionId,
+    "session-im-account-1-peer-2",
+  );
+  assert.equal(calls[0][1].rpcId, `${operationId}:create`);
+  assert.deepEqual(calls[2][1], calls[0][1]);
+  dispose();
+});
+
+test("Minke Host writes operationId to prompt rpcId without exposing slash commands", async () => {
+  const operationId = "telegram:account-1:update-9";
+  const calls = [];
+  let historyReads = 0;
+  const port = new EventEmitter();
+  port.connected = true;
+  const responses = [];
+  port.send = (message, callback) => {
+    responses.push(message);
+    callback?.(null);
+    return true;
+  };
+  let dispose;
+  const context = {
+    effect(callback) {
+      dispose = callback();
+    },
+    apiProxy: {
+      sessions: {
+        create(request) {
+          calls.push(["create", request]);
+          return Promise.resolve(okRpc(request, {
+            sessionId: request.payload.sessionId,
+          }));
+        },
+        history(request) {
+          calls.push(["history", request]);
+          historyReads += 1;
+          return Promise.resolve(okRpc(request, {
+            events: historyReads === 1
+              ? []
+              : agentTurnHistory(operationId, {
+                answer: "Telegram reply",
+                turn: 0,
+                userText: "/status",
+              }),
+            hasMore: false,
+          }));
+        },
+        prompt(request) {
+          calls.push(["prompt", request]);
+          return Promise.resolve(okRpc(request, { accepted: true }));
+        },
+        cancel(request) {
+          calls.push(["cancel", request]);
+          return Promise.resolve(okRpc(request, { accepted: true }));
+        },
+      },
+    },
+  };
+  installAgentTurnControl(context, port, {
+    pollIntervalMs: 0,
+  });
+
+  port.emit("message", createAgentTurnRunRequest(3, {
+    operationId,
+    sessionId: "session-im-account-1-peer-9",
+    text: "/status",
+  }));
+  const response = parseAgentTurnProcessResponse(
+    await nextAgentTurnResponse(responses),
+  );
+  const prompt = calls.find(([method]) => method === "prompt")[1];
+
+  assert.equal(prompt.rpcId, operationId);
+  assert.deepEqual(prompt.payload, {
+    sessionId: "session-im-account-1-peer-9",
+    mode: "queue",
+    content: [
+      { type: "text", text: "/" },
+      { type: "text", text: "status" },
+    ],
+  });
+  assert.equal(
+    prompt.payload.content.map(({ text }) => text).join(""),
+    "/status",
+  );
+  assert.deepEqual(response.result, {
+    outcome: "completed",
+    sessionId: "session-im-account-1-peer-9",
+    text: "Telegram reply",
+    turn: 0,
+    endReason: "completed",
+  });
+  dispose();
+});
+
+test("Minke Host publishes previews only for successful produced files", async () => {
+  const operationId = "weixin:account-1:message-preview";
+  const published = [];
+  const result = await runAgentTurnInHarness(
+    {
+      create(request) {
+        return Promise.resolve(okRpc(request, {
+          sessionId: request.payload.sessionId,
+        }));
+      },
+      history(request) {
+        return Promise.resolve(okRpc(request, {
+          events: agentTurnHistoryWithProducedFiles(operationId),
+          hasMore: false,
+        }));
+      },
+      prompt() {
+        throw new Error("prompt must not run");
+      },
+    },
+    {
+      operationId,
+      sessionId: "minke-im-weixin-preview-session",
+      text: "build it",
+    },
+    new AbortController().signal,
+    {
+      pollIntervalMs: 0,
+      previewPublisher: {
+        publish(input) {
+          published.push(input);
+          return Promise.resolve([{
+            title: "demo.html",
+            route: "/minke-preview/abcdefghijklmnopqrstuv/",
+          }]);
+        },
+      },
+    },
+  );
+
+  assert.deepEqual(published, [{
+    operationId,
+    paths: ["demo.html", "notes.txt"],
+    sessionId: "minke-im-weixin-preview-session",
+    turn: 3,
+  }]);
+  assert.deepEqual(result, {
+    outcome: "completed",
+    sessionId: "minke-im-weixin-preview-session",
+    text: "Built the page.",
+    turn: 3,
+    endReason: "completed",
+    previews: [{
+      title: "demo.html",
+      route: "/minke-preview/abcdefghijklmnopqrstuv/",
+    }],
+  });
+});
+
+test("Minke Host cancellation detaches while an operation remains single-flight", async () => {
+  const operationId = "discord:account-1:event-1";
+  const delayedHistory = Promise.withResolvers();
+  let historyReads = 0;
+  let promptCalls = 0;
+  let cancelCalls = 0;
+  const port = new EventEmitter();
+  port.connected = true;
+  const responses = [];
+  port.send = (message, callback) => {
+    responses.push(message);
+    callback?.(null);
+    return true;
+  };
+  let dispose;
+  const context = {
+    effect(callback) {
+      dispose = callback();
+    },
+    apiProxy: {
+      sessions: {
+        create(request) {
+          return Promise.resolve(okRpc(request, {
+            sessionId: request.payload.sessionId,
+          }));
+        },
+        history(request) {
+          historyReads += 1;
+          if (historyReads === 2) {
+            return delayedHistory.promise;
+          }
+          return Promise.resolve(okRpc(request, {
+            events: historyReads >= 4
+              ? agentTurnHistory(operationId, {
+                answer: "one reply",
+                userText: "cancel me",
+              })
+              : [],
+            hasMore: false,
+          }));
+        },
+        prompt(request) {
+          promptCalls += 1;
+          return Promise.resolve(okRpc(request, { accepted: true }));
+        },
+        cancel(request) {
+          cancelCalls += 1;
+          return Promise.resolve(okRpc(request, { accepted: true }));
+        },
+      },
+    },
+  };
+  installAgentTurnControl(context, port, {
+    pollIntervalMs: 0,
+  });
+  port.emit("message", createAgentTurnRunRequest(5, {
+    operationId,
+    sessionId: "session-im-account-1-peer-1",
+    text: "cancel me",
+  }));
+  await waitUntil(
+    () => promptCalls === 1 && historyReads === 2,
+  );
+  port.emit("message", createAgentTurnCancelRequest(5));
+  port.emit("message", createAgentTurnRunRequest(7, {
+    operationId,
+    sessionId: "session-im-account-1-peer-1",
+    text: "different input",
+  }));
+  const conflict = parseAgentTurnProcessResponse(
+    await agentTurnResponseFor(responses, 7),
+  );
+  assert.equal(conflict.type, "agent-turn/error");
+  assert.equal(conflict.code, "operation-conflict");
+
+  port.emit("message", createAgentTurnRunRequest(6, {
+    operationId,
+    sessionId: "session-im-account-1-peer-1",
+    text: "cancel me",
+  }));
+  delayedHistory.resolve(okRpc(
+    { rpcId: `${operationId}:history:1` },
+    {
+      events: agentTurnHistory(operationId, {
+        answer: "one reply",
+        userText: "cancel me",
+      }),
+      hasMore: false,
+    },
+  ));
+  const response = parseAgentTurnProcessResponse(
+    await agentTurnResponseFor(responses, 6),
+  );
+  assert.equal(response.type, "agent-turn/result");
+  assert.equal(response.result.outcome, "completed");
+  assert.equal(response.result.text, "one reply");
+  assert.equal(promptCalls, 1);
+  assert.equal(cancelCalls, 0);
+  assert.equal(
+    responses.some((candidate) => candidate.requestId === 5),
+    false,
+  );
+  dispose();
+});
+
+test("Agent turn control-plane failures reject instead of becoming terminal results", async () => {
+  const input = {
+    operationId: "weixin:account-2:message-4",
+    sessionId: "session-im-account-2-peer-4",
+    text: "hello",
+  };
+  const create = (request) => Promise.resolve(okRpc(request, {
+    sessionId: request.payload.sessionId,
+  }));
+  const emptyHistory = (request) =>
+    Promise.resolve(okRpc(request, {
+      events: [],
+      hasMore: false,
+    }));
+
+  await assert.rejects(
+    runAgentTurnInHarness(
+      {
+        create,
+        history: emptyHistory,
+        prompt(request) {
+          return Promise.resolve({
+            rpcId: request.rpcId,
+            result: {
+              ok: false,
+              error: {
+                code: "agent-busy",
+                message: "provider is restarting",
+              },
+            },
+          });
+        },
+        cancel() {
+          throw new Error("session.cancel must not be called");
+        },
+      },
+      input,
+      new AbortController().signal,
+      { pollIntervalMs: 0 },
+    ),
+    /session\.prompt failed.*provider is restarting/u,
+  );
+
+  await assert.rejects(
+    runAgentTurnInHarness(
+      {
+        create,
+        history() {
+          throw new Error("history store is temporarily busy");
+        },
+        prompt() {
+          throw new Error("prompt must not run");
+        },
+        cancel() {
+          throw new Error("session.cancel must not be called");
+        },
+      },
+      input,
+      new AbortController().signal,
+      { pollIntervalMs: 0 },
+    ),
+    /history store is temporarily busy/u,
+  );
+
+  await assert.rejects(
+    runAgentTurnInHarness(
+      {
+        create,
+        history(request) {
+          return Promise.resolve(okRpc(request, {
+            events: [{}],
+            hasMore: false,
+          }));
+        },
+        prompt() {
+          throw new Error("prompt must not run");
+        },
+      },
+      input,
+      new AbortController().signal,
+      { pollIntervalMs: 0 },
+    ),
+    /session\.history returned invalid event ordering/u,
+  );
+
+  await assert.rejects(
+    runAgentTurnInHarness(
+      {
+        create(request) {
+          return Promise.resolve(okRpc(request, {
+            sessionId: "session-other",
+          }));
+        },
+        history() {
+          throw new Error("history must not run");
+        },
+        prompt() {
+          throw new Error("prompt must not run");
+        },
+      },
+      input,
+      new AbortController().signal,
+      { pollIntervalMs: 0 },
+    ),
+    /session\.create returned a different session id/u,
+  );
+
+  assert.deepEqual(
+    await runAgentTurnInHarness(
+      {
+        create,
+        history(request) {
+          return Promise.resolve(okRpc(request, {
+            events: agentTurnHistory(input.operationId, {
+              endReason: {
+                kind: "error",
+                error: {
+                  code: "PROVIDER_DOWN",
+                  message: "provider failed terminally",
+                },
+              },
+              userText: input.text,
+            }),
+            hasMore: false,
+          }));
+        },
+        prompt() {
+          throw new Error("prompt must not run");
+        },
+      },
+      input,
+      new AbortController().signal,
+      { pollIntervalMs: 0 },
+    ),
+    {
+      outcome: "failed",
+      sessionId: input.sessionId,
+      message: "provider failed terminally",
+      turn: 2,
+      endReason: "error",
+    },
+  );
+});
+
+test("Minke Host calibrates identity only for external IM agents", async (t) => {
+  const cleanups = [];
+  let onAgentCreated;
+  t.after(async () => {
+    await Promise.allSettled(
+      cleanups.reverse().map((cleanup) => Promise.resolve(cleanup())),
+    );
+  });
+  const context = {
+    effect(callback) {
+      const cleanup = callback();
+      if (typeof cleanup === "function") cleanups.push(cleanup);
+      return cleanup;
+    },
+    connection: {
+      replaceTrustedHosts() {},
+      rpc: {
+        handle() {
+          return async () => {};
+        },
+      },
+    },
+    on(event, listener) {
+      if (event === "agent/created") onAgentCreated = listener;
+      return () => {};
+    },
+    webServer: {
+      register() {
+        return () => {};
+      },
+      tapIndex() {
+        return () => {};
+      },
+    },
+  };
+
+  applyMinkeHost(context, { rootPath: tmpdir() });
+  assert.equal(typeof onAgentCreated, "function");
+
+  const sections = [];
+  const agent = (sessionId) => ({
+    id: sessionId,
+    session: { id: sessionId },
+    ctx: {
+      systemPrompt: {
+        section(value) {
+          sections.push(value);
+          return () => {};
+        },
+      },
+      tools: {
+        restrict() {
+          return () => {};
+        },
+      },
+    },
+  });
+  onAgentCreated({ agent: agent("local-session") });
+  assert.deepEqual(sections, []);
+
+  onAgentCreated({
+    agent: agent("minke-im-weixin-668c2acc6e7863238fcfd3e302dc41b2"),
+  });
+  assert.equal(sections.length, 1);
+  assert.equal(sections[0].name, "harness:identity");
+  assert.equal(sections[0].order, -100);
+  assert.match(sections[0].text, /\bMinke\b/u);
+  assert.doesNotMatch(sections[0].text, /DeepSeek Harness/u);
+});
+
+test("Remote preview snapshots HTML behind a durable capability route", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "minke-preview-root-"));
+  const storePath = await mkdtemp(
+    join(tmpdir(), "minke-preview-store-"),
+  );
+  t.after(async () => {
+    await Promise.all([
+      rm(root, { recursive: true, force: true }),
+      rm(storePath, { recursive: true, force: true }),
+    ]);
+  });
+  await writeFile(
+    join(root, "demo.html"),
+    "<!doctype html><style>body{color:hotpink}</style><h1>Minke</h1>",
+    "utf8",
+  );
+
+  const routes = [];
+  const createRuntime = () =>
+    new RemotePreviewRuntime({
+      rootPath: root,
+      storePath,
+      webServer: {
+        register(route) {
+          routes.push(route);
+          return () => {};
+        },
+      },
+    });
+  const firstRuntime = createRuntime();
+  const first = await firstRuntime.publish({
+    cwd: root,
+    operationId: "minke-im-agent-reply:operation-1",
+    paths: ["demo.html"],
+  });
+  const request = async (route, method, url) => {
+    let status;
+    let headers;
+    let body;
+    await route.handler(
+      { method, url },
+      {
+        writeHead(nextStatus, nextHeaders) {
+          status = nextStatus;
+          headers = nextHeaders;
+        },
+        end(nextBody) {
+          body = nextBody;
+        },
+      },
+    );
+    return { body, headers, status };
+  };
+  const served = await request(
+    routes[0],
+    "GET",
+    first[0].route,
+  );
+  assert.equal(served.status, 200);
+  assert.match(served.body, /<h1>Minke<\/h1>/u);
+  assert.match(
+    served.headers["content-security-policy"],
+    /(?:^|;\s*)sandbox(?:;|$)/u,
+  );
+  assert.equal(
+    served.headers["cache-control"],
+    "private, no-store",
+  );
+  assert.deepEqual(
+    await request(routes[0], "HEAD", first[0].route),
+    {
+      body: undefined,
+      headers: served.headers,
+      status: 200,
+    },
+  );
+  assert.equal(
+    (await request(routes[0], "POST", first[0].route)).status,
+    405,
+  );
+  assert.equal(
+    (
+      await request(
+        routes[0],
+        "GET",
+        "/minke-preview/not-a-capability/",
+      )
+    ).status,
+    404,
+  );
+  firstRuntime.dispose();
+  const secondRuntime = createRuntime();
+  const recovered = await secondRuntime.publish({
+    cwd: root,
+    operationId: "minke-im-agent-reply:operation-1",
+    paths: ["demo.html"],
+  });
+  secondRuntime.dispose();
+
+  assert.equal(first.length, 1);
+  assert.deepEqual(recovered, first);
+  assert.equal(first[0].title, "demo.html");
+  assert.match(
+    first[0].route,
+    /^\/minke-preview\/[A-Za-z0-9_-]{22}\/$/u,
+  );
+  assert.equal(routes[0].kind, "prefix");
+  assert.equal(routes[0].path, "/minke-preview");
+});
+
+test("Remote preview recovers JSON-escaped near-limit snapshots after restart", async (t) => {
+  const root = await mkdtemp(
+    join(tmpdir(), "minke-preview-escaped-root-"),
+  );
+  const storePath = await mkdtemp(
+    join(tmpdir(), "minke-preview-escaped-store-"),
+  );
+  t.after(async () => {
+    await Promise.all([
+      rm(root, { recursive: true, force: true }),
+      rm(storePath, { recursive: true, force: true }),
+    ]);
+  });
+
+  const maxHtmlBytes = 8 * 1024;
+  const prefix = "<!doctype html><pre>";
+  const suffix = "</pre>";
+  const available =
+    maxHtmlBytes -
+    Buffer.byteLength(prefix) -
+    Buffer.byteLength(suffix);
+  const escapePair = String.fromCharCode(34, 92);
+  const escapeHeavy = escapePair.repeat(
+    Math.floor(available / Buffer.byteLength(escapePair)),
+  );
+  const html =
+    prefix +
+    escapeHeavy +
+    "x".repeat(available - Buffer.byteLength(escapeHeavy)) +
+    suffix;
+  assert.equal(Buffer.byteLength(html), maxHtmlBytes);
+
+  const sourcePath = join(root, "escaped.html");
+  await writeFile(sourcePath, html, "utf8");
+  const routes = [];
+  const createRuntime = () =>
+    new RemotePreviewRuntime({
+      maxHtmlBytes,
+      rootPath: root,
+      storePath,
+      webServer: {
+        register(route) {
+          routes.push(route);
+          return () => {};
+        },
+      },
+    });
+  const firstRuntime = createRuntime();
+  const first = await firstRuntime.publish({
+    cwd: root,
+    operationId: "minke-im-agent-reply:escaped-operation",
+    paths: ["escaped.html"],
+  });
+  firstRuntime.dispose();
+
+  assert.equal(first.length, 1);
+  const token = first[0].route.split("/")[2];
+  const storedBytes = await readFile(
+    join(storePath, `${token}.json`),
+  );
+  assert.ok(storedBytes.length > maxHtmlBytes + 4 * 1024);
+
+  await rm(sourcePath);
+  const secondRuntime = createRuntime();
+  const recovered = await secondRuntime.publish({
+    cwd: root,
+    operationId: "minke-im-agent-reply:escaped-operation",
+    paths: ["escaped.html"],
+  });
+  secondRuntime.dispose();
+
+  assert.deepEqual(recovered, first);
+  assert.equal(routes.length, 2);
+});
+
 test("Minke Host mounts Files RPC on the trusted DSH connection", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "minke-host-root-"));
   const outside = await mkdtemp(join(tmpdir(), "minke-host-outside-"));
@@ -132,6 +1216,11 @@ test("Minke Host mounts Files RPC on the trusted DSH connection", async (t) => {
   const pwaRoutes = [];
   const indexTaps = [];
   const context = {
+    agents: {
+      get() {
+        return undefined;
+      },
+    },
     effect(callback) {
       return callback();
     },
@@ -142,6 +1231,9 @@ test("Minke Host mounts Files RPC on the trusted DSH connection", async (t) => {
           return async () => {};
         },
       },
+    },
+    on() {
+      return () => {};
     },
     webServer: {
       register(route) {
@@ -159,6 +1251,7 @@ test("Minke Host mounts Files RPC on the trusted DSH connection", async (t) => {
   assert.deepEqual(
     pwaRoutes.map(({ path }) => path),
     [
+      MINKE_REMOTE_PREVIEW_ROUTE,
       MINKE_PWA_ROUTES.manifest,
       MINKE_PWA_ROUTES.bootstrap,
       MINKE_PWA_ROUTES.serviceWorker,

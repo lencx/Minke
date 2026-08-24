@@ -16,11 +16,13 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import type {
-  BotHubIssue,
-  BotHubSnapshot,
-  WeixinHubIssue,
-  WeixinHubSnapshot,
+import {
+  parseTelegramNetworkSettings,
+  type BotHubIssue,
+  type BotHubSnapshot,
+  type RemoteHubCommand,
+  type WeixinHubIssue,
+  type WeixinHubSnapshot,
 } from "@minke/harness-overlay/remote-hub-contract.ts";
 import {
   RemoteSettingsSection,
@@ -92,7 +94,7 @@ function hubState(
   }
   if (
     weixin.state === "degraded" &&
-    weixin.issue === "receive"
+    weixin.issue !== "agent-route-pending"
   ) {
     return "attention";
   }
@@ -100,7 +102,7 @@ function hubState(
     botChannels.some(
       (channel) =>
         channel.state === "degraded" &&
-        channel.issue === "receive",
+        channel.issue !== "agent-route-pending",
     )
   ) {
     return "attention";
@@ -114,7 +116,8 @@ function hubState(
     botChannels.some(
       (channel) =>
         channel.state === "loading" ||
-        channel.state === "connecting",
+        channel.state === "connecting" ||
+        channel.state === "pairing",
     ) ||
     remoteState === "starting" ||
     remoteState === "stopping" ||
@@ -123,9 +126,12 @@ function hubState(
     return "working";
   }
   if (
+    weixin.state === "connected" ||
     weixin.state === "degraded" ||
     botChannels.some(
-      (channel) => channel.state === "degraded",
+      (channel) =>
+        channel.state === "connected" ||
+        channel.state === "degraded",
     ) ||
     remoteState === "active" ||
     remoteState === "ready"
@@ -272,8 +278,15 @@ function statusLabel(
       }
     case "connecting":
       return t("connecting");
+    case "connected":
+      return t("connected");
     case "degraded":
-      return t("linkedLimited");
+      return t(
+        value.issue === "agent-route-pending" ||
+          value.issue === "authorization-missing"
+          ? "linkedLimited"
+          : "attention",
+      );
     case "error":
     case "session-stale":
       return t("attention");
@@ -287,6 +300,12 @@ function issueText(
   switch (issue) {
     case "agent-route-pending":
       return t("agentRoutePending");
+    case "authorization-missing":
+      return t("authorizationMissing");
+    case "agent":
+      return t("agentIssue");
+    case "delivery":
+      return t("deliveryIssue");
     case "receive":
       return t("receiveIssue");
     case "vault-unavailable":
@@ -409,6 +428,7 @@ function WeixinChannel({
       weixin.issue !== "transport-start"
     );
   const canReconnect =
+    weixin.state === "connected" ||
     weixin.state === "degraded" ||
     (
       weixin.state === "error" &&
@@ -416,6 +436,7 @@ function WeixinChannel({
     );
   const canUnlink =
     weixin.state === "connecting" ||
+    weixin.state === "connected" ||
     weixin.state === "degraded" ||
     weixin.state === "error" ||
     weixin.state === "session-stale";
@@ -532,6 +553,7 @@ function WeixinChannel({
       )}
 
       {(weixin.state === "connecting" ||
+        weixin.state === "connected" ||
         weixin.state === "degraded") && (
         <div className="minke-remote-hub__channel-detail">
           <strong>
@@ -682,8 +704,20 @@ function botStatusLabel(
       return t("unlinked");
     case "connecting":
       return t("connecting");
+    case "pairing":
+      return t(
+        value.request === undefined
+          ? "telegramPairingWaiting"
+          : "telegramPairingApprovalRequired",
+      );
+    case "connected":
+      return t("connected");
     case "degraded":
-      return t("linkedLimited");
+      return t(
+        value.issue === "agent-route-pending"
+          ? "linkedLimited"
+          : "attention",
+      );
     case "error":
       return t("attention");
   }
@@ -697,8 +731,12 @@ function botIssueText(
   const replaceProvider = (value: string): string =>
     value.replace("{provider}", providerLabel);
   switch (issue) {
+    case "agent":
+      return replaceProvider(t("botAgentIssue"));
     case "agent-route-pending":
       return t("agentRoutePending");
+    case "delivery":
+      return replaceProvider(t("botDeliveryIssue"));
     case "receive":
       return replaceProvider(t("botReceiveIssue"));
     case "vault-unavailable":
@@ -747,12 +785,17 @@ function BotChannel({
       : "discordDescription",
   );
   const [token, setToken] = useState("");
+  const savedProxyUrl =
+    snapshot.channels.telegramNetwork.httpProxyUrl;
+  const [proxyUrl, setProxyUrl] = useState(savedProxyUrl);
   const [confirmReset, setConfirmReset] = useState(false);
   const previousConfirmResetRef = useRef(false);
   const channelRef = useRef<HTMLElement>(null);
   const resetTriggerRef = useRef<HTMLButtonElement>(null);
   const tokenId = useId();
   const tokenHelpId = useId();
+  const proxyId = useId();
+  const proxyHelpId = useId();
   const titleId = useId();
   const resetConfirmRef = useRef<HTMLButtonElement>(null);
   const busy = snapshot.operation !== "idle";
@@ -760,6 +803,23 @@ function BotChannel({
     token.length >= 20 &&
     token.length <= 4_096 &&
     !/\s/u.test(token);
+  let proxyValid = false;
+  try {
+    parseTelegramNetworkSettings({
+      httpProxyUrl: proxyUrl.trim(),
+    });
+    proxyValid = true;
+  } catch {
+    proxyValid = false;
+  }
+  const proxyChanged =
+    proxyUrl.trim() !== savedProxyUrl;
+  const isTelegramPairing =
+    provider === "telegram" &&
+    channel.state === "pairing";
+  const telegramPairingRequest = isTelegramPairing
+    ? channel.request
+    : undefined;
   const canConfigure =
     channel.state === "unlinked" ||
     (
@@ -771,6 +831,7 @@ function BotChannel({
     channel.state === "degraded" ||
     (
       channel.state === "error" &&
+      channel.hasStoredCredential &&
       (
         channel.issue === "network" ||
         channel.issue === "polling-conflict" ||
@@ -781,8 +842,19 @@ function BotChannel({
     );
   const canUnlink =
     channel.state === "connecting" ||
+    channel.state === "pairing" ||
+    channel.state === "connected" ||
     channel.state === "degraded" ||
-    channel.state === "error";
+    (
+      channel.state === "error" &&
+      channel.hasStoredCredential
+    );
+  const canConfigureProxy =
+    provider === "telegram" &&
+    (
+      channel.state === "unlinked" ||
+      channel.state === "error"
+    );
   const canReset =
     channel.state === "error" &&
     (
@@ -801,6 +873,10 @@ function BotChannel({
     channel.state,
     channel.state === "error" ? channel.issue : undefined,
   ]);
+
+  useEffect(() => {
+    setProxyUrl(savedProxyUrl);
+  }, [savedProxyUrl]);
 
   useEffect(() => {
     const previous = previousConfirmResetRef.current;
@@ -850,12 +926,49 @@ function BotChannel({
     );
   };
 
+  const configureProxy = (
+    event: FormEvent<HTMLFormElement>,
+  ): void => {
+    event.preventDefault();
+    if (
+      provider !== "telegram" ||
+      !proxyValid ||
+      !proxyChanged ||
+      busy
+    ) {
+      return;
+    }
+    const command: RemoteHubCommand = {
+      kind: "telegram/network/set",
+      settings: parseTelegramNetworkSettings({
+        httpProxyUrl: proxyUrl.trim(),
+      }),
+    };
+    void runtime.dispatch(command);
+  };
+
   const unlink = (): void => {
     void runtime.dispatch(
       provider === "telegram"
         ? { kind: "telegram/unlink" }
         : { kind: "discord/unlink" },
     );
+  };
+
+  const approvePairing = (requestId: string): void => {
+    if (provider !== "telegram" || busy) return;
+    void runtime.dispatch({
+      kind: "telegram/pairing/approve",
+      requestId,
+    });
+  };
+
+  const dismissPairing = (requestId: string): void => {
+    if (provider !== "telegram" || busy) return;
+    void runtime.dispatch({
+      kind: "telegram/pairing/dismiss",
+      requestId,
+    });
   };
 
   const reset = (): void => {
@@ -895,6 +1008,8 @@ function BotChannel({
       </div>
 
       {(channel.state === "connecting" ||
+        channel.state === "pairing" ||
+        channel.state === "connected" ||
         channel.state === "degraded") && (
         <div className="minke-remote-hub__channel-detail">
           <strong>
@@ -912,6 +1027,79 @@ function BotChannel({
               )}
             </p>
           )}
+          {isTelegramPairing &&
+            (telegramPairingRequest === undefined ? (
+              <p>
+                {t("telegramPairingInstruction").replace(
+                  "{account}",
+                  channel.accountLabel,
+                )}
+              </p>
+            ) : (
+              <div
+                role="group"
+                aria-label={t(
+                  "telegramPairingRequestLabel",
+                )}
+              >
+                <p>
+                  {t("telegramPairingRequestFrom").replace(
+                    "{label}",
+                    telegramPairingRequest.senderLabel,
+                  )}
+                </p>
+                <p>
+                  <strong>
+                    {t("telegramPairingCode").replace(
+                      "{code}",
+                      telegramPairingRequest.code,
+                    )}
+                  </strong>
+                </p>
+                <p>
+                  <time
+                    dateTime={new Date(
+                      telegramPairingRequest.expiresAt,
+                    ).toISOString()}
+                  >
+                    {t("telegramPairingExpires").replace(
+                      "{time}",
+                      new Intl.DateTimeFormat(undefined, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }).format(
+                        telegramPairingRequest.expiresAt,
+                      ),
+                    )}
+                  </time>
+                </p>
+                <div className="minke-remote-hub__channel-actions">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      approvePairing(
+                        telegramPairingRequest.requestId,
+                      )}
+                  >
+                    {busy
+                      ? t("busy")
+                      : t("approveTelegramPairing")}
+                  </button>
+                  <button
+                    type="button"
+                    className="minke-remote-hub__button--quiet"
+                    disabled={busy}
+                    onClick={() =>
+                      dismissPairing(
+                        telegramPairingRequest.requestId,
+                      )}
+                  >
+                    {t("dismissTelegramPairing")}
+                  </button>
+                </div>
+              </div>
+            ))}
         </div>
       )}
 
@@ -967,6 +1155,44 @@ function BotChannel({
                 ? "telegramTokenHelp"
                 : "discordTokenHelp",
             )}
+          </small>
+        </form>
+      )}
+
+      {canConfigureProxy && (
+        <form
+          className="minke-remote-hub__bot-token minke-remote-hub__telegram-proxy"
+          onSubmit={configureProxy}
+        >
+          <label htmlFor={proxyId}>
+            {t("telegramProxyLabel")}
+          </label>
+          <div>
+            <input
+              id={proxyId}
+              type="url"
+              value={proxyUrl}
+              maxLength={2_048}
+              autoComplete="off"
+              autoCapitalize="none"
+              aria-describedby={proxyHelpId}
+              spellCheck={false}
+              placeholder={t("telegramProxyPlaceholder")}
+              disabled={busy}
+              onChange={(event) =>
+                setProxyUrl(event.currentTarget.value)}
+            />
+            <button
+              type="submit"
+              disabled={
+                busy || !proxyValid || !proxyChanged
+              }
+            >
+              {busy ? t("busy") : t("applyTelegramProxy")}
+            </button>
+          </div>
+          <small id={proxyHelpId}>
+            {t("telegramProxyHelp")}
           </small>
         </form>
       )}
@@ -1182,9 +1408,16 @@ function RemoteHubDialog({
                 ? t("vaultChecking")
                 : t("vaultMissing")}
           </span>
-          <span data-state="pending">
+          <span
+            data-state={
+              snapshot.channels.dependencies.agentRoute
+            }
+          >
             <LucideIcon icon={RadioTower} size={14} />
-            {t("agentRoutePendingShort")}
+            {snapshot.channels.dependencies.agentRoute ===
+              "ready"
+              ? t("agentRouteReadyShort")
+              : t("agentRoutePendingShort")}
           </span>
         </div>
 

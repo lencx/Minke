@@ -33,8 +33,12 @@ import {
   createGatewayMailboxRecovery,
 } from "@minke/desktop/main/remote-hub/mailbox-recovery.ts";
 import {
+  createTelegramBotDriver,
   RemoteHubCapabilityRuntime,
 } from "@minke/desktop/main/remote-hub/runtime.ts";
+import {
+  externalizeAgentTurnPreviews,
+} from "@minke/desktop/main/remote-hub/agent-preview.ts";
 import {
   bindRemoteHubIpc,
 } from "@minke/desktop/main/remote-hub/ipc.ts";
@@ -63,6 +67,9 @@ import {
 function snapshot(weixin = { state: "unlinked" }) {
   return {
     revision: 3,
+    telegramNetwork: {
+      httpProxyUrl: "",
+    },
     dependencies: {
       credentialVault: "ready",
       agentRoute: "pending",
@@ -74,6 +81,215 @@ function snapshot(weixin = { state: "unlinked" }) {
     },
   };
 }
+
+function telegramDirectMessageInput() {
+  const conversationId = "telegram:chat:owner-user";
+  const nativeId = "telegram:update:42";
+  return {
+    conversationId,
+    kind: "user-message",
+    nativeId,
+    payload: {
+      chat: {
+        firstName: "Ada",
+        id: "owner-user",
+        type: "private",
+        username: "owner",
+      },
+      content: {
+        kind: "text",
+        text: "hello from Telegram",
+      },
+      conversationId,
+      createdAt: 1_800_000_000_000,
+      id: nativeId,
+      isTopicMessage: false,
+      messageId: "7",
+      peerId: "owner-user",
+      sender: {
+        firstName: "Ada",
+        id: "owner-user",
+        isBot: false,
+        lastName: "Lovelace",
+        username: "owner",
+      },
+      senderId: "owner-user",
+      updateId: "42",
+      updateType: "message",
+    },
+    peerId: "owner-user",
+    senderId: "owner-user",
+  };
+}
+
+test("Telegram driver uses the injected desktop network stack throughout startup", async () => {
+  const token = "123456789:telegram-private-token-value";
+  const requests = [];
+  const fetch = async (input, init) => {
+    requests.push({
+      method: init?.method,
+      url: String(input),
+    });
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        result: {
+          first_name: "Minke",
+          id: 123456789,
+          is_bot: true,
+          username: "minke_test_bot",
+        },
+      }),
+      {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      },
+    );
+  };
+  const driver = createTelegramBotDriver({ fetch });
+  const signal = AbortSignal.timeout(100);
+
+  const identity = await driver.validate(token, { signal });
+  const provider = await driver.createProvider({
+    accountKey: "telegram:123456789",
+    generation: 1,
+    identity,
+    signal,
+    token,
+  });
+  await provider.start({ signal });
+
+  assert.deepEqual(
+    requests.map(({ method }) => method),
+    ["POST", "POST", "POST"],
+  );
+  assert.equal(
+    requests.every(({ url }) =>
+      url.startsWith(
+        "https://api.telegram.org/bot123456789:",
+      )
+    ),
+    true,
+  );
+  await provider.close();
+});
+
+test("Telegram direct-message inspection rejects groups, bots, and forged event relationships", () => {
+  const inspect =
+    createTelegramBotDriver().inspectDirectMessage;
+  assert.equal(typeof inspect, "function");
+  const valid = telegramDirectMessageInput();
+
+  assert.deepEqual(inspect(valid), {
+    senderLabel: "@owner",
+    text: "hello from Telegram",
+  });
+
+  const violatingInputs = [
+    ["non-message event", (input) => {
+      input.kind = "system";
+    }],
+    ["group chat", (input) => {
+      input.payload.chat.type = "supergroup";
+    }],
+    ["bot sender", (input) => {
+      input.payload.sender.isBot = true;
+    }],
+    ["forged chat peer", (input) => {
+      input.payload.chat.id = "other-chat";
+    }],
+    ["forged payload peer", (input) => {
+      input.payload.peerId = "other-chat";
+    }],
+    ["forged sender", (input) => {
+      input.payload.sender.id = "other-user";
+    }],
+    ["forged payload sender", (input) => {
+      input.payload.senderId = "other-user";
+    }],
+    ["forged conversation", (input) => {
+      input.payload.conversationId =
+        "telegram:chat:other-user";
+    }],
+    ["forged native id", (input) => {
+      input.payload.id = "telegram:update:999";
+    }],
+    ["edited message", (input) => {
+      input.payload.updateType = "edited-message";
+    }],
+  ];
+  for (const [label, violate] of violatingInputs) {
+    const input = structuredClone(valid);
+    violate(input);
+    assert.equal(inspect(input), undefined, label);
+  }
+});
+
+test("Agent preview routes become links only on stable remote origins", () => {
+  const result = {
+    outcome: "completed",
+    sessionId: "minke-im-weixin-preview",
+    text: "Built it.",
+    turn: 1,
+    endReason: "completed",
+    previews: [{
+      title: "demo.html",
+      route: "/minke-preview/abcdefghijklmnopqrstuv/",
+    }],
+  };
+  assert.deepEqual(
+    externalizeAgentTurnPreviews(result, {
+      method: "tailscale",
+      transport: "serve",
+      state: "active",
+      url: "https://minke.tailnet.ts.net",
+    }),
+    {
+      ...result,
+      previews: [{
+        title: "demo.html",
+        url:
+          "https://minke.tailnet.ts.net/minke-preview/abcdefghijklmnopqrstuv/",
+      }],
+    },
+  );
+  assert.deepEqual(
+    externalizeAgentTurnPreviews(result, {
+      method: "cloudflare",
+      transport: "access",
+      state: "active",
+      url: "https://minke.example.com/",
+    }).previews,
+    [{
+      title: "demo.html",
+      url:
+        "https://minke.example.com/minke-preview/abcdefghijklmnopqrstuv/",
+    }],
+  );
+  assert.equal(
+    Object.hasOwn(
+      externalizeAgentTurnPreviews(result, {
+        method: "tailscale",
+        transport: "direct",
+        state: "active",
+        url: "http://100.64.0.1:49123",
+      }),
+      "previews",
+    ),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(
+      externalizeAgentTurnPreviews(result, {
+        method: "tailscale",
+        transport: "serve",
+        state: "ready",
+      }),
+      "previews",
+    ),
+    false,
+  );
+});
 
 test("Remote Hub contract keeps QR payload transient and rejects secret fields", () => {
   assert.equal(
@@ -194,6 +410,54 @@ test("Remote Hub commands are finite and validate verification input", () => {
   );
   assert.deepEqual(
     parseRemoteHubCommand({
+      kind: "telegram/network/set",
+      settings: {
+        httpProxyUrl: "http://LOCALHOST:7897",
+      },
+    }),
+    {
+      kind: "telegram/network/set",
+      settings: {
+        httpProxyUrl: "http://localhost:7897",
+      },
+    },
+  );
+  assert.throws(
+    () =>
+      parseRemoteHubCommand({
+        kind: "telegram/network/set",
+        settings: {
+          httpProxyUrl:
+            "http://username:password@localhost:7897",
+        },
+      }),
+    /unauthenticated/u,
+  );
+  for (const kind of [
+    "telegram/pairing/approve",
+    "telegram/pairing/dismiss",
+  ]) {
+    assert.deepEqual(
+      parseRemoteHubCommand({
+        kind,
+        requestId: "pairing-request-1",
+      }),
+      {
+        kind,
+        requestId: "pairing-request-1",
+      },
+    );
+  }
+  assert.throws(
+    () =>
+      parseRemoteHubCommand({
+        kind: "telegram/pairing/approve",
+        requestId: "",
+      }),
+    /pairing request id/u,
+  );
+  assert.deepEqual(
+    parseRemoteHubCommand({
       kind: "discord/unlink",
     }),
     { kind: "discord/unlink" },
@@ -212,10 +476,12 @@ test("Remote Hub bot snapshots expose identity but reject credentials", () => {
   const value = snapshot();
   value.channels.telegram = {
     state: "error",
+    hasStoredCredential: true,
     issue: "polling-conflict",
   };
   value.channels.discord = {
     state: "error",
+    hasStoredCredential: true,
     issue: "privileged-intent",
   };
   assert.deepEqual(parseRemoteHubSnapshot(value), value);
@@ -233,6 +499,16 @@ test("Remote Hub bot snapshots expose identity but reject credentials", () => {
       }),
     /unexpected fields/u,
   );
+});
+
+test("Remote Hub contract exposes a ready Agent route and connected Weixin channel", () => {
+  const value = snapshot({
+    state: "connected",
+    accountLabel: "Weixin account",
+  });
+  value.dependencies.agentRoute = "ready";
+
+  assert.deepEqual(parseRemoteHubSnapshot(value), value);
 });
 
 test("Remote Hub IPC authorizes both reads and finite commands", async () => {
@@ -412,6 +688,7 @@ function transactionalBotHarness(options = {}) {
     },
     driver: {
       provider: "telegram",
+      agentReplyPayload: options.agentReplyPayload,
       candidateHealthIssue(provider) {
         return options.candidateHealthIssue?.(
           provider,
@@ -475,6 +752,8 @@ function transactionalBotHarness(options = {}) {
         record.provider = provider;
         return provider;
       },
+      inspectDirectMessage:
+        options.inspectDirectMessage,
     },
     createMailbox() {
       const mailbox = {
@@ -487,6 +766,15 @@ function transactionalBotHarness(options = {}) {
         },
         getAccountGeneration() {
           return options.durableGeneration;
+        },
+        inspectOutboxHealth() {
+          return {
+            accountKey: "telegram:transactional-bot-id",
+            awaitingDeliveryContext: 0,
+            generation: 1,
+            terminalFailures: 0,
+            uncertain: 0,
+          };
         },
         recover() {
           this.recoveries += 1;
@@ -506,9 +794,280 @@ function transactionalBotHarness(options = {}) {
     },
     pollProviderOnce:
       options.pollProviderOnce ?? stalledBotPoll,
+    routeInboxOnce: options.routeInboxOnce,
+    dispatchProviderOnce: options.dispatchProviderOnce,
+    agentRoute: options.agentRoute,
+    now: options.now,
+    createPairingCode: options.createPairingCode,
+    createPairingRequestId:
+      options.createPairingRequestId,
   });
   return { runtime, state };
 }
+
+test("an unknown Telegram DM creates a pairing reply and approval authorizes only its sender", async (t) => {
+  const now = 1_800_000_000_000;
+  const directMessage = telegramDirectMessageInput();
+  const pairingCreated = deferred();
+  const ingressDecision = deferred();
+  const routeResult = deferred();
+  const agentInputs = [];
+  let routeCalls = 0;
+  const telegramDriver = createTelegramBotDriver();
+  const { runtime, state } = transactionalBotHarness({
+    stored: {
+      accountId: "transactional-bot-id",
+      accountLabel: "@minke_dsh_bot",
+      generation: 1,
+      token: "123456789:telegram-private-token-value",
+    },
+    inspectDirectMessage:
+      telegramDriver.inspectDirectMessage,
+    agentReplyPayload:
+      telegramDriver.agentReplyPayload,
+    now: () => now,
+    createPairingCode: () => "ABCDEFGH",
+    createPairingRequestId: () =>
+      "pairing-request-1",
+    async pollProviderOnce({
+      ingressPolicy,
+      provider,
+      signal,
+    }) {
+      ingressDecision.resolve(
+        ingressPolicy({
+          account: provider.account,
+          event: directMessage,
+        }),
+      );
+      pairingCreated.resolve();
+      await abortableWait(signal);
+    },
+    async routeInboxOnce({ handler, signal }) {
+      routeCalls += 1;
+      if (routeCalls > 1) {
+        await abortableWait(signal);
+        return { status: "idle" };
+      }
+      await pairingCreated.promise;
+      const result = await handler({
+        account: {
+          accountKey: "telegram:transactional-bot-id",
+          generation: 1,
+          provider: "telegram",
+          providerAccountId: "transactional-bot-id",
+          requiresDeliveryContext: false,
+        },
+        lease: {
+          ...directMessage,
+          accountKey: "telegram:transactional-bot-id",
+          inboxId: 8,
+          leaseToken: "lease-pairing",
+        },
+        operationId: "gateway-pairing-reply-1",
+        signal,
+      });
+      routeResult.resolve(result);
+      return {
+        operationId: "gateway-pairing-reply-1",
+        status: "reply-enqueued",
+      };
+    },
+    async dispatchProviderOnce({ signal }) {
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    agentRoute: {
+      async runAgentTurn(input) {
+        agentInputs.push(input);
+        throw new Error(
+          "the unapproved pairing message must not reach Agent",
+        );
+      },
+    },
+  });
+  t.after(async () => {
+    await runtime.dispose();
+  });
+
+  await runtime.initialize();
+  assert.equal(await ingressDecision.promise, true);
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "pairing",
+    accountLabel: "@minke_dsh_bot",
+    request: {
+      code: "ABCDEFGH",
+      expiresAt: now + 60 * 60 * 1_000,
+      requestId: "pairing-request-1",
+      senderLabel: "@owner",
+    },
+  });
+  assert.deepEqual(await routeResult.promise, {
+    status: "reply",
+    payload: {
+      kind: "text",
+      text:
+        "Minke 收到了你的私聊配对请求。\n"
+        + "配对码：ABCDEFGH\n"
+        + "请在 Minke 的「远端 → Telegram」中确认。"
+        + "这条消息尚未交给 Agent。",
+    },
+  });
+  assert.equal(agentInputs.length, 0);
+
+  await runtime.approvePairing("pairing-request-1");
+  assert.deepEqual(state.writes.at(-1), {
+    accountId: "transactional-bot-id",
+    accountLabel: "@minke_dsh_bot",
+    authorizedUserId: "owner-user",
+    generation: 1,
+    token: "123456789:telegram-private-token-value",
+  });
+  assert.deepEqual(runtime.getSnapshot(), {
+    state: "connected",
+    accountLabel: "@minke_dsh_bot",
+  });
+});
+
+test("authorized Telegram DMs route through Agent and durable reply dispatch", async (t) => {
+  const ingressDecision = deferred();
+  const routeResult = deferred();
+  const dispatchStarted = deferred();
+  const agentInputs = [];
+  let routeCalls = 0;
+  const telegramDriver = createTelegramBotDriver();
+  const { runtime } = transactionalBotHarness({
+    stored: {
+      accountId: "transactional-bot-id",
+      accountLabel: "@minke_dsh_bot",
+      authorizedUserId: "owner-user",
+      generation: 1,
+      token: "123456789:telegram-private-token-value",
+    },
+    agentReplyPayload:
+      telegramDriver.agentReplyPayload,
+    inspectDirectMessage(input) {
+      const payload = input.payload;
+      if (
+        input.kind !== "user-message" ||
+        payload?.chat?.type !== "private"
+      ) {
+        return undefined;
+      }
+      return {
+        senderLabel: "@owner",
+        text:
+          payload.content?.kind === "text"
+            ? payload.content.text
+            : undefined,
+      };
+    },
+    async pollProviderOnce({
+      ingressPolicy,
+      provider,
+      signal,
+    }) {
+      ingressDecision.resolve(
+        ingressPolicy({
+          account: provider.account,
+          event: {
+            conversationId: "telegram:chat:owner-user",
+            kind: "user-message",
+            nativeId: "telegram:update:42",
+            payload: {
+              chat: { type: "private" },
+              content: {
+                kind: "text",
+                text: "hello from Telegram",
+              },
+            },
+            peerId: "owner-user",
+            senderId: "owner-user",
+          },
+        }),
+      );
+      await abortableWait(signal);
+    },
+    async routeInboxOnce({ handler, signal }) {
+      routeCalls += 1;
+      if (routeCalls > 1) {
+        await abortableWait(signal);
+        return { status: "idle" };
+      }
+      const result = await handler({
+        account: {
+          accountKey: "telegram:transactional-bot-id",
+          generation: 1,
+          provider: "telegram",
+          providerAccountId: "transactional-bot-id",
+          requiresDeliveryContext: false,
+        },
+        lease: {
+          accountKey: "telegram:transactional-bot-id",
+          conversationId: "telegram:chat:owner-user",
+          inboxId: 7,
+          kind: "user-message",
+          leaseToken: "lease-1",
+          nativeId: "telegram:update:42",
+          payload: {
+            chat: { type: "private" },
+            content: {
+              kind: "text",
+              text: "hello from Telegram",
+            },
+          },
+          peerId: "owner-user",
+          senderId: "owner-user",
+        },
+        operationId: "gateway-reply-1",
+        signal,
+      });
+      routeResult.resolve(result);
+      return {
+        operationId: "gateway-reply-1",
+        status: "reply-enqueued",
+      };
+    },
+    async dispatchProviderOnce({ signal }) {
+      dispatchStarted.resolve();
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    agentRoute: {
+      async runAgentTurn(input) {
+        agentInputs.push(input);
+        return {
+          outcome: "completed",
+          sessionId: input.sessionId,
+          text: "# Minke reply\n\n**Ready**",
+          turn: 1,
+          endReason: "completed",
+        };
+      },
+    },
+  });
+  t.after(async () => {
+    await runtime.dispose();
+  });
+
+  await runtime.initialize();
+  assert.equal(await ingressDecision.promise, true);
+  await dispatchStarted.promise;
+  assert.deepEqual(await routeResult.promise, {
+    status: "reply",
+    payload: {
+      kind: "rich-markdown",
+      markdown: "# Minke reply\n\n**Ready**",
+    },
+  });
+  assert.equal(agentInputs.length, 1);
+  assert.equal(agentInputs[0].operationId, "gateway-reply-1");
+  assert.equal(agentInputs[0].text, "hello from Telegram");
+  assert.match(
+    agentInputs[0].sessionId,
+    /^minke-im-telegram-[a-f0-9]{32}$/u,
+  );
+});
 
 test("token bot runtime validates before persistence and fences generations", async () => {
   const token = "123456789:telegram-private-token-value";
@@ -707,6 +1266,7 @@ test("token bot runtime never persists an invalid credential", async () => {
   assert.equal(writes, 0);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: false,
     issue: "credential-invalid",
   });
   await runtime.dispose();
@@ -822,6 +1382,7 @@ test("an invalid replacement token leaves the active bot provider running", asyn
   assert.equal(stored.token, oldToken);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue: "credential-invalid",
   });
   await runtime.dispose();
@@ -868,6 +1429,7 @@ test("a failed first connect restores the provider from cold-start storage", asy
   assert.equal(state.stored.token, oldToken);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue: "credential-invalid",
   });
 
@@ -908,6 +1470,7 @@ test("a failed reconnect leaves the stored provider running", async () => {
   assert.equal(state.stored.token, token);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue: "credential-invalid",
   });
   await runtime.dispose();
@@ -944,6 +1507,7 @@ test("a replacement provider must reach READY before its credential commits", as
   assert.equal(state.providers[1].closes, 1);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue: "privileged-intent",
   });
 
@@ -990,6 +1554,7 @@ test("a failed credential commit rolls back and keeps the active provider", asyn
   assert.equal(state.providers[1].closes, 1);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue: "credential-store",
   });
   await runtime.dispose();
@@ -1028,6 +1593,7 @@ test("a mailbox registration failure rolls back the credential and keeps the act
   assert.equal(state.providers[1].closes, 1);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue: "gateway-store",
   });
   await runtime.dispose();
@@ -1075,6 +1641,7 @@ test("a candidate that turns fatal during credential commit cannot replace the a
   assert.equal(state.providers[1].closes, 1);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue: "transport-fatal",
   });
   await runtime.dispose();
@@ -1133,6 +1700,7 @@ test("a committed candidate that turns fatal during handoff never starts receivi
   assert.equal(state.stored.token, replacementToken);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue: "transport-fatal",
   });
   await runtime.dispose();
@@ -1336,6 +1904,7 @@ test("a failed newer connect preempts unlink without killing the restored provid
   assert.equal(state.providers[0].closes, 0);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue: "credential-invalid",
   });
   await runtime.dispose();
@@ -1413,6 +1982,7 @@ test("a failed newer connect does not revive a delayed stale credential", async 
   assert.equal(state.providers[1].closes, 1);
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: false,
     issue: "network",
   });
   await runtime.dispose();
@@ -1638,6 +2208,7 @@ async function assertTerminalBotReceiveIssue(issue) {
   await surfaced;
   assert.deepEqual(runtime.getSnapshot(), {
     state: "error",
+    hasStoredCredential: true,
     issue,
   });
   assert.equal(polls, 1);
@@ -1735,6 +2306,7 @@ test("Remote Hub composes bot lifecycles and gates whole-Gateway recovery", asyn
   const telegram = botRuntimeStub({ state: "unlinked" });
   const discord = botRuntimeStub({
     state: "error",
+    hasStoredCredential: true,
     issue: "gateway-store",
   });
   const weixin = weixinRuntimeStub({ state: "unlinked" });
@@ -1783,6 +2355,61 @@ test("Remote Hub composes bot lifecycles and gates whole-Gateway recovery", asyn
     runtime.dispatch({ kind: "gateway/reset-local" }),
     /only available after a Gateway store failure/u,
   );
+  await runtime.dispose();
+});
+
+test("Remote Hub applies Telegram proxy settings only while its provider is inactive", async () => {
+  const telegram = botRuntimeStub({ state: "unlinked" });
+  const discord = botRuntimeStub({ state: "unlinked" });
+  const weixin = weixinRuntimeStub({ state: "unlinked" });
+  const calls = [];
+  let settings = { httpProxyUrl: "" };
+  const telegramNetwork = {
+    async initialize() {
+      calls.push(["initialize"]);
+    },
+    async configure(value) {
+      calls.push(["configure", value]);
+      settings = value;
+    },
+    getSnapshot() {
+      return settings;
+    },
+  };
+  const runtime = new RemoteHubCapabilityRuntime({
+    dataHome: "/tmp/minke-remote-hub-proxy-test",
+    vault: {},
+    weixin,
+    telegram,
+    telegramNetwork,
+    discord,
+  });
+  const configured = {
+    httpProxyUrl: "http://127.0.0.1:7897",
+  };
+
+  await runtime.dispatch({
+    kind: "telegram/network/set",
+    settings: configured,
+  });
+  assert.deepEqual(calls, [["configure", configured]]);
+  assert.deepEqual(
+    runtime.getSnapshot().telegramNetwork,
+    configured,
+  );
+
+  await runtime.dispatch({
+    kind: "telegram/connect",
+    token: "123456789:telegram-private-token-value",
+  });
+  await assert.rejects(
+    runtime.dispatch({
+      kind: "telegram/network/set",
+      settings: { httpProxyUrl: "" },
+    }),
+    /Disconnect Telegram/u,
+  );
+
   await runtime.dispose();
 });
 
@@ -1843,6 +2470,7 @@ test("Gateway reset is exclusive while ordinary channel commands remain concurre
   const telegram = botRuntimeStub({ state: "unlinked" });
   const discord = botRuntimeStub({
     state: "error",
+    hasStoredCredential: true,
     issue: "gateway-store",
   });
   const weixin = weixinRuntimeStub({ state: "unlinked" });
@@ -2153,6 +2781,486 @@ test("Weixin runtime commits the grant before starting its durable provider", as
     runtime.getSnapshot().channels.weixin,
     { state: "unlinked" },
   );
+  await runtime.dispose();
+});
+
+test("authorized Weixin DMs route through Agent and durable reply dispatch", async () => {
+  const routeResult = deferred();
+  const receiveStarted = deferred();
+  const dispatchStarted = deferred();
+  const agentInputs = [];
+  const provider = {
+    account: {
+      accountKey: "weixin:bot-account",
+      generation: 3,
+      provider: "weixin",
+      providerAccountId: "bot-account",
+      requiresDeliveryContext: true,
+    },
+    async start() {},
+    async receive() {
+      throw new Error("injected poll owns receive");
+    },
+    async prepare() {
+      throw new Error("injected dispatch owns preparation");
+    },
+    async deliver() {
+      throw new Error("injected dispatch owns delivery");
+    },
+    async close() {},
+  };
+  let routeCalls = 0;
+  const runtime = new WeixinCapabilityRuntime({
+    dataHome: "/tmp/minke-remote-hub-agent-route-test",
+    vault: {
+      available: true,
+      async read() {
+        return {
+          generation: 3,
+          grant: {
+            accountId: "bot-account",
+            token: "private-token",
+            baseUrl: "https://ilinkai.weixin.qq.com/",
+            authorizedUserId: "owner-user",
+          },
+        };
+      },
+      async write() {},
+      async delete() {},
+      gatewayCipher() {
+        return {
+          seal(value) {
+            return new Uint8Array(value);
+          },
+          open(value) {
+            return new Uint8Array(value);
+          },
+        };
+      },
+    },
+    createMailbox() {
+      return {
+        getAccountGeneration() {
+          return 3;
+        },
+        inspectOutboxHealth() {
+          return {
+            accountKey: provider.account.accountKey,
+            awaitingDeliveryContext: 0,
+            generation: provider.account.generation,
+            terminalFailures: 0,
+            uncertain: 0,
+          };
+        },
+        registerAccount() {},
+        recover() {},
+        close() {},
+      };
+    },
+    createTransport() {
+      return {
+        accountId: "bot-account",
+        async close() {},
+      };
+    },
+    createProvider() {
+      return provider;
+    },
+    async pollProviderOnce({ ingressPolicy, signal }) {
+      assert.equal(
+        ingressPolicy({
+          account: provider.account,
+          event: {
+            kind: "user-message",
+            senderId: "owner-user",
+            peerId: "owner-user",
+            payload: { text: "hello" },
+          },
+        }),
+        true,
+      );
+      assert.equal(
+        ingressPolicy({
+          account: provider.account,
+          event: {
+            kind: "user-message",
+            senderId: "stranger",
+            peerId: "stranger",
+            payload: { text: "hello" },
+          },
+        }),
+        false,
+      );
+      assert.equal(
+        ingressPolicy({
+          account: provider.account,
+          event: {
+            kind: "user-message",
+            senderId: "owner-user",
+            peerId: "group-1",
+            payload: { groupId: "group-1", text: "hello" },
+          },
+        }),
+        false,
+      );
+      receiveStarted.resolve();
+      await abortableWait(signal);
+    },
+    async routeInboxOnce({ handler, signal }) {
+      routeCalls += 1;
+      if (routeCalls > 1) {
+        await abortableWait(signal);
+        return { status: "idle" };
+      }
+      const result = await handler({
+        account: provider.account,
+        lease: {
+          accountKey: "weixin:bot-account",
+          conversationId: "owner-user",
+          inboxId: 7,
+          kind: "user-message",
+          leaseToken: "lease-1",
+          nativeId: "native-message-1",
+          payload: {
+            text: "hello from Weixin",
+          },
+          peerId: "owner-user",
+          senderId: "owner-user",
+        },
+        operationId: "gateway-reply-1",
+        signal,
+      });
+      routeResult.resolve(result);
+      return {
+        operationId: "gateway-reply-1",
+        status: "reply-enqueued",
+      };
+    },
+    async dispatchProviderOnce({ signal }) {
+      dispatchStarted.resolve();
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    agentRoute: {
+      async runAgentTurn(input) {
+        agentInputs.push(input);
+        return {
+          outcome: "completed",
+          sessionId: input.sessionId,
+          text: "Agent reply",
+          turn: 1,
+          endReason: "completed",
+          previews: [{
+            title: "demo.html",
+            url:
+              "https://minke.tailnet.ts.net/minke-preview/abcdefghijklmnopqrstuv/",
+          }],
+        };
+      },
+    },
+  });
+
+  await runtime.initialize();
+  const connected = await waitForSnapshot(
+    runtime,
+    (value) => value.channels.weixin.state === "connected",
+  );
+  assert.equal(connected.dependencies.agentRoute, "ready");
+  await Promise.all([
+    receiveStarted.promise,
+    dispatchStarted.promise,
+  ]);
+  assert.deepEqual(await routeResult.promise, {
+    status: "reply",
+    payload: {
+      kind: "text",
+      text:
+        "Agent reply\n\nHTML 预览：\ndemo.html\n"
+        + "https://minke.tailnet.ts.net/minke-preview/abcdefghijklmnopqrstuv/",
+    },
+  });
+  assert.equal(agentInputs.length, 1);
+  assert.equal(agentInputs[0].operationId, "gateway-reply-1");
+  assert.equal(agentInputs[0].text, "hello from Weixin");
+  assert.match(
+    agentInputs[0].sessionId,
+    /^minke-im-weixin-[a-f0-9]{32}$/u,
+  );
+
+  await runtime.dispose();
+});
+
+test("Weixin keeps delivery degraded while its outbox remains blocked", async (t) => {
+  const allowIdle = deferred();
+  const idleObserved = deferred();
+  let dispatchCalls = 0;
+  const account = {
+    accountKey: "weixin:blocked-delivery",
+    generation: 1,
+    provider: "weixin",
+    providerAccountId: "blocked-delivery",
+    requiresDeliveryContext: true,
+  };
+  const provider = {
+    account,
+    async start() {},
+    async receive() {
+      throw new Error("injected poll owns receive");
+    },
+    async prepare() {
+      throw new Error("injected dispatch owns preparation");
+    },
+    async deliver() {
+      throw new Error("injected dispatch owns delivery");
+    },
+    async close() {},
+  };
+  const runtime = new WeixinCapabilityRuntime({
+    dataHome: "/tmp/minke-weixin-blocked-delivery-test",
+    vault: {
+      available: true,
+      async read() {
+        return {
+          generation: 1,
+          grant: {
+            accountId: "blocked-delivery",
+            token: "private-token",
+            baseUrl: "https://ilinkai.weixin.qq.com/",
+            authorizedUserId: "owner-user",
+          },
+        };
+      },
+      async write() {},
+      async delete() {},
+      gatewayCipher() {
+        return {
+          seal(value) {
+            return new Uint8Array(value);
+          },
+          open(value) {
+            return new Uint8Array(value);
+          },
+        };
+      },
+    },
+    createMailbox() {
+      return {
+        getAccountGeneration() {
+          return 1;
+        },
+        inspectOutboxHealth() {
+          return {
+            accountKey: account.accountKey,
+            awaitingDeliveryContext: 0,
+            generation: account.generation,
+            terminalFailures: 0,
+            uncertain: 1,
+          };
+        },
+        registerAccount() {},
+        recover() {},
+        close() {},
+      };
+    },
+    createTransport() {
+      return {
+        accountId: account.providerAccountId,
+        async close() {},
+      };
+    },
+    createProvider() {
+      return provider;
+    },
+    async pollProviderOnce({ signal }) {
+      await abortableWait(signal);
+    },
+    async routeInboxOnce({ signal }) {
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    async dispatchProviderOnce() {
+      dispatchCalls += 1;
+      if (dispatchCalls === 1) {
+        return {
+          status: "settled",
+          outcome: {
+            status: "uncertain",
+            errorCode: "ambiguous-send",
+          },
+        };
+      }
+      await allowIdle.promise;
+      idleObserved.resolve();
+      return { status: "idle" };
+    },
+    async waitBeforePoll(signal) {
+      await abortableWait(signal);
+    },
+    agentRoute: {
+      async runAgentTurn() {
+        throw new Error("no inbound message is routed");
+      },
+    },
+  });
+  t.after(async () => {
+    await runtime.dispose();
+  });
+
+  await runtime.initialize();
+  await waitForSnapshot(
+    runtime,
+    (value) =>
+      value.channels.weixin.state === "degraded" &&
+      value.channels.weixin.issue === "delivery",
+  );
+  allowIdle.resolve();
+  await idleObserved.promise;
+  await new Promise((resolvePromise) => {
+    setImmediate(resolvePromise);
+  });
+  assert.deepEqual(runtime.getSnapshot().channels.weixin, {
+    state: "degraded",
+    accountLabel: runtime.getSnapshot().channels.weixin.accountLabel,
+    issue: "delivery",
+  });
+});
+
+test("Weixin live loop persists an authorized DM, runs Agent, and delivers its reply", async (t) => {
+  const dataHome = await mkdtemp(
+    join(tmpdir(), "minke-weixin-live-loop-"),
+  );
+  t.after(async () => {
+    await rm(dataHome, { recursive: true, force: true });
+  });
+  const delivered = deferred();
+  let firstReceive = true;
+  const account = {
+    accountKey: "weixin:live-account",
+    generation: 1,
+    provider: "weixin",
+    providerAccountId: "live-account",
+    requiresDeliveryContext: true,
+  };
+  const provider = {
+    account,
+    async start() {},
+    async receive(checkpoint, { signal }) {
+      if (!firstReceive) {
+        await abortableWait(signal);
+        throw new Error("unreachable");
+      }
+      firstReceive = false;
+      assert.equal(checkpoint, null);
+      return {
+        accountKey: account.accountKey,
+        events: [{
+          conversationId: "owner-user",
+          deliveryContext: "opaque-reply-context",
+          kind: "user-message",
+          nativeId: "wx-message-1",
+          payload: {
+            text: "ping",
+          },
+          peerId: "owner-user",
+          senderId: "owner-user",
+        }],
+        fromCheckpoint: null,
+        generation: account.generation,
+        nextCheckpoint: "checkpoint-1",
+      };
+    },
+    async prepare(input) {
+      return {
+        status: "ready",
+        preparedPayload: input.payload,
+      };
+    },
+    async deliver(attempt) {
+      delivered.resolve(attempt);
+      return {
+        status: "accepted",
+        providerReceiptId: "receipt-1",
+      };
+    },
+    async close() {},
+  };
+  const runtime = new WeixinCapabilityRuntime({
+    dataHome,
+    vault: {
+      available: true,
+      async read() {
+        return {
+          generation: 1,
+          grant: {
+            accountId: "live-account",
+            token: "private-token",
+            baseUrl: "https://ilinkai.weixin.qq.com/",
+            authorizedUserId: "owner-user",
+          },
+        };
+      },
+      async write() {},
+      async delete() {},
+      gatewayCipher() {
+        return {
+          seal(value) {
+            return new Uint8Array(value);
+          },
+          open(value) {
+            return new Uint8Array(value);
+          },
+        };
+      },
+    },
+    createTransport() {
+      return {
+        accountId: "live-account",
+        async close() {},
+      };
+    },
+    createProvider() {
+      return provider;
+    },
+    agentRoute: {
+      async runAgentTurn(input) {
+        assert.equal(input.text, "ping");
+        return {
+          outcome: "completed",
+          sessionId: input.sessionId,
+          text: "pong",
+          turn: 1,
+          endReason: "completed",
+        };
+      },
+    },
+  });
+
+  await runtime.initialize();
+  const attempt = await Promise.race([
+    delivered.promise,
+    new Promise((_, reject) => {
+      setTimeout(
+        () => reject(new Error(
+          `Weixin reply was not delivered: ${JSON.stringify(
+            runtime.getSnapshot().channels.weixin,
+          )}`,
+        )),
+        2_000,
+      ).unref();
+    }),
+  ]);
+  assert.equal(attempt.recipientId, "owner-user");
+  assert.equal(attempt.conversationId, "owner-user");
+  assert.equal(attempt.deliveryContext, "opaque-reply-context");
+  assert.deepEqual(attempt.preparedPayload, {
+    kind: "text",
+    text: "pong",
+  });
+  assert.equal(
+    runtime.getSnapshot().channels.weixin.state,
+    "connected",
+  );
+
   await runtime.dispose();
 });
 
@@ -3386,6 +4494,7 @@ test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () =
     const telegramCredential = {
       accountId: "123456789",
       accountLabel: "@minke_bot",
+      authorizedUserId: "approved-telegram-user",
       generation: 2,
       token: "123456789:telegram-private-token-value",
     };
@@ -3416,6 +4525,12 @@ test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () =
     assert.equal(source.includes("private-token"), false);
     assert.equal(
       telegramSource.includes(telegramCredential.token),
+      false,
+    );
+    assert.equal(
+      telegramSource.includes(
+        telegramCredential.authorizedUserId,
+      ),
       false,
     );
     assert.equal(
@@ -3843,6 +4958,75 @@ test("Remote Hub renders one accessible entry and a dialog containing IM and Tai
     recoveryDialog,
     />Reset local data</u,
   );
+
+  await hub.dispose();
+  remote.dispose();
+});
+
+test("Telegram network error does not render the Agent route-pending description", async () => {
+  const remote = new RemoteSettingsRuntime({
+    available: false,
+    async read() {
+      throw new Error("remote access unavailable");
+    },
+    async write() {},
+  });
+  const channels = {
+    ...snapshot(),
+    dependencies: {
+      credentialVault: "ready",
+      agentRoute: "ready",
+    },
+    channels: {
+      ...snapshot().channels,
+      telegram: {
+        state: "error",
+        hasStoredCredential: false,
+        issue: "network",
+      },
+    },
+  };
+  const hub = new RemoteHubRuntime(remote, {
+    available: true,
+    async read() {
+      return channels;
+    },
+    async dispatch() {
+      return channels;
+    },
+    subscribe() {
+      return () => {};
+    },
+  });
+  await hub.initialize();
+  hub.open();
+
+  const dialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  const telegramCard = dialog.match(
+    /<section[^>]*data-provider="telegram"[^>]*>[\s\S]*?<\/section>/u,
+  )?.[0];
+  assert.notEqual(telegramCard, undefined);
+  assert.match(
+    telegramCard,
+    /Telegram is temporarily unreachable\. Check the network or proxy, then retry\./u,
+  );
+  assert.match(
+    telegramCard,
+    /Connect Telegram through a Bot API token\./u,
+  );
+  assert.doesNotMatch(
+    telegramCard,
+    /Transport is verified, but external messages are not stored until Agent authorization is available\./u,
+  );
+  assert.doesNotMatch(telegramCard, />Reconnect</u);
+  assert.doesNotMatch(telegramCard, />Disconnect</u);
+  assert.match(telegramCard, /Telegram HTTP proxy/u);
 
   await hub.dispose();
   remote.dispose();

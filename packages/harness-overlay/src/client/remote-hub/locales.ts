@@ -12,10 +12,9 @@ export const remoteHubZh = {
   accessTitle: "远程连接",
   weixinTitle: "微信",
   weixinDescription:
-    "扫码连接微信；Agent 授权接通前，外部消息不会写入 Gateway。",
+    "扫码连接微信；仅扫码账号的一对一消息会进入 Minke Agent。",
   telegramTitle: "Telegram",
-  telegramDescription:
-    "使用 Bot Token 连接 Telegram Bot API；Agent 授权接通前仅验证传输，不保存外部消息。",
+  telegramDescription: "使用 Bot Token 连接 Telegram Bot API。",
   discordTitle: "Discord",
   discordDescription:
     "使用 Bot Token 连接 Discord Gateway；Agent 授权接通前仅验证传输，不保存外部消息。",
@@ -23,11 +22,26 @@ export const remoteHubZh = {
   botTokenPlaceholder: "粘贴 Bot Token",
   telegramTokenHelp:
     "Token 由 BotFather 提供，仅加密保存在本机。连接后 Minke 会保留待处理更新并接管 long polling，请勿让另一个实例同时使用该 Token 接收。",
+  telegramProxyLabel: "Telegram HTTP 代理",
+  telegramProxyPlaceholder: "http://127.0.0.1:7897",
+  telegramProxyHelp:
+    "可选的 HTTP CONNECT 代理；必须填写 http://主机:端口，留空则使用系统网络设置。Minke 不会自动探测本机代理。",
+  applyTelegramProxy: "应用代理",
   discordTokenHelp:
     "Token 来自 Discord Developer Portal；Bot 还需启用 Message Content Intent。",
   connectBot: "连接 {provider}",
   reconnectBot: "重新连接",
   unlinkBot: "解除连接",
+  telegramPairingWaiting: "等待私聊配对",
+  telegramPairingApprovalRequired: "配对待确认",
+  telegramPairingInstruction:
+    "请先在 Telegram 中给 {account} 发送一条私聊消息。收到请求后，可在此核对配对码并批准。",
+  telegramPairingRequestLabel: "Telegram 私聊配对请求",
+  telegramPairingRequestFrom: "来自 {label} 的配对请求",
+  telegramPairingCode: "配对码 {code}",
+  telegramPairingExpires: "请求有效至 {time}",
+  approveTelegramPairing: "批准配对",
+  dismissTelegramPairing: "忽略",
   loading: "正在读取",
   unavailable: "不可用",
   unlinked: "未连接",
@@ -35,6 +49,7 @@ export const remoteHubZh = {
   scanned: "已扫码",
   verificationRequired: "需要验证码",
   connecting: "正在连接",
+  connected: "已连接",
   linkedLimited: "已连接 · 消息入口关闭",
   attention: "需要处理",
   connectWeixin: "连接微信",
@@ -66,10 +81,20 @@ export const remoteHubZh = {
   account: "账号 {label}",
   agentRoutePending:
     "传输已连接；Agent 授权与路由尚未接通，外部消息会被默认拒绝且不会写入本机。",
+  authorizationMissing:
+    "微信未返回扫码用户身份，消息入口保持关闭。请解除连接后重新扫码。",
+  agentIssue:
+    "消息已安全保留，但 Minke Agent 当前不可用，正在后台重试。",
+  deliveryIssue:
+    "Agent 已生成回复，但微信投递未完成。Gateway 已保留待发送消息。",
   receiveIssue:
     "Gateway 已保留连接，但最近一次收取失败，正在后台重试。",
   botReceiveIssue:
     "{provider} 连接仍在运行，但最近一次收取失败，正在后台重试。",
+  botAgentIssue:
+    "{provider} 消息已安全保留，但 Minke Agent 当前不可用，正在后台重试。",
+  botDeliveryIssue:
+    "Agent 已生成回复，但 {provider} 投递未完成。Gateway 已保留待发送消息。",
   vaultUnavailable:
     "当前系统无法提供受保护的凭据存储，微信连接保持关闭。",
   botVaultUnavailable:
@@ -80,7 +105,7 @@ export const remoteHubZh = {
   botCredentialStore:
     "{provider} Token 已验证，但未能安全保存，请重试。",
   botNetwork:
-    "{provider} 服务暂时不可达，请检查网络后重试。",
+    "{provider} 服务暂时不可达，请检查网络或代理后重试。",
   botPollingConflict:
     "另一个实例正在使用此 Telegram Token 接收消息。请先停止该实例，再重新连接。",
   botPrivilegedIntent:
@@ -107,6 +132,7 @@ export const remoteHubZh = {
   vaultChecking: "正在检查凭据保护",
   vaultMissing: "凭据保护不可用",
   agentRoutePendingShort: "Agent 路由待接入 · 消息入口关闭",
+  agentRouteReadyShort: "Agent 路由已接通",
 } as const;
 
 export type RemoteHubLocaleKey = keyof typeof remoteHubZh;
@@ -125,10 +151,9 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   accessTitle: "Remote connection",
   weixinTitle: "Weixin",
   weixinDescription:
-    "Connect Weixin. External messages stay out of Gateway until Agent authorization is available.",
+    "Connect Weixin. Only direct messages from the account that scanned the QR code reach Minke Agent.",
   telegramTitle: "Telegram",
-  telegramDescription:
-    "Connect a Bot API token. Transport is verified, but external messages are not stored until Agent authorization is available.",
+  telegramDescription: "Connect Telegram through a Bot API token.",
   discordTitle: "Discord",
   discordDescription:
     "Connect a bot token to Discord Gateway. External messages are not stored until Agent authorization is available.",
@@ -136,11 +161,28 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   botTokenPlaceholder: "Paste Bot Token",
   telegramTokenHelp:
     "BotFather provides this token and Minke encrypts it locally. Connecting preserves queued updates and takes long-poll ownership; do not receive with the same token elsewhere.",
+  telegramProxyLabel: "Telegram HTTP proxy",
+  telegramProxyPlaceholder: "http://127.0.0.1:7897",
+  telegramProxyHelp:
+    "Optional HTTP CONNECT proxy. Enter http://host:port, or leave it blank to use system network settings. Minke never auto-detects local proxies.",
+  applyTelegramProxy: "Apply proxy",
   discordTokenHelp:
     "Get this token from the Discord Developer Portal and enable Message Content Intent for the bot.",
   connectBot: "Connect {provider}",
   reconnectBot: "Reconnect",
   unlinkBot: "Disconnect",
+  telegramPairingWaiting: "Waiting for a direct message",
+  telegramPairingApprovalRequired: "Pairing approval required",
+  telegramPairingInstruction:
+    "First, send {account} a direct message in Telegram. The pairing request and code will appear here for approval.",
+  telegramPairingRequestLabel:
+    "Telegram direct-message pairing request",
+  telegramPairingRequestFrom:
+    "Pairing request from {label}",
+  telegramPairingCode: "Pairing code {code}",
+  telegramPairingExpires: "Request expires at {time}",
+  approveTelegramPairing: "Approve pairing",
+  dismissTelegramPairing: "Ignore",
   loading: "Reading",
   unavailable: "Unavailable",
   unlinked: "Not connected",
@@ -148,6 +190,7 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   scanned: "Scanned",
   verificationRequired: "Code required",
   connecting: "Connecting",
+  connected: "Connected",
   linkedLimited: "Connected · ingress disabled",
   attention: "Needs attention",
   connectWeixin: "Connect Weixin",
@@ -180,10 +223,20 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   account: "Account {label}",
   agentRoutePending:
     "Transport is connected. Until Agent authorization and routing are available, external messages are denied by default and never stored locally.",
+  authorizationMissing:
+    "Weixin did not return the scanning user's identity, so ingress remains closed. Disconnect and scan again.",
+  agentIssue:
+    "The message is safely retained, but Minke Agent is unavailable and will retry in the background.",
+  deliveryIssue:
+    "Agent produced a reply, but Weixin delivery did not complete. Gateway retained the pending delivery.",
   receiveIssue:
     "Gateway kept the connection, but the latest receive failed and is retrying.",
   botReceiveIssue:
     "{provider} remains connected, but the latest receive failed and is retrying.",
+  botAgentIssue:
+    "{provider} messages are safely retained while Minke Agent is unavailable and retries in the background.",
+  botDeliveryIssue:
+    "Agent produced a reply, but {provider} delivery did not complete. Gateway retained the pending delivery.",
   vaultUnavailable:
     "Protected credential storage is unavailable on this system, so Weixin stays off.",
   botVaultUnavailable:
@@ -195,7 +248,7 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   botCredentialStore:
     "The {provider} token was verified but could not be saved securely. Try again.",
   botNetwork:
-    "{provider} is temporarily unreachable. Check the network and retry.",
+    "{provider} is temporarily unreachable. Check the network or proxy, then retry.",
   botPollingConflict:
     "Another instance is receiving with this Telegram token. Stop it, then reconnect.",
   botPrivilegedIntent:
@@ -226,6 +279,7 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   vaultChecking: "Checking credential protection",
   vaultMissing: "Credential protection unavailable",
   agentRoutePendingShort: "Agent route pending · ingress disabled",
+  agentRouteReadyShort: "Agent route connected",
 };
 
 export type RemoteHubTranslate = (

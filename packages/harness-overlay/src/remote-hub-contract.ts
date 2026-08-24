@@ -4,16 +4,35 @@ export const REMOTE_HUB_COMMAND_CHANNEL = "minke:remote-hub:command";
 export const REMOTE_HUB_CHANGED_CHANNEL = "minke:remote-hub:changed";
 export const MAX_WEIXIN_QR_CONTENT_BYTES = 2_048;
 
+export interface TelegramNetworkSettings {
+  readonly httpProxyUrl: string;
+}
+
+export const DEFAULT_TELEGRAM_NETWORK_SETTINGS:
+  TelegramNetworkSettings = Object.freeze({
+    httpProxyUrl: "",
+  });
+
+export interface BotDmPairingRequest {
+  readonly code: string;
+  readonly expiresAt: number;
+  readonly requestId: string;
+  readonly senderLabel: string;
+}
+
 export type RemoteHubDependencyState =
   | "ready"
   | "unavailable"
   | "pending";
 
 export type WeixinHubIssue =
+  | "agent"
   | "agent-route-pending"
   | "already-bound"
+  | "authorization-missing"
   | "credential-read"
   | "credential-store"
+  | "delivery"
   | "gateway-store"
   | "login-network"
   | "login-protocol"
@@ -51,23 +70,38 @@ export type WeixinHubSnapshot =
       readonly accountLabel: string;
     }
   | {
+      readonly state: "connected";
+      readonly accountLabel: string;
+    }
+  | {
       readonly state: "degraded";
       readonly accountLabel: string;
-      readonly issue: "agent-route-pending" | "receive";
+      readonly issue:
+        | "agent"
+        | "agent-route-pending"
+        | "authorization-missing"
+        | "delivery"
+        | "receive";
     }
   | {
       readonly state: "error" | "session-stale";
       readonly issue: Exclude<
         WeixinHubIssue,
-        "agent-route-pending" | "vault-unavailable"
+        | "agent"
+        | "agent-route-pending"
+        | "authorization-missing"
+        | "delivery"
+        | "vault-unavailable"
       >;
     };
 
 export type BotHubIssue =
+  | "agent"
   | "agent-route-pending"
   | "credential-invalid"
   | "credential-read"
   | "credential-store"
+  | "delivery"
   | "gateway-store"
   | "network"
   | "polling-conflict"
@@ -93,23 +127,42 @@ export type BotHubSnapshot =
       readonly accountLabel: string;
     }
   | {
+      readonly state: "pairing";
+      readonly accountLabel: string;
+      readonly request?: BotDmPairingRequest;
+    }
+  | {
+      readonly state: "connected";
+      readonly accountLabel: string;
+    }
+  | {
       readonly state: "degraded";
       readonly accountLabel: string;
-      readonly issue: "agent-route-pending" | "receive";
+      readonly issue:
+        | "agent"
+        | "agent-route-pending"
+        | "delivery"
+        | "receive";
     }
   | {
       readonly state: "error";
+      readonly hasStoredCredential: boolean;
       readonly issue: Exclude<
         BotHubIssue,
-        "agent-route-pending" | "receive" | "vault-unavailable"
+        | "agent"
+        | "agent-route-pending"
+        | "delivery"
+        | "receive"
+        | "vault-unavailable"
       >;
     };
 
 export interface RemoteHubSnapshot {
   readonly revision: number;
+  readonly telegramNetwork: TelegramNetworkSettings;
   readonly dependencies: {
     readonly credentialVault: RemoteHubDependencyState;
-    readonly agentRoute: "pending";
+    readonly agentRoute: RemoteHubDependencyState;
   };
   readonly channels: {
     readonly weixin: WeixinHubSnapshot;
@@ -124,6 +177,18 @@ export type RemoteHubCommand =
   | {
       readonly kind: "telegram/connect";
       readonly token: string;
+    }
+  | {
+      readonly kind: "telegram/network/set";
+      readonly settings: TelegramNetworkSettings;
+    }
+  | {
+      readonly kind: "telegram/pairing/approve";
+      readonly requestId: string;
+    }
+  | {
+      readonly kind: "telegram/pairing/dismiss";
+      readonly requestId: string;
     }
   | { readonly kind: "telegram/reconnect" }
   | { readonly kind: "telegram/reset-local" }
@@ -219,6 +284,56 @@ function timestamp(value: unknown): number {
   return Number(value);
 }
 
+export function parseTelegramNetworkSettings(
+  value: unknown,
+): TelegramNetworkSettings {
+  const candidate = record(
+    value,
+    "Telegram network settings",
+  );
+  exactKeys(
+    candidate,
+    ["httpProxyUrl"],
+    "Telegram network settings",
+  );
+  if (candidate.httpProxyUrl === "") {
+    return { ...DEFAULT_TELEGRAM_NETWORK_SETTINGS };
+  }
+  if (
+    typeof candidate.httpProxyUrl !== "string" ||
+    candidate.httpProxyUrl.length > 2_048
+  ) {
+    throw new TypeError("Telegram HTTP proxy URL is invalid");
+  }
+  let url: URL;
+  try {
+    url = new URL(candidate.httpProxyUrl);
+  } catch {
+    throw new TypeError("Telegram HTTP proxy URL is invalid");
+  }
+  const port = Number(url.port);
+  if (
+    url.protocol !== "http:" ||
+    url.hostname === "" ||
+    url.port === "" ||
+    !Number.isSafeInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new TypeError(
+      "Telegram HTTP proxy must be an unauthenticated http://host:port endpoint",
+    );
+  }
+  return {
+    httpProxyUrl: `http://${url.host}`,
+  };
+}
+
 function parseWeixinHubSnapshot(
   value: unknown,
 ): WeixinHubSnapshot {
@@ -273,13 +388,14 @@ function parseWeixinHubSnapshot(
       };
     }
     case "connecting":
+    case "connected":
       exactKeys(
         candidate,
         ["state", "accountLabel"],
-        "Weixin connecting snapshot",
+        `Weixin ${candidate.state} snapshot`,
       );
       return {
-        state: "connecting",
+        state: candidate.state,
         accountLabel: boundedText(
           candidate.accountLabel,
           "Weixin account label",
@@ -293,7 +409,10 @@ function parseWeixinHubSnapshot(
         "Weixin degraded snapshot",
       );
       if (
+        candidate.issue !== "agent" &&
         candidate.issue !== "agent-route-pending" &&
+        candidate.issue !== "authorization-missing" &&
+        candidate.issue !== "delivery" &&
         candidate.issue !== "receive"
       ) {
         throw new TypeError("Weixin degraded issue is invalid");
@@ -332,7 +451,11 @@ function parseWeixinHubSnapshot(
         state: candidate.state,
         issue: candidate.issue as Exclude<
           WeixinHubIssue,
-          "agent-route-pending" | "vault-unavailable"
+          | "agent"
+          | "agent-route-pending"
+          | "authorization-missing"
+          | "delivery"
+          | "vault-unavailable"
         >,
       };
     }
@@ -390,6 +513,72 @@ function parseBotHubSnapshot(
           128,
         ),
       };
+    case "pairing": {
+      exactKeys(
+        candidate,
+        candidate.request === undefined
+          ? ["state", "accountLabel"]
+          : ["state", "accountLabel", "request"],
+        `${provider} pairing snapshot`,
+      );
+      let request: BotDmPairingRequest | undefined;
+      if (candidate.request !== undefined) {
+        const pairing = record(
+          candidate.request,
+          `${provider} pairing request`,
+        );
+        exactKeys(
+          pairing,
+          ["code", "expiresAt", "requestId", "senderLabel"],
+          `${provider} pairing request`,
+        );
+        if (
+          typeof pairing.code !== "string" ||
+          !/^[A-HJ-NP-Z2-9]{8}$/u.test(pairing.code)
+        ) {
+          throw new TypeError(
+            `${provider} pairing code is invalid`,
+          );
+        }
+        request = {
+          code: pairing.code,
+          expiresAt: timestamp(pairing.expiresAt),
+          requestId: boundedText(
+            pairing.requestId,
+            `${provider} pairing request id`,
+            128,
+          ),
+          senderLabel: boundedText(
+            pairing.senderLabel,
+            `${provider} pairing sender label`,
+            128,
+          ),
+        };
+      }
+      return {
+        state: "pairing",
+        accountLabel: boundedText(
+          candidate.accountLabel,
+          `${provider} account label`,
+          128,
+        ),
+        ...(request === undefined ? {} : { request }),
+      };
+    }
+    case "connected":
+      exactKeys(
+        candidate,
+        ["state", "accountLabel"],
+        `${provider} connected snapshot`,
+      );
+      return {
+        state: "connected",
+        accountLabel: boundedText(
+          candidate.accountLabel,
+          `${provider} account label`,
+          128,
+        ),
+      };
     case "degraded":
       exactKeys(
         candidate,
@@ -397,7 +586,9 @@ function parseBotHubSnapshot(
         `${provider} degraded snapshot`,
       );
       if (
+        candidate.issue !== "agent" &&
         candidate.issue !== "agent-route-pending" &&
+        candidate.issue !== "delivery" &&
         candidate.issue !== "receive"
       ) {
         throw new TypeError(
@@ -416,7 +607,7 @@ function parseBotHubSnapshot(
     case "error": {
       exactKeys(
         candidate,
-        ["state", "issue"],
+        ["state", "issue", "hasStoredCredential"],
         `${provider} error snapshot`,
       );
       const issues = [
@@ -431,6 +622,7 @@ function parseBotHubSnapshot(
         "transport-start",
       ] as const;
       if (
+        typeof candidate.hasStoredCredential !== "boolean" ||
         !issues.includes(
           candidate.issue as (typeof issues)[number],
         )
@@ -439,6 +631,7 @@ function parseBotHubSnapshot(
       }
       return {
         state: "error",
+        hasStoredCredential: candidate.hasStoredCredential,
         issue: candidate.issue as (typeof issues)[number],
       };
     }
@@ -454,7 +647,12 @@ export function parseRemoteHubSnapshot(
   const candidate = record(value, "Remote Hub snapshot");
   exactKeys(
     candidate,
-    ["revision", "dependencies", "channels"],
+    [
+      "revision",
+      "telegramNetwork",
+      "dependencies",
+      "channels",
+    ],
     "Remote Hub snapshot",
   );
   const dependencies = record(
@@ -473,7 +671,11 @@ export function parseRemoteHubSnapshot(
   ) {
     throw new TypeError("Remote Hub vault state is invalid");
   }
-  if (dependencies.agentRoute !== "pending") {
+  if (
+    dependencies.agentRoute !== "ready" &&
+    dependencies.agentRoute !== "unavailable" &&
+    dependencies.agentRoute !== "pending"
+  ) {
     throw new TypeError("Remote Hub Agent route state is invalid");
   }
   const channels = record(candidate.channels, "Remote Hub channels");
@@ -484,9 +686,12 @@ export function parseRemoteHubSnapshot(
   );
   return {
     revision: revision(candidate.revision),
+    telegramNetwork: parseTelegramNetworkSettings(
+      candidate.telegramNetwork,
+    ),
     dependencies: {
       credentialVault: dependencies.credentialVault,
-      agentRoute: "pending",
+      agentRoute: dependencies.agentRoute,
     },
     channels: {
       weixin: parseWeixinHubSnapshot(channels.weixin),
@@ -534,6 +739,33 @@ export function parseRemoteHubCommand(
     case "weixin/unlink":
       exactKeys(candidate, ["kind"], "Remote Hub command");
       return { kind: candidate.kind };
+    case "telegram/network/set":
+      exactKeys(
+        candidate,
+        ["kind", "settings"],
+        "Remote Hub Telegram network command",
+      );
+      return {
+        kind: candidate.kind,
+        settings: parseTelegramNetworkSettings(
+          candidate.settings,
+        ),
+      };
+    case "telegram/pairing/approve":
+    case "telegram/pairing/dismiss":
+      exactKeys(
+        candidate,
+        ["kind", "requestId"],
+        "Remote Hub Telegram pairing command",
+      );
+      return {
+        kind: candidate.kind,
+        requestId: boundedText(
+          candidate.requestId,
+          "Telegram pairing request id",
+          128,
+        ),
+      };
     case "telegram/connect":
     case "discord/connect": {
       exactKeys(

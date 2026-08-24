@@ -1,4 +1,5 @@
 import {
+  DEFAULT_TELEGRAM_NETWORK_SETTINGS,
   parseRemoteHubSnapshot,
   type RemoteHubCommand,
   type RemoteHubSnapshot,
@@ -34,6 +35,9 @@ function initialChannels(
 ): RemoteHubSnapshot {
   return parseRemoteHubSnapshot({
     revision: 0,
+    telegramNetwork: {
+      ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+    },
     dependencies: {
       credentialVault: available ? "pending" : "unavailable",
       agentRoute: "pending",
@@ -66,6 +70,7 @@ function operationFor(
 ): RemoteHubClientOperation {
   switch (command.kind) {
     case "refresh":
+    case "telegram/network/set":
     case "telegram/reconnect":
     case "discord/reconnect":
     case "weixin/reconnect":
@@ -81,8 +86,10 @@ function operationFor(
     case "weixin/link/start":
       return "starting-link";
     case "weixin/link/verify":
+    case "telegram/pairing/approve":
       return "verifying";
     case "weixin/link/cancel":
+    case "telegram/pairing/dismiss":
       return "cancelling";
     case "telegram/unlink":
     case "discord/unlink":

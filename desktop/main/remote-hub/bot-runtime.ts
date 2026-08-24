@@ -1,9 +1,19 @@
 import {
+  createHash,
+  randomBytes,
+  randomUUID,
+} from "node:crypto";
+import {
   botEchoOnlyGatewayIngress,
+  dispatchGatewayProviderOnce,
   pollGatewayProviderOnce,
+  routeGatewayInboxOnce,
+  type GatewayAgentMailboxPort,
   type GatewayCipher,
+  type GatewayInboundKind,
   type GatewayIngressPolicy,
   type GatewayMailboxPort,
+  type GatewayOutboxHealth,
   type GatewayProviderSession,
 } from "@lencx/minke-im-gateway";
 import {
@@ -22,9 +32,14 @@ import {
   type GatewayMailboxRecovery,
 } from "./mailbox-recovery.ts";
 
-interface BotMailbox extends GatewayMailboxPort {
+interface BotMailbox
+  extends GatewayMailboxPort, GatewayAgentMailboxPort {
   close(): void;
   getAccountGeneration(accountKey: string): number | undefined;
+  inspectOutboxHealth(input: {
+    readonly accountKey: string;
+    readonly generation: number;
+  }): GatewayOutboxHealth;
   recover(input?: { readonly now?: number }): unknown;
   removeProviderAccounts(provider: string): number;
   registerAccount(account: GatewayProviderSession["account"]): void;
@@ -45,16 +60,78 @@ export interface BotCredentialVaultPort {
 
 export type BotProviderIssue = Exclude<
   BotHubIssue,
+  | "agent"
   | "agent-route-pending"
   | "credential-read"
   | "credential-store"
+  | "delivery"
   | "gateway-store"
   | "receive"
   | "vault-unavailable"
 >;
 
+type BotHubErrorIssue = Extract<
+  BotHubSnapshot,
+  { readonly state: "error" }
+>["issue"];
+
+type BotHubSnapshotInput =
+  | Exclude<BotHubSnapshot, { readonly state: "error" }>
+  | {
+      readonly state: "error";
+      readonly issue: BotHubErrorIssue;
+    };
+
+export interface BotDirectMessageInput {
+  readonly accountKey?: string;
+  readonly conversationId: string;
+  readonly kind: GatewayInboundKind;
+  readonly nativeId: string;
+  readonly payload: unknown;
+  readonly peerId: string;
+  readonly senderId: string;
+}
+
+export interface BotDirectMessage {
+  readonly senderLabel: string;
+  readonly text?: string;
+}
+
+export interface BotAgentTurnPreview {
+  readonly title: string;
+  readonly url: string;
+}
+
+export type BotAgentTurnResult =
+  | {
+      readonly outcome: "completed";
+      readonly sessionId: string;
+      readonly text: string;
+      readonly turn: number;
+      readonly endReason: string;
+      readonly previews?: readonly BotAgentTurnPreview[];
+    }
+  | {
+      readonly outcome: "failed" | "no-response";
+      readonly sessionId: string;
+      readonly turn?: number;
+      readonly endReason: string;
+    };
+
+export interface BotAgentRoutePort {
+  runAgentTurn(
+    input: {
+      readonly operationId: string;
+      readonly sessionId: string;
+      readonly text: string;
+    },
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<BotAgentTurnResult>;
+}
+
 export interface BotProviderDriver<Identity> {
   readonly provider: BotCredentialProvider;
+  agentReplyPayload?(markdown: string): unknown;
   candidateHealthIssue?(
     provider: GatewayProviderSession,
   ): BotProviderIssue | undefined;
@@ -67,6 +144,9 @@ export interface BotProviderDriver<Identity> {
   }): Promise<GatewayProviderSession>;
   identityId(identity: Identity): string;
   identityLabel(identity: Identity): string;
+  inspectDirectMessage?(
+    input: BotDirectMessageInput,
+  ): BotDirectMessage | undefined;
   isAborted(error: unknown, signal: AbortSignal): boolean;
   issue(
     error: unknown,
@@ -87,15 +167,129 @@ export interface BotCapabilityRuntimeOptions<Identity> {
     readonly path: string;
   }) => BotMailbox;
   readonly pollProviderOnce?: typeof pollGatewayProviderOnce;
+  readonly routeInboxOnce?: typeof routeGatewayInboxOnce;
+  readonly dispatchProviderOnce?: typeof dispatchGatewayProviderOnce;
   readonly ingressPolicy?: GatewayIngressPolicy;
+  readonly agentRoute?: BotAgentRoutePort;
   readonly recoverMailbox?: GatewayMailboxRecovery;
   readonly waitBeforeRetry?: (
     signal: AbortSignal,
   ) => Promise<void>;
   readonly onSnapshot?: (snapshot: BotHubSnapshot) => void;
+  readonly now?: () => number;
+  readonly createPairingCode?: () => string;
+  readonly createPairingRequestId?: () => string;
 }
 
 const DEFAULT_RETRY_DELAY_MS = 1_000;
+const BOT_PAIRING_TTL_MS = 60 * 60 * 1_000;
+const BOT_AGENT_LEASE_MS = 5 * 60 * 1_000;
+const BOT_DELIVERY_LEASE_MS = 30_000;
+const BOT_AGENT_REPLY_CODE_POINTS = 3_900;
+const BOT_MAX_PENDING_INBOX_PER_ACCOUNT = 128;
+const BOT_CONSUMED_INBOX_RETENTION_MS =
+  7 * 24 * 60 * 60 * 1_000;
+const BOT_PAIRING_ALPHABET =
+  "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const AGENT_PREVIEW_PATH_PATTERN =
+  /^\/minke-preview\/[A-Za-z0-9_-]{16,128}\/$/u;
+
+interface PendingBotPairing {
+  readonly code: string;
+  readonly conversationId: string;
+  readonly expiresAt: number;
+  readonly nativeId: string;
+  readonly peerId: string;
+  readonly requestId: string;
+  readonly senderId: string;
+  readonly senderLabel: string;
+}
+
+interface BotRuntimeIssues {
+  agent: boolean;
+  delivery: boolean;
+  receive: boolean;
+}
+
+function createPairingCode(): string {
+  const bytes = randomBytes(8);
+  return [...bytes]
+    .map((value) =>
+      BOT_PAIRING_ALPHABET[value & 31])
+    .join("");
+}
+
+function botAgentSessionId(
+  provider: BotCredentialProvider,
+  accountKeyValue: string,
+  conversationId: string,
+): string {
+  return `minke-im-${provider}-${createHash("sha256")
+    .update(accountKeyValue)
+    .update("\0")
+    .update(conversationId)
+    .digest("hex")
+    .slice(0, 32)}`;
+}
+
+function boundedReplyText(value: string): string {
+  const text = value.trim();
+  const codePoints = [...text];
+  if (codePoints.length <= BOT_AGENT_REPLY_CODE_POINTS) {
+    return text;
+  }
+  return `${codePoints
+    .slice(0, BOT_AGENT_REPLY_CODE_POINTS - 1)
+    .join("")}…`;
+}
+
+function botAgentReplyText(
+  text: string,
+  previews: readonly BotAgentTurnPreview[] | undefined,
+): string {
+  if (previews === undefined || previews.length === 0) {
+    return boundedReplyText(text);
+  }
+  let suffix = "\n\nHTML 预览：";
+  let links = 0;
+  for (const preview of previews) {
+    let url: URL;
+    try {
+      url = new URL(preview.url);
+    } catch {
+      continue;
+    }
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.search !== "" ||
+      url.hash !== "" ||
+      !AGENT_PREVIEW_PATH_PATTERN.test(url.pathname)
+    ) {
+      continue;
+    }
+    const line = `\n${preview.title}\n${url.href}`;
+    if (
+      [...`${suffix}${line}`].length >
+      BOT_AGENT_REPLY_CODE_POINTS - 2
+    ) {
+      break;
+    }
+    suffix += line;
+    links += 1;
+  }
+  if (links === 0) return boundedReplyText(text);
+  const body = [...text.trim()];
+  const remaining =
+    BOT_AGENT_REPLY_CODE_POINTS - [...suffix].length;
+  const boundedBody = body.length <= remaining
+    ? body.join("")
+    : `${body
+        .slice(0, Math.max(0, remaining - 1))
+        .join("")}…`;
+  return `${boundedBody}${suffix}`;
+}
 
 function isTerminalReceiveIssue(
   issue: BotHubIssue,
@@ -144,12 +338,16 @@ function nextCredential(
     readonly token: string;
   },
 ): StoredBotCredential {
-  const previousGeneration =
-    previous?.accountId === input.accountId
-      ? previous.generation
-      : 0;
+  const sameAccount = previous?.accountId === input.accountId;
+  const previousGeneration = sameAccount
+    ? previous.generation
+    : 0;
   return {
     ...input,
+    ...(sameAccount &&
+    previous.authorizedUserId !== undefined
+      ? { authorizedUserId: previous.authorizedUserId }
+      : {}),
     generation:
       Math.max(previousGeneration, durableGeneration ?? 0) + 1,
   };
@@ -157,9 +355,11 @@ function nextCredential(
 
 interface ActiveBotProvider {
   readonly controller: AbortController;
+  readonly dispatchTask: Promise<void>;
   readonly mailbox: BotMailbox;
   readonly provider: GatewayProviderSession;
   readonly receiveTask: Promise<void>;
+  readonly routeTask: Promise<void>;
 }
 
 interface CandidateBotProvider {
@@ -200,7 +400,16 @@ export class BotCapabilityRuntime<Identity> {
   readonly #pollProviderOnce: NonNullable<
     BotCapabilityRuntimeOptions<Identity>["pollProviderOnce"]
   >;
-  readonly #ingressPolicy: GatewayIngressPolicy;
+  readonly #routeInboxOnce: NonNullable<
+    BotCapabilityRuntimeOptions<Identity>["routeInboxOnce"]
+  >;
+  readonly #dispatchProviderOnce: NonNullable<
+    BotCapabilityRuntimeOptions<Identity>["dispatchProviderOnce"]
+  >;
+  readonly #configuredIngressPolicy:
+    | GatewayIngressPolicy
+    | undefined;
+  readonly #agentRoute: BotAgentRoutePort | undefined;
   readonly #recoverMailbox: GatewayMailboxRecovery;
   readonly #waitBeforeRetry: NonNullable<
     BotCapabilityRuntimeOptions<Identity>["waitBeforeRetry"]
@@ -208,16 +417,29 @@ export class BotCapabilityRuntime<Identity> {
   readonly #onSnapshot:
     | ((snapshot: BotHubSnapshot) => void)
     | undefined;
+  readonly #now: () => number;
+  readonly #createPairingCode: () => string;
+  readonly #createPairingRequestId: () => string;
   #snapshot: BotHubSnapshot = Object.freeze({
     state: "loading",
   });
   #provider: GatewayProviderSession | undefined;
   #mailbox: BotMailbox | undefined;
+  #credential: StoredBotCredential | undefined;
   #providerController: AbortController | undefined;
   #operationController: AbortController | undefined;
   #receiveTask: Promise<void> = Promise.resolve();
+  #routeTask: Promise<void> = Promise.resolve();
+  #dispatchTask: Promise<void> = Promise.resolve();
   #providerDrainTail: Promise<void> = Promise.resolve();
   #vaultMutationTail: Promise<void> = Promise.resolve();
+  #pairing: PendingBotPairing | undefined;
+  readonly #runtimeIssues: BotRuntimeIssues = {
+    agent: false,
+    delivery: false,
+    receive: false,
+  };
+  #hasStoredCredential = false;
   #disposed = false;
 
   constructor(options: BotCapabilityRuntimeOptions<Identity>) {
@@ -225,17 +447,36 @@ export class BotCapabilityRuntime<Identity> {
     this.#mailboxPath = options.mailboxPath;
     this.#vault = options.vault;
     this.#createMailbox =
-      options.createMailbox ?? createSqliteGatewayMailbox;
+      options.createMailbox ??
+      ((input) =>
+        createSqliteGatewayMailbox({
+          ...input,
+          consumedInboxRetentionMs:
+            BOT_CONSUMED_INBOX_RETENTION_MS,
+          maxPendingInboxPerAccount:
+            BOT_MAX_PENDING_INBOX_PER_ACCOUNT,
+        }));
     this.#pollProviderOnce =
       options.pollProviderOnce ?? pollGatewayProviderOnce;
-    this.#ingressPolicy =
-      options.ingressPolicy ?? botEchoOnlyGatewayIngress;
+    this.#routeInboxOnce =
+      options.routeInboxOnce ?? routeGatewayInboxOnce;
+    this.#dispatchProviderOnce =
+      options.dispatchProviderOnce ??
+      dispatchGatewayProviderOnce;
+    this.#configuredIngressPolicy =
+      options.ingressPolicy;
+    this.#agentRoute = options.agentRoute;
     this.#recoverMailbox =
       options.recoverMailbox ??
       createGatewayMailboxRecovery();
     this.#waitBeforeRetry =
       options.waitBeforeRetry ?? waitBeforeRetry;
     this.#onSnapshot = options.onSnapshot;
+    this.#now = options.now ?? Date.now;
+    this.#createPairingCode =
+      options.createPairingCode ?? createPairingCode;
+    this.#createPairingRequestId =
+      options.createPairingRequestId ?? randomUUID;
   }
 
   getSnapshot = (): BotHubSnapshot => this.#snapshot;
@@ -274,6 +515,7 @@ export class BotCapabilityRuntime<Identity> {
       return;
     }
     const stored = storedResult.value;
+    this.#hasStoredCredential = stored !== undefined;
     if (stored === undefined) {
       this.#publish({ state: "unlinked" });
       return;
@@ -349,6 +591,7 @@ export class BotCapabilityRuntime<Identity> {
       return;
     }
     const previous = previousResult.value;
+    this.#hasStoredCredential = previous !== undefined;
 
     let durableGeneration: number | undefined;
     let mailbox: BotMailbox | undefined;
@@ -467,7 +710,7 @@ export class BotCapabilityRuntime<Identity> {
       this.#provider === candidate.provider &&
       !candidate.controller.signal.aborted
     ) {
-      this.#runReceiveLoop(
+      this.#runProviderLoops(
         candidate.provider,
         this.#mailbox!,
         candidate.controller,
@@ -475,11 +718,73 @@ export class BotCapabilityRuntime<Identity> {
       );
     }
     if (this.#ownsOperation(controller)) {
-      this.#publish({
-        state: "degraded",
-        accountLabel: stored.accountLabel,
-        issue: "agent-route-pending",
-      });
+      this.#publishRuntimeState(stored.accountLabel);
+    }
+  }
+
+  async approvePairing(requestId: string): Promise<void> {
+    this.#assertActive();
+    const pairing = this.#activePairing();
+    if (
+      pairing === undefined ||
+      pairing.requestId !== requestId
+    ) {
+      throw new TypeError(
+        "Telegram pairing request is no longer active",
+      );
+    }
+    const operation = this.#operationController;
+    const credential = this.#credential;
+    const provider = this.#provider;
+    if (
+      operation === undefined ||
+      credential === undefined ||
+      provider === undefined ||
+      !this.#ownsOperation(operation)
+    ) {
+      throw new Error("Telegram provider is not active");
+    }
+    const next: StoredBotCredential = {
+      ...credential,
+      authorizedUserId: pairing.senderId,
+    };
+    const result = await this.#serializeVaultOperation(
+      operation,
+      async () => {
+        await this.#vault.writeBot(
+          this.#driver.provider,
+          next,
+        );
+        return next;
+      },
+    );
+    if (
+      result.status === "stale" ||
+      !this.#ownsOperation(operation) ||
+      this.#provider !== provider
+    ) {
+      return;
+    }
+    this.#credential = next;
+    this.#pairing = undefined;
+    this.#publishRuntimeState(next.accountLabel);
+  }
+
+  async dismissPairing(requestId: string): Promise<void> {
+    this.#assertActive();
+    const pairing = this.#activePairing();
+    if (
+      pairing === undefined ||
+      pairing.requestId !== requestId
+    ) {
+      throw new TypeError(
+        "Telegram pairing request is no longer active",
+      );
+    }
+    this.#pairing = undefined;
+    const accountLabel = this.#credential?.accountLabel;
+    if (accountLabel !== undefined) {
+      this.#publishRuntimeState(accountLabel);
     }
   }
 
@@ -672,6 +977,7 @@ export class BotCapabilityRuntime<Identity> {
         this.#driver.provider,
         input.stored,
       );
+      this.#hasStoredCredential = true;
     } catch {
       await this.#restoreCredential(input.previous);
       return {
@@ -731,7 +1037,10 @@ export class BotCapabilityRuntime<Identity> {
     const previous = this.#detachActiveProvider();
     this.#provider = input.candidate.provider;
     this.#mailbox = mailbox;
+    this.#credential = input.stored;
     this.#providerController = input.candidate.controller;
+    this.#pairing = undefined;
+    this.#resetRuntimeIssues();
     return {
       previous,
       status: "activated",
@@ -779,6 +1088,7 @@ export class BotCapabilityRuntime<Identity> {
             await this.#vault.deleteBot(
               this.#driver.provider,
             );
+            this.#hasStoredCredential = false;
           } catch {
             await this.#restoreCredential(previous);
             return this.#ownsOperation(operation)
@@ -855,6 +1165,7 @@ export class BotCapabilityRuntime<Identity> {
             await this.#vault.deleteBot(
               this.#driver.provider,
             );
+            this.#hasStoredCredential = false;
           } catch {
             await this.#restoreCredential(previous);
             return this.#ownsOperation(operation)
@@ -929,6 +1240,7 @@ export class BotCapabilityRuntime<Identity> {
           previous,
         );
       }
+      this.#hasStoredCredential = previous !== undefined;
       return true;
     } catch {
       return false;
@@ -980,12 +1292,14 @@ export class BotCapabilityRuntime<Identity> {
     }
     if (
       storedResult.status === "stale" ||
-      storedResult.value === undefined ||
       !this.#ownsOperation(operation) ||
       this.#provider !== undefined
     ) {
       return;
     }
+    this.#hasStoredCredential =
+      storedResult.value !== undefined;
+    if (storedResult.value === undefined) return;
     await this.#connectStored(storedResult.value, operation);
   }
 
@@ -995,6 +1309,7 @@ export class BotCapabilityRuntime<Identity> {
     validatedIdentity?: Identity,
   ): Promise<void> {
     if (!this.#ownsOperation(operation)) return;
+    this.#hasStoredCredential = true;
     this.#publish({
       state: "connecting",
       accountLabel: stored.accountLabel,
@@ -1067,7 +1382,10 @@ export class BotCapabilityRuntime<Identity> {
     const previous = this.#detachActiveProvider();
     this.#provider = candidate.provider;
     this.#mailbox = mailbox;
+    this.#credential = stored;
     this.#providerController = candidate.controller;
+    this.#pairing = undefined;
+    this.#resetRuntimeIssues();
     await this.#closeActiveProvider(previous);
     const handoffIssue = this.#candidateHealthIssue(
       candidate.provider,
@@ -1089,7 +1407,7 @@ export class BotCapabilityRuntime<Identity> {
       this.#provider === candidate.provider &&
       !candidate.controller.signal.aborted
     ) {
-      this.#runReceiveLoop(
+      this.#runProviderLoops(
         candidate.provider,
         mailbox,
         candidate.controller,
@@ -1097,11 +1415,7 @@ export class BotCapabilityRuntime<Identity> {
       );
     }
     if (this.#ownsOperation(operation)) {
-      this.#publish({
-        state: "degraded",
-        accountLabel: stored.accountLabel,
-        issue: "agent-route-pending",
-      });
+      this.#publishRuntimeState(stored.accountLabel);
     }
   }
 
@@ -1117,58 +1431,48 @@ export class BotCapabilityRuntime<Identity> {
       this.#provider === provider
     ) {
       try {
-        await this.#pollProviderOnce({
-          ingressPolicy: this.#ingressPolicy,
+        const admission = await this.#pollProviderOnce({
+          ingressPolicy: this.#ingressPolicyFor(accountLabel),
           mailbox,
           provider,
           signal: controller.signal,
         });
-        const snapshot = this.#snapshot;
+        const droppedNativeIds =
+          admission.droppedNativeIds ?? [];
+        const pairing = this.#pairing;
         if (
-          snapshot.state === "degraded" &&
-          snapshot.issue === "receive"
+          pairing !== undefined &&
+          droppedNativeIds.includes(pairing.nativeId)
         ) {
-          this.#publish({
-            state: "degraded",
-            accountLabel,
-            issue: "agent-route-pending",
-          });
+          this.#pairing = undefined;
         }
+        this.#setRuntimeIssue(
+          "receive",
+          droppedNativeIds.length > 0,
+          accountLabel,
+        );
       } catch (error) {
         if (this.#driver.isAborted(error, controller.signal)) {
           return;
         }
         const issue = this.#driver.issue(error, "receive");
         if (isTerminalReceiveIssue(issue)) {
+          const active =
+            this.#provider === provider
+              ? this.#detachActiveProvider()
+              : undefined;
+          await this.#closeAfterTerminalReceive(active);
           this.#publish({
             state: "error",
             issue,
           });
-          controller.abort();
-          if (this.#provider === provider) {
-            this.#provider = undefined;
-            this.#mailbox = undefined;
-            this.#providerController = undefined;
-            await provider.close().catch(() => {});
-            try {
-              mailbox.close();
-            } catch {
-              // Preserve the provider issue as the actionable state.
-            }
-          }
           return;
         }
-        const snapshot = this.#snapshot;
-        if (
-          snapshot.state !== "degraded" ||
-          snapshot.issue !== "receive"
-        ) {
-          this.#publish({
-            state: "degraded",
-            accountLabel,
-            issue: "receive",
-          });
-        }
+        this.#setRuntimeIssue(
+          "receive",
+          true,
+          accountLabel,
+        );
         try {
           await this.#waitBeforeRetry(controller.signal);
         } catch {
@@ -1176,6 +1480,348 @@ export class BotCapabilityRuntime<Identity> {
         }
       }
     }
+  }
+
+  async #routeLoop(
+    provider: GatewayProviderSession,
+    mailbox: BotMailbox,
+    controller: AbortController,
+    accountLabel: string,
+  ): Promise<void> {
+    while (
+      !this.#disposed &&
+      !controller.signal.aborted &&
+      this.#provider === provider
+    ) {
+      try {
+        const result = await this.#routeInboxOnce({
+          account: provider.account,
+          handler: async (input) =>
+            await this.#routeInboxMessage(input),
+          leaseMs: BOT_AGENT_LEASE_MS,
+          mailbox,
+          signal: controller.signal,
+          workerId:
+            `${this.#driver.provider}-agent:`
+            + provider.account.accountKey,
+        });
+        this.#setRuntimeIssue(
+          "agent",
+          false,
+          accountLabel,
+        );
+        if (result.status === "idle") {
+          await this.#waitBeforeRetry(controller.signal);
+        }
+      } catch (error) {
+        if (this.#driver.isAborted(error, controller.signal)) {
+          return;
+        }
+        this.#setRuntimeIssue(
+          "agent",
+          true,
+          accountLabel,
+        );
+        try {
+          await this.#waitBeforeRetry(controller.signal);
+        } catch {
+          return;
+        }
+      }
+    }
+  }
+
+  async #dispatchLoop(
+    provider: GatewayProviderSession,
+    mailbox: BotMailbox,
+    controller: AbortController,
+    accountLabel: string,
+  ): Promise<void> {
+    while (
+      !this.#disposed &&
+      !controller.signal.aborted &&
+      this.#provider === provider
+    ) {
+      try {
+        const result = await this.#dispatchProviderOnce({
+          leaseMs: BOT_DELIVERY_LEASE_MS,
+          mailbox,
+          provider,
+          signal: controller.signal,
+          workerId:
+            `${this.#driver.provider}-delivery:`
+            + provider.account.accountKey,
+        });
+        const health = mailbox.inspectOutboxHealth({
+          accountKey: provider.account.accountKey,
+          generation: provider.account.generation,
+        });
+        this.#setRuntimeIssue(
+          "delivery",
+          health.awaitingDeliveryContext > 0 ||
+            health.terminalFailures > 0 ||
+            health.uncertain > 0,
+          accountLabel,
+        );
+        if (result.status === "idle") {
+          await this.#waitBeforeRetry(controller.signal);
+        }
+      } catch (error) {
+        if (this.#driver.isAborted(error, controller.signal)) {
+          return;
+        }
+        this.#setRuntimeIssue(
+          "delivery",
+          true,
+          accountLabel,
+        );
+        try {
+          await this.#waitBeforeRetry(controller.signal);
+        } catch {
+          return;
+        }
+      }
+    }
+  }
+
+  async #routeInboxMessage(input: {
+    readonly lease: BotDirectMessageInput;
+    readonly operationId: string;
+    readonly signal: AbortSignal;
+  }): Promise<
+    | { readonly status: "ack" }
+    | {
+        readonly status: "reply";
+        readonly payload: unknown;
+      }
+  > {
+    const message =
+      this.#driver.inspectDirectMessage?.(input.lease);
+    if (message === undefined) {
+      return { status: "ack" };
+    }
+    const credential = this.#credential;
+    if (
+      credential?.authorizedUserId ===
+      input.lease.senderId
+    ) {
+      const sourceText = message.text?.trim() ?? "";
+      if (sourceText.length === 0) {
+        return {
+          status: "reply",
+          payload: {
+            kind: "text",
+            text: "Minke 当前仅支持文本消息。",
+          },
+        };
+      }
+      const route = this.#agentRoute;
+      if (route === undefined) {
+        throw new Error("Minke Agent route is unavailable");
+      }
+      const accountKeyValue = input.lease.accountKey;
+      if (accountKeyValue === undefined) {
+        throw new Error(
+          "Gateway inbox lease omitted its account key",
+        );
+      }
+      const result = await route.runAgentTurn(
+        {
+          operationId: input.operationId,
+          sessionId: botAgentSessionId(
+            this.#driver.provider,
+            accountKeyValue,
+            input.lease.conversationId,
+          ),
+          text: sourceText,
+        },
+        { signal: input.signal },
+      );
+      if (
+        result.outcome !== "completed" ||
+        result.text.trim().length === 0
+      ) {
+        return {
+          status: "reply",
+          payload: {
+            kind: "text",
+            text: "Minke 未能生成回复，请稍后再试。",
+          },
+        };
+      }
+      const reply = botAgentReplyText(
+        result.text,
+        result.previews,
+      );
+      return {
+        status: "reply",
+        payload:
+          this.#driver.agentReplyPayload?.(reply) ?? {
+            kind: "text",
+            text: reply,
+          },
+      };
+    }
+    const pairing = this.#activePairing();
+    if (
+      pairing === undefined ||
+      pairing.senderId !== input.lease.senderId ||
+      pairing.nativeId !== input.lease.nativeId
+    ) {
+      return { status: "ack" };
+    }
+    return {
+      status: "reply",
+      payload: {
+        kind: "text",
+        text:
+          "Minke 收到了你的私聊配对请求。\n"
+          + `配对码：${pairing.code}\n`
+          + "请在 Minke 的「远端 → Telegram」中确认。"
+          + "这条消息尚未交给 Agent。",
+      },
+    };
+  }
+
+  #ingressPolicyFor(
+    accountLabel: string,
+  ): GatewayIngressPolicy {
+    if (this.#configuredIngressPolicy !== undefined) {
+      return this.#configuredIngressPolicy;
+    }
+    return (input) => {
+      if (botEchoOnlyGatewayIngress(input)) return true;
+      const message =
+        this.#driver.inspectDirectMessage?.(input.event);
+      if (message === undefined) return false;
+      const authorizedUserId =
+        this.#credential?.authorizedUserId;
+      if (authorizedUserId !== undefined) {
+        return (
+          this.#agentRoute !== undefined &&
+          input.event.senderId === authorizedUserId
+        );
+      }
+      if (this.#activePairing() !== undefined) {
+        return false;
+      }
+      const code = this.#createPairingCode();
+      const requestId = this.#createPairingRequestId();
+      if (
+        !/^[A-HJ-NP-Z2-9]{8}$/u.test(code) ||
+        requestId.length === 0 ||
+        requestId.length > 128
+      ) {
+        throw new TypeError(
+          "Telegram pairing generator returned invalid data",
+        );
+      }
+      this.#pairing = {
+        code,
+        conversationId: input.event.conversationId,
+        expiresAt: this.#now() + BOT_PAIRING_TTL_MS,
+        nativeId: input.event.nativeId,
+        peerId: input.event.peerId,
+        requestId,
+        senderId: input.event.senderId,
+        senderLabel: message.senderLabel,
+      };
+      this.#publishRuntimeState(accountLabel);
+      return true;
+    };
+  }
+
+  #activePairing(): PendingBotPairing | undefined {
+    const pairing = this.#pairing;
+    if (
+      pairing !== undefined &&
+      pairing.expiresAt <= this.#now()
+    ) {
+      this.#pairing = undefined;
+      return undefined;
+    }
+    return pairing;
+  }
+
+  #resetRuntimeIssues(): void {
+    this.#runtimeIssues.agent = false;
+    this.#runtimeIssues.delivery = false;
+    this.#runtimeIssues.receive = false;
+  }
+
+  #setRuntimeIssue(
+    issue: keyof BotRuntimeIssues,
+    active: boolean,
+    accountLabel: string,
+  ): void {
+    if (this.#runtimeIssues[issue] === active) return;
+    this.#runtimeIssues[issue] = active;
+    this.#publishRuntimeState(accountLabel);
+  }
+
+  #publishRuntimeState(accountLabel: string): void {
+    if (this.#runtimeIssues.receive) {
+      this.#publish({
+        state: "degraded",
+        accountLabel,
+        issue: "receive",
+      });
+      return;
+    }
+    if (this.#runtimeIssues.agent) {
+      this.#publish({
+        state: "degraded",
+        accountLabel,
+        issue: "agent",
+      });
+      return;
+    }
+    if (this.#runtimeIssues.delivery) {
+      this.#publish({
+        state: "degraded",
+        accountLabel,
+        issue: "delivery",
+      });
+      return;
+    }
+    if (this.#driver.inspectDirectMessage === undefined) {
+      this.#publish({
+        state: "degraded",
+        accountLabel,
+        issue: "agent-route-pending",
+      });
+      return;
+    }
+    if (this.#credential?.authorizedUserId === undefined) {
+      const pairing = this.#activePairing();
+      this.#publish({
+        state: "pairing",
+        accountLabel,
+        ...(pairing === undefined
+          ? {}
+          : {
+              request: {
+                code: pairing.code,
+                expiresAt: pairing.expiresAt,
+                requestId: pairing.requestId,
+                senderLabel: pairing.senderLabel,
+              },
+            }),
+      });
+      return;
+    }
+    if (this.#agentRoute === undefined) {
+      this.#publish({
+        state: "degraded",
+        accountLabel,
+        issue: "agent-route-pending",
+      });
+      return;
+    }
+    this.#publish({
+      state: "connected",
+      accountLabel,
+    });
   }
 
   #beginOperation(): AbortController {
@@ -1193,7 +1839,7 @@ export class BotCapabilityRuntime<Identity> {
     );
   }
 
-  #runReceiveLoop(
+  #runProviderLoops(
     provider: GatewayProviderSession,
     mailbox: BotMailbox,
     controller: AbortController,
@@ -1209,6 +1855,33 @@ export class BotCapabilityRuntime<Identity> {
     void task.then(() => {
       if (this.#receiveTask === task) {
         this.#receiveTask = Promise.resolve();
+      }
+    });
+    if (this.#driver.inspectDirectMessage === undefined) {
+      return;
+    }
+    const routeTask = this.#routeLoop(
+      provider,
+      mailbox,
+      controller,
+      accountLabel,
+    ).catch(() => {});
+    this.#routeTask = routeTask;
+    void routeTask.then(() => {
+      if (this.#routeTask === routeTask) {
+        this.#routeTask = Promise.resolve();
+      }
+    });
+    const dispatchTask = this.#dispatchLoop(
+      provider,
+      mailbox,
+      controller,
+      accountLabel,
+    ).catch(() => {});
+    this.#dispatchTask = dispatchTask;
+    void dispatchTask.then(() => {
+      if (this.#dispatchTask === dispatchTask) {
+        this.#dispatchTask = Promise.resolve();
       }
     });
   }
@@ -1244,14 +1917,21 @@ export class BotCapabilityRuntime<Identity> {
     }
     const active = {
       controller,
+      dispatchTask: this.#dispatchTask,
       mailbox,
       provider,
       receiveTask: this.#receiveTask,
+      routeTask: this.#routeTask,
     };
     this.#provider = undefined;
     this.#mailbox = undefined;
+    this.#credential = undefined;
     this.#providerController = undefined;
+    this.#pairing = undefined;
     this.#receiveTask = Promise.resolve();
+    this.#routeTask = Promise.resolve();
+    this.#dispatchTask = Promise.resolve();
+    this.#resetRuntimeIssues();
     controller.abort();
     return active;
   }
@@ -1263,11 +1943,38 @@ export class BotCapabilityRuntime<Identity> {
       if (active === undefined) return;
       active.controller.abort();
       await active.provider.close().catch(() => {});
-      await active.receiveTask.catch(() => {});
+      await Promise.allSettled([
+        active.receiveTask,
+        active.routeTask,
+        active.dispatchTask,
+      ]);
       try {
         active.mailbox.close();
       } catch {
         // Closing an already-detached mailbox must not replace channel state.
+      }
+    });
+    this.#providerDrainTail = drain.catch(() => {});
+    await drain;
+  }
+
+  async #closeAfterTerminalReceive(
+    active: ActiveBotProvider | undefined,
+  ): Promise<void> {
+    const drain = this.#providerDrainTail.then(async () => {
+      if (active === undefined) return;
+      active.controller.abort();
+      await active.provider.close().catch(() => {});
+      // This method runs inside active.receiveTask. Waiting for that task
+      // would deadlock, so only sibling loops are drained here.
+      await Promise.allSettled([
+        active.routeTask,
+        active.dispatchTask,
+      ]);
+      try {
+        active.mailbox.close();
+      } catch {
+        // Preserve the terminal provider issue as the actionable state.
       }
     });
     this.#providerDrainTail = drain.catch(() => {});
@@ -1280,9 +1987,17 @@ export class BotCapabilityRuntime<Identity> {
     );
   }
 
-  #publish(snapshot: BotHubSnapshot): void {
+  #publish(snapshot: BotHubSnapshotInput): void {
     if (this.#disposed) return;
-    this.#snapshot = Object.freeze(snapshot);
+    this.#snapshot = Object.freeze(
+      snapshot.state === "error"
+        ? {
+            ...snapshot,
+            hasStoredCredential:
+              this.#hasStoredCredential,
+          }
+        : snapshot,
+    );
     this.#onSnapshot?.(this.#snapshot);
   }
 

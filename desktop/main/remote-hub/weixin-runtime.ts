@@ -3,10 +3,15 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   botEchoOnlyGatewayIngress,
+  dispatchGatewayProviderOnce,
   pollGatewayProviderOnce,
+  routeGatewayInboxOnce,
+  type GatewayAgentMailboxPort,
+  type GatewayInboxLease,
   type GatewayCipher,
   type GatewayIngressPolicy,
   type GatewayMailboxPort,
+  type GatewayOutboxHealth,
   type GatewayProviderSession,
 } from "@lencx/minke-im-gateway";
 import {
@@ -24,6 +29,7 @@ import {
   type WeixinTransport,
 } from "@lencx/minke-im-weixin";
 import {
+  DEFAULT_TELEGRAM_NETWORK_SETTINGS,
   parseRemoteHubCommand,
   parseRemoteHubSnapshot,
   type RemoteHubCommand,
@@ -49,13 +55,64 @@ interface WeixinVaultPort {
   write(value: StoredWeixinGrant): Promise<void>;
 }
 
-interface WeixinMailbox extends GatewayMailboxPort {
+interface WeixinMailbox
+  extends GatewayMailboxPort, GatewayAgentMailboxPort {
   close(): void;
   getAccountGeneration(accountKey: string): number | undefined;
+  inspectOutboxHealth(input: {
+    readonly accountKey: string;
+    readonly generation: number;
+  }): GatewayOutboxHealth;
   recover(input?: { readonly now?: number }): unknown;
   removeProviderAccounts(provider: string): number;
   registerAccount(account: GatewayProviderSession["account"]): void;
 }
+
+export interface WeixinAgentTurnPreview {
+  readonly title: string;
+  readonly url: string;
+}
+
+export type WeixinAgentTurnResult =
+  | {
+      readonly outcome: "completed";
+      readonly sessionId: string;
+      readonly text: string;
+      readonly turn: number;
+      readonly endReason: string;
+      readonly previews?:
+        readonly WeixinAgentTurnPreview[];
+    }
+  | {
+      readonly outcome: "failed" | "no-response";
+      readonly sessionId: string;
+      readonly turn?: number;
+      readonly endReason: string;
+    };
+
+export interface WeixinAgentRoutePort {
+  runAgentTurn(
+    input: {
+      readonly operationId: string;
+      readonly sessionId: string;
+      readonly text: string;
+    },
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<WeixinAgentTurnResult>;
+}
+
+export interface WeixinInboxRouteInput {
+  readonly lease: GatewayInboxLease;
+  readonly operationId: string;
+  readonly signal: AbortSignal;
+}
+
+export type WeixinInboxRouteOutcome =
+  | { readonly status: "consumed" }
+  | {
+      readonly status: "reply";
+      readonly payload: unknown;
+    };
 
 export interface WeixinCapabilityRuntimeOptions {
   readonly dataHome: string;
@@ -74,7 +131,10 @@ export interface WeixinCapabilityRuntimeOptions {
     readonly transport: WeixinTransport;
   }) => GatewayProviderSession;
   readonly pollProviderOnce?: typeof pollGatewayProviderOnce;
+  readonly routeInboxOnce?: typeof routeGatewayInboxOnce;
+  readonly dispatchProviderOnce?: typeof dispatchGatewayProviderOnce;
   readonly ingressPolicy?: GatewayIngressPolicy;
+  readonly agentRoute?: WeixinAgentRoutePort;
   readonly recoverMailbox?: GatewayMailboxRecovery;
   readonly waitBeforePoll?: (
     signal: AbortSignal,
@@ -100,7 +160,17 @@ interface CompletedLogin {
   readonly returnSnapshot: WeixinHubSnapshot;
 }
 
+type WeixinRouteMode =
+  | "ready"
+  | "agent-route-pending"
+  | "authorization-missing";
+
 const DEFAULT_POLL_DELAY_MS = 500;
+const MAX_WEIXIN_AGENT_REPLY_CODE_POINTS = 12_000;
+const AGENT_PREVIEW_PATH_PATTERN =
+  /^\/minke-preview\/[A-Za-z0-9_-]{22}\/$/u;
+const GATEWAY_AGENT_LEASE_MS = 30_000;
+const GATEWAY_DELIVERY_LEASE_MS = 30_000;
 
 function waitBeforePoll(signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.reject(signal.reason);
@@ -167,6 +237,105 @@ function accountLabel(accountId: string): string {
   return `•• ${suffix}`;
 }
 
+function record(value: unknown): Record<string, unknown> | undefined {
+  return (
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value)
+    )
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+export function createAuthorizedWeixinIngressPolicy(
+  authorizedUserId: string,
+): GatewayIngressPolicy {
+  if (authorizedUserId.length === 0) {
+    throw new TypeError("authorized Weixin user id is required");
+  }
+  return ({ event }) => {
+    if (event.kind === "bot-echo") return true;
+    if (
+      event.kind !== "user-message" ||
+      event.senderId !== authorizedUserId ||
+      event.peerId !== authorizedUserId
+    ) {
+      return false;
+    }
+    const payload = record(event.payload);
+    return payload !== undefined && payload.groupId === undefined;
+  };
+}
+
+function agentSessionId(
+  accountKeyValue: string,
+  conversationId: string,
+): string {
+  return `minke-im-weixin-${createHash("sha256")
+    .update(accountKeyValue)
+    .update("\0")
+    .update(conversationId)
+    .digest("hex")
+    .slice(0, 32)}`;
+}
+
+function boundedReplyText(value: string): string {
+  const text = value.trim();
+  const codePoints = [...text];
+  if (codePoints.length <= MAX_WEIXIN_AGENT_REPLY_CODE_POINTS) {
+    return text;
+  }
+  return `${codePoints
+    .slice(0, MAX_WEIXIN_AGENT_REPLY_CODE_POINTS - 1)
+    .join("")}…`;
+}
+
+function agentReplyText(
+  text: string,
+  previews: readonly WeixinAgentTurnPreview[] | undefined,
+): string {
+  if (previews === undefined || previews.length === 0) {
+    return boundedReplyText(text);
+  }
+  let suffix = "\n\nHTML 预览：";
+  let links = 0;
+  for (const preview of previews) {
+    let url: URL;
+    try {
+      url = new URL(preview.url);
+    } catch {
+      continue;
+    }
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.search !== "" ||
+      url.hash !== "" ||
+      !AGENT_PREVIEW_PATH_PATTERN.test(url.pathname)
+    ) {
+      continue;
+    }
+    const line = `\n${preview.title}\n${url.href}`;
+    if (
+      [...`${suffix}${line}`].length >
+      MAX_WEIXIN_AGENT_REPLY_CODE_POINTS - 2
+    ) {
+      break;
+    }
+    suffix += line;
+    links += 1;
+  }
+  if (links === 0) return boundedReplyText(text);
+  const body = [...text.trim()];
+  const remaining =
+    MAX_WEIXIN_AGENT_REPLY_CODE_POINTS - [...suffix].length;
+  const boundedBody = body.length <= remaining
+    ? body.join("")
+    : `${body.slice(0, Math.max(0, remaining - 1)).join("")}…`;
+  return `${boundedBody}${suffix}`;
+}
+
 function nextStoredGrant(
   previous: StoredWeixinGrant | undefined,
   grant: StoredWeixinGrant["grant"],
@@ -190,7 +359,8 @@ function sameCredential(
   return (
     left.accountId === right.accountId &&
     left.token === right.token &&
-    left.baseUrl === right.baseUrl
+    left.baseUrl === right.baseUrl &&
+    left.authorizedUserId === right.authorizedUserId
   );
 }
 
@@ -208,6 +378,9 @@ function sameStoredGrant(
 function initialSnapshot(): RemoteHubSnapshot {
   return parseRemoteHubSnapshot({
     revision: 0,
+    telegramNetwork: {
+      ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+    },
     dependencies: {
       credentialVault: "pending",
       agentRoute: "pending",
@@ -264,7 +437,16 @@ export class WeixinCapabilityRuntime {
   readonly #pollProviderOnce: NonNullable<
     WeixinCapabilityRuntimeOptions["pollProviderOnce"]
   >;
-  readonly #ingressPolicy: GatewayIngressPolicy;
+  readonly #routeInboxOnce: NonNullable<
+    WeixinCapabilityRuntimeOptions["routeInboxOnce"]
+  >;
+  readonly #dispatchProviderOnce: NonNullable<
+    WeixinCapabilityRuntimeOptions["dispatchProviderOnce"]
+  >;
+  readonly #configuredIngressPolicy:
+    | GatewayIngressPolicy
+    | undefined;
+  readonly #agentRoute: WeixinAgentRoutePort | undefined;
   readonly #recoverMailbox: GatewayMailboxRecovery;
   readonly #waitBeforePoll: NonNullable<
     WeixinCapabilityRuntimeOptions["waitBeforePoll"]
@@ -292,6 +474,11 @@ export class WeixinCapabilityRuntime {
   #mailbox: WeixinMailbox | undefined;
   #providerController: AbortController | undefined;
   #receiveTask: Promise<void> = Promise.resolve();
+  #routeTask: Promise<void> = Promise.resolve();
+  #dispatchTask: Promise<void> = Promise.resolve();
+  readonly #runtimeIssues = new Set<
+    "agent" | "delivery" | "receive"
+  >();
   #initializeMayConnect = true;
   #disposed = false;
 
@@ -312,8 +499,13 @@ export class WeixinCapabilityRuntime {
       options.createProvider ?? createWeixinGatewayProvider;
     this.#pollProviderOnce =
       options.pollProviderOnce ?? pollGatewayProviderOnce;
-    this.#ingressPolicy =
-      options.ingressPolicy ?? botEchoOnlyGatewayIngress;
+    this.#routeInboxOnce =
+      options.routeInboxOnce ?? routeGatewayInboxOnce;
+    this.#dispatchProviderOnce =
+      options.dispatchProviderOnce ??
+      dispatchGatewayProviderOnce;
+    this.#configuredIngressPolicy = options.ingressPolicy;
+    this.#agentRoute = options.agentRoute;
     this.#recoverMailbox =
       options.recoverMailbox ??
       createGatewayMailboxRecovery();
@@ -798,17 +990,53 @@ export class WeixinCapabilityRuntime {
       ) {
         return;
       }
-      this.#publish({
-        state: "degraded",
-        accountLabel: label,
-        issue: "agent-route-pending",
-      }, "ready");
+      const routeMode: WeixinRouteMode =
+        this.#agentRoute === undefined
+          ? "agent-route-pending"
+          : stored.grant.authorizedUserId === undefined
+            ? "authorization-missing"
+            : "ready";
+      const ingressPolicy =
+        this.#configuredIngressPolicy ??
+        (
+          routeMode === "ready"
+            ? createAuthorizedWeixinIngressPolicy(
+                stored.grant.authorizedUserId!,
+              )
+            : botEchoOnlyGatewayIngress
+        );
+      this.#runtimeIssues.clear();
+      this.#publishHealthy(label, routeMode);
       this.#runReceiveLoop(
         provider,
         mailbox,
         controller,
         label,
+        ingressPolicy,
+        routeMode,
       );
+      if (routeMode === "ready") {
+        const authorizedUserId =
+          stored.grant.authorizedUserId;
+        if (authorizedUserId === undefined) {
+          throw new Error(
+            "authorized Weixin user disappeared during startup",
+          );
+        }
+        this.#runRouteLoop(
+          provider,
+          mailbox,
+          controller,
+          label,
+          authorizedUserId,
+        );
+        this.#runDispatchLoop(
+          provider,
+          mailbox,
+          controller,
+          label,
+        );
+      }
     } catch (error) {
       const wasAborted = aborted(error, controller.signal);
       controller.abort();
@@ -859,6 +1087,8 @@ export class WeixinCapabilityRuntime {
     mailbox: WeixinMailbox,
     controller: AbortController,
     label: string,
+    ingressPolicy: GatewayIngressPolicy,
+    routeMode: WeixinRouteMode,
   ): Promise<void> {
     while (
       !this.#disposed &&
@@ -867,21 +1097,21 @@ export class WeixinCapabilityRuntime {
     ) {
       try {
         await this.#pollProviderOnce({
-          ingressPolicy: this.#ingressPolicy,
+          ingressPolicy,
           mailbox,
           provider,
           signal: controller.signal,
         });
-        const weixin = this.#snapshot.channels.weixin;
-        if (
-          weixin.state === "degraded" &&
-          weixin.issue === "receive"
-        ) {
-          this.#publish({
-            state: "degraded",
-            accountLabel: label,
-            issue: "agent-route-pending",
-          }, "ready");
+        if (routeMode === "ready") {
+          this.#setRuntimeIssue("receive", false, label);
+        } else {
+          const weixin = this.#snapshot.channels.weixin;
+          if (
+            weixin.state === "degraded" &&
+            weixin.issue === "receive"
+          ) {
+            this.#publishHealthy(label, routeMode);
+          }
         }
       } catch (error) {
         if (aborted(error, controller.signal)) return;
@@ -903,16 +1133,20 @@ export class WeixinCapabilityRuntime {
           }
           return;
         }
-        const weixin = this.#snapshot.channels.weixin;
-        if (
-          weixin.state !== "degraded" ||
-          weixin.issue !== "receive"
-        ) {
-          this.#publish({
-            state: "degraded",
-            accountLabel: label,
-            issue: "receive",
-          }, "ready");
+        if (routeMode === "ready") {
+          this.#setRuntimeIssue("receive", true, label);
+        } else {
+          const weixin = this.#snapshot.channels.weixin;
+          if (
+            weixin.state !== "degraded" ||
+            weixin.issue !== "receive"
+          ) {
+            this.#publish({
+              state: "degraded",
+              accountLabel: label,
+              issue: "receive",
+            }, "ready");
+          }
         }
         try {
           await this.#waitBeforePoll(controller.signal);
@@ -921,6 +1155,174 @@ export class WeixinCapabilityRuntime {
         }
       }
     }
+  }
+
+  async #routeLoop(
+    provider: GatewayProviderSession,
+    mailbox: WeixinMailbox,
+    controller: AbortController,
+    label: string,
+    authorizedUserId: string,
+  ): Promise<void> {
+    while (
+      !this.#disposed &&
+      !controller.signal.aborted &&
+      this.#provider === provider
+    ) {
+      try {
+        const result = await this.#routeInboxOnce({
+          account: provider.account,
+          handler: async (input) => {
+            const outcome = await this.#routeWeixinInbox(
+              input,
+              authorizedUserId,
+            );
+            return outcome.status === "consumed"
+              ? { status: "ack" }
+              : outcome;
+          },
+          leaseMs: GATEWAY_AGENT_LEASE_MS,
+          mailbox,
+          signal: controller.signal,
+          workerId: `weixin-agent:${provider.account.accountKey}`,
+        });
+        this.#setRuntimeIssue("agent", false, label);
+        if (result.status === "idle") {
+          await this.#waitBeforePoll(controller.signal);
+        }
+      } catch (error) {
+        if (aborted(error, controller.signal)) return;
+        this.#setRuntimeIssue("agent", true, label);
+        try {
+          await this.#waitBeforePoll(controller.signal);
+        } catch {
+          return;
+        }
+      }
+    }
+  }
+
+  async #dispatchLoop(
+    provider: GatewayProviderSession,
+    mailbox: WeixinMailbox,
+    controller: AbortController,
+    label: string,
+  ): Promise<void> {
+    while (
+      !this.#disposed &&
+      !controller.signal.aborted &&
+      this.#provider === provider
+    ) {
+      try {
+        const result = await this.#dispatchProviderOnce({
+          leaseMs: GATEWAY_DELIVERY_LEASE_MS,
+          mailbox,
+          provider,
+          signal: controller.signal,
+          workerId:
+            `weixin-delivery:${provider.account.accountKey}`,
+        });
+        if (
+          result.status !== "idle" &&
+          result.outcome.status === "rejected" &&
+          result.outcome.terminal === "session-stale"
+        ) {
+          this.#publish({
+            state: "session-stale",
+            issue: "session-stale",
+          }, "ready");
+          controller.abort();
+          return;
+        }
+        const health = mailbox.inspectOutboxHealth({
+          accountKey: provider.account.accountKey,
+          generation: provider.account.generation,
+        });
+        const deliveryFailed =
+          health.awaitingDeliveryContext > 0 ||
+          health.terminalFailures > 0 ||
+          health.uncertain > 0;
+        this.#setRuntimeIssue(
+          "delivery",
+          deliveryFailed,
+          label,
+        );
+        if (result.status === "idle") {
+          await this.#waitBeforePoll(controller.signal);
+        }
+      } catch (error) {
+        if (aborted(error, controller.signal)) return;
+        this.#setRuntimeIssue("delivery", true, label);
+        try {
+          await this.#waitBeforePoll(controller.signal);
+        } catch {
+          return;
+        }
+      }
+    }
+  }
+
+  async #routeWeixinInbox(
+    input: WeixinInboxRouteInput,
+    authorizedUserId: string,
+  ): Promise<WeixinInboxRouteOutcome> {
+    const payload = record(input.lease.payload);
+    if (
+      input.lease.kind !== "user-message" ||
+      input.lease.senderId !== authorizedUserId ||
+      input.lease.peerId !== authorizedUserId ||
+      payload === undefined ||
+      payload.groupId !== undefined
+    ) {
+      return { status: "consumed" };
+    }
+    const sourceText =
+      typeof payload.text === "string"
+        ? payload.text.trim()
+        : "";
+    if (sourceText.length === 0) {
+      return {
+        status: "reply",
+        payload: {
+          kind: "text",
+          text: "Minke 当前仅支持微信文本消息。",
+        },
+      };
+    }
+    const route = this.#agentRoute;
+    if (route === undefined) {
+      throw new Error("Minke Agent route is unavailable");
+    }
+    const result = await route.runAgentTurn(
+      {
+        operationId: input.operationId,
+        sessionId: agentSessionId(
+          input.lease.accountKey,
+          input.lease.conversationId,
+        ),
+        text: sourceText,
+      },
+      { signal: input.signal },
+    );
+    if (
+      result.outcome !== "completed" ||
+      result.text.trim().length === 0
+    ) {
+      return {
+        status: "reply",
+        payload: {
+          kind: "text",
+          text: "Minke 未能生成回复，请稍后再试。",
+        },
+      };
+    }
+    return {
+      status: "reply",
+      payload: {
+        kind: "text",
+        text: agentReplyText(result.text, result.previews),
+      },
+    };
   }
 
   #runLogin(
@@ -942,17 +1344,63 @@ export class WeixinCapabilityRuntime {
     mailbox: WeixinMailbox,
     controller: AbortController,
     label: string,
+    ingressPolicy: GatewayIngressPolicy,
+    routeMode: WeixinRouteMode,
   ): void {
     const task = this.#receiveLoop(
       provider,
       mailbox,
       controller,
       label,
+      ingressPolicy,
+      routeMode,
     ).catch(() => {});
     this.#receiveTask = task;
     void task.then(() => {
       if (this.#receiveTask === task) {
         this.#receiveTask = Promise.resolve();
+      }
+    });
+  }
+
+  #runRouteLoop(
+    provider: GatewayProviderSession,
+    mailbox: WeixinMailbox,
+    controller: AbortController,
+    label: string,
+    authorizedUserId: string,
+  ): void {
+    const task = this.#routeLoop(
+      provider,
+      mailbox,
+      controller,
+      label,
+      authorizedUserId,
+    ).catch(() => {});
+    this.#routeTask = task;
+    void task.then(() => {
+      if (this.#routeTask === task) {
+        this.#routeTask = Promise.resolve();
+      }
+    });
+  }
+
+  #runDispatchLoop(
+    provider: GatewayProviderSession,
+    mailbox: WeixinMailbox,
+    controller: AbortController,
+    label: string,
+  ): void {
+    const task = this.#dispatchLoop(
+      provider,
+      mailbox,
+      controller,
+      label,
+    ).catch(() => {});
+    this.#dispatchTask = task;
+    void task.then(() => {
+      if (this.#dispatchTask === task) {
+        this.#dispatchTask = Promise.resolve();
       }
     });
   }
@@ -1060,6 +1508,63 @@ export class WeixinCapabilityRuntime {
     }, "ready");
   }
 
+  #publishHealthy(
+    accountLabelValue: string,
+    routeMode: WeixinRouteMode,
+  ): void {
+    this.#publish(
+      routeMode === "ready"
+        ? {
+            state: "connected",
+            accountLabel: accountLabelValue,
+          }
+        : {
+            state: "degraded",
+            accountLabel: accountLabelValue,
+            issue: routeMode,
+          },
+      "ready",
+    );
+  }
+
+  #setRuntimeIssue(
+    issue: "agent" | "delivery" | "receive",
+    active: boolean,
+    accountLabelValue: string,
+  ): void {
+    if (active) this.#runtimeIssues.add(issue);
+    else this.#runtimeIssues.delete(issue);
+    const selected = (
+      ["agent", "delivery", "receive"] as const
+    ).find((candidate) => this.#runtimeIssues.has(candidate));
+    const current = this.#snapshot.channels.weixin;
+    if (selected === undefined) {
+      if (
+        current.state === "connected" &&
+        current.accountLabel === accountLabelValue
+      ) {
+        return;
+      }
+      this.#publish({
+        state: "connected",
+        accountLabel: accountLabelValue,
+      }, "ready");
+      return;
+    }
+    if (
+      current.state === "degraded" &&
+      current.accountLabel === accountLabelValue &&
+      current.issue === selected
+    ) {
+      return;
+    }
+    this.#publish({
+      state: "degraded",
+      accountLabel: accountLabelValue,
+      issue: selected,
+    }, "ready");
+  }
+
   #publishLoginError(issue: WeixinHubIssue): void {
     if (issue === "session-stale") {
       this.#publish({
@@ -1072,7 +1577,10 @@ export class WeixinCapabilityRuntime {
       state: "error",
       issue:
         issue === "vault-unavailable" ||
-        issue === "agent-route-pending"
+        issue === "agent-route-pending" ||
+        issue === "authorization-missing" ||
+        issue === "agent" ||
+        issue === "delivery"
           ? "login-protocol"
           : issue,
     }, "ready");
@@ -1085,9 +1593,13 @@ export class WeixinCapabilityRuntime {
     if (this.#disposed) return;
     this.#snapshot = parseRemoteHubSnapshot({
       revision: this.#snapshot.revision + 1,
+      telegramNetwork: {
+        ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+      },
       dependencies: {
         credentialVault,
-        agentRoute: "pending",
+        agentRoute:
+          this.#agentRoute === undefined ? "pending" : "ready",
       },
       channels: {
         weixin,
@@ -1251,8 +1763,16 @@ export class WeixinCapabilityRuntime {
     this.#providerController = undefined;
     controller?.abort();
     await provider?.close().catch(() => {});
+    await Promise.allSettled([
+      this.#receiveTask,
+      this.#routeTask,
+      this.#dispatchTask,
+    ]);
+    this.#receiveTask = Promise.resolve();
+    this.#routeTask = Promise.resolve();
+    this.#dispatchTask = Promise.resolve();
+    this.#runtimeIssues.clear();
     mailbox?.close();
-    await this.#receiveTask.catch(() => {});
   }
 
   #assertActive(): void {

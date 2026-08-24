@@ -37,6 +37,7 @@ export type BotCredentialProvider = "telegram" | "discord";
 export interface StoredBotCredential {
   readonly accountId: string;
   readonly accountLabel: string;
+  readonly authorizedUserId?: string;
   readonly generation: number;
   readonly token: string;
 }
@@ -131,9 +132,19 @@ function storedGrant(value: unknown): StoredWeixinGrant {
 function storedBotCredential(
   value: unknown,
 ): StoredBotCredential {
+  const keys = isRecord(value) ? Object.keys(value) : [];
   if (
     !isRecord(value) ||
-    Object.keys(value).length !== 4 ||
+    !keys.every((key) =>
+      [
+        "accountId",
+        "accountLabel",
+        "authorizedUserId",
+        "generation",
+        "token",
+      ].includes(key)
+    ) ||
+    (keys.length !== 4 && keys.length !== 5) ||
     typeof value.accountId !== "string" ||
     value.accountId.length === 0 ||
     value.accountId.length > 128 ||
@@ -145,13 +156,24 @@ function storedBotCredential(
     typeof value.token !== "string" ||
     value.token.length < 20 ||
     value.token.length > 4_096 ||
-    /\s/u.test(value.token)
+    /\s/u.test(value.token) ||
+    (
+      value.authorizedUserId !== undefined &&
+      (
+        typeof value.authorizedUserId !== "string" ||
+        value.authorizedUserId.length === 0 ||
+        value.authorizedUserId.length > 128
+      )
+    )
   ) {
     throw new TypeError("stored bot credential is invalid");
   }
   return {
     accountId: value.accountId,
     accountLabel: value.accountLabel,
+    ...(value.authorizedUserId === undefined
+      ? {}
+      : { authorizedUserId: value.authorizedUserId }),
     generation: Number(value.generation),
     token: value.token,
   };

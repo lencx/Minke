@@ -26,3 +26,8 @@ export {
   type StoredBotCredential,
   type StoredWeixinGrant,
 } from "./credential-vault.ts";
+export {
+  TelegramNetworkRuntime,
+  type TelegramNetworkSessionPort,
+  type TelegramNetworkSettingsStore,
+} from "./telegram-network.ts";
