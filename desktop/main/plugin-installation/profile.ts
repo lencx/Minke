@@ -8,6 +8,7 @@ import {
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
   embeddedNodeChildEnvironment,
+  setEnvironmentName,
 } from "../../../config/embedded-node-runtime.mts";
 import {
   readHarnessRuntimeLayout,
@@ -267,7 +268,7 @@ export class WebPluginProfile {
       },
       this.#environment,
     );
-    environment.DSH_HOME = this.#dshHome;
+    setEnvironmentName(environment, "DSH_HOME", this.#dshHome);
     await this.#runCommand(
       this.#electronExecutable,
       [

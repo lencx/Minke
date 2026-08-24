@@ -116,9 +116,11 @@ async function withPackagedApp(platform, callback) {
       write(join(hostRoot, "dsh-runtime.json"), "{}\n"),
       write(
         join(hostRoot, "bin", `node${adapterSuffix}`),
-        platform === "win32"
-          ? '@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%MINKE_NODE_EXECUTABLE%" %*\r\n'
-          : '#!/bin/sh\nexec env ELECTRON_RUN_AS_NODE=1 "$MINKE_NODE_EXECUTABLE" "$@"\n',
+        runtimeAdapterSources()[`node${adapterSuffix}`],
+      ),
+      write(
+        join(hostRoot, "bin", "node-environment-bootstrap.cjs"),
+        runtimeAdapterSources()["node-environment-bootstrap.cjs"],
       ),
       write(join(hostRoot, "bin", `pnpm${adapterSuffix}`)),
       write(
@@ -243,6 +245,22 @@ test("the final package gate rejects a missing dsh adapter", async () => {
         verificationOptions("darwin"),
       ),
       /missing required file.*bin[\\/]dsh/u,
+    );
+  });
+});
+
+test("the final package gate rejects a missing Node environment bootstrap", async () => {
+  await withPackagedApp("darwin", async ({ hostRoot, outputRoot }) => {
+    await rm(
+      join(hostRoot, "bin", "node-environment-bootstrap.cjs"),
+    );
+
+    await assert.rejects(
+      verifyPackagedApplication(
+        outputRoot,
+        verificationOptions("darwin"),
+      ),
+      /missing required file.*node-environment-bootstrap\.cjs/u,
     );
   });
 });

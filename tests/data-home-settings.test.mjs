@@ -73,7 +73,7 @@ test("Minke resolves one stable DSH home and child environment", () => {
   );
   assert.equal(
     resolveDshHomePath(undefined, {
-      DSH_HOME: join(home, "custom-dsh"),
+      dSh_HoMe: join(home, "custom-dsh"),
     }, home),
     join(home, "custom-dsh"),
   );
@@ -87,7 +87,7 @@ test("Minke resolves one stable DSH home and child environment", () => {
   );
   assert.deepEqual(
     buildDshChildEnvironment(join(home, "active"), {
-      DSH_HOME: join(home, "stale"),
+      dsh_home: join(home, "stale"),
       PATH: "/usr/bin",
     }),
     {
@@ -107,12 +107,19 @@ test("initial active home inherits DSH while retaining existing Minke data", asy
   const environmentManager = new DataHomeManager({
     userDataPath: userData,
     homeDirectory: home,
-    environment: { DSH_HOME: environmentHome },
+    environment: { dsh_home: environmentHome },
     configuration: config.dshHome,
   });
   assert.equal(
     await environmentManager.activePath(),
     environmentHome,
+  );
+  assert.equal(
+    (
+      await environmentManager.read()
+    ).candidates.find(({ path }) => path === environmentHome)
+      ?.origins.includes("environment"),
+    true,
   );
 
   const defaultManager = new DataHomeManager({

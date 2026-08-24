@@ -1,0 +1,201 @@
+diff --git a/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js b/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js
+@@ -44,8 +44,19 @@
+ * @returns a fresh environment object safe to hand to a child spawn.
+ */
+ function scrubbedParentEnv() {
++	const ambientRuntimeControls = new Set([
++		"ELECTRON_RUN_AS_NODE",
++		"MINKE_INTERACTIVE_NODE_OPTIONS",
++		"MINKE_INTERACTIVE_NODE_PATH",
++		"MINKE_NODE_BOOTSTRAP",
++		"NODE_OPTIONS",
++		"NODE_PATH"
++	]);
+ 	const env = {};
+-	for (const [key, value] of Object.entries(process.env)) if (value !== void 0 && !SENSITIVE_ENV_PATTERN.test(key) && !key.toUpperCase().startsWith("DSH_")) env[key] = value;
++	for (const [key, value] of Object.entries(process.env)) {
++		const normalized = key.toUpperCase();
++		if (value !== void 0 && !SENSITIVE_ENV_PATTERN.test(key) && !normalized.startsWith("DSH_") && !ambientRuntimeControls.has(normalized)) env[key] = value;
++	}
+ 	return env;
+ }
+ /**
+diff --git a/node_modules/@deepseek-ai/dsh-native-command/lib/index.js b/node_modules/@deepseek-ai/dsh-native-command/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-native-command/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-native-command/lib/index.js
+@@ -1,5 +1,19 @@
+ import { execFile } from "node:child_process";
+ //#region lib/types/index.js
++function externalCommandEnvironment() {
++	const environment = {
++		...process.env
++	};
++	for (const name of [
++		"ELECTRON_RUN_AS_NODE",
++		"MINKE_INTERACTIVE_NODE_OPTIONS",
++		"MINKE_INTERACTIVE_NODE_PATH",
++		"MINKE_NODE_BOOTSTRAP",
++		"NODE_OPTIONS",
++		"NODE_PATH"
++	]) for (const key of Object.keys(environment)) if (key.toUpperCase() === name) delete environment[key];
++	return environment;
++}
+ /**
+ * Shared no-shell `execFile` runner for host-native OS integrations (the
+ * native directory chooser, the open-with-default-application hand-off):
+@@ -17,6 +28,7 @@
+ const runNativeCommand = (command, args, signal) => new Promise((resolve, reject) => {
+ 	execFile(command, [...args], {
+ 		encoding: "utf8",
++		env: externalCommandEnvironment(),
+ 		signal,
+ 		windowsHide: true
+ 	}, (error, stdout, stderr) => {
+diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
+@@ -566,6 +566,14 @@
+ */
+ function childEnv(extra) {
+ 	const env = scrubbedParentEnv();
++	for (const name of [
++		"ELECTRON_RUN_AS_NODE",
++		"MINKE_INTERACTIVE_NODE_OPTIONS",
++		"MINKE_INTERACTIVE_NODE_PATH",
++		"MINKE_NODE_BOOTSTRAP",
++		"NODE_OPTIONS",
++		"NODE_PATH"
++	]) for (const key of Object.keys(env)) if (key.toUpperCase() === name) delete env[key];
+ 	if (process.platform !== "win32") return {
+ 		...env,
+ 		...extra
+@@ -575,7 +583,35 @@
+ 		entries.push([key, value]);
+ 	}
+ 	return Object.fromEntries(entries);
+ }
++function sameExecutable(left, right) {
++	if (typeof left !== "string" || typeof right !== "string") return false;
++	return process.platform === "win32" ? left.toUpperCase() === right.toUpperCase() : left === right;
++}
++function embeddedNodeArguments(program, args, env) {
++	const bootstrap = process.env.MINKE_NODE_BOOTSTRAP;
++	const executable = process.env.MINKE_NODE_EXECUTABLE;
++	if ((program !== process.execPath && !sameExecutable(program, executable)) || bootstrap === void 0 || bootstrap === "") return [...args];
++	for (const name of [
++		"ELECTRON_RUN_AS_NODE",
++		"MINKE_INTERACTIVE_NODE_OPTIONS",
++		"MINKE_INTERACTIVE_NODE_PATH",
++		"MINKE_NODE_BOOTSTRAP",
++		"NODE_OPTIONS",
++		"NODE_PATH"
++	]) for (const key of Object.keys(env)) if (key.toUpperCase() === name) delete env[key];
++	env.ELECTRON_RUN_AS_NODE = "1";
++	env.MINKE_NODE_BOOTSTRAP = bootstrap;
++	for (let index = 0; index < args.length; index += 1) {
++		const argument = args[index];
++		if ((argument === "--require" || argument === "-r") && args[index + 1] === bootstrap || argument === `--require=${bootstrap}`) return [...args];
++	}
++	return [
++		"--require",
++		bootstrap,
++		...args
++	];
++}
+ /**
+ * Liveness-poll cadence for tree-exit waits. The timer stays ref'd: an
+ * awaited teardown must keep the event loop alive until the tree really
+@@ -794,6 +830,6 @@
+ 	const errMode = spec.stdio.stderr;
+ 	const stdinMode = spec.stdio.stdin;
+ 	const env = childEnv(spec.env);
+-	const child = spawn(program, args, {
++	const child = spawn(program, embeddedNodeArguments(program, args, env), {
+ 		cwd: spec.cwd,
+ 		env,
+@@ -1289,15 +1325,17 @@
+ 	async spawnTerminal(spec) {
+ 		const file = spec.argv[0];
+ 		if (file === void 0 || file.length === 0) throw new Error("subprocess-local: terminal argv must contain a program");
+ 		spec.signal?.throwIfAborted();
++		const env = childEnv(spec.env);
++		const args = embeddedNodeArguments(file, [...spec.argv.slice(1)], env);
+ 		const options = {
+ 			name: "dumb",
+ 			rows: spec.rows,
+ 			cols: spec.cols,
+ 			cwd: spec.cwd,
+-			env: childEnv(spec.env)
++			env
+ 		};
+ 		const inspector = this.terminalInspector ?? createProcessInspector();
+-		const handle = new LocalTerminalHandle(nodePty.spawn(file, [...spec.argv.slice(1)], options), inspector, spec.graceMs);
++		const handle = new LocalTerminalHandle(nodePty.spawn(file, args, options), inspector, spec.graceMs);
+ 		this.terminals.add(handle);
+ 		const release = async () => {
+diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
+@@ -48,9 +48,25 @@
+ 		return value !== void 0 && value !== "";
+ 	});
+ }
++function browserWorkerEnvironment() {
++	const environment = scrubbedParentEnv();
++	for (const name of [
++		"ELECTRON_RUN_AS_NODE",
++		"MINKE_INTERACTIVE_NODE_OPTIONS",
++		"MINKE_INTERACTIVE_NODE_PATH",
++		"MINKE_NODE_BOOTSTRAP",
++		"NODE_OPTIONS",
++		"NODE_PATH"
++	]) for (const key of Object.keys(environment)) if (key.toUpperCase() === name) delete environment[key];
++	environment.ELECTRON_RUN_AS_NODE = "1";
++	return environment;
++}
+ const BROWSER_OPENER_MODULE = import.meta.resolve("open");
+ const BROWSER_OPENER_PROGRAM = `
+ try {
++  delete process.env.ELECTRON_RUN_AS_NODE
++  delete process.env.NODE_OPTIONS
++  delete process.env.NODE_PATH
+   const { default: open } = await import(${JSON.stringify(BROWSER_OPENER_MODULE)})
+   const launcher = await open(process.argv[1])
+   if (process.platform === 'win32') {
+diff --git a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js
+--- a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js
++++ b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js
+@@ -153,8 +153,30 @@
+ 			if (api.setEnvironmentVariableW("TMP", privateTempDir) === 0) fail(`SetEnvironmentVariableW TMP failed (Win32 ${api.getLastError()})`);
+ 			if (api.setEnvironmentVariableW("TEMP", privateTempDir) === 0) fail(`SetEnvironmentVariableW TEMP failed (Win32 ${api.getLastError()})`);
+ 		}
++		const bootstrap = process.env.MINKE_NODE_BOOTSTRAP;
++		const embeddedExecutable = process.env.MINKE_NODE_EXECUTABLE;
++		const sameExecutable = typeof embeddedExecutable === "string" && (process.platform === "win32" ? parsed.command.toUpperCase() === embeddedExecutable.toUpperCase() : parsed.command === embeddedExecutable);
++		const childUsesEmbeddedNode = bootstrap !== void 0 && bootstrap !== "" && (parsed.command === process.execPath || sameExecutable);
++		for (const name of [
++			"ELECTRON_RUN_AS_NODE",
++			"MINKE_INTERACTIVE_NODE_OPTIONS",
++			"MINKE_INTERACTIVE_NODE_PATH",
++			"MINKE_NODE_BOOTSTRAP",
++			"NODE_OPTIONS",
++			"NODE_PATH"
++		]) for (const key of Object.keys(process.env)) if (key.toUpperCase() === name) delete process.env[key];
++		let childArgs = parsed.args;
++		if (childUsesEmbeddedNode) {
++			process.env.ELECTRON_RUN_AS_NODE = "1";
++			const hasBootstrap = childArgs.some((argument, index) => (argument === "--require" || argument === "-r") && childArgs[index + 1] === bootstrap || argument === `--require=${bootstrap}`);
++			if (!hasBootstrap) childArgs = [
++				"--require",
++				bootstrap,
++				...childArgs
++			];
++		}
+ 		return (await sandbox.spawn({
+ 			command: parsed.command,
+-			args: parsed.args,
++			args: childArgs,
+ 			stdio: "inherit"
+ 		}).wait()).exitCode;

@@ -7,6 +7,46 @@ import type {
   RemoteRuntimeSnapshot,
 } from "./contract.ts";
 
+const EXTERNAL_RUNTIME_NODE_CONTROLS = [
+  "ELECTRON_RUN_AS_NODE",
+  "MINKE_INTERACTIVE_NODE_OPTIONS",
+  "MINKE_INTERACTIVE_NODE_PATH",
+  "MINKE_NODE_BOOTSTRAP",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+] as const;
+
+function deleteEnvironmentName(
+  environment: NodeJS.ProcessEnv,
+  name: string,
+): void {
+  const normalized = name.toUpperCase();
+  for (const key of Object.keys(environment)) {
+    if (key.toUpperCase() === normalized) {
+      delete environment[key];
+    }
+  }
+}
+
+/** Build an external-service environment without Minke's Node bootstrap. */
+export function externalRuntimeEnvironment(
+  inherited: NodeJS.ProcessEnv,
+  additions: NodeJS.ProcessEnv = {},
+  omissions: readonly string[] = [],
+): NodeJS.ProcessEnv {
+  const environment = {
+    ...inherited,
+    ...additions,
+  };
+  for (const name of [
+    ...EXTERNAL_RUNTIME_NODE_CONTROLS,
+    ...omissions,
+  ]) {
+    deleteEnvironmentName(environment, name);
+  }
+  return environment;
+}
+
 export interface RemoteCommandExecutionOptions {
   env: NodeJS.ProcessEnv;
   timeoutMs: number;

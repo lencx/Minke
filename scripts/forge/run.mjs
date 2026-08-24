@@ -4,7 +4,11 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { forgeUsesElectronWorker } from "./runtime-selection.mjs";
+import {
+  consumeForgeElectronWorkerEnvironment,
+  forgeElectronWorkerEnvironment,
+  forgeUsesElectronWorker,
+} from "./runtime-selection.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(scriptPath), "../..");
@@ -58,11 +62,7 @@ if (
     [scriptPath, ...process.argv.slice(2)],
     {
       cwd: projectRoot,
-      env: {
-        ...process.env,
-        DSH_FORGE_WORKER: "1",
-        ELECTRON_RUN_AS_NODE: "1",
-      },
+      env: forgeElectronWorkerEnvironment(),
       stdio: "inherit",
     },
   );
@@ -76,6 +76,7 @@ if (
     // Electron's Node runtime treats .asar paths specially by default.
     // Packager must be able to create them as ordinary files.
     process.noAsar = true;
+    consumeForgeElectronWorkerEnvironment();
   }
   // Windows and Linux use Forge's standard Node runtime so large dependency
   // graphs are not constrained by Electron's lower worker heap ceiling.

@@ -7,6 +7,10 @@ import {
   sep,
 } from "node:path";
 import {
+  environmentValue,
+  setEnvironmentName,
+} from "../../config/embedded-node-runtime.mts";
+import {
   parseDataHomeMigrationPlanRequest,
   parseDataHomeMigrationScheduleRequest,
   parseDataHomePath,
@@ -123,7 +127,10 @@ export function resolveDshHomePath(
   environment: NodeJS.ProcessEnv = process.env,
   homeDirectory: string = homedir(),
 ): string {
-  const fromEnvironment = environment.DSH_HOME;
+  const fromEnvironment = environmentValue(
+    environment,
+    "DSH_HOME",
+  );
   const selected =
     configured ??
     (
@@ -149,10 +156,13 @@ export function buildDshChildEnvironment(
   activeDshHome: string,
   inherited: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  return {
-    ...inherited,
-    DSH_HOME: resolve(activeDshHome),
-  };
+  const environment = { ...inherited };
+  setEnvironmentName(
+    environment,
+    "DSH_HOME",
+    resolve(activeDshHome),
+  );
+  return environment;
 }
 
 /** Resolve configured state, migration discovery, and restart-time cutover. */
@@ -369,9 +379,13 @@ export class DataHomeManager {
     const recommendedPath = recommendedMinkeDshHome(
       this.#userDataPath,
     );
+    const environmentHome = environmentValue(
+      this.#environment,
+      "DSH_HOME",
+    );
     const configuredEnvironment =
-      this.#environment.DSH_HOME !== undefined &&
-      this.#environment.DSH_HOME.trim().length > 0;
+      environmentHome !== undefined &&
+      environmentHome.trim().length > 0;
     const environmentPath = configuredEnvironment
       ? resolveDshHomePath(
           undefined,
@@ -430,9 +444,13 @@ export class DataHomeManager {
         this.#homeDirectory,
       );
     }
+    const environmentHome = environmentValue(
+      this.#environment,
+      "DSH_HOME",
+    );
     if (
-      this.#environment.DSH_HOME !== undefined &&
-      this.#environment.DSH_HOME.trim().length > 0
+      environmentHome !== undefined &&
+      environmentHome.trim().length > 0
     ) {
       return resolveDshHomePath(
         undefined,

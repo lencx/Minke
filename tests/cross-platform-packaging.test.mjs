@@ -11,6 +11,8 @@ import {
   packagedApplicationLayout,
 } from "../scripts/forge/application-layout.mjs";
 import {
+  consumeForgeElectronWorkerEnvironment,
+  forgeElectronWorkerEnvironment,
   forgeUsesElectronWorker,
 } from "../scripts/forge/runtime-selection.mjs";
 import {
@@ -155,6 +157,34 @@ test("Forge keeps its Electron ABI worker only on macOS", () => {
     () => forgeUsesElectronWorker("freebsd"),
     /unsupported desktop platform/u,
   );
+  assert.deepEqual(
+    forgeElectronWorkerEnvironment({
+      Path: "/usr/bin",
+      electron_run_as_node: "ambient",
+      Node_Options: "--require /tmp/user.cjs",
+      node_path: "/tmp/user-modules",
+      minke_interactive_node_options: "--original",
+      MINKE_INTERACTIVE_NODE_PATH: "/original-modules",
+      minke_node_bootstrap: "/runtime/bootstrap.cjs",
+    }),
+    {
+      Path: "/usr/bin",
+      DSH_FORGE_WORKER: "1",
+      ELECTRON_RUN_AS_NODE: "1",
+    },
+  );
+  const workerEnvironment = {
+    Path: "/usr/bin",
+    dsh_forge_worker: "1",
+    Electron_Run_As_Node: "1",
+    Node_Options: "--require /tmp/worker.cjs",
+    NODE_PATH: "/tmp/worker-modules",
+    minke_node_bootstrap: "/runtime/bootstrap.cjs",
+  };
+  consumeForgeElectronWorkerEnvironment(workerEnvironment);
+  assert.deepEqual(workerEnvironment, {
+    Path: "/usr/bin",
+  });
 });
 
 test("production main-process bundles do not emit source maps", async () => {

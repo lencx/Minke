@@ -18,6 +18,6 @@ export default defineConfig({
   },
   server: {
     port: 41783,
-    strictPort: true,
+    strictPort: false,
   },
 });

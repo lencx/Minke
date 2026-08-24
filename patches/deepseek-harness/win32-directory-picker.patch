@@ -1,29 +1,43 @@
 diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js
-@@ -72,7 +72,10 @@
+@@ -72,7 +72,20 @@
  */
  function spawnDialogWorker(data) {
 +	const nodeExecutable = process.env.MINKE_NODE_EXECUTABLE;
 +	if (nodeExecutable === void 0 || nodeExecutable === "") throw new Error("Minke managed Node executable is unavailable");
++	const bootstrap = process.env.MINKE_NODE_BOOTSTRAP;
++	if (bootstrap === void 0 || bootstrap === "") throw new Error("Minke managed Node bootstrap is unavailable");
  	const env = {
- 		...process.env,
-+		ELECTRON_RUN_AS_NODE: "1",
- 		DSH_DIALOG_TITLE: data.title
+-		...process.env,
+-		DSH_DIALOG_TITLE: data.title
++		...process.env
  	};
++	for (const name of [
++		"ELECTRON_RUN_AS_NODE",
++		"MINKE_INTERACTIVE_NODE_OPTIONS",
++		"MINKE_INTERACTIVE_NODE_PATH",
++		"MINKE_NODE_BOOTSTRAP",
++		"NODE_OPTIONS",
++		"NODE_PATH"
++	]) for (const key of Object.keys(env)) if (key.toUpperCase() === name) delete env[key];
++	env.ELECTRON_RUN_AS_NODE = "1";
++	env.DSH_DIALOG_TITLE = data.title;
  	const stdio = [
-@@ -82,17 +85,17 @@
+@@ -82,17 +95,19 @@
  		"ipc"
  	];
  	/* v8 ignore next 3 -- the built-output arm: tests always run unbuilt (src/) */
 -	if (!import.meta.url.endsWith(".ts")) return spawn(process.execPath, [fileURLToPath(new URL("./worker.cjs", import.meta.url))], {
-+	if (!import.meta.url.endsWith(".ts")) return spawn(nodeExecutable, [fileURLToPath(new URL("./worker.cjs", import.meta.url))], {
++	if (!import.meta.url.endsWith(".ts")) return spawn(nodeExecutable, ["--require", bootstrap, fileURLToPath(new URL("./worker.cjs", import.meta.url))], {
  		env,
  		stdio,
  		windowsHide: true
  	});
 -	return spawn(process.execPath, [
 +	return spawn(nodeExecutable, [
++		"--require",
++		bootstrap,
  		"--import",
  		import.meta.resolve("tsx/esm"),
  		fileURLToPath(new URL("./win32-dialog-worker.ts", import.meta.url))

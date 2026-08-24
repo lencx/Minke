@@ -6,6 +6,9 @@ import {
   TerminalSessionRuntime,
 } from "@minke/desktop/main/tabs/terminal.ts";
 import {
+  defaultTerminalShell,
+} from "@minke/desktop/main/tabs/ipc.ts";
+import {
   TerminalTabsController,
 } from "@minke/harness-overlay/client/tabs/terminal/controller.ts";
 import {
@@ -24,6 +27,31 @@ import {
 import {
   HostTerminalRuntime,
 } from "@minke/harness-overlay/host/terminal.ts";
+
+test("desktop terminal shell fallback follows the target platform", () => {
+  assert.deepEqual(defaultTerminalShell({}, "darwin"), {
+    shell: "/bin/zsh",
+    args: ["-l"],
+  });
+  assert.deepEqual(defaultTerminalShell({}, "linux"), {
+    shell: "/bin/sh",
+    args: ["-l"],
+  });
+  assert.deepEqual(
+    defaultTerminalShell({ shell: "/opt/custom/sh" }, "linux"),
+    {
+      shell: "/opt/custom/sh",
+      args: ["-l"],
+    },
+  );
+  assert.deepEqual(
+    defaultTerminalShell({ ComSpec: "C:\\Windows\\cmd.exe" }, "win32"),
+    {
+      shell: "C:\\Windows\\cmd.exe",
+      args: [],
+    },
+  );
+});
 
 test("terminal IPC requests keep dimensions and input bounded", () => {
   assert.deepEqual(
@@ -125,9 +153,11 @@ test("Host terminal runtime streams output and tears down an abandoned poll", as
   let dataListener;
   let exitListener;
   let killed = false;
+  let hostSpawnOptions;
   const runtime = new HostTerminalRuntime({
     pty: {
-      spawn() {
+      spawn(_file, _args, options) {
+        hostSpawnOptions = options;
         return {
           pid: 42,
           write(data) {
@@ -152,7 +182,11 @@ test("Host terminal runtime streams output and tears down an abandoned poll", as
     },
     shell: "/bin/zsh",
     defaultCwd: "/host/home",
-    environment: { PATH: "/usr/bin" },
+    environment: {
+      PATH: "/usr/bin",
+      ELECTRON_RUN_AS_NODE: "1",
+      NODE_OPTIONS: "--trace-warnings",
+    },
     resolveCwd: async (candidate) => candidate,
     createId: () => "host-terminal-1",
   });
@@ -160,6 +194,22 @@ test("Host terminal runtime streams output and tears down an abandoned poll", as
   assert.deepEqual(
     await runtime.create({ cols: 80, rows: 24 }),
     { sessionId: "host-terminal-1" },
+  );
+  assert.equal(
+    hostSpawnOptions.env.ELECTRON_RUN_AS_NODE,
+    undefined,
+  );
+  assert.equal(
+    hostSpawnOptions.env.NODE_OPTIONS,
+    "--trace-warnings",
+  );
+  assert.equal(
+    hostSpawnOptions.env.MINKE_INTERACTIVE_NODE_OPTIONS,
+    undefined,
+  );
+  assert.equal(
+    hostSpawnOptions.env.MINKE_INTERACTIVE_NODE_PATH,
+    undefined,
   );
   runtime.write({
     sessionId: "host-terminal-1",
@@ -250,6 +300,8 @@ test("desktop terminal runtime owns PTY data, resize, and teardown", async () =>
       DSH_HOME: "/data/harness",
       PATH: "/usr/bin",
       TERM_PROGRAM: "Minke",
+      ELECTRON_RUN_AS_NODE: "1",
+      NODE_OPTIONS: "--trace-warnings",
     },
     resolveCwd: async (candidate) => candidate,
     createId: () => "terminal-1",
@@ -277,10 +329,29 @@ test("desktop terminal runtime owns PTY data, resize, and teardown", async () =>
     spawn.options.env.MINKE_PNPM_ENTRY,
     join(runtimeRoot, "node_modules", "pnpm", "bin", "pnpm.cjs"),
   );
-  assert.equal(spawn.options.env.ELECTRON_RUN_AS_NODE, "1");
+  assert.equal(
+    spawn.options.env.ELECTRON_RUN_AS_NODE,
+    undefined,
+    "an interactive shell must not inherit Electron's launch-only Node mode",
+  );
   assert.equal(
     spawn.options.env.PATH,
     [join(runtimeRoot, "bin"), "/usr/bin"].join(delimiter),
+  );
+  assert.equal(
+    spawn.options.env.NODE_OPTIONS,
+    "--trace-warnings",
+    "interactive shells preserve user-authored Node options",
+  );
+  assert.equal(
+    spawn.options.env.MINKE_INTERACTIVE_NODE_OPTIONS,
+    undefined,
+    "interactive shells must consume product-only Node snapshots",
+  );
+  assert.equal(
+    spawn.options.env.MINKE_INTERACTIVE_NODE_PATH,
+    undefined,
+    "interactive shells must consume product-only Node snapshots",
   );
 
   runtime.write({

@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import {
+  nativeChildEnvironment,
+} from "../../config/embedded-node-runtime.mts";
 
 export type XattrReader = (
   args: readonly string[],
@@ -11,6 +14,7 @@ function readXattr(args: readonly string[]): Promise<string> {
       [...args],
       {
         encoding: "utf8",
+        env: nativeChildEnvironment(),
         maxBuffer: 8 * 1024,
         timeout: 5_000,
       },

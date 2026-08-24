@@ -26,6 +26,7 @@ import {
   type RemoteSettings,
 } from "./contract.ts";
 import {
+  externalRuntimeEnvironment,
   RemoteAccessError,
   type RemoteAccessLifecycle,
   type RemoteLaunchPlan,
@@ -94,22 +95,21 @@ function defaultSpawn(
 function cloudflaredEnvironment(
   inherited: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
-  const environment = {
-    ...inherited,
-    NO_AUTOUPDATE: "true",
-  };
-  for (const name of [
-    "TUNNEL_CONFIG",
-    "TUNNEL_HOSTNAME",
-    "TUNNEL_TOKEN",
-    "TUNNEL_TOKEN_FILE",
-    "TUNNEL_CRED_CONTENTS",
-    "TUNNEL_CRED_FILE",
-    "TUNNEL_URL",
-  ]) {
-    Reflect.deleteProperty(environment, name);
-  }
-  return environment;
+  return externalRuntimeEnvironment(
+    inherited,
+    {
+      NO_AUTOUPDATE: "true",
+    },
+    [
+      "TUNNEL_CONFIG",
+      "TUNNEL_HOSTNAME",
+      "TUNNEL_TOKEN",
+      "TUNNEL_TOKEN_FILE",
+      "TUNNEL_CRED_CONTENTS",
+      "TUNNEL_CRED_FILE",
+      "TUNNEL_URL",
+    ],
+  );
 }
 
 function canonicalDnsName(

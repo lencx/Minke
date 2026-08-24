@@ -20,6 +20,12 @@ import {
 import {
   minkeHarnessClientBuildEnvironment,
 } from "../scripts/harness/client-build-environment.mjs";
+import {
+  assertReusableRuntimeFiles,
+  chooseStagePlan,
+  parseStageFlags,
+  ReusableRuntimeUnavailableError,
+} from "../scripts/harness/stage-plan.mjs";
 
 async function withTemporaryDirectory(callback) {
   const root = await mkdtemp(join(tmpdir(), "minke-runtime-state-"));
@@ -60,6 +66,88 @@ test("runtime fingerprints are deterministic and content-sensitive", async () =>
       fingerprintRecord({ packages: ["b"], version: 1 }),
     );
   });
+});
+
+test("development staging rebuilds a known-unavailable reusable runtime", async () => {
+  const flags = parseStageFlags([
+    "--skip-install",
+    "--skip-build",
+    "--refresh-if-stale",
+  ]);
+  const fallback = await chooseStagePlan(flags, async () => {
+    throw new ReusableRuntimeUnavailableError(
+      "stale",
+      "runtime fingerprint changed",
+    );
+  });
+  assert.deepEqual(fallback, {
+    fallbackReason: "stale",
+    mode: "full",
+    skipBuild: false,
+    skipInstall: false,
+  });
+  assert.deepEqual(
+    await chooseStagePlan(flags, async () => {}),
+    {
+      mode: "reuse",
+      skipBuild: true,
+      skipInstall: true,
+    },
+  );
+  assert.deepEqual(
+    await chooseStagePlan(flags, async () => {
+      assertReusableRuntimeFiles(
+        ["/runtime/index.mjs"],
+        () => false,
+      );
+    }),
+    {
+      fallbackReason: "incomplete",
+      mode: "full",
+      skipBuild: false,
+      skipInstall: false,
+    },
+  );
+  assert.deepEqual(
+    await chooseStagePlan(flags, async () => {
+      throw new ReusableRuntimeUnavailableError(
+        "invalid",
+        "runtime validation rejected staged files",
+      );
+    }),
+    {
+      fallbackReason: "invalid",
+      mode: "full",
+      skipBuild: false,
+      skipInstall: false,
+    },
+  );
+
+  await assert.rejects(
+    chooseStagePlan(flags, async () => {
+      throw new Error("runtime validation is broken");
+    }),
+    /runtime validation is broken/u,
+  );
+  await assert.rejects(
+    chooseStagePlan(
+      parseStageFlags(["--skip-install", "--skip-build"]),
+      async () => {
+        throw new ReusableRuntimeUnavailableError(
+          "stale",
+          "runtime fingerprint changed",
+        );
+      },
+    ),
+    ReusableRuntimeUnavailableError,
+  );
+});
+
+test("refresh-if-stale is valid only for the complete fast-stage mode", () => {
+  assert.throws(
+    () => parseStageFlags(["--refresh-if-stale"]),
+    /requires --skip-install and --skip-build/u,
+  );
 });
 
 test("runtime publication replaces a validated candidate", async () => {

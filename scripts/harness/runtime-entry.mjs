@@ -3,6 +3,8 @@ export function runtimeEntrySource(cliPackageName) {
   throw new Error("Minke staged Harness entry requires embedded Node mode");
 }
 
+await import("./bin/node-environment-bootstrap.cjs");
+
 function report(error, seen = new Set(), indent = "") {
   if (error !== null && typeof error === "object") {
     if (seen.has(error)) return;

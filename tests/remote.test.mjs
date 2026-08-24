@@ -478,6 +478,15 @@ test("Tailscale remote owns one foreground Serve process", async () => {
   const service = new RemoteAccessService({
     command: "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
     settings: remoteConfig({ enabled: true }),
+    environment: {
+      PATH: "/usr/bin",
+      electron_run_as_node: "1",
+      minke_interactive_node_options: "--original",
+      MINKE_INTERACTIVE_NODE_PATH: "/original-modules",
+      minke_node_bootstrap: "/runtime/bootstrap.cjs",
+      Node_Options: "--require /tmp/minke-loader.cjs",
+      node_path: "/tmp/minke-node-modules",
+    },
     async execute(command, args, options) {
       executions.push({ command, args, options });
       return { stdout: tailscaleStatus(), stderr: "" };
@@ -509,6 +518,24 @@ test("Tailscale remote owns one foreground Serve process", async () => {
     executions[0].options.env.TAILSCALE_BE_CLI,
     "1",
   );
+  assert.equal(
+    Object.keys(executions[0].options.env).some(
+      (key) => key.toUpperCase() === "ELECTRON_RUN_AS_NODE",
+    ),
+    false,
+  );
+  assert.equal(
+    Object.keys(executions[0].options.env).some(
+      (key) => key.toUpperCase() === "NODE_OPTIONS",
+    ),
+    false,
+  );
+  assert.equal(
+    Object.keys(executions[0].options.env).some(
+      (key) => key.toUpperCase() === "NODE_PATH",
+    ),
+    false,
+  );
 
   await service.start("http://127.0.0.1:43117");
   assert.deepEqual(
@@ -525,6 +552,21 @@ test("Tailscale remote owns one foreground Serve process", async () => {
   );
   assert.equal(spawns[0].options.detached, false);
   assert.equal(spawns[0].options.env.TAILSCALE_BE_CLI, "1");
+  for (const name of [
+    "ELECTRON_RUN_AS_NODE",
+    "MINKE_INTERACTIVE_NODE_OPTIONS",
+    "MINKE_INTERACTIVE_NODE_PATH",
+    "MINKE_NODE_BOOTSTRAP",
+    "NODE_OPTIONS",
+    "NODE_PATH",
+  ]) {
+    assert.equal(
+      Object.keys(spawns[0].options.env).some(
+        (key) => key.toUpperCase() === name,
+      ),
+      false,
+    );
+  }
   assert.deepEqual(service.read(), {
     method: "tailscale",
     transport: "serve",
@@ -739,9 +781,15 @@ test("Cloudflare remote owns a foreground named tunnel without environment token
     },
     environment: {
       SAFE_ENVIRONMENT_VALUE: "preserved",
-      TUNNEL_TOKEN: "must-not-be-forwarded",
-      TUNNEL_CRED_FILE: "/tmp/override.json",
-      TUNNEL_URL: "http://127.0.0.1:1",
+      electron_run_as_node: "1",
+      minke_interactive_node_options: "--original",
+      MINKE_INTERACTIVE_NODE_PATH: "/original-modules",
+      minke_node_bootstrap: "/runtime/bootstrap.cjs",
+      Node_Options: "--require /tmp/minke-loader.cjs",
+      node_path: "/tmp/minke-node-modules",
+      tunnel_token: "must-not-be-forwarded",
+      Tunnel_Cred_File: "/tmp/override.json",
+      tunnel_url: "http://127.0.0.1:1",
     },
     verifyToken,
     createGateway(options) {
@@ -805,9 +853,33 @@ test("Cloudflare remote owns a foreground named tunnel without environment token
     "preserved",
   );
   assert.equal(spawns[0].options.env.NO_AUTOUPDATE, "true");
-  assert.equal(spawns[0].options.env.TUNNEL_TOKEN, undefined);
-  assert.equal(spawns[0].options.env.TUNNEL_CRED_FILE, undefined);
-  assert.equal(spawns[0].options.env.TUNNEL_URL, undefined);
+  for (const name of [
+    "TUNNEL_TOKEN",
+    "TUNNEL_CRED_FILE",
+    "TUNNEL_URL",
+  ]) {
+    assert.equal(
+      Object.keys(spawns[0].options.env).some(
+        (key) => key.toUpperCase() === name,
+      ),
+      false,
+    );
+  }
+  for (const name of [
+    "ELECTRON_RUN_AS_NODE",
+    "MINKE_INTERACTIVE_NODE_OPTIONS",
+    "MINKE_INTERACTIVE_NODE_PATH",
+    "MINKE_NODE_BOOTSTRAP",
+    "NODE_OPTIONS",
+    "NODE_PATH",
+  ]) {
+    assert.equal(
+      Object.keys(spawns[0].options.env).some(
+        (key) => key.toUpperCase() === name,
+      ),
+      false,
+    );
+  }
   assert.deepEqual(service.read(), {
     method: "cloudflare",
     transport: "access",

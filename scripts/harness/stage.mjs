@@ -41,6 +41,12 @@ import {
   publishValidatedDirectory,
   writeFileAtomic,
 } from "./runtime-state.mjs";
+import {
+  assertReusableRuntimeFiles,
+  chooseStagePlan,
+  parseStageFlags,
+  ReusableRuntimeUnavailableError,
+} from "./stage-plan.mjs";
 import { runtimeEntrySource } from "./runtime-entry.mjs";
 import { runtimeAdapterSources } from "./runtime-adapters.mjs";
 import {
@@ -70,6 +76,7 @@ const runtimeFingerprintPaths = [
   "scripts/harness/runtime-process-policy.mjs",
   "scripts/harness/runtime-prune.mjs",
   "scripts/harness/runtime-state.mjs",
+  "scripts/harness/stage-plan.mjs",
   "scripts/harness/stage.mjs",
 ];
 
@@ -177,19 +184,6 @@ function runtimeSizeContract(contract) {
     budgetBytes: runtimeSizeBudgetForPlatform(contract),
     fileBudget: contract.runtimeFileBudget,
     policyVersion: RUNTIME_PRUNE_POLICY_VERSION,
-  };
-}
-
-function parseFlags(argv) {
-  const known = new Set(["--skip-install", "--skip-build"]);
-  for (const flag of argv) {
-    if (!known.has(flag)) {
-      throw new Error(`unknown option ${JSON.stringify(flag)}`);
-    }
-  }
-  return {
-    skipInstall: argv.includes("--skip-install"),
-    skipBuild: argv.includes("--skip-build"),
   };
 }
 
@@ -597,7 +591,10 @@ async function writeRuntimeAdapters(
   for (const [name, source] of Object.entries(runtimeAdapterSources())) {
     const path = join(binRoot, name);
     await writeFileAtomic(path, source, {
-      mode: name.endsWith(".cmd") ? 0o644 : 0o755,
+      mode:
+        name.endsWith(".cmd") || name.endsWith(".cjs")
+          ? 0o644
+          : 0o755,
     });
   }
   await writeFileAtomic(
@@ -690,6 +687,7 @@ async function validateRuntime(
     ]),
     join(runtimeRoot, "bin", process.platform === "win32" ? "dsh.cmd" : "dsh"),
     join(runtimeRoot, "bin", process.platform === "win32" ? "pnpm.cmd" : "pnpm"),
+    join(runtimeRoot, "bin", "node-environment-bootstrap.cjs"),
   ];
   for (const path of required) {
     if (!existsSync(path)) {
@@ -748,11 +746,21 @@ async function validateReusableRuntime(
 ) {
   const metadataPath = join(runtimeRoot, "dsh-runtime.json");
   if (!existsSync(metadataPath)) {
-    throw new Error(
+    throw new ReusableRuntimeUnavailableError(
+      "missing",
       "staged Harness runtime is missing; run harness:stage before harness:stage:fast",
     );
   }
-  const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+  let metadata;
+  try {
+    metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+  } catch (error) {
+    throw new ReusableRuntimeUnavailableError(
+      "invalid",
+      "staged Harness runtime metadata is unreadable; rebuilding it",
+      { cause: error },
+    );
+  }
   if (
     metadata.schemaVersion !== runtimeMetadataVersion ||
     metadata.repository !== contract.repository ||
@@ -780,7 +788,8 @@ async function validateReusableRuntime(
       runtimeSizeBudgetForPlatform(contract) ||
     metadata.runtimeSize?.fileBudget !== contract.runtimeFileBudget
   ) {
-    throw new Error(
+    throw new ReusableRuntimeUnavailableError(
+      "stale",
       "staged Harness runtime is stale; run harness:stage before harness:stage:fast",
     );
   }
@@ -823,21 +832,26 @@ async function validateReusableRuntime(
       join(runtimeRoot, "node_modules", ...packageName.split("/"), "lib", "index.js"),
     ]),
   ];
-  for (const path of required) {
-    if (!existsSync(path)) {
-      throw new Error(
-        `staged Harness runtime cannot be refreshed because ${path} is missing; run harness:stage`,
-      );
+  assertReusableRuntimeFiles(required);
+  try {
+    await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
+    await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+    await inspectPrunedRuntime(runtimeRoot, contract);
+  } catch (error) {
+    if (error instanceof ReusableRuntimeUnavailableError) {
+      throw error;
     }
+    throw new ReusableRuntimeUnavailableError(
+      "invalid",
+      "staged Harness runtime failed reusable-runtime validation; rebuilding it",
+      { cause: error },
+    );
   }
-  await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
-  await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
-  await inspectPrunedRuntime(runtimeRoot, contract);
   return metadata;
 }
 
 async function main() {
-  const flags = parseFlags(process.argv.slice(2));
+  const flags = parseStageFlags(process.argv.slice(2));
   const configuredContract = JSON.parse(
     await readFile(join(projectRoot, "config", "harness-runtime.json"), "utf8"),
   );
@@ -887,14 +901,18 @@ async function main() {
     productBundleFingerprint,
   };
 
-  if (flags.skipInstall && flags.skipBuild) {
-    await validateReusableRuntime(
-      activeRuntimeRoot,
-      contract,
-      actualCommit,
-      coreFingerprint,
-      runtimePatches,
-    );
+  const stagePlan = await chooseStagePlan(
+    flags,
+    async () =>
+      await validateReusableRuntime(
+        activeRuntimeRoot,
+        contract,
+        actualCommit,
+        coreFingerprint,
+        runtimePatches,
+      ),
+  );
+  if (stagePlan.mode === "reuse") {
     await injectProductPackages(
       activeRuntimeRoot,
       productBundle,
@@ -932,7 +950,13 @@ async function main() {
     return;
   }
 
-  if (!flags.skipInstall) {
+  if (stagePlan.fallbackReason !== undefined) {
+    console.log(
+      `Reusable Harness runtime is ${stagePlan.fallbackReason}; rebuilding it before development starts`,
+    );
+  }
+
+  if (!stagePlan.skipInstall) {
     await runPnpm(
       [
         "install",
@@ -944,7 +968,7 @@ async function main() {
     );
   }
 
-  if (flags.skipBuild) {
+  if (stagePlan.skipBuild) {
     console.log("Skipping Harness source build (--skip-build)");
   } else {
     await ensureReact18TypeIsolation(harnessRoot);

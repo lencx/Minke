@@ -23,13 +23,39 @@ diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_mod
  	}).status === 0;
  }
  /**
-@@ -156,8 +158,9 @@
+@@ -144,6 +146,24 @@
+ function defaultProbeWindowsAcl(runnerInvocation, timeoutMs) {
+ 	const program = runnerInvocation[0];
+ 	if (program === void 0) return false;
++	const bootstrap = process.env.MINKE_NODE_BOOTSTRAP;
++	const embeddedExecutable = process.env.MINKE_NODE_EXECUTABLE;
++	const sameExecutable = typeof embeddedExecutable === "string" && (process.platform === "win32" ? program.toUpperCase() === embeddedExecutable.toUpperCase() : program === embeddedExecutable);
++	const embeddedNode = bootstrap !== void 0 && bootstrap !== "" && (program === process.execPath || sameExecutable);
++	const bootstrapArgs = embeddedNode ? ["--require", bootstrap] : [];
++	const environment = {
++		...process.env
++	};
++	for (const name of [
++		"ELECTRON_RUN_AS_NODE",
++		"MINKE_INTERACTIVE_NODE_OPTIONS",
++		"MINKE_INTERACTIVE_NODE_PATH",
++		"MINKE_NODE_BOOTSTRAP",
++		"NODE_OPTIONS",
++		"NODE_PATH"
++	]) for (const key of Object.keys(environment)) if (key.toUpperCase() === name) delete environment[key];
++	if (embeddedNode) environment.ELECTRON_RUN_AS_NODE = "1";
+ 	return spawnSync(program, [
++		...bootstrapArgs,
+ 		...runnerInvocation.slice(1),
+ 		"--workspace",
+@@ -156,8 +173,10 @@
  		"exit",
  		"0"
  	], {
  		timeout: timeoutMs,
 -		stdio: "ignore"
 +		stdio: "ignore",
++		env: environment,
 +		windowsHide: true
  	}).status === 0;
  }
@@ -83,7 +109,8 @@ diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@
 +++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 @@ -124,10 +124,11 @@
  	], {
- 		env: scrubbedParentEnv(),
+-		env: scrubbedParentEnv(),
++		env: browserWorkerEnvironment(),
  		stdio: [
  			"ignore",
  			"inherit",

@@ -18,7 +18,8 @@
     "patches/deepseek-harness/tabs-details-layout.patch",
     "patches/deepseek-harness/details-presentation-slot.patch",
     "patches/deepseek-harness/optional-plugin-isolation.patch",
-    "patches/deepseek-harness/dynamic-trusted-hosts.patch"
+    "patches/deepseek-harness/dynamic-trusted-hosts.patch",
+    "patches/deepseek-harness/process-environment-boundaries.patch"
   ],
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",

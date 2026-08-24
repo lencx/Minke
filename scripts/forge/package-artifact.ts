@@ -246,6 +246,7 @@ export async function verifyPackagedApplication(
     join(hostRoot, "bin", runtimeAdapterName(options.platform, "node")),
     join(hostRoot, "bin", runtimeAdapterName(options.platform, "dsh")),
     join(hostRoot, "bin", runtimeAdapterName(options.platform, "pnpm")),
+    join(hostRoot, "bin", "node-environment-bootstrap.cjs"),
     join(hostRoot, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
     join(hostRoot, "node_modules", "pnpm", "dist", "pnpm.mjs"),
     join(hostRoot, "node_modules", "esbuild", "bin", "esbuild"),
@@ -403,10 +404,15 @@ export async function verifyPackagedApplication(
     join(hostRoot, "bin", runtimeAdapterName(options.platform, "dsh")),
     "utf8",
   );
+  const nodeEnvironmentBootstrap = await readFile(
+    join(hostRoot, "bin", "node-environment-bootstrap.cjs"),
+    "utf8",
+  );
   if (
     Buffer.byteLength(nodeAdapter) > 1024 ||
     !nodeAdapter.includes(embeddedNodeEnvironment.mode) ||
     !nodeAdapter.includes(embeddedNodeEnvironment.executable) ||
+    !nodeAdapter.includes("node-environment-bootstrap.cjs") ||
     nodeAdapter.includes("DSH_ELECTRON_EXECUTABLE")
   ) {
     throw new Error(
@@ -417,11 +423,40 @@ export async function verifyPackagedApplication(
     Buffer.byteLength(dshAdapter) > 1024 ||
     !dshAdapter.includes(embeddedNodeEnvironment.mode) ||
     !dshAdapter.includes(embeddedNodeEnvironment.executable) ||
+    !dshAdapter.includes(
+      embeddedNodeEnvironment.interactiveNodeOptions,
+    ) ||
+    !dshAdapter.includes(
+      embeddedNodeEnvironment.interactiveNodePath,
+    ) ||
     !dshAdapter.includes("index.mjs") ||
     dshAdapter.includes("DSH_ELECTRON_EXECUTABLE")
   ) {
     throw new Error(
       "packaged dsh adapter must launch the staged CLI through Electron",
+    );
+  }
+  if (
+    Buffer.byteLength(nodeEnvironmentBootstrap) > 8 * 1024 ||
+    !nodeEnvironmentBootstrap.includes(
+      embeddedNodeEnvironment.mode,
+    ) ||
+    !nodeEnvironmentBootstrap.includes(
+      embeddedNodeEnvironment.bootstrap,
+    ) ||
+    !nodeEnvironmentBootstrap.includes("NODE_OPTIONS") ||
+    !nodeEnvironmentBootstrap.includes("NODE_PATH") ||
+    !nodeEnvironmentBootstrap.includes(
+      "deleteEnvironmentName(process.env",
+    ) ||
+    !nodeEnvironmentBootstrap.includes("childProcess.execFile") ||
+    !nodeEnvironmentBootstrap.includes("childProcess.fork") ||
+    !nodeEnvironmentBootstrap.includes("childProcess.spawn") ||
+    !nodeEnvironmentBootstrap.includes("usesShell") ||
+    !nodeEnvironmentBootstrap.includes("syncBuiltinESMExports")
+  ) {
+    throw new Error(
+      "packaged Node bootstrap must consume launch-only controls",
     );
   }
 

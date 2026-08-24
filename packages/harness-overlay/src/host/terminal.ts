@@ -14,6 +14,9 @@ import {
   type TerminalResizeRequest,
   type TerminalWriteRequest,
 } from "../tabs/terminal-contract.ts";
+import {
+  interactiveShellEnvironment,
+} from "./process-environment.ts";
 
 const MAX_ACTIVE_TERMINALS = 8;
 const MAX_RETAINED_EVENTS = 1_024;
@@ -87,7 +90,7 @@ function terminalEnvironment(
   source: NodeJS.ProcessEnv,
 ): Record<string, string> {
   const environment = Object.fromEntries(
-    Object.entries(source).filter(
+    Object.entries(interactiveShellEnvironment(source)).filter(
       (entry): entry is [string, string] =>
         typeof entry[1] === "string",
     ),

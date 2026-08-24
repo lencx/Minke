@@ -51,6 +51,9 @@ import {
   type FileManagerWriteRequest,
   type FileManagerWriteResult,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
+import {
+  externalCommandEnvironment,
+} from "./process-environment.ts";
 
 export interface DirectoryEntryLike {
   readonly name: string;
@@ -293,6 +296,7 @@ function gitOutput(
       args,
       {
         encoding: "buffer",
+        env: externalCommandEnvironment(process.env),
         maxBuffer,
         windowsHide: true,
       },

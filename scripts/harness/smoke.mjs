@@ -51,6 +51,67 @@ const ptyProbePath = join(
 );
 const startupTimeoutMs = 90_000;
 const hmrTimeoutMs = 15_000;
+const recursiveNodeChildSource = String.raw`
+const controls = new Set([
+  "ELECTRON_RUN_AS_NODE",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+]);
+process.stdout.write(JSON.stringify({
+  controls: Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => controls.has(key.toUpperCase()),
+    ),
+  ),
+  execArgv: process.execArgv,
+  node: process.versions.node,
+}));
+`;
+const recursiveNodeProbeSource = `
+const { spawnSync } = require("node:child_process");
+const controls = [
+  "ELECTRON_RUN_AS_NODE",
+  "MINKE_INTERACTIVE_NODE_OPTIONS",
+  "MINKE_INTERACTIVE_NODE_PATH",
+  "MINKE_NODE_BOOTSTRAP",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+];
+process.env.ELECTRON_RUN_AS_NODE = "poisoned";
+process.env.NODE_OPTIONS = "--no-warnings";
+process.env.NODE_PATH = "poisoned-modules";
+const child = spawnSync(
+  process.execPath,
+  ["--eval", ${JSON.stringify(recursiveNodeChildSource)}],
+  { encoding: "utf8" },
+);
+if (child.status !== 0) {
+  throw new Error("recursive Node child failed: " + child.stderr);
+}
+const report = JSON.parse(child.stdout);
+if (
+  Object.keys(report.controls).length !== 0 ||
+  report.node !== process.versions.node ||
+  report.execArgv[0] !== "--require" ||
+  !String(report.execArgv[1]).endsWith("node-environment-bootstrap.cjs")
+) {
+  throw new Error("recursive Node bootstrap contract failed: " + child.stdout);
+}
+const native = process.platform === "win32"
+  ? spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "set"], {
+      encoding: "utf8",
+    })
+  : spawnSync("env", [], { encoding: "utf8" });
+if (native.status !== 0) {
+  throw new Error("native child failed: " + native.stderr);
+}
+for (const name of controls) {
+  if (new RegExp("^" + name + "=", "mi").test(native.stdout)) {
+    throw new Error("native child inherited " + name);
+  }
+}
+process.stdout.write("recursive-node-ok");
+`;
 const mistralProbeSource = String.raw`
 const { createRequire } = require("node:module");
 const { join } = require("node:path");
@@ -551,6 +612,19 @@ async function main() {
         `bundled pnpm is ${JSON.stringify(pnpmVersion.stdout.trim())}, expected ${verified.contract.pnpmVersion}`,
       );
     }
+    const recursiveNode = await runSuccessful(
+      executable("node"),
+      ["--eval", recursiveNodeProbeSource],
+      {
+        cwd: projectRoot,
+        env,
+      },
+    );
+    if (recursiveNode.stdout.trim() !== "recursive-node-ok") {
+      throw new Error(
+        `recursive embedded Node probe returned ${JSON.stringify(recursiveNode.stdout.trim())}`,
+      );
+    }
     await runSuccessful(
       electronExecutable,
       [ptyProbePath, runtimeRoot],
@@ -758,6 +832,7 @@ async function main() {
         `  Electron Node: ${nodeVersion.stdout.trim()}`,
         `  bundled dsh:   ${dshVersion.stdout.trim()}`,
         `  bundled pnpm:  ${pnpmVersion.stdout.trim()}`,
+        "  recursive Electron Node/native child policy: functional",
         "  bundled node-pty: functional",
         "  bundled Mistral SDK: esm",
         `  bundled esbuild: ${esbuildVersion.stdout.trim()}`,

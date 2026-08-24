@@ -18,6 +18,7 @@ import {
   type RemoteSettings,
 } from "./contract.ts";
 import {
+  externalRuntimeEnvironment,
   RemoteAccessError,
   type RemoteAccessLifecycle,
   type RemoteCommandExecutionOptions,
@@ -120,10 +121,9 @@ function defaultSpawn(
 function tailscaleEnvironment(
   inherited: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
-  return {
-    ...inherited,
+  return externalRuntimeEnvironment(inherited, {
     TAILSCALE_BE_CLI: "1",
-  };
+  });
 }
 
 function classifyServeFailure(output: string): ServeError {

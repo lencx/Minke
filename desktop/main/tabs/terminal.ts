@@ -2,7 +2,9 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
-  embeddedNodeChildEnvironment,
+  deleteEnvironmentName,
+  embeddedNodeCapabilitiesEnvironment,
+  embeddedNodeEnvironment,
 } from "../../../config/embedded-node-runtime.mts";
 import type {
   TerminalCreateRequest,
@@ -68,7 +70,7 @@ function terminalEnvironment(
   runtimeRoot: string,
   electronExecutable: string,
 ): Record<string, string> {
-  const embedded = embeddedNodeChildEnvironment(
+  const embedded = embeddedNodeCapabilitiesEnvironment(
     {
       electronExecutable,
       pnpmEntry: join(
@@ -81,6 +83,14 @@ function terminalEnvironment(
       runtimeBin: join(runtimeRoot, "bin"),
     },
     source,
+  );
+  deleteEnvironmentName(
+    embedded,
+    embeddedNodeEnvironment.interactiveNodeOptions,
+  );
+  deleteEnvironmentName(
+    embedded,
+    embeddedNodeEnvironment.interactiveNodePath,
   );
   const environment = Object.fromEntries(
     Object.entries(embedded).filter(
