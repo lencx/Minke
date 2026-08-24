@@ -10,6 +10,7 @@ export const DEFAULT_SHORTCUT_BINDINGS = Object.freeze({
   "palette.open": "Mod+K",
   "settings.open": "Mod+Comma",
   "session.new": "Mod+N",
+  "composer.focus": null,
   "session.back": "Mod+BracketLeft",
   "session.forward": "Mod+BracketRight",
   "sidebar.toggle": "Mod+S",

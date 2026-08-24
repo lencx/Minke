@@ -21,6 +21,7 @@ const MENU_ITEM_IDS = Object.freeze({
   "palette.open": `${OWNED_MENU_ID_PREFIX}palette.open`,
   "settings.open": `${OWNED_MENU_ID_PREFIX}settings.open`,
   "session.new": `${OWNED_MENU_ID_PREFIX}session.new`,
+  "composer.focus": `${OWNED_MENU_ID_PREFIX}composer.focus`,
   "session.back": `${OWNED_MENU_ID_PREFIX}session.back`,
   "session.forward": `${OWNED_MENU_ID_PREFIX}session.forward`,
   "sidebar.toggle": `${OWNED_MENU_ID_PREFIX}sidebar.toggle`,
@@ -32,6 +33,7 @@ const MENU_LABEL_KEYS = Object.freeze({
   "palette.open": "menu.commandPalette",
   "settings.open": "menu.settings",
   "session.new": "menu.newSession",
+  "composer.focus": "menu.focusComposer",
   "session.back": "menu.sessionBack",
   "session.forward": "menu.sessionForward",
   "sidebar.toggle": "menu.toggleSidebar",
@@ -230,6 +232,12 @@ function injectActions(
     accelerators,
     dispatch,
   );
+  const focusComposer = actionMenuItem(
+    "composer.focus",
+    locale,
+    accelerators,
+    dispatch,
+  );
   const sessionBack = actionMenuItem(
     "session.back",
     locale,
@@ -276,6 +284,7 @@ function injectActions(
         id: `${OWNED_MENU_ID_PREFIX}palette.separator`,
         type: "separator",
       },
+      focusComposer,
       sessionBack,
       sessionForward,
       {

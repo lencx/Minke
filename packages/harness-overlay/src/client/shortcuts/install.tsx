@@ -25,6 +25,7 @@ import type {
   MinkeSettingsRuntime,
 } from "../minke-settings/index.ts";
 import {
+  focusComposerInput,
   hasOpenModalSurface,
   openHarnessSettings,
 } from "./actions.ts";
@@ -210,6 +211,23 @@ export function installShortcuts(
         },
       }),
     "minke-overlay: New Session shortcut",
+  );
+  ctx.effect(
+    () =>
+      runtime.register({
+        id: "composer.focus",
+        label: () => t("action.focusComposer"),
+        defaultBinding: DEFAULT_SHORTCUT_BINDINGS["composer.focus"],
+        order: 15,
+        run: () => {
+          if (!focusComposerInput()) {
+            console.warn(
+              "Minke could not find an editable Harness composer",
+            );
+          }
+        },
+      }),
+    "minke-overlay: Focus Composer shortcut",
   );
   ctx.effect(
     () =>

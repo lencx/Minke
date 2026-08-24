@@ -14,8 +14,19 @@ interface ModalQueryRoot {
   querySelector(selector: string): Element | null;
 }
 
+interface Focusable {
+  focus(options?: FocusOptions): void;
+}
+
+interface ComposerQueryRoot {
+  querySelector(selector: string): Focusable | null;
+}
+
 export const SETTINGS_TRIGGER_SELECTOR =
   '[data-slot="sidebar.settings"] button[aria-haspopup="dialog"][aria-expanded]';
+
+export const COMPOSER_INPUT_SELECTOR =
+  '[data-composer-card] textarea:not(:disabled):not([readonly])';
 
 export const MODAL_SURFACE_SELECTOR = [
   "dialog[open]",
@@ -41,5 +52,15 @@ export function openHarnessSettings(
   const trigger = [...root.querySelectorAll(SETTINGS_TRIGGER_SELECTOR)][0];
   if (trigger === undefined) return false;
   trigger.click();
+  return true;
+}
+
+/** Focus the active editable Harness composer without moving the transcript. */
+export function focusComposerInput(
+  root: ComposerQueryRoot = document,
+): boolean {
+  const input = root.querySelector(COMPOSER_INPUT_SELECTOR);
+  if (input === null) return false;
+  input.focus({ preventScroll: true });
   return true;
 }

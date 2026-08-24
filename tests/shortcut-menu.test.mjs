@@ -153,6 +153,10 @@ test("all product shortcuts are visible native menu commands", () => {
     "CommandOrControl+N",
   );
   assert.equal(
+    Object.hasOwn(customItem(host, "composer.focus"), "accelerator"),
+    false,
+  );
+  assert.equal(
     customItem(host, "session.back").accelerator,
     "CommandOrControl+[",
   );
@@ -176,6 +180,7 @@ test("all product shortcuts are visible native menu commands", () => {
   customItem(host, "palette.open").click();
   customItem(host, "settings.open").click();
   customItem(host, "session.new").click();
+  customItem(host, "composer.focus").click();
   customItem(host, "session.back").click();
   customItem(host, "session.forward").click();
   customItem(host, "sidebar.toggle").click();
@@ -185,6 +190,7 @@ test("all product shortcuts are visible native menu commands", () => {
     "palette.open",
     "settings.open",
     "session.new",
+    "composer.focus",
     "session.back",
     "session.forward",
     "sidebar.toggle",
@@ -207,11 +213,16 @@ test("persisted and localized changes rebuild menu accelerators", () => {
 
   binding.updateBindings({
     "session.new": "",
+    "composer.focus": "Mod+Shift+L",
     "sidebar.toggle": "Mod+Shift+S",
   });
   assert.equal(
     Object.hasOwn(customItem(host, "session.new"), "accelerator"),
     false,
+  );
+  assert.equal(
+    customItem(host, "composer.focus").accelerator,
+    "CommandOrControl+Shift+L",
   );
   assert.equal(
     customItem(host, "sidebar.toggle").accelerator,
@@ -222,6 +233,10 @@ test("persisted and localized changes rebuild menu accelerators", () => {
   assert.equal(customItem(host, "palette.open").label, "命令面板…");
   assert.equal(customItem(host, "settings.open").label, "设置…");
   assert.equal(customItem(host, "session.new").label, "新建会话");
+  assert.equal(
+    customItem(host, "composer.focus").label,
+    "聚焦消息输入框",
+  );
   assert.equal(customItem(host, "session.back").label, "返回上一会话");
   assert.equal(customItem(host, "session.forward").label, "前往下一会话");
   assert.equal(
@@ -242,7 +257,7 @@ test("persisted and localized changes rebuild menu accelerators", () => {
     latestItems(host).filter(
       (item) => item.id?.startsWith(CUSTOM_PREFIX),
     ).filter((item) => item.type !== "separator").length,
-    8,
+    9,
   );
 
   const rebuilds = host.templates.length;

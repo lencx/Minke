@@ -1,11 +1,40 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  COMPOSER_INPUT_SELECTOR,
+  focusComposerInput,
   hasOpenModalSurface,
   MODAL_SURFACE_SELECTOR,
   openHarnessSettings,
   SETTINGS_TRIGGER_SELECTOR,
 } from "@minke/harness-overlay/client/shortcuts/actions.ts";
+
+test("the composer shortcut focuses only an editable message input", () => {
+  const selectors = [];
+  const focusOptions = [];
+  const input = {
+    focus(options) {
+      focusOptions.push(options);
+    },
+  };
+  const root = {
+    querySelector(selector) {
+      selectors.push(selector);
+      return input;
+    },
+  };
+
+  assert.equal(focusComposerInput(root), true);
+  assert.deepEqual(selectors, [COMPOSER_INPUT_SELECTOR]);
+  assert.deepEqual(focusOptions, [{ preventScroll: true }]);
+  assert.match(COMPOSER_INPUT_SELECTOR, /data-composer-card/u);
+  assert.match(COMPOSER_INPUT_SELECTOR, /:not\(:disabled\)/u);
+  assert.match(COMPOSER_INPUT_SELECTOR, /:not\(\[readonly\]\)/u);
+  assert.equal(
+    focusComposerInput({ querySelector: () => null }),
+    false,
+  );
+});
 
 test("modal detection follows the accessible dialog contract", () => {
   const selectors = [];
