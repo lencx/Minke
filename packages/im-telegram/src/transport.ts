@@ -1,5 +1,7 @@
 import {
   TELEGRAM_DEFAULT_ALLOWED_UPDATES,
+  TELEGRAM_MAX_RICH_MARKDOWN_CHARACTERS,
+  TELEGRAM_MAX_TEXT_CHARACTERS,
   TelegramTransportError,
   type TelegramBotIdentity,
   type TelegramDeliveryIntent,
@@ -20,6 +22,8 @@ import {
   type TelegramTransport,
   type TelegramTransportOptions,
 } from "./contract.ts";
+import { splitTelegramText } from "./chunk.ts";
+import { planTelegramDeliveryIntents } from "./delivery-plan.ts";
 import { TelegramNetwork } from "./network.ts";
 import { normalizeTelegramUpdate } from "./normalize.ts";
 import {
@@ -33,8 +37,6 @@ const DEFAULT_LONG_POLL_TIMEOUT_MS = 25_000;
 const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 35_000;
-const MAX_TEXT_CHARACTERS = 4_096;
-const MAX_RICH_MARKDOWN_CHARACTERS = 32_768;
 const MAX_CAPTION_CHARACTERS = 1_024;
 const MAX_FILE_NAME_CHARACTERS = 255;
 
@@ -135,10 +137,12 @@ function requiredText(
   value: string,
   label: string,
   maxCharacters: number,
+  length: (input: string) => number = (input) =>
+    [...input].length,
 ): string {
   if (
     value.length === 0 ||
-    [...value].length > maxCharacters
+    length(value) > maxCharacters
   ) {
     throw new TelegramTransportError(
       "invalid-config",
@@ -163,10 +167,8 @@ function optionalCaption(
 
 function canFallbackRichMarkdown(
   error: unknown,
-  markdown: string,
 ): boolean {
   return (
-    [...markdown].length <= MAX_TEXT_CHARACTERS &&
     error instanceof TelegramTransportError &&
     error.code === "api" &&
     error.effect === "none" &&
@@ -175,6 +177,31 @@ function canFallbackRichMarkdown(
       error.apiErrorCode === 400 ||
       error.apiErrorCode === 404
     )
+  );
+}
+
+function partialDeliveryError(
+  error: unknown,
+): TelegramTransportError {
+  if (error instanceof TelegramTransportError) {
+    return new TelegramTransportError(
+      error.code,
+      "Telegram delivery may be partially complete",
+      {
+        apiErrorCode: error.apiErrorCode,
+        effect: "unknown",
+        migrateToChatId: error.migrateToChatId,
+        networkKind: error.networkKind,
+        retryAfterMs: error.retryAfterMs,
+        retryable: false,
+        status: error.status,
+      },
+    );
+  }
+  return new TelegramTransportError(
+    "protocol",
+    "Telegram delivery may be partially complete",
+    { effect: "unknown" },
   );
 }
 
@@ -725,21 +752,66 @@ class TelegramTransportImplementation
         text: requiredText(
           input.text,
           "text",
-          MAX_TEXT_CHARACTERS,
+          TELEGRAM_MAX_TEXT_CHARACTERS,
+          (value) => value.length,
         ),
       }),
       options.signal,
     );
   }
 
-  async sendRichMarkdown(
+  async #sendPlainMarkdownFallback(
     input: TelegramSendRichMarkdownInput,
-    options: { readonly signal?: AbortSignal } = {},
+    options: { readonly signal?: AbortSignal },
+  ): Promise<TelegramDeliveryReceipt> {
+    const chunks = splitTelegramText(input.markdown);
+    let deliveredAny = false;
+    let receipt: TelegramDeliveryReceipt | undefined;
+    for (const [index, text] of chunks.entries()) {
+      try {
+        receipt = await this.sendMessage(
+          {
+            allowSendingWithoutReply:
+              index === 0
+                ? input.allowSendingWithoutReply
+                : undefined,
+            chatId: input.chatId,
+            disableNotification: input.disableNotification,
+            messageThreadId: input.messageThreadId,
+            protectContent: input.protectContent,
+            replyToMessageId:
+              index === 0
+                ? input.replyToMessageId
+                : undefined,
+            text,
+          },
+          options,
+        );
+        deliveredAny = true;
+      } catch (error) {
+        if (deliveredAny) {
+          throw partialDeliveryError(error);
+        }
+        throw error;
+      }
+    }
+    if (receipt === undefined) {
+      throw new TelegramTransportError(
+        "invalid-config",
+        "Telegram Rich Markdown must not be empty",
+      );
+    }
+    return receipt;
+  }
+
+  async #sendRichMarkdownPart(
+    input: TelegramSendRichMarkdownInput,
+    options: { readonly signal?: AbortSignal },
   ): Promise<TelegramDeliveryReceipt> {
     const markdown = requiredText(
       input.markdown,
       "markdown",
-      MAX_RICH_MARKDOWN_CHARACTERS,
+      TELEGRAM_MAX_RICH_MARKDOWN_CHARACTERS,
     );
     try {
       return await this.#sendMethod(
@@ -751,23 +823,62 @@ class TelegramTransportImplementation
         options.signal,
       );
     } catch (error) {
-      if (!canFallbackRichMarkdown(error, markdown)) {
+      if (!canFallbackRichMarkdown(error)) {
         throw error;
       }
-      return await this.sendMessage(
-        {
-          allowSendingWithoutReply:
-            input.allowSendingWithoutReply,
-          chatId: input.chatId,
-          disableNotification: input.disableNotification,
-          messageThreadId: input.messageThreadId,
-          protectContent: input.protectContent,
-          replyToMessageId: input.replyToMessageId,
-          text: markdown,
-        },
+      return await this.#sendPlainMarkdownFallback(
+        { ...input, markdown },
         options,
       );
     }
+  }
+
+  async sendRichMarkdown(
+    input: TelegramSendRichMarkdownInput,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<TelegramDeliveryReceipt> {
+    const markdown = requiredText(
+      input.markdown,
+      "markdown",
+      Number.MAX_SAFE_INTEGER,
+    );
+    const intents = planTelegramDeliveryIntents({
+      ...input,
+      kind: "rich-markdown",
+      markdown,
+    });
+    let deliveredAny = false;
+    let receipt: TelegramDeliveryReceipt | undefined;
+    for (const intent of intents) {
+      try {
+        if (intent.kind === "rich-markdown") {
+          receipt = await this.#sendRichMarkdownPart(
+            intent,
+            options,
+          );
+        } else if (intent.kind === "document") {
+          receipt = await this.sendDocument(intent, options);
+        } else {
+          throw new TelegramTransportError(
+            "invalid-config",
+            "Telegram Rich Markdown plan is invalid",
+          );
+        }
+        deliveredAny = true;
+      } catch (error) {
+        if (deliveredAny) {
+          throw partialDeliveryError(error);
+        }
+        throw error;
+      }
+    }
+    if (receipt === undefined) {
+      throw new TelegramTransportError(
+        "invalid-config",
+        "Telegram Rich Markdown must not be empty",
+      );
+    }
+    return receipt;
   }
 
   async sendPhoto(

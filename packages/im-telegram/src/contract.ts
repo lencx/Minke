@@ -8,6 +8,10 @@ export const TELEGRAM_DEFAULT_ALLOWED_UPDATES = Object.freeze([
   "edited_channel_post",
 ] as const);
 
+export const TELEGRAM_MAX_DELIVERY_MESSAGES = 8;
+export const TELEGRAM_MAX_RICH_MARKDOWN_CHARACTERS = 32_768;
+export const TELEGRAM_MAX_TEXT_CHARACTERS = 4_096;
+
 export const TELEGRAM_PREPARED_DELIVERY_ENCODING =
   "application/vnd.minke.telegram-prepared+json;v=1";
 
@@ -353,7 +357,7 @@ export type TelegramDeliveryIntent =
 export interface TelegramPreparedDelivery {
   readonly encoding:
     typeof TELEGRAM_PREPARED_DELIVERY_ENCODING;
-  readonly intent: TelegramDeliveryIntent;
+  readonly intents: readonly TelegramDeliveryIntent[];
   readonly operationId: string;
   readonly recipientId: string;
 }

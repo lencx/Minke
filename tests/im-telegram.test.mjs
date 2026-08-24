@@ -789,6 +789,164 @@ test("rich Markdown falls back to plain text only after a definite Telegram reje
   await transport.close();
 });
 
+test("long rich Markdown rejection falls back to bounded plain messages without losing content", async () => {
+  const markdown = `${"a".repeat(4_150)}\n${"b".repeat(150)}`;
+  const requests = [];
+  const fetch = sequenceFetch(
+    [
+      success(botIdentity()),
+      json(
+        {
+          description: "rich format rejected",
+          error_code: 400,
+          ok: false,
+        },
+        { status: 400 },
+      ),
+      success(sentMessage({ message_id: 780 })),
+      success(sentMessage({ message_id: 781 })),
+    ],
+    requests,
+  );
+  const transport = createTelegramTransport(
+    transportOptions(fetch),
+  );
+  await transport.start();
+
+  const receipt = await transport.send({
+    allowSendingWithoutReply: true,
+    chatId: "-10042",
+    kind: "rich-markdown",
+    markdown,
+    messageThreadId: 900,
+    replyToMessageId: 41,
+  });
+
+  assert.deepEqual(
+    requests.slice(1).map(({ url }) =>
+      url.slice(url.lastIndexOf("/") + 1)
+    ),
+    ["sendRichMessage", "sendMessage", "sendMessage"],
+  );
+  const plainRequests = requests.slice(2);
+  assert.equal(
+    plainRequests.map(({ body }) => body.text).join(""),
+    markdown,
+  );
+  assert.ok(
+    plainRequests.every(({ body }) => body.text.length <= 4_096),
+  );
+  assert.deepEqual(plainRequests[0].body.reply_parameters, {
+    allow_sending_without_reply: true,
+    message_id: 41,
+  });
+  assert.equal(
+    plainRequests[1].body.reply_parameters,
+    undefined,
+  );
+  assert.ok(
+    plainRequests.every(
+      ({ body }) => body.message_thread_id === 900,
+    ),
+  );
+  assert.equal(receipt.messageId, "781");
+  await transport.close();
+});
+
+test("partial plain fallback is uncertain and cannot trigger a duplicate whole-reply retry", async () => {
+  const markdown = "x".repeat(4_200);
+  const requests = [];
+  const fetch = sequenceFetch(
+    [
+      success(botIdentity()),
+      json(
+        {
+          description: "rich format rejected",
+          error_code: 400,
+          ok: false,
+        },
+        { status: 400 },
+      ),
+      success(sentMessage({ message_id: 782 })),
+      json(
+        {
+          description: "retry later",
+          error_code: 429,
+          ok: false,
+          parameters: { retry_after: 1 },
+        },
+        { status: 429 },
+      ),
+    ],
+    requests,
+  );
+  const transport = createTelegramTransport(
+    transportOptions(fetch),
+  );
+  await transport.start();
+
+  await assert.rejects(
+    transport.send({
+      chatId: "-10042",
+      kind: "rich-markdown",
+      markdown,
+    }),
+    (error) =>
+      error instanceof TelegramTransportError &&
+      error.code === "rate-limited" &&
+      error.effect === "unknown" &&
+      error.retryable === false,
+  );
+  assert.equal(requests.length, 4);
+  await transport.close();
+});
+
+test("extreme direct rich Markdown delivery sends bounded previews and a complete source document", async () => {
+  const markdown = "z".repeat(32_768 * 8 + 1);
+  const requests = [];
+  const fetch = sequenceFetch(
+    [
+      success(botIdentity()),
+      ...Array.from({ length: 7 }, (_, index) =>
+        success(
+          sentMessage({ message_id: 800 + index }),
+        )
+      ),
+      success(sentMessage({ message_id: 807 })),
+    ],
+    requests,
+  );
+  const transport = createTelegramTransport(
+    transportOptions(fetch),
+  );
+  await transport.start();
+
+  const receipt = await transport.sendRichMarkdown({
+    chatId: "-10042",
+    markdown,
+  });
+
+  assert.deepEqual(
+    requests.slice(1).map(({ url }) =>
+      url.slice(url.lastIndexOf("/") + 1)
+    ),
+    [
+      ...Array.from(
+        { length: 7 },
+        () => "sendRichMessage",
+      ),
+      "sendDocument",
+    ],
+  );
+  const documentBody = requests.at(-1).body;
+  assert.ok(documentBody instanceof FormData);
+  const document = documentBody.get("document");
+  assert.ok(document instanceof Blob);
+  assert.equal(await document.text(), markdown);
+  assert.equal(receipt.messageId, "807");
+  await transport.close();
+});
+
 test("rich Markdown never falls back after an ambiguous send failure", async () => {
   let sends = 0;
   const transport = createTelegramTransport(
@@ -1221,15 +1379,15 @@ test("Gateway provider preserves Telegram payloads and binds prepared delivery t
   );
   assert.equal(preparation.status, "ready");
   assert.equal(
-    preparation.preparedPayload.intent.chatId,
+    preparation.preparedPayload.intents[0].chatId,
     "-10042",
   );
   assert.equal(
-    preparation.preparedPayload.intent.messageThreadId,
+    preparation.preparedPayload.intents[0].messageThreadId,
     900,
   );
   assert.equal(
-    preparation.preparedPayload.intent.replyToMessageId,
+    preparation.preparedPayload.intents[0].replyToMessageId,
     41,
   );
   assert.deepEqual(
@@ -1274,16 +1432,142 @@ test("Gateway preserves Telegram rich Markdown through durable preparation", asy
   );
 
   assert.equal(preparation.status, "ready");
-  assert.deepEqual(preparation.preparedPayload.intent, {
-    allowSendingWithoutReply: undefined,
-    chatId: "-10042",
-    disableNotification: undefined,
-    kind: "rich-markdown",
+  assert.deepEqual(preparation.preparedPayload.intents, [
+    {
+      allowSendingWithoutReply: undefined,
+      chatId: "-10042",
+      disableNotification: undefined,
+      kind: "rich-markdown",
+      markdown,
+      messageThreadId: undefined,
+      protectContent: undefined,
+      replyToMessageId: undefined,
+    },
+  ]);
+});
+
+test("Gateway durably splits rich Markdown above Telegram's rich-message limit", async () => {
+  const markdown = `${"a".repeat(32_700)}\n\n${"b".repeat(500)}`;
+  const preparation = await prepareTelegramDelivery(
+    gatewayPreparation({
+      payload: {
+        allowSendingWithoutReply: true,
+        kind: "rich-markdown",
+        markdown,
+        messageThreadId: 900,
+        replyToMessageId: 41,
+      },
+    }),
+  );
+
+  assert.equal(preparation.status, "ready");
+  assert.equal(preparation.preparedPayload.intents.length, 2);
+  assert.equal(
+    preparation.preparedPayload.intents
+      .map((intent) => intent.markdown)
+      .join(""),
     markdown,
-    messageThreadId: undefined,
-    protectContent: undefined,
-    replyToMessageId: undefined,
-  });
+  );
+  assert.ok(
+    preparation.preparedPayload.intents.every(
+      (intent) => [...intent.markdown].length <= 32_768,
+    ),
+  );
+  assert.equal(
+    preparation.preparedPayload.intents[0]
+      .replyToMessageId,
+    41,
+  );
+  assert.equal(
+    preparation.preparedPayload.intents[1]
+      .replyToMessageId,
+    undefined,
+  );
+  assert.ok(
+    preparation.preparedPayload.intents.every(
+      (intent) => intent.messageThreadId === 900,
+    ),
+  );
+});
+
+test("Gateway caps extreme Telegram replies and attaches the complete Markdown source", async () => {
+  const markdown = "z".repeat(32_768 * 8 + 1);
+  const preparation = await prepareTelegramDelivery(
+    gatewayPreparation({
+      payload: {
+        kind: "rich-markdown",
+        markdown,
+      },
+    }),
+  );
+
+  assert.equal(preparation.status, "ready");
+  assert.equal(preparation.preparedPayload.intents.length, 8);
+  assert.ok(
+    preparation.preparedPayload.intents
+      .slice(0, 7)
+      .every((intent) => intent.kind === "rich-markdown"),
+  );
+  const attachment =
+    preparation.preparedPayload.intents[7];
+  assert.equal(attachment.kind, "document");
+  assert.equal(
+    attachment.document.fileName,
+    "minke-response.md",
+  );
+  assert.equal(
+    attachment.document.mimeType,
+    "text/markdown;charset=utf-8",
+  );
+  assert.equal(
+    new TextDecoder().decode(attachment.document.bytes),
+    markdown,
+  );
+});
+
+test("Gateway marks a later Telegram chunk failure uncertain after an earlier chunk was accepted", async () => {
+  const preparation = await prepareTelegramDelivery(
+    gatewayPreparation({
+      payload: {
+        kind: "rich-markdown",
+        markdown: "x".repeat(33_000),
+      },
+    }),
+  );
+  assert.equal(preparation.status, "ready");
+  let sends = 0;
+
+  assert.deepEqual(
+    await deliverTelegramAttempt(
+      {
+        async send(intent) {
+          sends += 1;
+          if (sends === 2) {
+            throw new TelegramTransportError(
+              "rate-limited",
+              "limited",
+              {
+                effect: "none",
+                retryAfterMs: 1_000,
+                retryable: true,
+              },
+            );
+          }
+          return {
+            chatId: intent.chatId,
+            messageId: "first-chunk",
+            occurredAt: 1_723_456_789_000,
+          };
+        },
+      },
+      gatewayAttempt(preparation.preparedPayload),
+    ),
+    {
+      errorCode: "rate-limited",
+      status: "uncertain",
+    },
+  );
+  assert.equal(sends, 2);
 });
 
 test("Gateway delivery maps rate limits, credentials, cancellation, and ambiguous remote effects conservatively", async () => {

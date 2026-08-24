@@ -9,6 +9,7 @@ import type {
   GatewayProviderSession,
 } from "@lencx/minke-im-gateway";
 import {
+  TELEGRAM_MAX_DELIVERY_MESSAGES,
   TELEGRAM_PREPARED_DELIVERY_ENCODING,
   TelegramTransportError,
   type TelegramDeliveryIntent,
@@ -19,6 +20,7 @@ import {
   type TelegramSendBase,
   type TelegramTransport,
 } from "./contract.ts";
+import { planTelegramDeliveryIntents } from "./delivery-plan.ts";
 
 export interface AdaptTelegramInboundBatchInput {
   readonly accountKey: string;
@@ -411,12 +413,36 @@ function preparedDelivery(
     return undefined;
   }
   try {
+    if (
+      !Array.isArray(candidate.intents) ||
+      candidate.intents.length === 0 ||
+      candidate.intents.length >
+        TELEGRAM_MAX_DELIVERY_MESSAGES
+    ) {
+      return undefined;
+    }
+    const intents = Object.freeze(
+      candidate.intents.map((value, index) => {
+        const intent = Object.freeze(
+          normalizeDeliveryIntent(value, recipientId),
+        );
+        if (
+          index > 0 &&
+          (
+            intent.replyToMessageId !== undefined ||
+            intent.allowSendingWithoutReply !== undefined
+          )
+        ) {
+          throw new TypeError(
+            "Only the first Telegram message may reference the source message",
+          );
+        }
+        return intent;
+      }),
+    );
     return Object.freeze({
       encoding: TELEGRAM_PREPARED_DELIVERY_ENCODING,
-      intent: normalizeDeliveryIntent(
-        candidate.intent,
-        recipientId,
-      ),
+      intents,
       operationId,
       recipientId,
     });
@@ -457,10 +483,11 @@ export async function prepareTelegramDelivery(
       delivery.payload,
       delivery.recipientId,
     );
+    const intents = planTelegramDeliveryIntents(intent);
     return {
       preparedPayload: Object.freeze({
         encoding: TELEGRAM_PREPARED_DELIVERY_ENCODING,
-        intent,
+        intents,
         operationId: delivery.operationId,
         recipientId: delivery.recipientId,
       } satisfies TelegramPreparedDelivery),
@@ -490,17 +517,29 @@ export async function deliverTelegramAttempt(
       status: "rejected",
     };
   }
+  let deliveredAny = false;
   try {
-    const receipt = await transport.send(
-      prepared.intent,
-      options,
-    );
+    let providerReceiptId: string | undefined;
+    for (const intent of prepared.intents) {
+      const receipt = await transport.send(intent, options);
+      deliveredAny = true;
+      providerReceiptId =
+        `${receipt.chatId}:${receipt.messageId}`;
+    }
     return {
-      providerReceiptId:
-        `${receipt.chatId}:${receipt.messageId}`,
+      providerReceiptId,
       status: "accepted",
     };
   } catch (error) {
+    if (deliveredAny) {
+      return {
+        errorCode:
+          error instanceof TelegramTransportError
+            ? error.code
+            : "unexpected-transport-error",
+        status: "uncertain",
+      };
+    }
     if (!(error instanceof TelegramTransportError)) {
       return {
         errorCode: "unexpected-transport-error",
