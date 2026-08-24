@@ -4,15 +4,29 @@
     "composite": true,
     "noEmit": true,
     "rootDir": "src",
-    "tsBuildInfoFile": "./lib/tsconfig.host.tsbuildinfo"
+    "tsBuildInfoFile": "./lib/tsconfig.host.tsbuildinfo",
+    "paths": {
+      "@minke/harness-overlay/*": ["./src/*"],
+      "@deepseek-ai/dsh-llm": [
+        "../../vendor/deepseek-harness/packages/llm/llm/src/index.ts"
+      ]
+    }
   },
   "include": [
+    "src/agent-browser-contract.ts",
+    "src/agent-turn-contract.ts",
     "src/index.ts",
     "src/minke-host-contract.ts",
     "src/pwa-contract.ts",
     "src/trusted-host-control-contract.ts",
     "src/host",
+    "src/web-search",
     "src/tabs/files-contract.ts",
     "src/tabs/terminal-contract.ts"
+  ],
+  "references": [
+    {
+      "path": "../../vendor/deepseek-harness/packages/llm/llm"
+    }
   ]
 }

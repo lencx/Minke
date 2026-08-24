@@ -291,6 +291,79 @@ function fixture(options = {}) {
       "",
     ].join("\n"),
   );
+  write(
+    harnessRoot,
+    "packages/bundle/base/cordis.patch.yml",
+    [
+      "- insert:",
+      "    - id: web",
+      "      name: '@deepseek-ai/dsh-web'",
+      "    - id: web-search-deepseek",
+      "      name: '@deepseek-ai/dsh-web-search-deepseek'",
+      ...(options.webSearchTopology === false
+        ? []
+        : [
+            "    - id: tool-web",
+            "      name: '@deepseek-ai/dsh-tool-web'",
+          ]),
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/web/web/src/index.ts",
+    [
+      "this.searchProviderId = config.searchProvider ?? process.env.DSH_WEB_SEARCH_PROVIDER",
+      "const result = await provider.search(request, signal)",
+      ...(options.webSearchRegistration === false
+        ? []
+        : ["registerSearchProvider(provider: WebSearchProvider)"]),
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/web/tool-web/src/index.ts",
+    [
+      "search: z.boolean().default(true)",
+      "fetch: z.boolean().default(true)",
+      "searchMaxResults: z.number().default(WEB_SEARCH_MAX_RESULTS)",
+      "searchMaxQueries: z.number().default(WEB_SEARCH_MAX_QUERIES)",
+      "searchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS)",
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/web/tool-web/src/search.ts",
+    [
+      `name: '${
+        options.webSearchToolName === false
+          ? "browser_search"
+          : "web_search"
+      }'`,
+      "const result = await runSearchQueries(ctx, queries, maxResults, exec.signal)",
+      "",
+    ].join("\n"),
+  );
+  for (const preset of ["standard", "code", "cordis"]) {
+    write(
+      harnessRoot,
+      `apps/cli/config/agent-presets/${preset}/agent.cordis.yml`,
+      [
+        "- id: tool-web",
+        "  name: '@deepseek-ai/dsh-tool-web'",
+        "  config:",
+        "    fetch: false",
+        `    searchTimeoutMs: ${
+          options.webSearchPreset === false && preset === "standard"
+            ? "30000"
+            : "60000"
+        }`,
+        "",
+      ].join("\n"),
+    );
+  }
   git(harnessRoot, "add", ".");
   git(
     harnessRoot,
@@ -588,6 +661,44 @@ test("the Harness contract requires DeepSeek low reasoning effort", async () => 
   await assert.rejects(
     verifyHarnessContract(projectRoot),
     /DeepSeek low reasoning-effort API changed/u,
+  );
+});
+
+test("the Harness contract requires the web_search plugin topology", async () => {
+  const { projectRoot } = fixture({ webSearchTopology: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /dsh-tool-web required by Minke web_search/u,
+  );
+});
+
+test("the Harness contract requires the model-facing web_search name", async () => {
+  const { projectRoot } = fixture({ webSearchToolName: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /model-facing web_search tool name changed/u,
+  );
+});
+
+test("the Harness contract requires web_search in shipped Agent Presets", async () => {
+  const { projectRoot } = fixture({ webSearchPreset: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /standard Agent Preset no longer exposes Minke's bounded web_search tool/u,
+  );
+});
+
+test("the Harness contract requires web search-provider registration", async () => {
+  const { projectRoot } = fixture({
+    webSearchRegistration: false,
+  });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /web search-provider registration seam changed/u,
   );
 });
 

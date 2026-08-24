@@ -76,6 +76,107 @@ function requireStringOrNullUnion(
   }
 }
 
+async function verifyWebSearchContract(harnessRoot) {
+  const webRoot = join(harnessRoot, "packages", "web");
+  const presetRoot = join(
+    harnessRoot,
+    "apps",
+    "cli",
+    "config",
+    "agent-presets",
+  );
+  const [
+    baseBundlePatchSource,
+    webRuntimeSource,
+    toolWebPluginSource,
+    webSearchToolSource,
+    ...searchPresetSources
+  ] = await Promise.all([
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "bundle",
+        "base",
+        "cordis.patch.yml",
+      ),
+      "utf8",
+    ),
+    readFile(join(webRoot, "web", "src", "index.ts"), "utf8"),
+    readFile(join(webRoot, "tool-web", "src", "index.ts"), "utf8"),
+    readFile(join(webRoot, "tool-web", "src", "search.ts"), "utf8"),
+    ...["standard", "code", "cordis"].map((preset) =>
+      readFile(join(presetRoot, preset, "agent.cordis.yml"), "utf8")
+    ),
+  ]);
+
+  for (const [pluginId, packageName] of [
+    ["web", "@deepseek-ai/dsh-web"],
+    [
+      "web-search-deepseek",
+      "@deepseek-ai/dsh-web-search-deepseek",
+    ],
+    ["tool-web", "@deepseek-ai/dsh-tool-web"],
+  ]) {
+    requireSourceSeam(
+      baseBundlePatchSource,
+      `- id: ${pluginId}\n      name: '${packageName}'`,
+      `Harness base bundle no longer mounts ${packageName} required by Minke web_search.`,
+    );
+  }
+  requireSourceSeam(
+    webRuntimeSource,
+    "this.searchProviderId = config.searchProvider ?? process.env.DSH_WEB_SEARCH_PROVIDER",
+    "Harness web search-provider selection changed; review Minke's explicit provider route.",
+  );
+  requireSourceSeam(
+    webRuntimeSource,
+    "const result = await provider.search(request, signal)",
+    "Harness web search execution seam changed.",
+  );
+  requireSourceSeam(
+    webRuntimeSource,
+    "registerSearchProvider(provider: WebSearchProvider)",
+    "Harness web search-provider registration seam changed.",
+  );
+  for (const fragment of [
+    "search: z.boolean().default(true)",
+    "fetch: z.boolean().default(true)",
+    "searchMaxResults: z.number().default(WEB_SEARCH_MAX_RESULTS)",
+    "searchMaxQueries: z.number().default(WEB_SEARCH_MAX_QUERIES)",
+    "searchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS)",
+  ]) {
+    requireSourceSeam(
+      toolWebPluginSource,
+      fragment,
+      "Harness tool-web configuration changed; review Minke's bounded web_search config.",
+    );
+  }
+  requireSourceSeam(
+    webSearchToolSource,
+    "name: 'web_search'",
+    "Harness model-facing web_search tool name changed.",
+  );
+  requireSourceSeam(
+    webSearchToolSource,
+    "const result = await runSearchQueries(ctx, queries, maxResults, exec.signal)",
+    "Harness model-facing web_search execution or cancellation contract changed.",
+  );
+  for (const [index, preset] of ["standard", "code", "cordis"].entries()) {
+    requireSourceSeam(
+      searchPresetSources[index],
+      [
+        "- id: tool-web",
+        "  name: '@deepseek-ai/dsh-tool-web'",
+        "  config:",
+        "    fetch: false",
+        "    searchTimeoutMs: 60000",
+      ].join("\n"),
+      `Harness ${preset} Agent Preset no longer exposes Minke's bounded web_search tool.`,
+    );
+  }
+}
+
 export function runtimeSizeBudgetForPlatform(
   contract,
   platform = process.platform,
@@ -831,6 +932,7 @@ export async function verifyHarnessContract(projectRoot) {
     "name: '@deepseek-ai/dsh-host-plugin-inventory'",
     "Harness Web bundle no longer mounts the Loader inventory required by Minke.",
   );
+  await verifyWebSearchContract(harnessRoot);
 
   const productBundle = await verifyProductBundle(
     projectRoot,

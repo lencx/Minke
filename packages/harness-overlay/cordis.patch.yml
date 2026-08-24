@@ -3,7 +3,23 @@
   # nested instance keeps the same settings namespace and user-settings layer.
   disabled: true
 
+# Web search is a Minke product capability rather than an accidental upstream
+# default. Clear the upstream fixed provider so DSH keeps its native explicit
+# selection and sole-provider fallback rules. The model-facing tool stays in
+# each Agent Preset, where the pinned Harness owns per-session registration.
+- id: web
+  config: {}
+
+- id: web-search-deepseek
+  disabled: true
+
 - insert:
+    - id: minke-web-search
+      name: '@lencx/minke-harness-overlay/web-search'
+      disabled: !!js process.env.MINKE_WEB_SEARCH_FALLBACK_ENABLED === '0'
+      config:
+        baseURL: !!js process.env.MINKE_WEB_SEARCH_BASE_URL
+
     # Minke's two supported local-model runtimes stay configurable even when
     # their service is offline. Auto-start is an explicit desktop preference.
     - id: model-runtime

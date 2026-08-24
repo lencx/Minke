@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+  EXACT_PATH_ALIASES,
   PATH_ALIASES,
   resolvePathAlias,
 } from "@@/config/path-aliases.mts";
@@ -66,6 +67,31 @@ test("project aliases reject unknown and escaping specifiers", () => {
   );
   assert.equal(
     resolvePathAlias("@@/../outside.ts", projectRoot),
+    undefined,
+  );
+});
+
+test("the pinned HarnessError runtime alias matches only dsh-llm", () => {
+  assert.deepEqual(EXACT_PATH_ALIASES, [{
+    specifier: "@deepseek-ai/dsh-llm",
+    target:
+      "vendor/deepseek-harness/packages/llm/llm/lib/index.js",
+  }]);
+  assert.equal(
+    fileURLToPath(
+      resolvePathAlias("@deepseek-ai/dsh-llm", projectRoot),
+    ),
+    resolve(
+      projectRoot,
+      "vendor/deepseek-harness/packages/llm/llm/lib/index.js",
+    ),
+  );
+  assert.equal(
+    resolvePathAlias("@deepseek-ai/dsh-llm-pi-ai", projectRoot),
+    undefined,
+  );
+  assert.equal(
+    resolvePathAlias("@deepseek-ai/dsh-llm/types", projectRoot),
     undefined,
   );
 });

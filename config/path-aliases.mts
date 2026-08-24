@@ -7,6 +7,26 @@ export interface PathAliasDefinition {
   readonly target: string;
 }
 
+export interface ExactPathAliasDefinition {
+  readonly specifier: string;
+  readonly target: string;
+}
+
+/**
+ * Runtime-only package identities needed by source-level Node tests.
+ *
+ * Keep these exact: prefix matching a Harness package would silently redirect
+ * sibling packages or subpath exports to the wrong implementation.
+ */
+export const EXACT_PATH_ALIASES:
+  readonly ExactPathAliasDefinition[] = Object.freeze([
+    {
+      specifier: "@deepseek-ai/dsh-llm",
+      target:
+        "vendor/deepseek-harness/packages/llm/llm/lib/index.js",
+    },
+  ]);
+
 export const PATH_ALIASES: readonly PathAliasDefinition[] = Object.freeze([
   { prefix: "@@/", target: "." },
   { prefix: "@/", target: "src" },
@@ -66,6 +86,13 @@ export function resolvePathAlias(
   specifier: string,
   projectRoot: string,
 ): string | undefined {
+  const exact = EXACT_PATH_ALIASES.find((definition) =>
+    definition.specifier === specifier
+  );
+  if (exact !== undefined) {
+    return pathToFileURL(resolve(projectRoot, exact.target)).href;
+  }
+
   const definition = PATH_ALIASES.find(({ prefix }) =>
     specifier.startsWith(prefix),
   );

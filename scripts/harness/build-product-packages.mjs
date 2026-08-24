@@ -284,6 +284,24 @@ await Promise.all([
   }),
   build({
     entryPoints: [
+      join(
+        overlayPackageRoot,
+        "src",
+        "web-search",
+        "index.ts",
+      ),
+    ],
+    outfile: join(overlayOutputRoot, "web-search.js"),
+    bundle: true,
+    packages: "external",
+    format: "esm",
+    platform: "node",
+    target: "es2022",
+    tsconfig: tsconfigPath,
+    sourcemap: true,
+  }),
+  build({
+    entryPoints: [
       join(overlayPackageRoot, "src", "client", "index.tsx"),
     ],
     outfile: join(overlayOutputRoot, "client.js"),
