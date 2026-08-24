@@ -2,6 +2,7 @@ export type {
   AppUpdatePort,
   AppUpdateSettingsStore,
   DataHomeSettingsPort,
+  DesktopAgentBrowserPort,
   DesktopAboutInfo,
   DesktopBridgeWindow,
   DesktopFilesPort,
@@ -17,6 +18,7 @@ export type {
   RemoteSettingsStore,
   ShortcutStore,
   TerminalSettingsStore,
+  WebSearchSettingsStore,
 } from "./contracts.ts";
 export {
   desktopAppUpdatePort,
@@ -26,6 +28,7 @@ export {
   desktopRemoteHubPort,
   desktopRemoteSettingsStore,
   desktopTerminalSettingsStore,
+  desktopWebSearchSettingsStore,
   shouldExposeDesktopDataHomeSettings,
 } from "./settings.ts";
 export { desktopShortcutStore } from "./shortcuts.ts";
@@ -36,6 +39,7 @@ export {
   hasMacOSDesktopSurface,
 } from "./window.ts";
 export {
+  desktopAgentBrowserPort,
   desktopFilesPort,
   desktopPluginInstallerPort,
   desktopSessionLogsPort,

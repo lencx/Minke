@@ -49,6 +49,21 @@ import type {
   AppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
 import type {
+  WebSearchSettings,
+} from "@minke/harness-overlay/web-search-settings-contract.ts";
+import type {
+  AgentBrowserOwner,
+  AgentBrowserProjection,
+} from "@minke/harness-overlay/agent-browser-contract.ts";
+import type {
+  AgentBrowserAnnotationCommitResult,
+  AgentBrowserAnnotationEvent,
+  AgentBrowserAnnotationRefreshRequest,
+  AgentBrowserAnnotationRefreshResult,
+  AgentBrowserAnnotationSession,
+  AgentBrowserAnnotationStopRequest,
+} from "@minke/harness-overlay/agent-browser-annotation-contract.ts";
+import type {
   RemoteRuntimeSnapshot,
   RemoteSettings,
   RemoteSettingsSnapshot,
@@ -85,6 +100,12 @@ export interface AppUpdateSettingsStore {
   readonly available: boolean;
   read(): Promise<AppUpdateSettings>;
   write(settings: AppUpdateSettings): Promise<void>;
+}
+
+export interface WebSearchSettingsStore {
+  readonly available: boolean;
+  read(): Promise<WebSearchSettings>;
+  write(settings: WebSearchSettings): Promise<void>;
 }
 
 export interface AppUpdatePort extends AppUpdateSettingsStore {
@@ -155,6 +176,36 @@ export interface DesktopTabsPort {
   readLayoutState(): Promise<TabsLayoutState>;
   writeLayoutState(update: TabsLayoutStateUpdate): Promise<void>;
   openExternal(url: string): void;
+}
+
+export interface DesktopAgentBrowserPort {
+  readonly available: boolean;
+  read(): Promise<readonly AgentBrowserProjection[]>;
+  setControl(
+    sessionId: string,
+    owner: AgentBrowserOwner,
+  ): Promise<AgentBrowserProjection>;
+  startAnnotation(
+    sessionId: string,
+  ): Promise<AgentBrowserAnnotationSession>;
+  stopAnnotation(
+    request: AgentBrowserAnnotationStopRequest,
+  ): Promise<void>;
+  refreshAnnotation(
+    request: AgentBrowserAnnotationRefreshRequest,
+  ): Promise<AgentBrowserAnnotationRefreshResult>;
+  commitAnnotation(
+    request: AgentBrowserAnnotationRefreshRequest,
+  ): Promise<AgentBrowserAnnotationCommitResult>;
+  close(sessionId: string): void;
+  subscribe(
+    listener: (
+      projections: readonly AgentBrowserProjection[],
+    ) => void,
+  ): () => void;
+  subscribeAnnotationEvents(
+    listener: (event: AgentBrowserAnnotationEvent) => void,
+  ): () => void;
 }
 
 export interface DesktopFilesPort {
@@ -239,6 +290,31 @@ export interface DesktopTabsBridge {
   openExternal(url: string): void;
 }
 
+export interface DesktopAgentBrowserBridge {
+  read(): Promise<unknown>;
+  setControl(
+    sessionId: string,
+    owner: AgentBrowserOwner,
+  ): Promise<unknown>;
+  startAnnotation(sessionId: string): Promise<unknown>;
+  stopAnnotation(
+    request: AgentBrowserAnnotationStopRequest,
+  ): Promise<void>;
+  refreshAnnotation(
+    request: AgentBrowserAnnotationRefreshRequest,
+  ): Promise<unknown>;
+  commitAnnotation(
+    request: AgentBrowserAnnotationRefreshRequest,
+  ): Promise<unknown>;
+  close(sessionId: string): void;
+  subscribe(
+    listener: (projections: readonly AgentBrowserProjection[]) => void,
+  ): () => void;
+  subscribeAnnotationEvents(
+    listener: (event: AgentBrowserAnnotationEvent) => void,
+  ): () => void;
+}
+
 export interface DesktopFilesBridge {
   diff(request: FileManagerDiffRequest): Promise<unknown>;
   list(request: FileManagerListRequest): Promise<unknown>;
@@ -269,6 +345,11 @@ export interface DesktopAppUpdateBridge {
   check?(): Promise<unknown>;
   read(): Promise<unknown>;
   write(settings: AppUpdateSettings): Promise<void>;
+}
+
+export interface DesktopWebSearchBridge {
+  read(): Promise<unknown>;
+  write(settings: WebSearchSettings): Promise<void>;
 }
 
 export interface DesktopModelRuntimeBridge {
@@ -328,6 +409,7 @@ export interface DesktopAboutBridge {
 /** Shape exposed by the isolated Electron preload. */
 export interface DesktopBridgeWindow {
   minkeDesktop?: {
+    agentBrowser?: DesktopAgentBrowserBridge;
     appUpdate?: DesktopAppUpdateBridge;
     about?: DesktopAboutBridge;
     dataHome?: DesktopDataHomeBridge;
@@ -340,6 +422,7 @@ export interface DesktopBridgeWindow {
     sessionLogs?: DesktopSessionLogsBridge;
     tabs?: DesktopTabsBridge;
     terminal?: DesktopTerminalBridge;
+    webSearch?: DesktopWebSearchBridge;
     shortcuts?: DesktopShortcutBridge;
     surface?: DesktopSurfaceBridge;
     windowTheme?: DesktopWindowThemeBridge;

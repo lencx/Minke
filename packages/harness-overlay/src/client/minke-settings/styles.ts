@@ -1,0 +1,72 @@
+import {
+  defineOverlayStyle,
+} from "../shared/style-runtime.ts";
+import {
+  installSettingsNavigationIcon,
+  reconcileSettingsNavigationIcon,
+  type SettingsNavigationRoot,
+} from "../shared/settings-navigation.ts";
+import MINKE_SETTINGS_STYLES from "./styles.css";
+
+const MINKE_SETTINGS_NAV_MARKER =
+  "data-minke-settings-navigation-logo";
+const MINKE_LOGO_TILE_SVG = [
+  '<svg xmlns="http://www.w3.org/2000/svg"',
+  ' viewBox="0 0 832 832">',
+  '<mask id="minke-logo-cutout">',
+  '<rect width="832" height="832" rx="182.8125" fill="white"/>',
+  '<path fill="black" d="m437.587907 430.95442c15.012837',
+  " -181.35846 261.147481-260.086019 265.280306-219.57142",
+  " 10.612789 106.033587-114.385179 248.339993-192.070113",
+  " 303.515172l.018949-.010111c110.042287 93.901273",
+  " 147.48881 177.076689 308.234255 201.952791l.024955-.006984",
+  "c-26.891831 67.477663-92.821175 115.166132-169.888759",
+  " 115.166132l-207.150884-.003613c-25.845619-105.919985",
+  " -34.937273-202.960069-28.886832-265.849738.530231-5.511349",
+  " 1.371363-10.786918 2.489501-15.801176-74.031621 5.595025",
+  " -235.312747-32.653886-291.556232-126.150813-20.691818",
+  " -34.591122 199.819647-128.261366 313.534918 6.793542z\"/>",
+  "</mask>",
+  '<rect width="832" height="832" rx="182.8125" fill="black"',
+  ' mask="url(#minke-logo-cutout)"/></svg>',
+].join("");
+
+export const MINKE_SETTINGS_LOGO_DATA_URL =
+  `data:image/svg+xml,${encodeURIComponent(MINKE_LOGO_TILE_SVG)}`;
+const MINKE_SETTINGS_LOGO_VARIABLES = {
+  "--minke-settings-navigation-logo":
+    `url("${MINKE_SETTINGS_LOGO_DATA_URL}")`,
+} as const;
+
+export { MINKE_SETTINGS_STYLES };
+
+/** Mark the unified Minke row for its adaptive product logo. */
+export function reconcileMinkeSettingsNavigationLogo(
+  root: SettingsNavigationRoot,
+  label: string,
+): void {
+  reconcileSettingsNavigationIcon(
+    root,
+    MINKE_SETTINGS_NAV_MARKER,
+    label,
+  );
+}
+
+/** Keep the Minke logo synchronized across Settings mounts and locales. */
+export function installMinkeSettingsNavigationLogo(
+  label: () => string,
+  root?: SettingsNavigationRoot,
+): () => void {
+  return installSettingsNavigationIcon(
+    MINKE_SETTINGS_NAV_MARKER,
+    label,
+    root,
+    MINKE_SETTINGS_LOGO_VARIABLES,
+  );
+}
+
+/** Install the unified Minke section and secondary-tab stylesheet. */
+export const installMinkeSettingsStyles = defineOverlayStyle(
+  "minke-settings",
+  MINKE_SETTINGS_STYLES,
+);

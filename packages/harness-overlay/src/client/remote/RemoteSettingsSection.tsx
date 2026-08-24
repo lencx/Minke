@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
@@ -62,6 +63,10 @@ function LoadedRemoteSettings({
     runtime.getSnapshot,
     runtime.getSnapshot,
   );
+  const titleId = useId();
+  const methodName = useId();
+  const tailscaleTransportName = useId();
+  const cloudflareHostnameName = useId();
   const [copyState, setCopyState] =
     useState<CopyState>("idle");
   const copyReset = useRef<number | undefined>(undefined);
@@ -162,11 +167,11 @@ function LoadedRemoteSettings({
   return (
     <section
       className="minke-remote"
-      aria-labelledby="minke-remote-title"
+      aria-labelledby={titleId}
       data-minke-remote
     >
       <div className="minke-remote__intro">
-        <h2 id="minke-remote-title" className="minke-remote__title">
+        <h2 id={titleId} className="minke-remote__title">
           {t("title")}
         </h2>
         <p className="minke-remote__description">
@@ -201,6 +206,8 @@ function LoadedRemoteSettings({
             <span
               className="minke-remote__status"
               data-state={presentation.state}
+              role="status"
+              aria-live="polite"
             >
               {t(presentation.statusKey)}
             </span>
@@ -313,7 +320,7 @@ function LoadedRemoteSettings({
             >
               <input
                 type="radio"
-                name="minke-remote-method"
+                name={methodName}
                 value="tailscale"
                 checked={method === "tailscale"}
                 disabled={providerLocked}
@@ -339,7 +346,7 @@ function LoadedRemoteSettings({
             >
               <input
                 type="radio"
-                name="minke-remote-method"
+                name={methodName}
                 value="cloudflare"
                 checked={method === "cloudflare"}
                 disabled={providerLocked}
@@ -376,7 +383,7 @@ function LoadedRemoteSettings({
               >
                 <input
                   type="radio"
-                  name="minke-tailscale-transport"
+                  name={tailscaleTransportName}
                   value="serve"
                   checked={
                     settings.tailscale.transport === "serve"
@@ -406,7 +413,7 @@ function LoadedRemoteSettings({
               >
                 <input
                   type="radio"
-                  name="minke-tailscale-transport"
+                  name={tailscaleTransportName}
                   value="direct"
                   checked={
                     settings.tailscale.transport === "direct"
@@ -453,7 +460,7 @@ function LoadedRemoteSettings({
                 >
                   <input
                     type="radio"
-                    name="minke-cloudflare-hostname"
+                    name={cloudflareHostnameName}
                     checked={
                       cloudflare.hostnameMode === "generated"
                     }
@@ -484,7 +491,7 @@ function LoadedRemoteSettings({
                 >
                   <input
                     type="radio"
-                    name="minke-cloudflare-hostname"
+                    name={cloudflareHostnameName}
                     checked={
                       cloudflare.hostnameMode === "custom"
                     }

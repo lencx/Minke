@@ -9,6 +9,7 @@ export {
   type LocalModelSettingsSnapshot,
 } from "./runtime.ts";
 export {
+  installLocalModelSettingsStyles,
   LOCAL_MODEL_SETTINGS_STYLES,
 } from "./styles.ts";
 export {

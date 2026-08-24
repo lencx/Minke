@@ -2,7 +2,7 @@ export const preferencesZh = {
   "preferences.nav": "个人偏好",
   "preferences.title": "个人偏好",
   "preferences.description":
-    "集中管理代码编辑器、终端和应用更新偏好。更改会立即应用。",
+    "集中管理代码编辑器、终端、网页搜索和应用更新偏好。",
   "preferences.code.title": "代码与终端主题",
   "preferences.code.description":
     "代码编辑器与终端共享同一主题。分别设置 Minke 浅色与深色外观，每个外观都可选择任意配色。",
@@ -45,6 +45,19 @@ export const preferencesZh = {
     "字号必须是 {min} 到 {max} 之间的整数。",
   "preferences.terminal.validation.lineHeight":
     "行高必须在 {min} 到 {max} 之间。",
+  "preferences.webSearch.title": "网页搜索",
+  "preferences.webSearch.description":
+    "控制 Minke 是否注册免凭据的默认搜索 provider。",
+  "preferences.webSearch.fallback.label":
+    "启用 Minke 默认搜索兜底",
+  "preferences.webSearch.fallback.help":
+    "仅在未通过 web.searchProvider 或 DSH_WEB_SEARCH_PROVIDER 显式选择 provider 时生效。关闭后不会自动回退；重启 Minke 后生效。",
+  "preferences.webSearch.error.unavailable":
+    "当前环境无法保存网页搜索设置。",
+  "preferences.webSearch.error.read":
+    "无法读取网页搜索设置，已暂时使用默认值。",
+  "preferences.webSearch.error.write":
+    "网页搜索设置尚未保存，请检查磁盘权限后重试。",
   "preferences.update.title": "应用更新",
   "preferences.update.description":
     "Minke 只接受不可变 GitHub Release，并在打开对应平台安装包前校验下载地址、大小、SHA-256 和可用的系统来源属性。",
@@ -72,7 +85,7 @@ export const preferencesEn: Record<
   "preferences.nav": "Preferences",
   "preferences.title": "Personal preferences",
   "preferences.description":
-    "Manage code editor, Terminal, and application update preferences in one place. Changes apply immediately.",
+    "Manage code editor, Terminal, web search, and application update preferences in one place.",
   "preferences.code.title": "Code & Terminal themes",
   "preferences.code.description":
     "The code editor and Terminal share one theme. Choose any palette separately for Minke's light and dark appearances.",
@@ -115,6 +128,19 @@ export const preferencesEn: Record<
     "Font size must be a whole number from {min} to {max}.",
   "preferences.terminal.validation.lineHeight":
     "Line height must be between {min} and {max}.",
+  "preferences.webSearch.title": "Web search",
+  "preferences.webSearch.description":
+    "Control whether Minke registers its credential-free default search provider.",
+  "preferences.webSearch.fallback.label":
+    "Enable Minke default search fallback",
+  "preferences.webSearch.fallback.help":
+    "Used only when no provider is selected through web.searchProvider or DSH_WEB_SEARCH_PROVIDER. Disabling it does not fall back automatically; restart Minke for changes to take effect.",
+  "preferences.webSearch.error.unavailable":
+    "Web search settings cannot be saved in this environment.",
+  "preferences.webSearch.error.read":
+    "Web search settings could not be read. Defaults are in use for now.",
+  "preferences.webSearch.error.write":
+    "Web search settings were not saved. Check disk permissions and try again.",
   "preferences.update.title": "Application updates",
   "preferences.update.description":
     "Minke accepts only immutable GitHub Releases and verifies the download URL, size, SHA-256 digest, and available OS provenance marker before opening the platform installer.",

@@ -34,6 +34,14 @@ import {
   type AppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
 import {
+  parseWebSearchSettings,
+  type WebSearchSettings,
+} from "@minke/harness-overlay/web-search-settings-contract.ts";
+import {
+  parseTelegramNetworkSettings,
+  type TelegramNetworkSettings,
+} from "@minke/harness-overlay/remote-hub-contract.ts";
+import {
   createDefaultMinkeConfigDocument,
   parseMinkeConfigDocument,
   type MinkeConfigDocument,
@@ -73,6 +81,9 @@ export class MinkeConfigStore {
   readonly modelRuntime: MinkeConfigSection<ModelRuntimeSettings>;
   readonly remote: MinkeConfigSection<RemoteSettings>;
   readonly plugins: MinkeConfigSection<PluginManagementSettings>;
+  readonly webSearch: MinkeConfigSection<WebSearchSettings>;
+  readonly telegramNetwork:
+    MinkeConfigSection<TelegramNetworkSettings>;
   readonly appUpdate: MinkeConfigSection<AppUpdateSettings>;
   readonly dshHome: MinkeConfigSection<string | undefined>;
 
@@ -102,6 +113,15 @@ export class MinkeConfigStore {
     this.plugins = Object.freeze({
       read: () => this.#readPlugins(),
       write: (value: unknown) => this.#writePlugins(value),
+    });
+    this.webSearch = Object.freeze({
+      read: () => this.#readWebSearch(),
+      write: (value: unknown) => this.#writeWebSearch(value),
+    });
+    this.telegramNetwork = Object.freeze({
+      read: () => this.#readTelegramNetwork(),
+      write: (value: unknown) =>
+        this.#writeTelegramNetwork(value),
     });
     this.appUpdate = Object.freeze({
       read: () => this.#readAppUpdate(),
@@ -188,6 +208,18 @@ export class MinkeConfigStore {
     });
   }
 
+  #readWebSearch(): Promise<WebSearchSettings> {
+    return this.#runExclusive(async () => ({
+      ...(await this.#load()).webSearch,
+    }));
+  }
+
+  #readTelegramNetwork(): Promise<TelegramNetworkSettings> {
+    return this.#runExclusive(async () => ({
+      ...(await this.#load()).telegramNetwork,
+    }));
+  }
+
   #readAppUpdate(): Promise<AppUpdateSettings> {
     return this.#runExclusive(async () => ({
       ...(await this.#load()).appUpdate,
@@ -264,6 +296,31 @@ export class MinkeConfigStore {
       const next: MinkeConfigDocument = {
         ...(await this.#load()),
         plugins,
+      };
+      await this.#persist(next);
+      this.#document = next;
+    });
+  }
+
+  #writeWebSearch(value: unknown): Promise<void> {
+    return this.#runExclusive(async () => {
+      const webSearch = parseWebSearchSettings(value);
+      const next: MinkeConfigDocument = {
+        ...(await this.#load()),
+        webSearch,
+      };
+      await this.#persist(next);
+      this.#document = next;
+    });
+  }
+
+  #writeTelegramNetwork(value: unknown): Promise<void> {
+    return this.#runExclusive(async () => {
+      const telegramNetwork =
+        parseTelegramNetworkSettings(value);
+      const next: MinkeConfigDocument = {
+        ...(await this.#load()),
+        telegramNetwork,
       };
       await this.#persist(next);
       this.#document = next;

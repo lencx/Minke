@@ -67,9 +67,10 @@ export function reconcileSettingsNavigationIcon(
 export function installSettingsNavigationIcon(
   marker: string,
   label: () => string,
-  root: SettingsNavigationRoot = document,
+  root: SettingsNavigationRoot | undefined = globalThis.document,
   variables?: SettingsNavigationIconVariables,
 ): () => void {
+  if (root === undefined) return () => {};
   const view = root.defaultView;
   const documentElement = root.documentElement;
   if (view === undefined || view === null || documentElement === undefined) {

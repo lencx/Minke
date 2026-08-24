@@ -702,9 +702,13 @@ test("the installation runtime forwards a validated target without a shell", asy
     dshHome,
     electronExecutable: join(root, "Minke"),
     environment: {
-      PATH: "/usr/bin",
-      DSH_ELECTRON_EXECUTABLE: "ambient-electron",
-      DSH_PNPM_ENTRY: "ambient-pnpm",
+      Path: "/usr/bin",
+      dsh_home: "/ambient/dsh",
+      electron_run_as_node: "ambient",
+      node_options: "--require /tmp/ambient.cjs",
+      Node_Path: "/tmp/ambient-modules",
+      Dsh_Electron_Executable: "ambient-electron",
+      dsh_pnpm_entry: "ambient-pnpm",
     },
     readRuntimeLayout: async () => layout,
     runCommand: async (command, args, options) => {
@@ -745,6 +749,18 @@ test("the installation runtime forwards a validated target without a shell", asy
   assert.equal(
     commands[0].options.env.DSH_PNPM_ENTRY,
     undefined,
+  );
+  assert.equal(
+    Object.keys(commands[0].options.env).some(
+      (key) => key.toUpperCase() === "NODE_OPTIONS",
+    ),
+    false,
+  );
+  assert.equal(
+    Object.keys(commands[0].options.env).some(
+      (key) => key.toUpperCase() === "NODE_PATH",
+    ),
+    false,
   );
   await installation.uninstall("dsh-status-rotator");
   assert.equal(commands.length, 2);

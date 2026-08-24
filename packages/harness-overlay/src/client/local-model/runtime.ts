@@ -20,6 +20,7 @@ export interface LocalModelSettingsSnapshot {
   available: Readonly<ModelRuntimeAvailability>;
   settings: Readonly<ModelRuntimeSettings>;
   editable: boolean;
+  applying: boolean;
   error: LocalModelSettingsErrorKind | undefined;
   revision: number;
 }
@@ -44,12 +45,16 @@ export class LocalModelSettingsRuntime {
       DEFAULT_MODEL_RUNTIME_SETTINGS,
     )),
     editable: false,
+    applying: false,
     error: undefined,
     revision: 0,
   });
   #listeners = new Set<() => void>();
   #saveTail: Promise<void> = Promise.resolve();
   #saveGeneration = 0;
+  #persistedSettings = copySettings(
+    DEFAULT_MODEL_RUNTIME_SETTINGS,
+  );
   #initializePromise: Promise<void> | undefined;
   #disposed = false;
 
@@ -68,8 +73,20 @@ export class LocalModelSettingsRuntime {
   };
 
   initialize(): Promise<void> {
-    this.#initializePromise ??= this.#initialize();
+    if (this.#initializePromise === undefined) {
+      let tracked: Promise<void>;
+      tracked = this.#initialize().finally(() => {
+        if (this.#initializePromise === tracked) {
+          this.#initializePromise = undefined;
+        }
+      });
+      this.#initializePromise = tracked;
+    }
     return this.#initializePromise;
+  }
+
+  retry(): Promise<void> {
+    return this.initialize();
   }
 
   setEnabled(
@@ -109,15 +126,25 @@ export class LocalModelSettingsRuntime {
         await this.store.read(),
       );
       if (this.#disposed) return;
+      if (snapshot.error === "read") {
+        this.#publish({
+          available: snapshot.available,
+          editable: false,
+          error: "read",
+        });
+        return;
+      }
+      this.#persistedSettings = copySettings(snapshot.settings);
       this.#publish({
         available: snapshot.available,
         settings: snapshot.settings,
         editable: true,
-        error: snapshot.error,
+        error: undefined,
       });
     } catch {
       if (this.#disposed) return;
       this.#publish({
+        editable: false,
         error: "read",
       });
     }
@@ -128,6 +155,7 @@ export class LocalModelSettingsRuntime {
     if (sameSettings(settings, this.#snapshot.settings)) return;
     this.#publish({
       settings,
+      applying: true,
       error: undefined,
     });
 
@@ -138,15 +166,17 @@ export class LocalModelSettingsRuntime {
     });
     this.#saveTail = operation.then(
       () => {
+        this.#persistedSettings = copySettings(payload);
         if (
           this.#disposed ||
           generation !== this.#saveGeneration
         ) {
           return;
         }
-        if (this.#snapshot.error === "write") {
-          this.#publish({ error: undefined });
-        }
+        this.#publish({
+          applying: false,
+          error: undefined,
+        });
       },
       () => {
         if (
@@ -155,7 +185,11 @@ export class LocalModelSettingsRuntime {
         ) {
           return;
         }
-        this.#publish({ error: "write" });
+        this.#publish({
+          settings: this.#persistedSettings,
+          applying: false,
+          error: "write",
+        });
       },
     );
   }

@@ -26,6 +26,9 @@ import {
   SHORTCUT_INVOKE_CHANNEL,
   type ProductShortcutActionId,
 } from "@minke/harness-overlay/shortcut-contract";
+import type {
+  AgentBrowserRuntime,
+} from "./agent-browser";
 import {
   installHarnessPermissionPolicy,
 } from "./harness-permission-policy";
@@ -55,6 +58,7 @@ const PRODUCT_NAME = "Minke";
 const BACKGROUND_COLOR = "#0b1220";
 
 export interface MainWindowRuntimeOptions {
+  agentBrowser: AgentBrowserRuntime;
   locale: DesktopLocaleRuntime;
   environment(): NodeJS.ProcessEnv;
   harnessUrl(): string | undefined;
@@ -190,6 +194,7 @@ export class MainWindowRuntime {
           app.getPath("userData"),
         ),
         environment: this.#options.environment(),
+        agentBrowser: this.#options.agentBrowser,
       },
     );
     this.#tabsBinding = tabsBinding;

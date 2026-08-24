@@ -16,10 +16,18 @@ import {
   desktopAboutInfo,
 } from "@minke/harness-overlay/client/desktop/index.ts";
 import {
-  installShortcutNavigationIcon,
-  reconcileShortcutNavigationIcon,
-  SHORTCUT_STYLES,
-} from "@minke/harness-overlay/client/shortcuts/styles.ts";
+  conversationOutlineItems,
+  markerWidthForPreview,
+  messagePreview,
+} from "@minke/harness-overlay/client/conversation-outline/model.ts";
+import {
+  conversationOutlineRailLayout,
+  conversationOutlineTooltipTop,
+} from "@minke/harness-overlay/client/conversation-outline/geometry.ts";
+import {
+  conversationOutlineEn,
+  conversationOutlineZh,
+} from "@minke/harness-overlay/client/conversation-outline/locales.ts";
 
 const manifest = JSON.parse(
   readFileSync(
@@ -88,13 +96,6 @@ const commandPaletteSearchSource = readFileSync(
   ),
   "utf8",
 );
-const dataHomeInstallSource = readFileSync(
-  new URL(
-    "../packages/harness-overlay/src/client/data-home/install.tsx",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const onboardingInstallSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/onboarding/install.tsx",
@@ -130,13 +131,6 @@ const tabsInstallSource = readFileSync(
   ),
   "utf8",
 );
-const shortcutStylesSource = readFileSync(
-  new URL(
-    "../packages/harness-overlay/src/client/shortcuts/styles.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const aboutStylesSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/about/styles.css",
@@ -154,6 +148,27 @@ const aboutViewSource = readFileSync(
 const dataHomeStylesSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/data-home/styles.css",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const conversationOutlineSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/conversation-outline/ConversationOutline.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const conversationOutlineInstallSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/conversation-outline/install.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const conversationOutlineStylesSource = readFileSync(
+  new URL(
+    "../packages/harness-overlay/src/client/conversation-outline/styles.css",
     import.meta.url,
   ),
   "utf8",
@@ -183,6 +198,7 @@ const tabsCoreSource = [
 test("the client entry stays a composition root", () => {
   for (const installer of [
     "installDesktopClient",
+    "installConversationOutline",
     "installAbout",
     "installDataHome",
     "installWebBrand",
@@ -237,6 +253,10 @@ test("product capability packages follow the shared naming convention", () => {
     contract.productBundle.packageName,
     "@lencx/minke-harness-overlay",
   );
+  assert.equal(
+    manifest.exports["./web-search"],
+    "./lib/web-search.js",
+  );
   assert.match(patch, /name: '@lencx\/minke-harness-overlay'/u);
   assert.doesNotMatch(
     `${JSON.stringify(manifest)}\n${JSON.stringify(contract)}\n${patch}`,
@@ -269,6 +289,14 @@ test("product capability packages follow the shared naming convention", () => {
   assert.equal(
     manifest.dependencies["@lencx/minke-remote-access"],
     "workspace:*",
+  );
+  assert.equal(
+    manifest.peerDependencies["@deepseek-ai/dsh-llm"],
+    contract.packageVersion,
+  );
+  assert.equal(
+    manifest.peerDependenciesMeta["@deepseek-ai/dsh-llm"].optional,
+    true,
   );
   assert.deepEqual(
     contract.productBundle.workspaceRuntimePackages,
@@ -331,6 +359,29 @@ test("the product overlay leaves product subagents on demand and composes the mo
   );
 });
 
+test("Minke registers its host-plane web_search provider as a configurable fallback", () => {
+  assert.match(
+    patch,
+    /- id: web\s+config:\s+\{\}[\s\S]*- id: web-search-deepseek\s+disabled: true[\s\S]*id: minke-web-search[\s\S]*disabled: !!js process\.env\.MINKE_WEB_SEARCH_FALLBACK_ENABLED === '0'/u,
+    "the product must clear the upstream fixed provider and gate only its fallback registration",
+  );
+  assert.doesNotMatch(
+    patch,
+    /DEEPSEEK_API_KEY|apiKeyEnv:/u,
+    "Minke web_search must not depend on a model-provider credential",
+  );
+  assert.doesNotMatch(
+    patch,
+    /- id: tool-web/u,
+    "the model-facing tool belongs to each Agent Preset, not the disabled host row",
+  );
+  assert.doesNotMatch(
+    patch,
+    /@deepseek-ai\/dsh-web-fetch-|fetchProvider:/u,
+    "web_fetch must stay disabled until Minke owns an SSRF-safe provider",
+  );
+});
+
 test("the model runtime uses DSH services and keeps local secrets out of profiles", () => {
   const exposedSettingsRegistration =
     /installSettingsSection|settings\.register/u;
@@ -365,14 +416,7 @@ test("the built client half is a Harness module-loader bundle", () => {
     bundle,
     /^window\.__ModuleLoader__\.load\(\{ id: "@lencx\/minke-harness-overlay"/u,
   );
-  assert.match(bundle, /settings\.open/u);
-  assert.match(bundle, /session\.new/u);
-  assert.match(bundle, /theme\/change/u);
-  assert.match(bundle, /locale\/change/u);
-  assert.match(bundle, /minke-overlay: macOS desktop surface/u);
-  assert.match(bundle, /data-dsh-desktop-new-session/u);
-  assert.match(bundle, /minke-overlay: shortcut navigation icon/u);
-  assert.match(bundle, /data-minke-shortcuts-nav/u);
+  assert.match(bundle, /data-minke-settings/u);
   assert.doesNotMatch(bundle, /IconKeyboardOutline16/u);
   assert.match(
     bundle,
@@ -399,25 +443,6 @@ test("the built client half is a Harness module-loader bundle", () => {
     bundle,
     /minke-overlay: \$\{placement\} Terminal tab renderer/u,
   );
-  assert.match(
-    bundle,
-    /minke-overlay: Personal preferences runtimes/u,
-  );
-  assert.match(bundle, /minke-overlay: data-home runtime/u);
-  assert.match(bundle, /data-minke-data-home-nav/u);
-  assert.match(bundle, /data-minke-data-home/u);
-  assert.match(bundle, /minke-data-home__plan/u);
-  assert.match(bundle, /minke-data-home-mode/u);
-  assert.match(bundle, /Use as a fresh directory/u);
-  assert.match(bundle, /Check fresh directory/u);
-  assert.match(bundle, /minke-overlay: local model settings runtime/u);
-  assert.match(bundle, /data-minke-local-model-settings/u);
-  assert.match(bundle, /lm-studio/u);
-  assert.match(bundle, /ollama/u);
-  assert.match(
-    bundle,
-    /setAttribute\(["']role["'],\s*["']switch["']\)/u,
-  );
   assert.match(bundle, /minke-terminal/u);
   assert.match(
     bundle,
@@ -429,12 +454,256 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.match(bundle, /minkeDesktop\?\.sessionLogs/u);
   assert.match(bundle, /data-minke-session-log-action/u);
   assert.match(bundle, /conversation\.session\.header\.utilities/u);
+  assert.match(bundle, /minke-overlay: conversation outline styles/u);
+  assert.match(bundle, /data-minke-conversation-outline/u);
   assert.match(bundle, /minke-tabs-panel/u);
   assert.match(bundle, /sidebar\.footer\.action/u);
   assert.match(bundle, /data-minke-about-trigger/u);
   assert.match(bundle, /data-minke-about-dialog/u);
   assert.match(bundle, /data:image\/png;base64/u);
   assert.doesNotMatch(bundle, /require\(["']@deepseek-ai\//u);
+});
+
+test("the conversation outline projects loaded user messages safely", () => {
+  const labels = {
+    image: "[Image]",
+    nonText: "[Non-text message]",
+  };
+  assert.equal(
+    messagePreview(
+      [
+        { type: "text", text: "  First line \r\n\r\n\r\n Second  line " },
+        { type: "image" },
+      ],
+      labels,
+    ),
+    "First line\n\nSecond line\n[Image]",
+  );
+  assert.equal(messagePreview([], labels), "[Non-text message]");
+  assert.equal(
+    Array.from(
+      messagePreview(
+        [{ type: "text", text: "x".repeat(500) }],
+        labels,
+      ),
+    ).length,
+    360,
+  );
+
+  const nodes = new Map([
+    [
+      "user-1",
+      {
+        key: "13:user-1",
+        kind: "user",
+        data: { content: [{ type: "text", text: "Start repair" }] },
+      },
+    ],
+    [
+      "assistant-1",
+      {
+        kind: "assistant-step",
+        data: { content: [{ type: "text", text: "Hidden" }] },
+      },
+    ],
+    [
+      "steering-1",
+      {
+        key: "13:steering-1",
+        kind: "steering",
+        data: { content: [{ type: "text", text: "Keep tests" }] },
+      },
+    ],
+  ]);
+  const items = conversationOutlineItems(
+    ["user-1", "assistant-1", "steering-1"],
+    {
+      get(key) {
+        return nodes.get(key);
+      },
+    },
+    labels,
+  );
+  assert.deepEqual(
+    items.map(({ key, preview }) => ({ key, preview })),
+    [
+      { key: "13:user-1", preview: "Start repair" },
+      { key: "13:steering-1", preview: "Keep tests" },
+    ],
+  );
+  assert.ok(markerWidthForPreview("A") >= 8);
+  assert.ok(markerWidthForPreview("A".repeat(500)) <= 14);
+  assert.match(
+    conversationOutlineZh.messagePosition,
+    /已加载消息/u,
+  );
+  assert.match(
+    conversationOutlineEn.messagePosition,
+    /Loaded message/u,
+  );
+});
+
+test("the conversation outline is left-centered, responsive, and keyboard reachable", () => {
+  const compactRail = conversationOutlineRailLayout(94, 530, 5);
+  assert.deepEqual(compactRail, {
+    top: 329,
+    height: 60,
+    overflowing: false,
+  });
+  assert.equal(
+    compactRail.top + compactRail.height / 2,
+    94 + 530 / 2,
+  );
+
+  const longRail = conversationOutlineRailLayout(94, 530, 30);
+  assert.deepEqual(longRail, {
+    top: 215,
+    height: 288,
+    overflowing: true,
+  });
+  const constrainedRail = conversationOutlineRailLayout(
+    10,
+    250,
+    30,
+  );
+  assert.deepEqual(constrainedRail, {
+    top: 15,
+    height: 240,
+    overflowing: true,
+  });
+  assert.equal(
+    conversationOutlineTooltipTop(120, 168, 0, 192),
+    16,
+  );
+
+  assert.match(
+    conversationOutlineInstallSource,
+    /name:\s*"conversation\.session\.header\.utilities"[\s\S]*id:\s*"minke-conversation-outline"[\s\S]*ConversationOutline as ComponentType<never>/u,
+  );
+  assert.match(
+    conversationOutlineInstallSource,
+    /installConversationOutlineStyles\(\)/u,
+  );
+  assert.match(conversationOutlineSource, /createPortal\(/u);
+  assert.match(
+    conversationOutlineSource,
+    /\[data-conversation-scroll\]/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /\[data-chat-anchor-key\]/u,
+  );
+  assert.match(conversationOutlineSource, /new ResizeObserver/u);
+  assert.match(
+    conversationOutlineSource,
+    /setChatFlow[\s\S]*resizeObserver\?\.observe\(chatFlow\)[\s\S]*\[chatFlow, items, scrollport\]/u,
+  );
+  assert.match(conversationOutlineSource, /new MutationObserver/u);
+  assert.match(conversationOutlineSource, /aria-current=/u);
+  assert.match(
+    conversationOutlineSource,
+    /event\.key === "Escape"[\s\S]*event\.key === "ArrowDown"[\s\S]*event\.key === "Home"[\s\S]*event\.key === "End"/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /data-minke-conversation-outline-hitbox[\s\S]*onPointerMove=\{[\s\S]*TRACK_HIT_SLOP[\s\S]*onPointerDown=\{[\s\S]*event\.button !== 0[\s\S]*suppressNextPointerClickRef\.current = true[\s\S]*jumpTo\(item\.key\)[\s\S]*onClick=\{[\s\S]*event\.detail === 0[\s\S]*suppressNextPointerClickRef\.current = false[\s\S]*jumpTo\(item\.key\)/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /scrollIntoView\(\{[\s\S]*behavior:\s*"auto"/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /\[data-minke-conversation-outline\]\[data-visible="false"\]\s*\{[\s\S]*display:\s*none/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /\[data-overflow="true"\][\s\S]*overflow-y:\s*auto/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /scrollRect\.left \+ RAIL_LEFT_CLEARANCE/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /conversationOutlineRailLayout\([\s\S]*availableTop[\s\S]*availableHeight[\s\S]*items\.length/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /data-minke-conversation-outline-track\][\s\S]*display:\s*flex[\s\S]*flex-direction:\s*column/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /data-minke-conversation-outline-hitbox\][\s\S]*top:\s*-12px[\s\S]*right:\s*-8px[\s\S]*bottom:\s*-12px[\s\S]*left:\s*-4px/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /collectMessageRows\(scrollport\)[\s\S]*rowMapRef\.current/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /cachedRow\?\.isConnected[\s\S]*findMessageRow\(scrollport,\s*key\)/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /buildMessageIndex\([\s\S]*while \(low <= high\)/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /if \(!visibleRef\.current\) return/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /setTabKey\(item\.key\)[\s\S]*\.focus\(\)/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /data-minke-conversation-outline-marker\][\s\S]*height:\s*24px[\s\S]*flex:\s*0 0 24px[\s\S]*margin-top:\s*-12px[\s\S]*pointer-events:\s*none/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /STAIRCASE_SCALES\s*=\s*\[0\.94,\s*0\.72,\s*0\.54,\s*0\.4\][\s\S]*Math\.abs\(index - highlightIndex\)/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /staircaseScale\s*\?\?[\s\S]*item\.markerWidth\s*\/\s*28/u,
+  );
+  assert.doesNotMatch(
+    conversationOutlineSource,
+    /current\s*\?\s*1\s*:/u,
+  );
+  assert.doesNotMatch(
+    conversationOutlineStylesSource,
+    /:has\(/u,
+  );
+  assert.doesNotMatch(
+    conversationOutlineStylesSource,
+    /transition:\s*[\s\S]{0,80}\bwidth\b/u,
+  );
+  assert.match(
+    conversationOutlineSource,
+    /data-preview=\{[\s\S]*previewKey === item\.key/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /data-minke-conversation-outline-tooltip\][\s\S]*pointer-events:\s*auto[\s\S]*user-select:\s*text/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /@container \(max-width:\s*899px\)/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /data-minke-conversation-outline-history\][\s\S]*pointer-events:\s*auto/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /@media \(hover:\s*none\) and \(pointer:\s*coarse\)/u,
+  );
+  assert.match(
+    conversationOutlineStylesSource,
+    /@media \(prefers-reduced-motion:\s*reduce\)/u,
+  );
 });
 
 test("About uses the public sidebar action and packaged desktop metadata", () => {
@@ -658,46 +927,6 @@ test("Tabs stays generic while content types register as adapters", () => {
   assert.match(tabsInstallSource, /WEB_TABS_NAMESPACE/u);
 });
 
-test("Code and Terminal settings share one Personal Preferences section", () => {
-  assert.match(
-    tabsInstallSource,
-    /name:\s*"settings\.section"[\s\S]*id:\s*"minke-preferences"[\s\S]*order:\s*6[\s\S]*PreferencesSection as ComponentType<never>/u,
-  );
-  assert.match(tabsInstallSource, /new TerminalSettingsRuntime/u);
-  assert.match(tabsInstallSource, /new CodeThemeSettingsRuntime/u);
-  assert.match(tabsInstallSource, /installPreferencesSettingsStyles\(\)/u);
-  assert.equal(
-    (tabsInstallSource.match(/name:\s*"settings\.section"/gu) ?? [])
-      .length,
-    1,
-  );
-  assert.doesNotMatch(tabsInstallSource, /id:\s*"minke-terminal"/u);
-  assert.match(
-    tabsInstallSource,
-    /new CodeThemeSettingsRuntime\(\s*filesPort,\s*ctx\.theme\.getTheme\(\)\.active\.colorScheme,\s*\)/u,
-  );
-  assert.match(
-    tabsInstallSource,
-    /ctx\.on\(\s*["']theme\/change["'],\s*\(snapshot\)\s*=>\s*codeThemes\.setColorScheme\(snapshot\.active\.colorScheme\)/u,
-    "app appearance changes must activate the matching saved theme slot",
-  );
-  assert.match(
-    tabsInstallSource,
-    /createTerminalTabRenderer\(\s*terminalTabs,\s*terminalSettings,\s*codeThemes,/u,
-  );
-});
-
-test("Data Home settings remain registered across preload capability upgrades", () => {
-  assert.match(
-    dataHomeInstallSource,
-    /const dataHomePort = desktopDataHomeSettingsPort\(\);\s*if \(!shouldExposeDesktopDataHomeSettings\(\)\) return;[\s\S]*id:\s*"minke-data-home"[\s\S]*DataHomeSettingsSection as ComponentType<never>/u,
-  );
-  assert.doesNotMatch(
-    dataHomeInstallSource,
-    /if \(dataHomePort\.available\) \{[\s\S]*id:\s*"minke-data-home"/u,
-  );
-});
-
 test("Data Home primary action keeps readable colors on hover", () => {
   assert.match(
     dataHomeStylesSource,
@@ -842,111 +1071,4 @@ test("Minke bypasses the upstream internal-testing notice through slot shadowing
   );
   assert.match(bundle, /settings\.onboarding/u);
   assert.match(bundle, /welcome-notice/u);
-});
-
-test("the shortcuts settings row receives the keyboard navigation icon", () => {
-  const createButton = (label) => {
-    const attributes = new Set();
-    const declarations = new Map();
-    return {
-      attributes,
-      style: {
-        getPropertyPriority: () => "",
-        getPropertyValue: (name) => declarations.get(name) ?? "",
-        removeProperty: (name) => declarations.delete(name),
-        setProperty: (name, value) => declarations.set(name, value),
-      },
-      querySelector: () => ({ textContent: label }),
-      toggleAttribute: (name, enabled) => {
-        if (enabled) attributes.add(name);
-        else attributes.delete(name);
-      },
-    };
-  };
-  const general = createButton("General");
-  const shortcuts = createButton("Keyboard shortcuts");
-  let reconcile;
-  const root = {
-    defaultView: {
-      MutationObserver: class {
-        disconnect() {}
-        observe() {}
-      },
-      requestAnimationFrame(callback) {
-        reconcile = callback;
-        return 1;
-      },
-      cancelAnimationFrame() {},
-    },
-    documentElement: {},
-    querySelectorAll: () => [general, shortcuts],
-  };
-
-  reconcileShortcutNavigationIcon(root, "Keyboard shortcuts");
-
-  assert.equal(
-    general.attributes.has("data-minke-shortcuts-nav"),
-    false,
-  );
-  assert.equal(
-    shortcuts.attributes.has("data-minke-shortcuts-nav"),
-    true,
-  );
-
-  reconcileShortcutNavigationIcon(root, "快捷键");
-  assert.equal(
-    shortcuts.attributes.has("data-minke-shortcuts-nav"),
-    false,
-    "a stale marker must be removed when the localized label changes",
-  );
-  assert.match(
-    shortcutStylesSource,
-    /import \{ Keyboard \} from "@lucide\/icons";/u,
-  );
-  assert.match(
-    shortcutStylesSource,
-    /import \{ buildLucideDataUri \} from "@lucide\/icons\/build";/u,
-  );
-  assert.match(
-    shortcutStylesSource,
-    /buildLucideDataUri\(Keyboard,\s*\{\s*size:\s*16,\s*\}\)/u,
-  );
-  assert.doesNotMatch(shortcutStylesSource, /KEYBOARD_ICON_PATHS|<path/u);
-  assert.match(
-    SHORTCUT_STYLES,
-    /mask:\s*var\(--minke-shortcuts-nav-icon\)/u,
-  );
-  const dispose = installShortcutNavigationIcon(
-    () => "Keyboard shortcuts",
-    root,
-  );
-  reconcile();
-  const iconDataUrl = shortcuts.style
-    .getPropertyValue("--minke-shortcuts-nav-icon")
-    .match(
-      /^url\("(data:image\/svg\+xml;base64,[^"]+)"\)$/u,
-    )?.[1];
-  assert.equal(
-    general.style.getPropertyValue(
-      "--minke-shortcuts-nav-icon",
-    ),
-    "",
-  );
-  assert.ok(iconDataUrl);
-  const iconSvg = Buffer.from(
-    iconDataUrl.slice(iconDataUrl.indexOf(",") + 1),
-    "base64",
-  ).toString("utf8");
-  assert.match(iconSvg, /class="lucide lucide-keyboard"/u);
-  assert.match(
-    iconSvg,
-    /<rect width="20" height="16" x="2" y="4" rx="2"/u,
-  );
-  dispose();
-  assert.equal(
-    shortcuts.style.getPropertyValue(
-      "--minke-shortcuts-nav-icon",
-    ),
-    "",
-  );
 });

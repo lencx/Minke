@@ -133,18 +133,6 @@
 .minke-shortcuts__hint {
   grid-column: 2 / -1;
 }
-[data-minke-shortcuts-nav] > svg:first-child {
-  display: none !important;
-}
-[data-minke-shortcuts-nav]::before {
-  content: "";
-  flex: none;
-  width: 16px;
-  height: 16px;
-  background: currentColor;
-  -webkit-mask: var(--minke-shortcuts-nav-icon) center / 16px 16px no-repeat;
-  mask: var(--minke-shortcuts-nav-icon) center / 16px 16px no-repeat;
-}
 @media (max-width: 760px) {
   .minke-shortcuts__row {
     grid-template-columns: 1fr auto;

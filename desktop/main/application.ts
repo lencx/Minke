@@ -4,6 +4,7 @@ import {
   ipcMain,
   Menu,
   safeStorage,
+  session,
   type IpcMainInvokeEvent,
   type OpenDialogOptions,
 } from "electron";
@@ -30,6 +31,9 @@ import {
 import {
   DEFAULT_APP_UPDATE_SETTINGS,
 } from "@minke/harness-overlay/app-update-contract";
+import {
+  DEFAULT_WEB_SEARCH_SETTINGS,
+} from "@minke/harness-overlay/web-search-settings-contract";
 import { requestDesktopRestart } from "./app-restart";
 import {
   prepareDesktopApplication,
@@ -38,6 +42,9 @@ import {
   detectAppUpdateTarget,
 } from "./app-update";
 import { AppUpdateRuntime } from "./app-update-runtime";
+import {
+  AgentBrowserRuntime,
+} from "./agent-browser";
 import {
   bindAppUpdateSettingsIpc,
   type AppUpdateSettingsBinding,
@@ -87,10 +94,14 @@ import {
   type RemoteHubBinding,
   RemoteHubCapabilityRuntime,
   RemoteHubCredentialVault,
+  TelegramNetworkRuntime,
 } from "./remote-hub";
 import {
   REMOTE_HUB_CHANGED_CHANNEL,
 } from "@minke/harness-overlay/remote-hub-contract.ts";
+import {
+  externalizeAgentTurnPreviews,
+} from "./remote-hub/agent-preview";
 import {
   bindShortcutMenu,
   type ShortcutMenuBinding,
@@ -103,6 +114,10 @@ import {
   bindTerminalSettingsIpc,
   type TerminalSettingsBinding,
 } from "./terminal-settings";
+import {
+  bindWebSearchSettingsIpc,
+  type WebSearchSettingsBinding,
+} from "./web-search-settings";
 
 interface BeforeQuitEvent {
   preventDefault(): void;
@@ -114,6 +129,7 @@ class DesktopApplication {
   #appUpdateSettingsBinding:
     | AppUpdateSettingsBinding
     | undefined;
+  #agentBrowser: AgentBrowserRuntime | undefined;
   #runtime: HarnessRuntime | undefined;
   #harnessLifecycle: HarnessLifecycle | undefined;
   #remoteAccess: RemoteAccessRuntime | undefined;
@@ -123,6 +139,9 @@ class DesktopApplication {
   #shortcutMenuBinding: ShortcutMenuBinding | undefined;
   #shortcutSettingsBinding: ShortcutSettingsBinding | undefined;
   #terminalSettingsBinding: TerminalSettingsBinding | undefined;
+  #webSearchSettingsBinding:
+    | WebSearchSettingsBinding
+    | undefined;
   #modelRuntimeSettingsBinding:
     | ModelRuntimeSettingsBinding
     | undefined;
@@ -146,7 +165,13 @@ class DesktopApplication {
       resolveDesktopLocale(app.getLocale()),
     );
     this.#desktopLocale = locale;
+    const agentBrowser = new AgentBrowserRuntime({
+      sessionFromPartition: (partition, options) =>
+        session.fromPartition(partition, options),
+    });
+    this.#agentBrowser = agentBrowser;
     const windows = new MainWindowRuntime({
+      agentBrowser,
       locale,
       environment: () => this.#dshEnvironment(),
       harnessUrl: () => this.#harnessLifecycle?.url,
@@ -168,6 +193,7 @@ class DesktopApplication {
     const modelRuntimeSettingsStore = minkeConfig.modelRuntime;
     const remoteSettingsStore = minkeConfig.remote;
     const pluginSettingsStore = minkeConfig.plugins;
+    const webSearchSettingsStore = minkeConfig.webSearch;
     const appUpdateSettingsStore = minkeConfig.appUpdate;
     const dataHomeManager = new DataHomeManager({
       userDataPath: app.getPath("userData"),
@@ -264,6 +290,9 @@ class DesktopApplication {
       safeMode: false,
       disabledPlugins: [] as readonly string[],
     };
+    let webSearchSettings = {
+      ...DEFAULT_WEB_SEARCH_SETTINGS,
+    };
     let appUpdateSettings = {
       ...DEFAULT_APP_UPDATE_SETTINGS,
     };
@@ -297,6 +326,14 @@ class DesktopApplication {
     } catch (error) {
       console.error(
         "Unable to read plugin management settings:",
+        error,
+      );
+    }
+    try {
+      webSearchSettings = await webSearchSettingsStore.read();
+    } catch (error) {
+      console.error(
+        "Unable to read web search settings:",
         error,
       );
     }
@@ -335,16 +372,14 @@ class DesktopApplication {
           candidate as IpcMainInvokeEvent,
         ),
     );
-    this.#modelRuntimeSettingsBinding =
-      bindModelRuntimeSettingsIpc(
-        ipcMain,
-        modelRuntimeSettingsStore,
-        modelRuntimeAvailability,
-        (candidate) =>
-          windows.authorize(
-            candidate as IpcMainInvokeEvent,
-          ),
-      );
+    this.#webSearchSettingsBinding = bindWebSearchSettingsIpc(
+      ipcMain,
+      webSearchSettingsStore,
+      (candidate) =>
+        windows.authorize(
+          candidate as IpcMainInvokeEvent,
+        ),
+    );
     this.#pluginInstallBinding = bindPluginInstallIpc(
       ipcMain,
       pluginInstallation,
@@ -403,11 +438,29 @@ class DesktopApplication {
         },
       },
       pluginManagement,
+      webSearch: webSearchSettings,
+      agentBrowser,
       onUnexpectedExit: (exit) => {
         void this.#handleUnexpectedExit(exit);
       },
     });
     this.#runtime = runtime;
+    this.#modelRuntimeSettingsBinding =
+      bindModelRuntimeSettingsIpc(
+        ipcMain,
+        modelRuntimeSettingsStore,
+        modelRuntimeAvailability,
+        (candidate) =>
+          windows.authorize(
+            candidate as IpcMainInvokeEvent,
+          ),
+        async (settings, mode) => {
+          await runtime.reconfigureModelRuntimes(
+            settings,
+            mode,
+          );
+        },
+      );
     const remoteAccess = new RemoteAccessRuntime({
       settings: remoteSettings,
       discoverCommands: discoverRemote,
@@ -438,12 +491,42 @@ class DesktopApplication {
           candidate as IpcMainInvokeEvent,
         ),
     );
+    const telegramNetworkSession = session.fromPartition(
+      "minke:telegram-bot-api",
+      { cache: false },
+    );
+    const telegramNetwork = new TelegramNetworkRuntime({
+      store: minkeConfig.telegramNetwork,
+      session: {
+        fetch: (input, init) =>
+          telegramNetworkSession.fetch(
+            input instanceof URL ? input.href : input,
+            {
+              ...init,
+              bypassCustomProtocolHandlers: true,
+            },
+          ),
+        setProxy: (config) =>
+          telegramNetworkSession.setProxy(config),
+        closeAllConnections: () =>
+          telegramNetworkSession.closeAllConnections(),
+      },
+    });
     const remoteHub = new RemoteHubCapabilityRuntime({
       dataHome: activeDshHome,
       vault: new RemoteHubCredentialVault(
         app.getPath("userData"),
         safeStorage,
       ),
+      telegramFetch: telegramNetwork.fetch,
+      telegramNetwork,
+      agentRoute: {
+        runAgentTurn: async (input, options) =>
+          externalizeAgentTurnPreviews(
+            await runtime.runAgentTurn(input, options),
+            remoteAccess.read(),
+          ),
+      },
     });
     this.#remoteHub = remoteHub;
     this.#remoteHubBinding = bindRemoteHubIpc(
@@ -513,6 +596,8 @@ class DesktopApplication {
       this.#remoteAccess === undefined &&
       this.#remoteHub === undefined
     ) {
+      this.#agentBrowser?.dispose();
+      this.#agentBrowser = undefined;
       if (this.#requestedExitCode !== undefined) {
         event.preventDefault();
         app.exit(this.#requestedExitCode);
@@ -532,7 +617,12 @@ class DesktopApplication {
         try {
           await activeRemote?.stop();
         } finally {
-          await activeRuntime?.stop();
+          try {
+            await activeRuntime?.stop();
+          } finally {
+            this.#agentBrowser?.dispose();
+            this.#agentBrowser = undefined;
+          }
         }
       }
     })().finally(() => {
@@ -691,6 +781,8 @@ class DesktopApplication {
     this.#shortcutSettingsBinding = undefined;
     this.#terminalSettingsBinding?.dispose();
     this.#terminalSettingsBinding = undefined;
+    this.#webSearchSettingsBinding?.dispose();
+    this.#webSearchSettingsBinding = undefined;
     this.#modelRuntimeSettingsBinding?.dispose();
     this.#modelRuntimeSettingsBinding = undefined;
     this.#remoteSettingsBinding?.dispose();

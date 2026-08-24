@@ -31,6 +31,16 @@ import {
   parseAppUpdateSettings,
   type AppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
+import {
+  DEFAULT_WEB_SEARCH_SETTINGS,
+  parseWebSearchSettings,
+  type WebSearchSettings,
+} from "@minke/harness-overlay/web-search-settings-contract.ts";
+import {
+  DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+  parseTelegramNetworkSettings,
+  type TelegramNetworkSettings,
+} from "@minke/harness-overlay/remote-hub-contract.ts";
 
 /** Current schema version of the unified Minke desktop configuration. */
 export const MINKE_CONFIG_VERSION = 3;
@@ -44,6 +54,8 @@ export interface MinkeConfigDocument {
   modelRuntime: ModelRuntimeSettings;
   remote: RemoteSettings;
   plugins: PluginManagementSettings;
+  webSearch: WebSearchSettings;
+  telegramNetwork: TelegramNetworkSettings;
   appUpdate: AppUpdateSettings;
   dshHome?: string;
 }
@@ -55,6 +67,8 @@ const CONFIG_KEYS = new Set([
   "modelRuntime",
   "remote",
   "plugins",
+  "webSearch",
+  "telegramNetwork",
   "appUpdate",
   "dshHome",
 ]);
@@ -79,6 +93,12 @@ export function createDefaultMinkeConfigDocument():
       disabledPlugins: [
         ...DEFAULT_PLUGIN_MANAGEMENT_SETTINGS.disabledPlugins,
       ],
+    },
+    webSearch: {
+      ...DEFAULT_WEB_SEARCH_SETTINGS,
+    },
+    telegramNetwork: {
+      ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
     },
     appUpdate: {
       ...DEFAULT_APP_UPDATE_SETTINGS,
@@ -156,6 +176,16 @@ export function parseMinkeConfigDocument(
             ],
           }
         : parsePluginManagementSettings(record.plugins),
+    webSearch:
+      record.webSearch === undefined
+        ? { ...DEFAULT_WEB_SEARCH_SETTINGS }
+        : parseWebSearchSettings(record.webSearch),
+    telegramNetwork:
+      record.telegramNetwork === undefined
+        ? { ...DEFAULT_TELEGRAM_NETWORK_SETTINGS }
+        : parseTelegramNetworkSettings(
+            record.telegramNetwork,
+          ),
     appUpdate:
       record.appUpdate === undefined
         ? { ...DEFAULT_APP_UPDATE_SETTINGS }

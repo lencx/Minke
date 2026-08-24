@@ -8,6 +8,7 @@ import {
   parseModelRuntimeSettings,
   type LocalModelRuntimeId,
   type ModelRuntimeAvailability,
+  type ModelRuntimeReconfigureMode,
   type ModelRuntimeSettings,
   type ModelRuntimeSettingsSnapshot,
 } from "@lencx/minke-model-runtime/contract";
@@ -28,6 +29,15 @@ export interface ModelRuntimeSettingsStore {
   read(): Promise<ModelRuntimeSettings>;
   write(value: unknown): Promise<void>;
 }
+
+/**
+ * Desktop-side transaction phases. Only apply/rollback cross the Harness IPC
+ * boundary; finalize advances the crash-recovery launch snapshot after disk
+ * persistence has committed.
+ */
+export type ModelRuntimeSettingsTransactionPhase =
+  | ModelRuntimeReconfigureMode
+  | "finalize";
 
 const RUNTIME_NAMES = Object.fromEntries(
   LOCAL_MODEL_RUNTIMES.map(({ id, displayName }) => [
@@ -53,14 +63,20 @@ export function bindModelRuntimeSettingsIpc(
   store: ModelRuntimeSettingsStore,
   availabilityValue: ModelRuntimeAvailability,
   authorize: (event: unknown) => boolean,
+  reconfigure: (
+    settings: ModelRuntimeSettings,
+    mode: ModelRuntimeSettingsTransactionPhase,
+  ) => Promise<void>,
 ): ModelRuntimeSettingsBinding {
   const available = parseModelRuntimeAvailability(
     availabilityValue,
   );
+  let writeTail: Promise<void> = Promise.resolve();
   const read = async (
     event: unknown,
   ): Promise<ModelRuntimeSettingsSnapshot> => {
     assertAuthorized(authorize, event);
+    await writeTail;
     try {
       return {
         available,
@@ -87,7 +103,36 @@ export function bindModelRuntimeSettingsIpc(
         );
       }
     }
-    await store.write(settings);
+    const operation = writeTail.then(async () => {
+      const previous = parseModelRuntimeSettings(
+        await store.read(),
+      );
+      try {
+        await reconfigure(settings, "apply");
+      } catch (error) {
+        await rollbackRuntime(
+          reconfigure,
+          previous,
+          error,
+          "model runtime reconciliation failed and rollback also failed",
+        );
+        throw error;
+      }
+      try {
+        await store.write(settings);
+      } catch (error) {
+        await rollbackRuntime(
+          reconfigure,
+          previous,
+          error,
+          "model runtime persistence failed and live rollback also failed",
+        );
+        throw error;
+      }
+      await reconfigure(settings, "finalize");
+    });
+    writeTail = operation.catch(() => undefined);
+    await operation;
   };
   ipcMain.handle(MODEL_RUNTIME_SETTINGS_READ_CHANNEL, read);
   ipcMain.handle(MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL, write);
@@ -101,6 +146,29 @@ export function bindModelRuntimeSettingsIpc(
       ipcMain.removeHandler(MODEL_RUNTIME_SETTINGS_WRITE_CHANNEL);
     },
   });
+}
+
+async function rollbackRuntime(
+  reconfigure: (
+    settings: ModelRuntimeSettings,
+    mode: ModelRuntimeSettingsTransactionPhase,
+  ) => Promise<void>,
+  previous: ModelRuntimeSettings,
+  primaryError: unknown,
+  message: string,
+): Promise<void> {
+  try {
+    await reconfigure(previous, "rollback");
+  } catch (rollbackError) {
+    throw new AggregateError(
+      [primaryError, rollbackError],
+      `${message}: ${
+        primaryError instanceof Error
+          ? primaryError.message
+          : String(primaryError)
+      }`,
+    );
+  }
 }
 
 function assertAuthorized(

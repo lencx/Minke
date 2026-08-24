@@ -14,7 +14,5 @@ export {
 } from "./runtime.ts";
 export {
   DATA_HOME_STYLES,
-  installDataHomeNavigationIcon,
   installDataHomeStyles,
-  reconcileDataHomeNavigationIcon,
 } from "./styles.ts";

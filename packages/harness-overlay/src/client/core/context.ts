@@ -66,6 +66,26 @@ export type HarnessRpcResult =
     };
   };
 
+export type HarnessPromptContentPart =
+  | {
+      readonly type: "text";
+      readonly text: string;
+    }
+  | {
+      readonly type: "image";
+      readonly mediaType: "image/png";
+      readonly data: string;
+      readonly name?: string;
+    };
+
+export interface HarnessClientScopedContext {
+  effect(
+    callback: () => void | (() => void),
+    label: string,
+  ): unknown;
+  get(service: string): unknown;
+}
+
 /**
  * Public Harness services consumed by the client feature installers.
  *
@@ -73,6 +93,15 @@ export type HarnessRpcResult =
  * the composition root from accumulating feature-specific overloads.
  */
 export interface HarnessClientContext {
+  /**
+   * Resolve optional services through Cordis' tracked dependency scope.
+   * Feature code must not read an optional service directly from the root
+   * context because doing so bypasses service lifetime tracking.
+   */
+  inject?(
+    dependencies: readonly string[],
+    callback: (scope: HarnessClientScopedContext) => void,
+  ): unknown;
   connection: {
     rpc: {
       call(
@@ -122,11 +151,31 @@ export interface HarnessClientContext {
       getSnapshot(): {
         current: string | undefined;
         byId: Readonly<
-          Record<string, { readonly cwd?: string } | undefined>
+          Record<
+            string,
+            {
+              readonly cwd?: string;
+              readonly title?: string;
+            } | undefined
+          >
         >;
       };
       subscribe(listener: () => void): () => void;
     };
+    binding(sessionId: string): {
+      readonly session: {
+        prompt(
+          content: HarnessPromptContentPart[],
+          mode: "queue" | "steer",
+          signal?: AbortSignal,
+        ): Promise<HarnessRpcResult>;
+      };
+    } | undefined;
+    /**
+     * Resolve a use-and-discard session scope. Optional for compatibility
+     * with older Harness builds that can still accept direct prompts.
+     */
+    scope?(sessionId: string): unknown;
     open(sessionId: string): void;
   };
 }

@@ -7,6 +7,10 @@ import type {
 import { installDataHome } from "./data-home/install.tsx";
 import { installDesktopClient } from "./desktop/install.ts";
 import { installLocalModel } from "./local-model/install.ts";
+import {
+  installMinkeSettings,
+  MinkeSettingsRuntime,
+} from "./minke-settings/index.ts";
 import { installOnboarding } from "./onboarding/install.tsx";
 import { installPwa } from "./pwa/install.tsx";
 import { installRemote } from "./remote/install.tsx";
@@ -27,16 +31,18 @@ export const inject = [
 
 /** Compose Minke features through Harness's public services and slots. */
 export function apply(ctx: HarnessClientContext): void {
+  const minkeSettings = new MinkeSettingsRuntime();
   installDesktopClient(ctx);
   installConversationOutline(ctx);
   installAbout(ctx);
-  installDataHome(ctx);
+  installDataHome(ctx, minkeSettings);
   installWebBrand(ctx);
   installPwa(ctx);
   installLocalModel(ctx);
-  const remote = installRemote(ctx);
+  const remote = installRemote(ctx, minkeSettings);
   installRemoteHub(ctx, remote);
-  const tabsRuntimes = installTabs(ctx);
-  installShortcuts(ctx, tabsRuntimes);
+  const tabsRuntimes = installTabs(ctx, minkeSettings);
+  installShortcuts(ctx, tabsRuntimes, minkeSettings);
+  installMinkeSettings(ctx, minkeSettings);
   installOnboarding(ctx);
 }

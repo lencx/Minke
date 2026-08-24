@@ -1,15 +1,3 @@
-[data-minke-remote-nav] > svg:first-child {
-  display: none;
-}
-[data-minke-remote-nav]::before {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  background: currentColor;
-  content: "";
-  -webkit-mask: var(--minke-remote-nav-icon) center / 16px 16px no-repeat;
-  mask: var(--minke-remote-nav-icon) center / 16px 16px no-repeat;
-}
 .minke-remote {
   display: flex;
   min-width: 0;

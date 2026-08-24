@@ -25,11 +25,6 @@ import {
   TerminalSettingsRuntime,
 } from "@minke/harness-overlay/client/tabs/terminal/settings/runtime.ts";
 import {
-  installPreferencesNavigationIcon,
-  PREFERENCES_SETTINGS_STYLES,
-  reconcilePreferencesNavigationIcon,
-} from "@minke/harness-overlay/client/preferences/styles.ts";
-import {
   preferencesEn,
   preferencesZh,
 } from "@minke/harness-overlay/client/preferences/locales.ts";
@@ -164,92 +159,6 @@ test("Personal preferences copy stays complete in English and Chinese", () => {
   assert.deepEqual(
     Object.keys(terminalTabsEn).sort(),
     Object.keys(terminalTabsZh).sort(),
-  );
-});
-
-test("Personal preferences navigation uses the palette icon", () => {
-  const createButton = (label) => {
-    const attributes = new Set();
-    const declarations = new Map();
-    return {
-      attributes,
-      style: {
-        getPropertyPriority: () => "",
-        getPropertyValue: (name) => declarations.get(name) ?? "",
-        removeProperty: (name) => declarations.delete(name),
-        setProperty: (name, value) => declarations.set(name, value),
-      },
-      querySelector: () => ({ textContent: label }),
-      toggleAttribute: (name, enabled) => {
-        if (enabled) attributes.add(name);
-        else attributes.delete(name);
-      },
-    };
-  };
-  const general = createButton("General");
-  const preferences = createButton("Preferences");
-  let reconcile;
-  const root = {
-    defaultView: {
-      MutationObserver: class {
-        disconnect() {}
-        observe() {}
-      },
-      requestAnimationFrame(callback) {
-        reconcile = callback;
-        return 1;
-      },
-      cancelAnimationFrame() {},
-    },
-    documentElement: {},
-    querySelectorAll: () => [general, preferences],
-  };
-
-  reconcilePreferencesNavigationIcon(root, "Preferences");
-
-  assert.equal(
-    general.attributes.has("data-minke-preferences-nav"),
-    false,
-  );
-  assert.equal(
-    preferences.attributes.has("data-minke-preferences-nav"),
-    true,
-  );
-  assert.match(
-    PREFERENCES_SETTINGS_STYLES,
-    /mask:\s*var\(--minke-preferences-nav-icon\)/u,
-  );
-  const dispose = installPreferencesNavigationIcon(
-    () => "Preferences",
-    root,
-  );
-  reconcile();
-  const iconDataUrl = preferences.style
-    .getPropertyValue("--minke-preferences-nav-icon")
-    .match(
-      /^url\("(data:image\/svg\+xml;base64,[^"]+)"\)$/u,
-    )?.[1];
-  assert.equal(
-    general.style.getPropertyValue(
-      "--minke-preferences-nav-icon",
-    ),
-    "",
-  );
-  assert.ok(iconDataUrl);
-  const iconSvg = Buffer.from(
-    iconDataUrl.slice(iconDataUrl.indexOf(",") + 1),
-    "base64",
-  ).toString("utf8");
-  assert.match(
-    iconSvg,
-    /class="lucide lucide-palette(?:\s|")/u,
-  );
-  dispose();
-  assert.equal(
-    preferences.style.getPropertyValue(
-      "--minke-preferences-nav-icon",
-    ),
-    "",
   );
 });
 
@@ -390,6 +299,12 @@ test("the desktop store writes Terminal settings into Minke config", async () =>
     plugins: {
       safeMode: false,
       disabledPlugins: [],
+    },
+    webSearch: {
+      fallbackEnabled: true,
+    },
+    telegramNetwork: {
+      httpProxyUrl: "",
     },
     appUpdate: {
       autoDownload: true,

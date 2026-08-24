@@ -1,5 +1,9 @@
 /** Shortcut settings UI owned by the shortcuts feature. */
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
@@ -10,7 +14,10 @@ import {
   type ShortcutPlatform,
 } from "./binding.ts";
 import type { ShortcutTranslate } from "./locales.ts";
-import type { ShortcutSectionState } from "./projection.ts";
+import type {
+  Observable,
+  ShortcutSectionState,
+} from "./projection.ts";
 import type {
   ShortcutMutationResult,
 } from "./runtime.ts";
@@ -31,7 +38,29 @@ export interface ShortcutSectionProps {
   t: ShortcutTranslate;
 }
 
-/** Settings page contributed through Harness's public settings.section slot. */
+export interface ShortcutSettingsPageProps
+  extends Omit<ShortcutSectionProps, "useShortcuts"> {
+  source: Observable<ShortcutSectionState>;
+}
+
+/** Adapt the feature projection to a directly rendered settings page. */
+export function ShortcutSettingsPage({
+  source,
+  ...props
+}: ShortcutSettingsPageProps): ReactNode {
+  const state = useSyncExternalStore(
+    source.subscribe,
+    source.getSnapshot,
+    source.getSnapshot,
+  );
+  return (
+    <ShortcutSection
+      {...props}
+      useShortcuts={(selector) => selector(state)}
+    />
+  );
+}
+
 export function ShortcutSection({
   useShortcuts,
   platform,

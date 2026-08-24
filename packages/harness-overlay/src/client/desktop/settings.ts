@@ -20,6 +20,10 @@ import {
   parseAppUpdateCheckResult,
   parseAppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
+import {
+  DEFAULT_WEB_SEARCH_SETTINGS,
+  parseWebSearchSettings,
+} from "@minke/harness-overlay/web-search-settings-contract.ts";
 import type {
   AppUpdatePort,
   AppUpdateSettingsStore,
@@ -29,6 +33,7 @@ import type {
   ModelRuntimeSettingsStore,
   RemoteSettingsStore,
   TerminalSettingsStore,
+  WebSearchSettingsStore,
 } from "./contracts.ts";
 import {
   DEFAULT_REMOTE_SETTINGS,
@@ -37,6 +42,7 @@ import {
   parseRemoteSettingsSnapshot,
 } from "@lencx/minke-remote-access/contract";
 import {
+  DEFAULT_TELEGRAM_NETWORK_SETTINGS,
   parseRemoteHubCommand,
   parseRemoteHubSnapshot,
 } from "@minke/harness-overlay/remote-hub-contract.ts";
@@ -86,6 +92,36 @@ export function desktopAppUpdateSettingsStore(
     window as unknown as DesktopBridgeWindow,
 ): AppUpdateSettingsStore {
   return desktopAppUpdatePort(source);
+}
+
+/** Adapt the isolated preload bridge for web-search preferences. */
+export function desktopWebSearchSettingsStore(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): WebSearchSettingsStore {
+  const bridge = source.minkeDesktop?.webSearch;
+  if (bridge === undefined) {
+    return {
+      available: false,
+      async read() {
+        return { ...DEFAULT_WEB_SEARCH_SETTINGS };
+      },
+      async write() {
+        throw new Error(
+          "Minke desktop web search settings bridge is unavailable",
+        );
+      },
+    };
+  }
+  return {
+    available: true,
+    async read() {
+      return parseWebSearchSettings(await bridge.read());
+    },
+    async write(settings) {
+      await bridge.write(parseWebSearchSettings(settings));
+    },
+  };
 }
 
 /**
@@ -264,6 +300,9 @@ export function desktopRemoteHubPort(
   if (bridge === undefined) {
     const unavailable = parseRemoteHubSnapshot({
       revision: 0,
+      telegramNetwork: {
+        ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+      },
       dependencies: {
         credentialVault: "unavailable",
         agentRoute: "pending",

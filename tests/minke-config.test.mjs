@@ -31,6 +31,10 @@ import {
 import {
   DEFAULT_TERMINAL_SETTINGS,
 } from "@minke/harness-overlay/terminal-settings-contract.ts";
+import {
+  DEFAULT_WEB_SEARCH_SETTINGS,
+  parseWebSearchSettings,
+} from "@minke/harness-overlay/web-search-settings-contract.ts";
 
 async function withStore(callback) {
   const root = await mkdtemp(join(tmpdir(), "minke-config-"));
@@ -67,6 +71,28 @@ function assertDefaultRemoteSettings(settings, enabled = false) {
     },
   });
 }
+
+test("web search settings use one exact default-enabled contract", () => {
+  assert.deepEqual(DEFAULT_WEB_SEARCH_SETTINGS, {
+    fallbackEnabled: true,
+  });
+  assert.deepEqual(
+    parseWebSearchSettings({ fallbackEnabled: false }),
+    { fallbackEnabled: false },
+  );
+  assert.throws(
+    () => parseWebSearchSettings({ fallbackEnabled: "yes" }),
+    /web search settings/u,
+  );
+  assert.throws(
+    () =>
+      parseWebSearchSettings({
+        fallbackEnabled: true,
+        retryOnFailure: true,
+      }),
+    /web search settings/u,
+  );
+});
 
 test("main window state is restored and tracked beside minke.config.json", () => {
   const config = new MinkeConfigStore(
@@ -319,6 +345,13 @@ test("desktop settings share one versioned Minke config", async () => {
       safeMode: false,
       disabledPlugins: [],
     });
+    assert.deepEqual(
+      await store.webSearch.read(),
+      DEFAULT_WEB_SEARCH_SETTINGS,
+    );
+    assert.deepEqual(await store.telegramNetwork.read(), {
+      httpProxyUrl: "",
+    });
     assert.deepEqual(await store.appUpdate.read(), {
       autoDownload: true,
     });
@@ -345,6 +378,12 @@ test("desktop settings share one versioned Minke config", async () => {
         safeMode: true,
         disabledPlugins: ["broken-plugin"],
       }),
+      store.webSearch.write({
+        fallbackEnabled: false,
+      }),
+      store.telegramNetwork.write({
+        httpProxyUrl: "http://127.0.0.1:7897",
+      }),
     ]);
 
     assert.deepEqual(JSON.parse(await readFile(store.path, "utf8")), {
@@ -369,6 +408,12 @@ test("desktop settings share one versioned Minke config", async () => {
       plugins: {
         safeMode: true,
         disabledPlugins: ["broken-plugin"],
+      },
+      webSearch: {
+        fallbackEnabled: false,
+      },
+      telegramNetwork: {
+        httpProxyUrl: "http://127.0.0.1:7897",
       },
       appUpdate: {
         autoDownload: true,
@@ -409,6 +454,12 @@ test("invalid section updates leave the shared document unchanged", async () => 
         tailscale: { enabled: "yes" },
       }),
       /remote settings/u,
+    );
+    await assert.rejects(
+      store.webSearch.write({
+        fallbackEnabled: "yes",
+      }),
+      /web search settings/u,
     );
     assert.equal(await readFile(store.path, "utf8"), before);
   });
@@ -455,6 +506,10 @@ test("legacy version 2 configs enable safe automatic update downloads by default
     assert.deepEqual(await store.appUpdate.read(), {
       autoDownload: true,
     });
+    assert.deepEqual(
+      await store.webSearch.read(),
+      DEFAULT_WEB_SEARCH_SETTINGS,
+    );
   });
 });
 

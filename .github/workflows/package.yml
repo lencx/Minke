@@ -100,6 +100,10 @@ jobs:
           SQUIRREL_TEMP: ${{ runner.os == 'Windows' && 'D:\t' || runner.temp }}
         run: pnpm make
 
+      - name: Test Agent Browser conversation
+        if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
+        run: pnpm test:desktop:agent-browser-conversation:prepared
+
       - name: Build AppImage from deb
         if: runner.os == 'Linux'
         run: node scripts/forge/appimage.mjs

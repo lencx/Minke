@@ -1,15 +1,3 @@
-[data-minke-preferences-nav] > svg:first-child {
-  display: none !important;
-}
-[data-minke-preferences-nav]::before {
-  content: "";
-  flex: none;
-  width: 16px;
-  height: 16px;
-  background: currentColor;
-  -webkit-mask: var(--minke-preferences-nav-icon) center / 16px 16px no-repeat;
-  mask: var(--minke-preferences-nav-icon) center / 16px 16px no-repeat;
-}
 .minke-preferences {
   display: flex;
   flex-direction: column;

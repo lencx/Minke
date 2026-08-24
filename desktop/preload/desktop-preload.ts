@@ -44,6 +44,12 @@ import {
   type AppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
 import {
+  parseWebSearchSettings,
+  WEB_SEARCH_SETTINGS_READ_CHANNEL,
+  WEB_SEARCH_SETTINGS_WRITE_CHANNEL,
+  type WebSearchSettings,
+} from "@minke/harness-overlay/web-search-settings-contract.ts";
+import {
   DATA_HOME_CHOOSE_DIRECTORY_CHANNEL,
   DATA_HOME_MIGRATION_PLAN_CHANNEL,
   DATA_HOME_MIGRATION_SCHEDULE_CHANNEL,
@@ -143,6 +149,36 @@ import {
   type RemoteRuntimeSnapshot,
 } from "@lencx/minke-remote-access/contract";
 import {
+  AGENT_BROWSER_CLOSE_CHANNEL,
+  AGENT_BROWSER_CONTROL_CHANNEL,
+  AGENT_BROWSER_SESSIONS_CHANGED_CHANNEL,
+  AGENT_BROWSER_SESSIONS_READ_CHANNEL,
+  parseAgentBrowserControlRequest,
+  parseAgentBrowserProjection,
+  parseAgentBrowserProjections,
+  parseAgentBrowserSessionId,
+  type AgentBrowserOwner,
+  type AgentBrowserProjection,
+} from "@minke/harness-overlay/agent-browser-contract.ts";
+import {
+  AGENT_BROWSER_ANNOTATION_COMMIT_CHANNEL,
+  AGENT_BROWSER_ANNOTATION_EVENT_CHANNEL,
+  AGENT_BROWSER_ANNOTATION_REFRESH_CHANNEL,
+  AGENT_BROWSER_ANNOTATION_START_CHANNEL,
+  AGENT_BROWSER_ANNOTATION_STOP_CHANNEL,
+  parseAgentBrowserAnnotationCommitRequest,
+  parseAgentBrowserAnnotationCommitResult,
+  parseAgentBrowserAnnotationEvent,
+  parseAgentBrowserAnnotationRefreshRequest,
+  parseAgentBrowserAnnotationRefreshResult,
+  parseAgentBrowserAnnotationSession,
+  parseAgentBrowserAnnotationStartRequest,
+  parseAgentBrowserAnnotationStopRequest,
+  type AgentBrowserAnnotationEvent,
+  type AgentBrowserAnnotationRefreshRequest,
+  type AgentBrowserAnnotationStopRequest,
+} from "@minke/harness-overlay/agent-browser-annotation-contract.ts";
+import {
   parseRemoteHubCommand,
   parseRemoteHubSnapshot,
   REMOTE_HUB_CHANGED_CHANNEL,
@@ -159,6 +195,7 @@ const shortcutUnsubscribers = new Set<() => void>();
 const fileWatchUnsubscribers = new Set<() => void>();
 const terminalUnsubscribers = new Set<() => void>();
 const remoteRuntimeUnsubscribers = new Set<() => void>();
+const agentBrowserUnsubscribers = new Set<() => void>();
 const remoteHubUnsubscribers = new Set<() => void>();
 let nextFileWatchId = 0;
 
@@ -281,6 +318,133 @@ const tabs = Object.freeze({
       throw new TypeError("invalid Minke Web tab URL");
     }
     ipcRenderer.send(TABS_OPEN_EXTERNAL_CHANNEL, url);
+  },
+});
+
+const agentBrowser = Object.freeze({
+  async read(): Promise<unknown> {
+    return parseAgentBrowserProjections(
+      await ipcRenderer.invoke(
+        AGENT_BROWSER_SESSIONS_READ_CHANNEL,
+      ),
+    );
+  },
+  async setControl(
+    sessionId: string,
+    owner: AgentBrowserOwner,
+  ): Promise<unknown> {
+    const request = parseAgentBrowserControlRequest({
+      sessionId,
+      owner,
+    });
+    return parseAgentBrowserProjection(
+      await ipcRenderer.invoke(
+        AGENT_BROWSER_CONTROL_CHANNEL,
+        request,
+      ),
+    );
+  },
+  async startAnnotation(sessionId: string): Promise<unknown> {
+    const request = parseAgentBrowserAnnotationStartRequest({
+      sessionId,
+    });
+    return parseAgentBrowserAnnotationSession(
+      await ipcRenderer.invoke(
+        AGENT_BROWSER_ANNOTATION_START_CHANNEL,
+        request,
+      ),
+    );
+  },
+  async stopAnnotation(
+    request: AgentBrowserAnnotationStopRequest,
+  ): Promise<void> {
+    await ipcRenderer.invoke(
+      AGENT_BROWSER_ANNOTATION_STOP_CHANNEL,
+      parseAgentBrowserAnnotationStopRequest(request),
+    );
+  },
+  async refreshAnnotation(
+    request: AgentBrowserAnnotationRefreshRequest,
+  ): Promise<unknown> {
+    return parseAgentBrowserAnnotationRefreshResult(
+      await ipcRenderer.invoke(
+        AGENT_BROWSER_ANNOTATION_REFRESH_CHANNEL,
+        parseAgentBrowserAnnotationRefreshRequest(request),
+      ),
+    );
+  },
+  async commitAnnotation(
+    request: AgentBrowserAnnotationRefreshRequest,
+  ): Promise<unknown> {
+    const parsed = parseAgentBrowserAnnotationCommitRequest(request);
+    return parseAgentBrowserAnnotationCommitResult(
+      await ipcRenderer.invoke(
+        AGENT_BROWSER_ANNOTATION_COMMIT_CHANNEL,
+        parsed,
+      ),
+    );
+  },
+  close(sessionId: string): void {
+    ipcRenderer.send(
+      AGENT_BROWSER_CLOSE_CHANNEL,
+      parseAgentBrowserSessionId(sessionId),
+    );
+  },
+  subscribe(
+    listener: (
+      projections: readonly AgentBrowserProjection[],
+    ) => void,
+  ): () => void {
+    const wrapped = (_event: unknown, value: unknown): void => {
+      try {
+        listener(parseAgentBrowserProjections(value));
+      } catch {
+        // Only validated main-process projections are delivered.
+      }
+    };
+    ipcRenderer.on(
+      AGENT_BROWSER_SESSIONS_CHANGED_CHANNEL,
+      wrapped,
+    );
+    let active = true;
+    const unsubscribe = (): void => {
+      if (!active) return;
+      active = false;
+      agentBrowserUnsubscribers.delete(unsubscribe);
+      ipcRenderer.off(
+        AGENT_BROWSER_SESSIONS_CHANGED_CHANNEL,
+        wrapped,
+      );
+    };
+    agentBrowserUnsubscribers.add(unsubscribe);
+    return unsubscribe;
+  },
+  subscribeAnnotationEvents(
+    listener: (event: AgentBrowserAnnotationEvent) => void,
+  ): () => void {
+    const wrapped = (_event: unknown, value: unknown): void => {
+      try {
+        listener(parseAgentBrowserAnnotationEvent(value));
+      } catch {
+        // Only validated main-process annotation events are delivered.
+      }
+    };
+    ipcRenderer.on(
+      AGENT_BROWSER_ANNOTATION_EVENT_CHANNEL,
+      wrapped,
+    );
+    let active = true;
+    const unsubscribe = (): void => {
+      if (!active) return;
+      active = false;
+      agentBrowserUnsubscribers.delete(unsubscribe);
+      ipcRenderer.off(
+        AGENT_BROWSER_ANNOTATION_EVENT_CHANNEL,
+        wrapped,
+      );
+    };
+    agentBrowserUnsubscribers.add(unsubscribe);
+    return unsubscribe;
   },
 });
 
@@ -444,6 +608,20 @@ const appUpdate = Object.freeze({
     await ipcRenderer.invoke(
       APP_UPDATE_SETTINGS_WRITE_CHANNEL,
       parseAppUpdateSettings(settings),
+    );
+  },
+});
+
+const webSearch = Object.freeze({
+  async read(): Promise<unknown> {
+    return parseWebSearchSettings(
+      await ipcRenderer.invoke(WEB_SEARCH_SETTINGS_READ_CHANNEL),
+    );
+  },
+  async write(settings: WebSearchSettings): Promise<void> {
+    await ipcRenderer.invoke(
+      WEB_SEARCH_SETTINGS_WRITE_CHANNEL,
+      parseWebSearchSettings(settings),
     );
   },
 });
@@ -635,6 +813,7 @@ const windowTheme = Object.freeze({
 contextBridge.exposeInMainWorld(
   "minkeDesktop",
   Object.freeze({
+    agentBrowser,
     appUpdate,
     about,
     dataHome,
@@ -647,6 +826,7 @@ contextBridge.exposeInMainWorld(
     sessionLogs,
     tabs,
     terminal,
+    webSearch,
     shortcuts,
     surface,
     windowTheme,
@@ -669,6 +849,9 @@ window.addEventListener(
       unsubscribe();
     }
     for (const unsubscribe of [...remoteRuntimeUnsubscribers]) {
+      unsubscribe();
+    }
+    for (const unsubscribe of [...agentBrowserUnsubscribers]) {
       unsubscribe();
     }
     for (const unsubscribe of [...remoteHubUnsubscribers]) {

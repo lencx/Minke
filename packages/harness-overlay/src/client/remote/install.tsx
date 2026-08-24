@@ -1,4 +1,3 @@
-import type { ComponentType } from "react";
 import type {
   HarnessClientContext,
 } from "../core/context.ts";
@@ -18,9 +17,11 @@ import {
   RemoteSettingsSection,
 } from "./RemoteSettingsSection.tsx";
 import {
-  installRemoteNavigationIcon,
   installRemoteStyles,
 } from "./styles.ts";
+import type {
+  MinkeSettingsRuntime,
+} from "../minke-settings/index.ts";
 
 const REMOTE_NAMESPACE = "minke.remote";
 
@@ -32,6 +33,7 @@ export interface InstalledRemoteFeature {
 /** Register desktop-managed private remote access settings. */
 export function installRemote(
   ctx: HarnessClientContext,
+  settings: MinkeSettingsRuntime,
 ): InstalledRemoteFeature {
   const store = desktopRemoteSettingsStore();
 
@@ -62,24 +64,17 @@ export function installRemote(
   );
   if (store.available) {
     ctx.effect(
-      () => installRemoteNavigationIcon(() => remoteT("nav")),
-      "minke-overlay: remote navigation icon",
-    );
-    ctx.slots.inject("settings.section", () =>
-      ctx.slots.register(
-        {
-          name: "settings.section",
-          id: "minke-remote",
-          order: 5,
+      () =>
+        settings.register({
+          id: "remote",
+          order: 40,
           label: () => remoteT("nav"),
-          locale: REMOTE_NAMESPACE,
-          inject: () => ({
-            runtime,
-            t: remoteT,
-          }),
-        },
-        RemoteSettingsSection as ComponentType<never>,
-      ),
+          icon: "remote",
+          render: () => (
+            <RemoteSettingsSection runtime={runtime} t={remoteT} />
+          ),
+        }),
+      "minke-overlay: remote Minke Settings page",
     );
   }
   return Object.freeze({

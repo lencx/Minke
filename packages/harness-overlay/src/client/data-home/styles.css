@@ -1,15 +1,3 @@
-[data-minke-data-home-nav] > svg:first-child {
-  display: none;
-}
-[data-minke-data-home-nav]::before {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  background: currentColor;
-  content: "";
-  -webkit-mask: var(--minke-data-home-nav-icon) center / 16px 16px no-repeat;
-  mask: var(--minke-data-home-nav-icon) center / 16px 16px no-repeat;
-}
 .minke-data-home {
   display: flex;
   min-width: 0;

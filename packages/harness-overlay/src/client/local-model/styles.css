@@ -1,8 +1,8 @@
 [data-minke-local-model-settings] {
+  position: relative;
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
+  flex: none;
+  align-items: center;
   margin-right: 4px;
 }
 .minke-local-model-switch {
@@ -79,14 +79,33 @@
   opacity: 0.45;
 }
 .minke-local-model-switch__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+[data-minke-local-model-settings][data-error] {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+[data-minke-local-model-settings][data-error]
+  .minke-local-model-switch__status {
+  position: static;
+  width: auto;
+  height: auto;
   max-width: 180px;
-  color: var(--dsw-alias-label-tertiary);
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  color: var(--dsw-alias-state-error-primary);
   font-size: 10px;
   line-height: 14px;
   text-align: right;
-}
-.minke-local-model-switch__status[data-error] {
-  color: var(--dsw-alias-state-error-primary);
+  white-space: normal;
 }
 .minke-local-model-row {
   box-sizing: border-box;
@@ -174,6 +193,10 @@
   }
   .minke-local-model-row__actions {
     width: 100%;
+    flex-wrap: wrap;
     justify-content: flex-end;
+  }
+  [data-minke-local-model-settings] {
+    margin-right: 0;
   }
 }

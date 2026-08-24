@@ -1,4 +1,3 @@
-import type { ComponentType } from "react";
 import type {
   HarnessClientContext,
 } from "../core/context.ts";
@@ -11,17 +10,20 @@ import {
   dataHomeZh,
   DataHomeSettingsRuntime,
   DataHomeSettingsSection,
-  installDataHomeNavigationIcon,
   installDataHomeStyles,
   type DataHomeLocaleKey,
   type DataHomeTranslate,
 } from "./index.ts";
+import type {
+  MinkeSettingsRuntime,
+} from "../minke-settings/index.ts";
 
 const DATA_HOME_NAMESPACE = "minke.data-home";
 
 /** Register the desktop data-directory migration settings workflow. */
 export function installDataHome(
   ctx: HarnessClientContext,
+  settings: MinkeSettingsRuntime,
 ): void {
   const dataHomePort = desktopDataHomeSettingsPort();
   if (!shouldExposeDesktopDataHomeSettings()) return;
@@ -54,22 +56,19 @@ export function installDataHome(
     "minke-overlay: data-home styles",
   );
   ctx.effect(
-    () => installDataHomeNavigationIcon(() => dataHomeT("nav")),
-    "minke-overlay: data-home navigation icon",
-  );
-  ctx.slots.inject("settings.section", () =>
-    ctx.slots.register(
-      {
-        name: "settings.section",
-        id: "minke-data-home",
-        order: 4,
+    () =>
+      settings.register({
+        id: "data-home",
+        order: 30,
         label: () => dataHomeT("nav"),
-        locale: DATA_HOME_NAMESPACE,
-        inject: () => ({
-          runtime: dataHomeSettings,
-        }),
-      },
-      DataHomeSettingsSection as ComponentType<never>,
-    ),
+        icon: "data-home",
+        render: () => (
+          <DataHomeSettingsSection
+            runtime={dataHomeSettings}
+            t={dataHomeT}
+          />
+        ),
+      }),
+    "minke-overlay: data-home Minke Settings page",
   );
 }

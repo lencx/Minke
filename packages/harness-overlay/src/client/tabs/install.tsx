@@ -3,10 +3,12 @@ import type {
   HarnessClientContext,
 } from "../core/context.ts";
 import {
+  desktopAgentBrowserPort,
   desktopAppUpdateSettingsStore,
   desktopPluginInstallerPort,
   desktopSessionLogsPort,
   desktopTerminalSettingsStore,
+  desktopWebSearchSettingsStore,
 } from "../desktop/index.ts";
 import {
   minkeWorkspacePorts,
@@ -18,13 +20,28 @@ import {
 import {
   AppUpdateSettingsRuntime,
   PreferencesSection,
+  WebSearchSettingsRuntime,
   preferencesEn,
   preferencesZh,
-  installPreferencesNavigationIcon,
   installPreferencesSettingsStyles,
   type PreferencesLocaleKey,
   type PreferencesTranslate,
 } from "../preferences/index.ts";
+import type {
+  MinkeSettingsRuntime,
+} from "../minke-settings/index.ts";
+import {
+  agentBrowserTabsEn,
+  agentBrowserTabsZh,
+  AgentBrowserTabsController,
+  createAgentBrowserComposerBridge,
+  createAgentBrowserChatPort,
+  createAgentBrowserTabRenderer,
+  installAgentBrowserTabStyles,
+  type AgentBrowserComposerBridge,
+  type AgentBrowserTabsLocaleKey,
+  type AgentBrowserTabsTranslate,
+} from "./agent-browser/index.ts";
 import {
   installDetailsTabs,
   installDetailsTabStyles,
@@ -89,6 +106,8 @@ import {
 } from "./web/index.ts";
 
 const TABS_NAMESPACE = "minke.tabs";
+const AGENT_BROWSER_TABS_NAMESPACE =
+  "minke.tabs.agent-browser";
 const FILES_TABS_NAMESPACE = "minke.tabs.files";
 const WEB_TABS_NAMESPACE = "minke.tabs.web";
 const PLUGINS_NAMESPACE = "minke.tabs.plugins";
@@ -110,9 +129,11 @@ export type TabsRuntimes = Readonly<{
  */
 export function installTabs(
   ctx: HarnessClientContext,
+  settings: MinkeSettingsRuntime,
 ): TabsRuntimes | undefined {
   const workspacePorts = minkeWorkspacePorts(ctx.connection);
   const tabsPort = workspacePorts.tabs;
+  const agentBrowserPort = desktopAgentBrowserPort();
   const filesPort = workspacePorts.files;
   const terminalPort = workspacePorts.terminal;
   const pluginInstallerPort = desktopPluginInstallerPort();
@@ -123,12 +144,17 @@ export function installTabs(
   const terminalSettingsStore = desktopTerminalSettingsStore();
   const appUpdateSettingsStore =
     desktopAppUpdateSettingsStore();
+  const webSearchSettingsStore =
+    desktopWebSearchSettingsStore();
   const sessionLogsPort = desktopSessionLogsPort();
   const terminalSettings = new TerminalSettingsRuntime(
     terminalSettingsStore,
   );
   const appUpdateSettings = new AppUpdateSettingsRuntime(
     appUpdateSettingsStore,
+  );
+  const webSearchSettings = new WebSearchSettingsRuntime(
+    webSearchSettingsStore,
   );
   const codeThemes = new CodeThemeSettingsRuntime(
     filesPort,
@@ -167,12 +193,14 @@ export function installTabs(
       codeThemes.dispose();
       terminalSettings.dispose();
       appUpdateSettings.dispose();
+      webSearchSettings.dispose();
     },
     "minke-overlay: Personal preferences runtimes",
   );
   void codeThemes.initialize();
   void terminalSettings.initialize();
   void appUpdateSettings.initialize();
+  void webSearchSettings.initialize();
   const terminalT = ctx.locale.bind<TerminalTabsLocaleKey>(
     TERMINAL_TABS_NAMESPACE,
   ) as TerminalTabsTranslate;
@@ -192,7 +220,8 @@ export function installTabs(
   if (
     terminalSettingsStore.available ||
     filesPort.available ||
-    appUpdateSettingsStore.available
+    appUpdateSettingsStore.available ||
+    webSearchSettingsStore.available
   ) {
     ctx.effect(
       () =>
@@ -208,31 +237,34 @@ export function installTabs(
     );
     ctx.effect(
       () =>
-        installPreferencesNavigationIcon(() =>
-          preferencesT("preferences.nav")
-        ),
-      "minke-overlay: Personal preferences navigation icon",
-    );
-    ctx.slots.inject("settings.section", () =>
-      ctx.slots.register(
-        {
-          name: "settings.section",
-          id: "minke-preferences",
-          order: 6,
+        settings.register({
+          id: "preferences",
+          order: 0,
           label: () => preferencesT("preferences.nav"),
-          locale: PREFERENCES_NAMESPACE,
-          inject: () => ({
-            ...(terminalSettingsStore.available
-              ? { terminalSettings }
-              : {}),
-            ...(filesPort.available ? { codeThemes } : {}),
-            ...(appUpdateSettingsStore.available
-              ? { appUpdateSettings }
-              : {}),
-          }),
-        },
-        PreferencesSection as ComponentType<never>,
-      ),
+          icon: "preferences",
+          render: () => (
+            <PreferencesSection
+              t={preferencesT}
+              {...(
+                terminalSettingsStore.available
+                  ? { terminalSettings }
+                  : {}
+              )}
+              {...(filesPort.available ? { codeThemes } : {})}
+              {...(
+                appUpdateSettingsStore.available
+                  ? { appUpdateSettings }
+                  : {}
+              )}
+              {...(
+                webSearchSettingsStore.available
+                  ? { webSearchSettings }
+                  : {}
+              )}
+            />
+          ),
+        }),
+      "minke-overlay: Personal preferences Minke Settings page",
     );
   }
   if (tabsPort.available || sessionLogsPort.available) {
@@ -289,6 +321,20 @@ export function installTabs(
           en: webTabsEn,
         }),
       "minke-overlay: Web tab dictionaries",
+    );
+  }
+  if (agentBrowserPort.available) {
+    ctx.effect(
+      () =>
+        ctx.locale.register(AGENT_BROWSER_TABS_NAMESPACE, {
+          zh: agentBrowserTabsZh,
+          en: agentBrowserTabsEn,
+        }),
+      "minke-overlay: Agent Browser tab dictionaries",
+    );
+    ctx.effect(
+      () => installAgentBrowserTabStyles(),
+      "minke-overlay: Agent Browser tab styles",
     );
   }
   if (pluginLifecyclePort.available) {
@@ -455,6 +501,63 @@ export function installTabs(
     rightTabs,
     "right",
   );
+  const agentBrowserT =
+    ctx.locale.bind<AgentBrowserTabsLocaleKey>(
+      AGENT_BROWSER_TABS_NAMESPACE,
+    ) as AgentBrowserTabsTranslate;
+  const agentBrowserComposerCapability:
+    AgentBrowserComposerBridge =
+      createAgentBrowserComposerBridge(ctx.sessions);
+  if (
+    agentBrowserPort.available &&
+    ctx.inject !== undefined
+  ) {
+    ctx.inject(
+      ["conversation", "inputTriggers"],
+      (scope) => {
+        const conversation = scope.get("conversation");
+        const inputTriggers = scope.get("inputTriggers");
+        scope.effect(
+          () => (
+            agentBrowserComposerCapability.connect(
+              conversation,
+              inputTriggers,
+            )
+          ),
+          "minke-overlay: Agent Browser Chat composer bridge",
+        );
+      },
+    );
+  }
+  const agentBrowserTabs = agentBrowserPort.available
+    ? new AgentBrowserTabsController(
+        rightTabs,
+        agentBrowserPort,
+        {
+          chat: createAgentBrowserChatPort(
+            ctx.sessions,
+            agentBrowserComposerCapability,
+          ),
+        },
+      )
+    : undefined;
+  if (agentBrowserTabs !== undefined) {
+    ctx.effect(
+      () =>
+        rightWorkspace.renderers.register(
+          createAgentBrowserTabRenderer(
+            agentBrowserTabs,
+            agentBrowserT,
+          ),
+        ),
+      "minke-overlay: right Agent Browser renderer",
+    );
+    ctx.effect(
+      () => () => agentBrowserTabs.dispose(),
+      "minke-overlay: right Agent Browser controller",
+    );
+    void agentBrowserTabs.initialize();
+  }
   ctx.effect(
     () =>
       installDetailsTabs({

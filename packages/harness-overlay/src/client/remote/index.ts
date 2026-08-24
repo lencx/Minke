@@ -24,6 +24,5 @@ export {
   type RemoteSettingsSectionProps,
 } from "./RemoteSettingsSection.tsx";
 export {
-  installRemoteNavigationIcon,
   installRemoteStyles,
 } from "./styles.ts";

@@ -42,9 +42,13 @@ import type {
 import type {
   AppUpdateSettingsRuntime,
 } from "./app-update-runtime.ts";
+import type {
+  WebSearchSettingsRuntime,
+} from "./web-search-runtime.ts";
 
 export interface PreferencesSectionProps {
   appUpdateSettings?: AppUpdateSettingsRuntime;
+  webSearchSettings?: WebSearchSettingsRuntime;
   terminalSettings?: TerminalSettingsRuntime;
   codeThemes?: CodeThemeSettingsRuntime;
   t?: PreferencesTranslate;
@@ -53,6 +57,7 @@ export interface PreferencesSectionProps {
 /** One settings section for personal editor and Terminal preferences. */
 export function PreferencesSection({
   appUpdateSettings,
+  webSearchSettings,
   terminalSettings,
   codeThemes,
   t,
@@ -61,6 +66,7 @@ export function PreferencesSection({
     t === undefined ||
     (
       appUpdateSettings === undefined &&
+      webSearchSettings === undefined &&
       terminalSettings === undefined &&
       codeThemes === undefined
     )
@@ -101,12 +107,88 @@ export function PreferencesSection({
           t={t}
         />
       )}
+      {webSearchSettings !== undefined && (
+        <WebSearchPreferences
+          runtime={webSearchSettings}
+          t={t}
+        />
+      )}
       {appUpdateSettings !== undefined && (
         <AppUpdatePreferences
           runtime={appUpdateSettings}
           t={t}
         />
       )}
+    </section>
+  );
+}
+
+function WebSearchPreferences({
+  runtime,
+  t,
+}: {
+  readonly runtime: WebSearchSettingsRuntime;
+  readonly t: PreferencesTranslate;
+}): ReactNode {
+  const snapshot = useSyncExternalStore(
+    runtime.subscribe,
+    runtime.getSnapshot,
+    runtime.getSnapshot,
+  );
+  const helpId = "minke-web-search-fallback-help";
+  return (
+    <section
+      className="minke-preferences__group"
+      aria-labelledby="minke-web-search-settings-title"
+      data-minke-web-search-settings
+    >
+      <div className="minke-preferences__group-heading">
+        <h3 id="minke-web-search-settings-title">
+          {t("preferences.webSearch.title")}
+        </h3>
+        <p>{t("preferences.webSearch.description")}</p>
+        {snapshot.error !== undefined && (
+          <p className="minke-preferences__error" role="alert">
+            {t(
+              `preferences.webSearch.error.${snapshot.error}`,
+            )}
+          </p>
+        )}
+      </div>
+      <div className="minke-preferences__fields">
+        <label className="minke-preferences__row">
+          <span className="minke-preferences__copy">
+            <span className="minke-preferences__label">
+              {t("preferences.webSearch.fallback.label")}
+            </span>
+            <span
+              id={helpId}
+              className="minke-preferences__help"
+            >
+              {t("preferences.webSearch.fallback.help")}
+            </span>
+          </span>
+          <span className="minke-preferences__control">
+            <span className="minke-preferences__switch">
+              <input
+                type="checkbox"
+                checked={snapshot.settings.fallbackEnabled}
+                disabled={!snapshot.editable}
+                aria-label={t(
+                  "preferences.webSearch.fallback.label",
+                )}
+                aria-describedby={helpId}
+                onChange={(event) => {
+                  runtime.setFallbackEnabled(
+                    event.currentTarget.checked,
+                  );
+                }}
+              />
+              <span aria-hidden="true" />
+            </span>
+          </span>
+        </label>
+      </div>
     </section>
   );
 }

@@ -9,6 +9,13 @@ export type {
   AppUpdateSettingsSnapshot,
 } from "./app-update-runtime.ts";
 export {
+  WebSearchSettingsRuntime,
+} from "./web-search-runtime.ts";
+export type {
+  WebSearchSettingsErrorKind,
+  WebSearchSettingsSnapshot,
+} from "./web-search-runtime.ts";
+export {
   preferencesEn,
   preferencesZh,
 } from "./locales.ts";
@@ -17,8 +24,6 @@ export type {
   PreferencesTranslate,
 } from "./locales.ts";
 export {
-  installPreferencesNavigationIcon,
   installPreferencesSettingsStyles,
   PREFERENCES_SETTINGS_STYLES,
-  reconcilePreferencesNavigationIcon,
 } from "./styles.ts";

@@ -125,6 +125,20 @@ test("GitHub Actions packages each supported desktop platform", async () => {
     source,
     /name:\s*Make distributables\s*\n\s*env:\s*\n\s*TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*TMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*SQUIRREL_TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*run:\s*pnpm make/u,
   );
+  const makeIndex = source.indexOf("run: pnpm make");
+  const agentBrowserTestIndex = source.indexOf(
+    "run: pnpm test:desktop:agent-browser-conversation:prepared",
+  );
+  const artifactUploadIndex = source.indexOf(
+    "uses: actions/upload-artifact@",
+  );
+  assert.notEqual(agentBrowserTestIndex, -1);
+  assert.ok(makeIndex < agentBrowserTestIndex);
+  assert.ok(agentBrowserTestIndex < artifactUploadIndex);
+  assert.match(
+    source,
+    /name:\s*Test Agent Browser conversation\s*\n\s*if:\s*matrix\.platform == 'darwin' && matrix\.arch == 'arm64'\s*\n\s*run:\s*pnpm test:desktop:agent-browser-conversation:prepared/u,
+  );
 
   assert.match(
     source,

@@ -1,7 +1,8 @@
 export const localModelZh = {
   modelsTitle: "模型",
   autoStart: "自动启动",
-  restartRequired: "下次启动 Minke 时生效",
+  restartRequired: "立即生效",
+  applying: "正在应用…",
   localTag: "本地",
   customTag: "自定义",
   noModels: "尚未检测到模型",
@@ -19,8 +20,8 @@ export const localModelZh = {
   optionalToken: "可选 API Token",
   optionalTokenPlaceholder: "仅在本地服务启用鉴权时填写",
   optionalTokenHint: "本地服务通常无需 Token；仅在服务已启用鉴权时填写。",
-  readError: "无法读取自动启动设置。",
-  writeError: "无法保存自动启动设置。",
+  readError: "无法读取自动启动设置；重新打开“模型”设置以重试。",
+  writeError: "无法应用自动启动设置。",
 } as const;
 
 export type LocalModelLocaleKey = keyof typeof localModelZh;
@@ -31,7 +32,8 @@ export const localModelEn: Record<
 > = {
   modelsTitle: "Models",
   autoStart: "Auto-start",
-  restartRequired: "Applies next launch",
+  restartRequired: "Applies immediately",
+  applying: "Applying…",
   localTag: "Local",
   customTag: "Custom",
   noModels: "No models detected",
@@ -52,8 +54,8 @@ export const localModelEn: Record<
     "Use only when local authentication is enabled",
   optionalTokenHint:
     "Usually unnecessary for a local service; use only when authentication is enabled.",
-  readError: "Could not read auto-start settings.",
-  writeError: "Could not save auto-start settings.",
+  readError: "Could not read auto-start settings. Reopen Models to retry.",
+  writeError: "Could not apply auto-start settings.",
 };
 
 export type LocalModelTranslate = (

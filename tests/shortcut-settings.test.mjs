@@ -96,6 +96,12 @@ test("the desktop store writes the shared Minke config", async () => {
       safeMode: false,
       disabledPlugins: [],
     },
+    webSearch: {
+      fallbackEnabled: true,
+    },
+    telegramNetwork: {
+      httpProxyUrl: "",
+    },
     appUpdate: {
       autoDownload: true,
     },

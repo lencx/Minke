@@ -8,9 +8,6 @@ import type {
 import type {
   LocalModelSettingsRuntime,
 } from "./runtime.ts";
-import {
-  installLocalModelSettingsStyles,
-} from "./styles.ts";
 
 const MARKER = "data-minke-local-model-settings";
 const LOCAL_TAG_MARKER = "data-minke-local-model-tag";
@@ -50,8 +47,26 @@ interface SyntheticRowElements {
 type LocalModelRuntimeDescriptor =
   (typeof LOCAL_MODEL_RUNTIMES)[number];
 
+interface PendingConfigureIntent {
+  descriptor: LocalModelRuntimeDescriptor;
+  section: HTMLElement;
+  target: HTMLButtonElement;
+  transitionHost: HTMLElement;
+  knownRoutes: ReadonlySet<HTMLInputElement>;
+}
+
 function setText(element: HTMLElement, text: string): void {
   if (element.textContent !== text) element.textContent = text;
+}
+
+function setAttribute(
+  element: Element,
+  name: string,
+  value: string,
+): void {
+  if (element.getAttribute(name) !== value) {
+    element.setAttribute(name, value);
+  }
 }
 
 function providerEditButton(
@@ -109,6 +124,39 @@ function customProviderButton(
         "minke-local-model-row__configure",
       ),
   );
+}
+
+function customProviderRoutes(
+  container: ParentNode,
+  t: LocalModelTranslate,
+): HTMLInputElement[] {
+  return [...container.querySelectorAll<HTMLInputElement>("input")]
+    .filter((candidate) =>
+      candidate.getAttribute("aria-label") === t("customRoute")
+    );
+}
+
+function customProviderCard(
+  route: HTMLInputElement,
+): HTMLElement | undefined {
+  return route.parentElement?.parentElement ?? undefined;
+}
+
+function configureTransitionHost(
+  section: HTMLElement,
+  target: HTMLButtonElement,
+): HTMLElement {
+  let candidate = target.parentElement;
+  if (candidate === null || candidate === section) return section;
+  while (
+    candidate.parentElement !== null &&
+    candidate.parentElement !== section
+  ) {
+    candidate = candidate.parentElement;
+  }
+  return candidate.parentElement === section
+    ? candidate
+    : section;
 }
 
 function ownText(
@@ -173,7 +221,7 @@ function decorateOptionalToken(
       token.getAttribute("aria-label") ?? "",
     );
   }
-  token.setAttribute("aria-label", t("optionalToken"));
+  setAttribute(token, "aria-label", t("optionalToken"));
   if (!token.hasAttribute(ORIGINAL_PLACEHOLDER_MARKER)) {
     token.setAttribute(
       ORIGINAL_PLACEHOLDER_MARKER,
@@ -301,18 +349,13 @@ function setControlledValue(
 }
 
 function prepareLocalConfigureCard(
-  section: HTMLElement,
+  card: HTMLElement,
   descriptor: LocalModelRuntimeDescriptor,
   t: LocalModelTranslate,
   root: Document,
 ): boolean {
-  const route = [...section.querySelectorAll<HTMLInputElement>("input")]
-    .find((candidate) =>
-      candidate.getAttribute("aria-label") === t("customRoute")
-    );
+  const route = customProviderRoutes(card, t)[0];
   if (route === undefined) return false;
-  const card = route.parentElement?.parentElement;
-  if (card === undefined || card === null) return false;
   if (!card.hasAttribute(LOCAL_CONFIGURE_CARD_MARKER)) {
     card.setAttribute(
       LOCAL_CONFIGURE_CARD_MARKER,
@@ -473,7 +516,9 @@ function createSwitch(
   track.append(thumb);
   const status = root.createElement("span");
   status.className = "minke-local-model-switch__status";
+  status.id = `minke-local-model-${id}-status`;
   status.setAttribute("aria-live", "polite");
+  input.setAttribute("aria-describedby", status.id);
   control.append(label, input, track);
   container.append(control, status);
   input.addEventListener("change", () => {
@@ -498,7 +543,7 @@ function createSyntheticRow(
   id: LocalModelRuntimeId,
   runtimeName: string,
   findConfigureTarget: () => HTMLButtonElement | undefined,
-  onConfigure: () => void,
+  onConfigure: (target: HTMLButtonElement) => void,
 ): SyntheticRowElements {
   const row = root.createElement("li");
   row.className = "minke-local-model-row";
@@ -523,8 +568,7 @@ function createSyntheticRow(
   configure.addEventListener("click", () => {
     const target = findConfigureTarget();
     if (target === undefined || target.disabled) return;
-    onConfigure();
-    target.click();
+    onConfigure(target);
   });
   actions.append(configure);
   row.append(identity, actions);
@@ -552,7 +596,6 @@ export function installLocalModelSettings(
   if (view === null || root.documentElement === null) {
     return () => {};
   }
-  const disposeStyles = installLocalModelSettingsStyles(root);
   const controls = new Map<
     LocalModelRuntimeId,
     SwitchElements
@@ -561,7 +604,9 @@ export function installLocalModelSettings(
     LocalModelRuntimeId,
     SyntheticRowElements
   >();
-  let pendingConfigure: LocalModelRuntimeId | undefined;
+  let pendingConfigure: PendingConfigureIntent | undefined;
+  let forwardedConfigureTarget: HTMLButtonElement | undefined;
+  let readRetrySection: HTMLElement | undefined;
   let frame: number | undefined;
   let disposed = false;
 
@@ -572,20 +617,58 @@ export function installLocalModelSettings(
     const section = modelsSection(root, t);
     const list =
       section === undefined ? undefined : providerList(section);
-    if (section !== undefined && pendingConfigure !== undefined) {
-      const descriptor = LOCAL_MODEL_RUNTIMES.find(
-        ({ id }) => id === pendingConfigure,
-      );
+    if (section === undefined) {
+      readRetrySection = undefined;
+    } else if (
+      snapshot.error === "read" &&
+      readRetrySection !== section
+    ) {
+      readRetrySection = section;
+      void runtime.retry();
+    } else if (snapshot.error !== "read") {
+      readRetrySection = undefined;
+    }
+    const intent = pendingConfigure;
+    if (intent !== undefined) {
       if (
-        descriptor !== undefined &&
-        prepareLocalConfigureCard(
-          section,
-          descriptor,
-          t,
-          root,
-        )
+        section !== intent.section ||
+        !intent.section.isConnected ||
+        !intent.transitionHost.isConnected ||
+        !intent.section.contains(intent.transitionHost)
       ) {
         pendingConfigure = undefined;
+      } else {
+        const candidateRoutes = customProviderRoutes(
+          intent.section,
+          t,
+        ).filter((route) => !intent.knownRoutes.has(route));
+        const candidateCards = [
+          ...new Set(
+            candidateRoutes
+              .map(customProviderCard)
+              .filter((card) => card !== undefined),
+          ),
+        ];
+        if (candidateRoutes.length > 1 || candidateCards.length > 1) {
+          pendingConfigure = undefined;
+        } else if (
+          candidateRoutes.length === 1 &&
+          candidateCards.length === 1 &&
+          prepareLocalConfigureCard(
+            candidateCards[0],
+            intent.descriptor,
+            t,
+            root,
+          )
+        ) {
+          pendingConfigure = undefined;
+        } else if (
+          candidateRoutes.length === 0 &&
+          !intent.target.isConnected &&
+          customProviderButton(intent.section, t) !== undefined
+        ) {
+          pendingConfigure = undefined;
+        }
       }
     }
     for (const descriptor of LOCAL_MODEL_RUNTIMES) {
@@ -607,12 +690,41 @@ export function installLocalModelSettings(
             root,
             descriptor.id,
             descriptor.displayName,
-            () =>
-              section === undefined
-                ? undefined
-                : customProviderButton(section, t),
             () => {
-              pendingConfigure = descriptor.id;
+              const currentSection = modelsSection(root, t);
+              return currentSection === undefined
+                ? undefined
+                : customProviderButton(currentSection, t);
+            },
+            (target) => {
+              const currentSection = modelsSection(root, t);
+              if (
+                currentSection === undefined ||
+                customProviderButton(currentSection, t) !== target
+              ) {
+                pendingConfigure = undefined;
+                return;
+              }
+              pendingConfigure = {
+                descriptor,
+                section: currentSection,
+                target,
+                transitionHost: configureTransitionHost(
+                  currentSection,
+                  target,
+                ),
+                knownRoutes: new Set(
+                  customProviderRoutes(currentSection, t),
+                ),
+              };
+              forwardedConfigureTarget = target;
+              try {
+                target.click();
+              } finally {
+                if (forwardedConfigureTarget === target) {
+                  forwardedConfigureTarget = undefined;
+                }
+              }
             },
           );
           syntheticRows.set(descriptor.id, synthetic);
@@ -630,25 +742,24 @@ export function installLocalModelSettings(
         );
         setText(synthetic.configure, t("configure"));
         const configureTarget = customProviderButton(section, t);
-        synthetic.configure.disabled =
+        const configureDisabled =
           configureTarget === undefined || configureTarget.disabled;
-        synthetic.configure.setAttribute(
+        if (synthetic.configure.disabled !== configureDisabled) {
+          synthetic.configure.disabled = configureDisabled;
+        }
+        setAttribute(
+          synthetic.configure,
           "aria-label",
           `${t("configure")} ${descriptor.displayName}`,
         );
       } else {
         synthetic?.row.remove();
       }
-      if (!snapshot.available[descriptor.id]) {
-        elements?.container.remove();
-        continue;
-      }
       if (elements === undefined) {
         elements = createSwitch(root, descriptor.id, runtime);
         controls.set(descriptor.id, elements);
       }
-      const controlHost =
-        actions ?? synthetic?.actions;
+      const controlHost = actions ?? synthetic?.actions;
       if (controlHost === undefined) {
         elements.container.remove();
         continue;
@@ -660,24 +771,38 @@ export function installLocalModelSettings(
         );
       }
       const autoStart = t("autoStart");
+      const available = snapshot.available[descriptor.id];
+      const error = snapshot.error;
+      const status = error === "read"
+        ? t("readError")
+        : error === "write"
+          ? t("writeError")
+          : snapshot.applying
+            ? t("applying")
+            : available
+              ? t("restartRequired")
+              : t("commandNotFound");
       setText(elements.label, autoStart);
+      setText(elements.status, status);
       elements.input.checked =
         snapshot.settings[descriptor.id].enabled;
-      elements.input.disabled = !snapshot.editable;
-      const accessibleName =
-        `${descriptor.displayName}: ${autoStart}`;
-      elements.input.setAttribute("aria-label", accessibleName);
-      elements.control.title = t("restartRequired");
-      const error = snapshot.error;
-      setText(
-        elements.status,
-        error === "read"
-          ? t("readError")
-          : error === "write"
-            ? t("writeError")
-            : t("restartRequired"),
+      const inputDisabled =
+        !snapshot.editable || !available || snapshot.applying;
+      if (elements.input.disabled !== inputDisabled) {
+        elements.input.disabled = inputDisabled;
+      }
+      setAttribute(
+        elements.input,
+        "aria-busy",
+        snapshot.applying ? "true" : "false",
       );
-      elements.status.toggleAttribute(
+      setAttribute(
+        elements.input,
+        "aria-label",
+        `${descriptor.displayName}: ${autoStart}`,
+      );
+      elements.control.title = status;
+      elements.container.toggleAttribute(
         "data-error",
         error === "read" || error === "write",
       );
@@ -687,14 +812,71 @@ export function installLocalModelSettings(
     if (disposed || frame !== undefined) return;
     frame = view.requestAnimationFrame(reconcile);
   };
-  const observer = new view.MutationObserver(schedule);
+  const onClick = (event: Event): void => {
+    const eventTarget = event.target;
+    if (!(eventTarget instanceof view.Element)) return;
+    const button = eventTarget.closest("button");
+    if (!(button instanceof view.HTMLButtonElement)) return;
+    const section = modelsSection(root, t);
+    if (
+      section !== undefined &&
+      customProviderButton(section, t) === button &&
+      forwardedConfigureTarget !== button
+    ) {
+      pendingConfigure = undefined;
+    }
+  };
+  const removedNodeInvalidatesIntent = (
+    node: Node,
+    intent: PendingConfigureIntent,
+  ): boolean => {
+    if (
+      node === intent.section ||
+      node === intent.transitionHost
+    ) {
+      return true;
+    }
+    if (!(node instanceof view.Element)) return false;
+    if (
+      node.contains(intent.section) ||
+      node.contains(intent.transitionHost)
+    ) {
+      return true;
+    }
+    const removedRoutes = [
+      ...(node instanceof view.HTMLInputElement &&
+          node.getAttribute("aria-label") === t("customRoute")
+        ? [node]
+        : []),
+      ...customProviderRoutes(node, t),
+    ];
+    return removedRoutes.some(
+      (route) => !intent.knownRoutes.has(route),
+    );
+  };
+  const observer = new view.MutationObserver((records) => {
+    const intent = pendingConfigure;
+    if (
+      intent !== undefined &&
+      records.some((record) =>
+        record.type === "childList" &&
+        [...record.removedNodes].some((node) =>
+          removedNodeInvalidatesIntent(node, intent)
+        )
+      )
+    ) {
+      pendingConfigure = undefined;
+    }
+    schedule();
+  });
   observer.observe(root.documentElement, {
     attributes: true,
-    attributeFilter: ["aria-label"],
+    attributeFilter: ["aria-label", "disabled"],
     childList: true,
     characterData: true,
     subtree: true,
   });
+  root.addEventListener("click", onClick, true);
   const unsubscribe = runtime.subscribe(schedule);
   schedule();
 
@@ -702,6 +884,7 @@ export function installLocalModelSettings(
     if (disposed) return;
     disposed = true;
     observer.disconnect();
+    root.removeEventListener("click", onClick, true);
     unsubscribe();
     if (frame !== undefined) {
       view.cancelAnimationFrame(frame);
@@ -716,6 +899,5 @@ export function installLocalModelSettings(
     }
     syntheticRows.clear();
     restoreLocalProviderDecorations(root);
-    disposeStyles();
   };
 }

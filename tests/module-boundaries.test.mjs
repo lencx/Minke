@@ -38,6 +38,9 @@ const sourceExtensions = new Set([
   ".cjs",
 ]);
 const desktopOverlayContracts = new Set([
+  "@minke/harness-overlay/agent-browser-annotation-contract",
+  "@minke/harness-overlay/agent-browser-contract",
+  "@minke/harness-overlay/agent-turn-contract",
   "@minke/harness-overlay/app-update-contract",
   "@minke/harness-overlay/host/file-manager",
   "@minke/harness-overlay/session-export-contract",
@@ -50,6 +53,7 @@ const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/tabs/terminal-contract",
   "@minke/harness-overlay/terminal-settings-contract",
   "@minke/harness-overlay/trusted-host-control-contract",
+  "@minke/harness-overlay/web-search-settings-contract",
 ]);
 const privateDesktopMainModules = [
   {

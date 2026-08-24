@@ -21,6 +21,9 @@ import {
 import type {
   TabsRuntimes,
 } from "../tabs/install.tsx";
+import type {
+  MinkeSettingsRuntime,
+} from "../minke-settings/index.ts";
 import {
   hasOpenModalSurface,
   openHarnessSettings,
@@ -38,9 +41,10 @@ import {
 } from "./projection.ts";
 import { ShortcutRuntime } from "./runtime.ts";
 import { SessionNavigationHistory } from "./session-navigation.ts";
-import { ShortcutSection } from "./ShortcutSection.tsx";
 import {
-  installShortcutNavigationIcon,
+  ShortcutSettingsPage,
+} from "./ShortcutSection.tsx";
+import {
   installShortcutStyles,
 } from "./styles.ts";
 
@@ -51,6 +55,7 @@ const PALETTE_NAMESPACE = "minke.palette";
 export function installShortcuts(
   ctx: HarnessClientContext,
   tabsRuntimes: TabsRuntimes | undefined,
+  settings: MinkeSettingsRuntime,
 ): void {
   ctx.effect(
     () =>
@@ -67,11 +72,6 @@ export function installShortcuts(
   const t = ctx.locale.bind<ShortcutLocaleKey>(
     SHORTCUTS_NAMESPACE,
   ) as ShortcutTranslate;
-  ctx.effect(
-    () => installShortcutNavigationIcon(() => t("nav")),
-    "minke-overlay: shortcut navigation icon",
-  );
-
   const shortcutStore = desktopShortcutStore();
   const sessionLogsPort = desktopSessionLogsPort();
   const runtime = new ShortcutRuntime(shortcutStore);
@@ -432,22 +432,24 @@ export function installShortcuts(
 
   const source: Observable<ShortcutSectionState> =
     createShortcutSectionSource(runtime, ctx.locale);
-  ctx.slots.inject("settings.section", () =>
-    ctx.slots.register(
-      {
-        name: "settings.section",
-        id: "minke-shortcuts",
-        order: 5,
+  ctx.effect(
+    () =>
+      settings.register({
+        id: "shortcuts",
+        order: 20,
         label: () => t("nav"),
-        locale: SHORTCUTS_NAMESPACE,
-        inject: () => ({
-          hooks: { shortcuts: source },
-          platform: runtime.platform,
-          setBinding: runtime.setBinding.bind(runtime),
-          resetBinding: runtime.resetBinding.bind(runtime),
-        }),
-      },
-      ShortcutSection as ComponentType<never>,
-    ),
+        icon: "shortcuts",
+        keepAlive: false,
+        render: () => (
+          <ShortcutSettingsPage
+            source={source}
+            platform={runtime.platform}
+            setBinding={runtime.setBinding.bind(runtime)}
+            resetBinding={runtime.resetBinding.bind(runtime)}
+            t={t}
+          />
+        ),
+      }),
+    "minke-overlay: shortcuts Minke Settings page",
   );
 }

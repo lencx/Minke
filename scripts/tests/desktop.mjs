@@ -12,6 +12,9 @@ const projectRoot = resolve(
 
 const taskFiles = Object.freeze({
   core: Object.freeze([
+    "agent-browser-cdp-annotation.test.mjs",
+    "agent-browser-main.test.mjs",
+    "agent-browser-process-channel.test.mjs",
     "app-data-paths.test.mjs",
     "app-update-settings.test.mjs",
     "app-update.test.mjs",
@@ -33,6 +36,8 @@ const taskFiles = Object.freeze({
     "sys-native-module.test.mjs",
   ]),
   harness: Object.freeze([
+    "agent-browser-contract.test.mjs",
+    "agent-browser-tools.test.mjs",
     "harness-boot-manifest.test.mjs",
     "harness-contract.test.mjs",
     "harness-launch.test.mjs",
@@ -43,14 +48,19 @@ const taskFiles = Object.freeze({
     "harness-source-boundary.test.mjs",
     "module-boundaries.test.mjs",
     "path-aliases.test.mjs",
+    "web-search.test.mjs",
   ]),
   ui: Object.freeze([
+    "agent-browser-annotations.test.mjs",
+    "agent-browser-chat.test.mjs",
+    "agent-browser-tabs.test.mjs",
     "bootstrap-theme.test.mjs",
     "client-actions.test.mjs",
     "command-palette.test.mjs",
     "data-home-settings.test.mjs",
     "macos-window-css.test.mjs",
     "mobile-web-viewport.test.mjs",
+    "minke-settings.test.mjs",
     "plugin-catalog.test.mjs",
     "pwa.test.mjs",
     "session-export.test.mjs",
@@ -65,6 +75,7 @@ const taskFiles = Object.freeze({
     "tabs.test.mjs",
     "terminal-settings.test.mjs",
     "terminal-tabs.test.mjs",
+    "web-search-settings.test.mjs",
     "window-theme.test.mjs",
   ]),
   host: Object.freeze([

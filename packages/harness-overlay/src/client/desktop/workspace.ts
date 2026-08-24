@@ -2,6 +2,22 @@ import {
   parseInstalledPluginsSnapshot,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
+  parseAgentBrowserControlRequest,
+  parseAgentBrowserProjection,
+  parseAgentBrowserProjections,
+  parseAgentBrowserSessionId,
+} from "@minke/harness-overlay/agent-browser-contract.ts";
+import {
+  parseAgentBrowserAnnotationCommitRequest,
+  parseAgentBrowserAnnotationCommitResult,
+  parseAgentBrowserAnnotationEvent,
+  parseAgentBrowserAnnotationRefreshRequest,
+  parseAgentBrowserAnnotationRefreshResult,
+  parseAgentBrowserAnnotationSession,
+  parseAgentBrowserAnnotationStartRequest,
+  parseAgentBrowserAnnotationStopRequest,
+} from "@minke/harness-overlay/agent-browser-annotation-contract.ts";
+import {
   parseSessionLogExportId,
 } from "@minke/harness-overlay/session-export-contract.ts";
 import {
@@ -33,12 +49,119 @@ import {
 } from "@minke/harness-overlay/tabs/terminal-contract.ts";
 import type {
   DesktopBridgeWindow,
+  DesktopAgentBrowserPort,
   DesktopFilesPort,
   PluginInstallerPort,
   DesktopSessionLogsPort,
   DesktopTabsPort,
   DesktopTerminalPort,
 } from "./contracts.ts";
+
+/** Adapt main-owned Agent Browser sessions to the Tabs projection. */
+export function desktopAgentBrowserPort(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): DesktopAgentBrowserPort {
+  const bridge = source.minkeDesktop?.agentBrowser;
+  if (bridge === undefined) {
+    return {
+      available: false,
+      async read() {
+        return [];
+      },
+      async setControl() {
+        throw new Error(
+          "Minke desktop Agent Browser bridge is unavailable",
+        );
+      },
+      async startAnnotation() {
+        throw new Error(
+          "Minke desktop Agent Browser bridge is unavailable",
+        );
+      },
+      async stopAnnotation() {},
+      async refreshAnnotation() {
+        throw new Error(
+          "Minke desktop Agent Browser bridge is unavailable",
+        );
+      },
+      async commitAnnotation() {
+        throw new Error(
+          "Minke desktop Agent Browser bridge is unavailable",
+        );
+      },
+      close() {},
+      subscribe() {
+        return () => {};
+      },
+      subscribeAnnotationEvents() {
+        return () => {};
+      },
+    };
+  }
+  return {
+    available: true,
+    async read() {
+      return parseAgentBrowserProjections(await bridge.read());
+    },
+    async setControl(sessionId, owner) {
+      const request = parseAgentBrowserControlRequest({
+        sessionId,
+        owner,
+      });
+      return parseAgentBrowserProjection(
+        await bridge.setControl(request.sessionId, request.owner),
+      );
+    },
+    async startAnnotation(sessionId) {
+      const request = parseAgentBrowserAnnotationStartRequest({
+        sessionId,
+      });
+      return parseAgentBrowserAnnotationSession(
+        await bridge.startAnnotation(request.sessionId),
+      );
+    },
+    async stopAnnotation(request) {
+      await bridge.stopAnnotation(
+        parseAgentBrowserAnnotationStopRequest(request),
+      );
+    },
+    async refreshAnnotation(request) {
+      return parseAgentBrowserAnnotationRefreshResult(
+        await bridge.refreshAnnotation(
+          parseAgentBrowserAnnotationRefreshRequest(request),
+        ),
+      );
+    },
+    async commitAnnotation(request) {
+      const parsed = parseAgentBrowserAnnotationCommitRequest(request);
+      return parseAgentBrowserAnnotationCommitResult(
+        await bridge.commitAnnotation(parsed),
+      );
+    },
+    close(sessionId) {
+      bridge.close(parseAgentBrowserSessionId(sessionId));
+    },
+    subscribe(listener) {
+      return bridge.subscribe((value) => {
+        try {
+          listener(parseAgentBrowserProjections(value));
+        } catch {
+          // Ignore malformed main-process projections.
+        }
+      });
+    },
+    subscribeAnnotationEvents(listener) {
+      return bridge.subscribeAnnotationEvents((value) => {
+        try {
+          listener(parseAgentBrowserAnnotationEvent(value));
+        } catch {
+          // Ignore malformed annotation traffic from main.
+        }
+      });
+    },
+  };
+}
 
 /** Adapt plugin management exposed by the isolated preload. */
 export function desktopPluginInstallerPort(

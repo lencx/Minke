@@ -6,6 +6,7 @@ import {
 } from "../desktop/index.ts";
 import {
   installLocalModelSettings,
+  installLocalModelSettingsStyles,
   localModelEn,
   localModelZh,
   LocalModelSettingsRuntime,
@@ -37,6 +38,10 @@ export function installLocalModel(
   const localModelT = ctx.locale.bind<LocalModelLocaleKey>(
     LOCAL_MODEL_NAMESPACE,
   ) as LocalModelTranslate;
+  ctx.effect(
+    () => installLocalModelSettingsStyles(),
+    "minke-overlay: local model settings styles",
+  );
   ctx.effect(
     () => {
       let active = true;

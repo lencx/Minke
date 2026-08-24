@@ -62,6 +62,9 @@ import {
   secureTabWebview,
 } from "./security.ts";
 import type {
+  AgentBrowserRuntime,
+} from "../agent-browser";
+import type {
   ExternalPathOpener,
   ExternalTabOpener,
   TabsAuthorization,
@@ -71,6 +74,9 @@ import {
   loadTerminalPty,
   TerminalSessionRuntime,
 } from "./terminal.ts";
+import {
+  environmentValue,
+} from "../../../config/embedded-node-runtime.mts";
 
 interface TabsBindingOptions {
   readonly runtimeRoot: string;
@@ -79,6 +85,7 @@ interface TabsBindingOptions {
   readonly fileSystemRoot: string;
   readonly minkeConfigPath: string;
   readonly environment: NodeJS.ProcessEnv;
+  readonly agentBrowser: AgentBrowserRuntime;
 }
 
 async function resolveTerminalCwd(candidate: string): Promise<string> {
@@ -92,18 +99,25 @@ async function resolveTerminalCwd(candidate: string): Promise<string> {
   return candidate;
 }
 
-function defaultTerminalShell(): {
+export function defaultTerminalShell(
+  environment: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): {
   shell: string;
   args: readonly string[];
 } {
-  if (process.platform === "win32") {
+  if (platform === "win32") {
     return {
-      shell: process.env.COMSPEC ?? "cmd.exe",
+      shell:
+        environmentValue(environment, "COMSPEC") ??
+        "cmd.exe",
       args: [],
     };
   }
   return {
-    shell: process.env.SHELL ?? "/bin/zsh",
+    shell:
+      environmentValue(environment, "SHELL") ??
+      (platform === "darwin" ? "/bin/zsh" : "/bin/sh"),
     args: ["-l"],
   };
 }
@@ -122,7 +136,9 @@ export function bindTabs(
   authorize: TabsAuthorization,
   options: TabsBindingOptions,
 ): TabsBinding {
-  const terminalShell = defaultTerminalShell();
+  const terminalShell = defaultTerminalShell(
+    options.environment,
+  );
   const terminal = new TerminalSessionRuntime({
     pty: loadTerminalPty(options.runtimeRoot),
     shell: terminalShell.shell,
@@ -155,11 +171,27 @@ export function bindTabs(
       }
     },
   });
+  const agentBrowserProjection =
+    options.agentBrowser.bindWindowProjection(
+      ipc,
+      embedder,
+      authorize,
+    );
   const handleWillAttach = (
     event: Electron.Event,
     webPreferences: WebPreferences,
     params: Record<string, string>,
   ): void => {
+    const agentBrowserDecision =
+      options.agentBrowser.secureWebview(
+        webPreferences,
+        params,
+      );
+    if (agentBrowserDecision === "secured") return;
+    if (agentBrowserDecision === "rejected") {
+      event.preventDefault();
+      return;
+    }
     if (!secureTabWebview(webPreferences, params)) {
       event.preventDefault();
     }
@@ -168,6 +200,9 @@ export function bindTabs(
     _event: Electron.Event,
     guest: WebContents,
   ): void => {
+    if (options.agentBrowser.attachGuest(embedder, guest)) {
+      return;
+    }
     protectTabWebviewGuest(guest, external);
   };
   const handleOpenExternal = (
@@ -407,6 +442,7 @@ export function bindTabs(
         TABS_FILES_UNWATCH_CHANNEL,
         handleFilesUnwatch,
       );
+      agentBrowserProjection.dispose();
       fileWatch.dispose();
       void terminal.dispose();
     },
