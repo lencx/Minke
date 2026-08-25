@@ -212,13 +212,17 @@ async function collectTestFiles(directory) {
   return files.sort();
 }
 
+export function portableRepositoryPath(path) {
+  return path.replaceAll("\\", "/");
+}
+
 export async function auditRepositorySourceTextAssertions(
   root = projectRoot,
 ) {
   const counts = {};
   const findings = [];
   for (const file of await collectTestFiles(join(root, "tests"))) {
-    const name = relative(root, file);
+    const name = portableRepositoryPath(relative(root, file));
     const fileFindings = auditSourceTextAssertions(
       await readFile(file, "utf8"),
       name,

@@ -5,6 +5,7 @@ import {
   auditRepositorySourceTextAssertions,
   auditSourceTextAssertions,
   compareSourceAssertionBaseline,
+  portableRepositoryPath,
 } from "../scripts/tests/source-assertions.mjs";
 
 test("source assertion audit follows file reads through derived values", () => {
@@ -23,6 +24,15 @@ test("source assertion audit follows file reads through derived values", () => {
       { line: 6, method: "match" },
       { line: 7, method: "doesNotMatch" },
     ],
+  );
+});
+
+test("source assertion audit uses portable repository paths", () => {
+  assert.equal(
+    portableRepositoryPath(
+      "tests\\nested\\source-assertion.test.mjs",
+    ),
+    "tests/nested/source-assertion.test.mjs",
   );
 });
 
