@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
@@ -24,6 +25,29 @@ import {
 const repositoryRoot = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
 );
+
+const win32PickerPatch =
+  "patches/deepseek-harness/win32-directory-picker.patch";
+const win32PickerRuntimeFiles = [
+  {
+    source:
+      "vendor/deepseek-harness/packages/host/directory-picker-native/lib/index.js",
+    target:
+      "node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/index.js",
+  },
+  {
+    source:
+      "vendor/deepseek-harness/packages/host/directory-picker-native/lib/worker.cjs",
+    target:
+      "node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs",
+  },
+  {
+    source:
+      "vendor/deepseek-harness/packages/sandbox/sandbox-local/lib/index.js",
+    target:
+      "node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js",
+  },
+];
 
 const fixturePatch = `diff --git a/node_modules/@deepseek-ai/example/lib/index.js b/node_modules/@deepseek-ai/example/lib/index.js
 --- a/node_modules/@deepseek-ai/example/lib/index.js
@@ -65,6 +89,30 @@ async function withFixture(callback, parent = tmpdir()) {
     await callback({ patchPath, projectRoot, runtimeRoot, target });
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
+  }
+}
+
+async function withPatchedWin32PickerRuntime(callback) {
+  const runtimeRoot = await mkdtemp(
+    join(tmpdir(), "minke-win32-picker-runtime-"),
+  );
+  try {
+    for (const file of win32PickerRuntimeFiles) {
+      const target = resolve(runtimeRoot, file.target);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(
+        target,
+        await readFile(resolve(repositoryRoot, file.source)),
+      );
+    }
+    const patches = await resolveHarnessRuntimePatches(
+      repositoryRoot,
+      [win32PickerPatch],
+    );
+    await applyHarnessRuntimePatches(runtimeRoot, patches);
+    await callback(runtimeRoot);
+  } finally {
+    await rm(runtimeRoot, { recursive: true, force: true });
   }
 }
 
@@ -198,6 +246,134 @@ test("the subagent model-route patch stays within in-process routing bundles", a
     /^\+\s*const childAgentOptions = resolveChildAgentOptions\(parent, request\.agentOptions, childDepth\);/mu,
   );
   assert.doesNotMatch(source, /dsh-subagent-(?:codex|claude-code|dsh-sdk)/u);
+});
+
+test("the Windows picker worker keeps IPC open until its terminal result", async () => {
+  await withPatchedWin32PickerRuntime(async (runtimeRoot) => {
+    const workerPath = resolve(
+      runtimeRoot,
+      "node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs",
+    );
+    const koffiRoot = resolve(runtimeRoot, "node_modules/koffi");
+    await mkdir(koffiRoot, { recursive: true });
+    await writeFile(
+      resolve(koffiRoot, "package.json"),
+      JSON.stringify({
+        name: "koffi",
+        version: "0.0.0",
+        main: "index.cjs",
+      }),
+    );
+    await writeFile(
+      resolve(koffiRoot, "index.cjs"),
+      `"use strict";
+const dialog = { kind: "dialog" };
+const item = { kind: "item" };
+function decode(value, offsetOrType, maybeType) {
+  if (maybeType === "void *") {
+    return { owner: value.owner, slot: offsetOrType / 8 };
+  }
+  if (offsetOrType === "void *") {
+    return Buffer.isBuffer(value) ? dialog : { owner: value };
+  }
+  throw new Error("unexpected fake koffi decode");
+}
+decode.string16 = () => "C:\\\\picked";
+module.exports = {
+  call(fn, _prototype, _self, ...args) {
+    if (fn.slot === 20) args[0][0] = item;
+    if (fn.slot === 5) args[1][0] = { kind: "name" };
+    return 0;
+  },
+  decode,
+  load() {
+    return {
+      func(_abi, symbol) {
+        if (symbol === "GetCurrentThreadId") return () => 4242;
+        if (symbol === "SetThreadDpiAwarenessContext") {
+          return () => ({});
+        }
+        return () => 0;
+      },
+    };
+  },
+  proto() {
+    return {};
+  },
+  sizeof() {
+    return 8;
+  },
+};
+`,
+    );
+
+    const preloadPath = resolve(
+      runtimeRoot,
+      "win32-picker-ipc-preload.cjs",
+    );
+    await writeFile(
+      preloadPath,
+      `"use strict";
+const nativeSend = process.send?.bind(process);
+if (nativeSend === undefined) {
+  throw new Error("picker IPC preload requires a child IPC channel");
+}
+process.send = (message, callback) => {
+  const sent = nativeSend(message);
+  callback?.(null);
+  return sent;
+};
+`,
+    );
+
+    const messages = [];
+    let stderr = "";
+    const child = spawn(
+      process.execPath,
+      ["--require", preloadPath, workerPath],
+      {
+        env: {
+          ...process.env,
+          DSH_DIALOG_TITLE: "Select Workspace Directory",
+        },
+        stdio: ["ignore", "ignore", "pipe", "ipc"],
+      },
+    );
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("message", (message) => {
+      messages.push(message);
+    });
+    const result = await new Promise((resolveResult, rejectResult) => {
+      const timeout = setTimeout(() => {
+        child.kill();
+        rejectResult(
+          new Error("timed out waiting for the picker worker protocol"),
+        );
+      }, 2_000);
+      child.on("error", (error) => {
+        clearTimeout(timeout);
+        rejectResult(error);
+      });
+      child.on("close", (code, signal) => {
+        clearTimeout(timeout);
+        resolveResult({ code, signal });
+      });
+    });
+
+    assert.equal(result.signal, null, stderr);
+    assert.equal(result.code, 0, stderr);
+    assert.deepEqual(
+      messages,
+      [
+        { kind: "showing", threadId: 4242 },
+        { kind: "done", path: "C:\\picked" },
+      ],
+      "win32 folder dialog worker exited before reporting a result",
+    );
+  });
 });
 
 async function withProcessPolicyFixture(

@@ -90,3 +90,15 @@ diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/work
  }
  const COINIT_APARTMENTTHREADED = 2;
  const CLSCTX_INPROC_SERVER = 1;
+@@ -205,9 +201,10 @@
+ if (process.send === void 0) throw new Error("win32-dialog-worker must run as a child process with an IPC channel");
+ const send = process.send.bind(process);
+ const post = (message) => {
++	const isTerminal = message.kind !== "showing";
+ 	/* v8 ignore next 3 -- disconnect needs a live IPC channel the unit lane must not sever (built-worker.e2e.ts owns the real close path). */
+ 	send(message, () => {
+-		if (process.connected) process.disconnect();
++		if (isTerminal && process.connected) process.disconnect();
+ 	});
+ };
+ /* v8 ignore next 3 -- the handler exits(0), which would kill the unit lane; built-worker.e2e.ts owns the real disconnect lifecycle. */
