@@ -22,7 +22,7 @@ docs/research
 /packages/model-runtime/lib/
 
 # Local verification artifacts
-/artifacts/design-qa/
+/artifacts/
 /design-qa.md
 /.impeccable/
 
