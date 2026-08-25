@@ -228,7 +228,7 @@ test("the desktop runtime passes both explicit local-model opt-ins", () => {
         "--require /tmp/ambient.cjs",
       MINKE_INTERACTIVE_NODE_PATH: "/tmp/ambient-modules",
       MINKE_NODE_BOOTSTRAP:
-        "/runtime/bin/node-environment-bootstrap.cjs",
+        join(layout.runtimeBin, "node-environment-bootstrap.cjs"),
       MINKE_NODE_EXECUTABLE: "/app/electron",
       MINKE_PNPM_ENTRY: "/runtime/node_modules/pnpm/bin/pnpm.cjs",
     },
