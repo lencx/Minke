@@ -520,6 +520,10 @@ async function main() {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "dsh-runtime-smoke-"));
   const harnessHome = join(temporaryRoot, "home");
   const negativeHome = join(temporaryRoot, "negative-home");
+  const recursiveNodeProbePath = join(
+    temporaryRoot,
+    "recursive-node-probe.cjs",
+  );
   const fixtureCopy = join(temporaryRoot, "web-plugin");
   const failingFixtureCopy = join(temporaryRoot, "failing-web-plugin");
   const criticalFailurePatch = join(
@@ -557,6 +561,11 @@ async function main() {
           `      name: ${criticalEntryName}`,
           "",
         ].join("\n"),
+        "utf8",
+      ),
+      writeFile(
+        recursiveNodeProbePath,
+        `${recursiveNodeProbeSource}\n`,
         "utf8",
       ),
     ]);
@@ -614,7 +623,7 @@ async function main() {
     }
     const recursiveNode = await runSuccessful(
       executable("node"),
-      ["--eval", recursiveNodeProbeSource],
+      [recursiveNodeProbePath],
       {
         cwd: projectRoot,
         env,
