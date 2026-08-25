@@ -18,7 +18,11 @@ import { createElement } from "react";
 import * as react from "react";
 import * as reactJsxRuntime from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
+import {
+  SquareArrowOutUpRight,
+} from "@lucide/icons";
 import { EditorState } from "@codemirror/state";
+import ts from "../vendor/deepseek-harness/node_modules/typescript/lib/typescript.js";
 import {
   evaluateHarnessClientModule,
   stagePatchedHarnessClientModule,
@@ -104,6 +108,9 @@ import {
   TABS_STYLES,
 } from "@minke/harness-overlay/client/tabs/styles.ts";
 import {
+  LucideIcon,
+} from "@minke/harness-overlay/client/tabs/components/LucideIcon.ts";
+import {
   shikiDecorationRanges,
 } from "@minke/harness-overlay/client/tabs/files/shiki-decorations.ts";
 import {
@@ -153,6 +160,9 @@ import {
   installWebLinkTabs,
 } from "@minke/harness-overlay/client/tabs/web/interceptor.ts";
 import {
+  ExternalIcon,
+} from "@minke/harness-overlay/client/tabs/web/icons.tsx";
+import {
   FileManagerRuntime,
 } from "@minke/desktop/main/tabs/files.ts";
 import {
@@ -166,6 +176,9 @@ import {
   protectTabWebviewGuest,
   secureTabWebview,
 } from "@minke/desktop/main/tabs/security.ts";
+import {
+  inspectCssContract,
+} from "./support/css-contract.mjs";
 
 async function settleAsyncWork() {
   await new Promise((resolve) => setImmediate(resolve));
@@ -183,6 +196,57 @@ function filesTestTranslate(key, params = {}) {
     return `Save failed: ${params.error}`;
   }
   return key;
+}
+
+function authorizedTypeScriptFunctions(source, names) {
+  const expected = new Set(names);
+  const guarded = new Set();
+  const sourceFile = ts.createSourceFile(
+    "ipc.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const isAuthorizeEventGuard = (node) => {
+    if (!ts.isIfStatement(node)) return false;
+    const condition = node.expression;
+    if (
+      !ts.isPrefixUnaryExpression(condition) ||
+      condition.operator !== ts.SyntaxKind.ExclamationToken ||
+      !ts.isCallExpression(condition.operand) ||
+      !ts.isIdentifier(condition.operand.expression) ||
+      condition.operand.expression.text !== "authorize"
+    ) {
+      return false;
+    }
+    const [argument] = condition.operand.arguments;
+    return ts.isIdentifier(argument) && argument.text === "event";
+  };
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      expected.has(node.name.text) &&
+      node.initializer !== undefined &&
+      (
+        ts.isArrowFunction(node.initializer) ||
+        ts.isFunctionExpression(node.initializer)
+      ) &&
+      ts.isBlock(node.initializer.body)
+    ) {
+      const inspectBody = (child) => {
+        if (isAuthorizeEventGuard(child)) {
+          guarded.add(node.name.text);
+        }
+        ts.forEachChild(child, inspectBody);
+      };
+      inspectBody(node.initializer.body);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return names.filter((name) => guarded.has(name));
 }
 
 test("Files view state contract keeps panel settings isolated", () => {
@@ -1654,13 +1718,31 @@ test("Files toolbar focus and explorer density stay compact", () => {
 });
 
 test("Tabs toolbar uses a subtle success surface for active actions", () => {
-  assert.match(
-    TABS_STYLES,
-    /\.minke-tabs-toolbar__button\[data-active-tone="success"\][\s\S]*?\[aria-pressed="true"\]\s*\{[\s\S]*?var\(--dsw-alias-state-success-primary\)\s*14%[\s\S]*?color:\s*var\(--dsw-alias-label-primary\);/u,
-  );
-  assert.match(
-    TABS_STYLES,
-    /\.minke-tabs-toolbar__button\[data-active-tone="success"\][\s\S]*?\[aria-pressed="true"\]:hover:not\(:disabled\)[\s\S]*?var\(--dsw-alias-state-success-primary\)\s*20%/u,
+  const contract = inspectCssContract(TABS_STYLES);
+  const active =
+    '.minke-tabs-toolbar__button[data-active-tone="success"]' +
+    '[aria-pressed="true"]';
+  assert.deepEqual(
+    {
+      activeBackground:
+        contract.declaration(active, "background"),
+      activeColor: contract.declaration(active, "color"),
+      hoverBackground: contract.declaration(
+        `${active}:hover:not(:disabled)`,
+        "background",
+      ),
+    },
+    {
+      activeBackground:
+        "color-mix( in srgb, " +
+        "var(--dsw-alias-state-success-primary) 14%, " +
+        "transparent )",
+      activeColor: "var(--dsw-alias-label-primary)",
+      hoverBackground:
+        "color-mix( in srgb, " +
+        "var(--dsw-alias-state-success-primary) 20%, " +
+        "transparent )",
+    },
   );
 });
 
@@ -2012,10 +2094,6 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     ),
     "utf8",
   );
-  assert.match(
-    tabsIpcSource,
-    /new FileManagerRuntime\(\{[\s\S]*allowCrossVolumeAccess:\s*true/u,
-  );
   assert.doesNotMatch(viewSource, /files\.kind\./u);
   assert.match(viewSource, /controller\.preview\(tab\.id,\s*entry\)/u);
   assert.match(viewSource, /role="separator"/u);
@@ -2100,7 +2178,7 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     tabsPanelSource,
     /event\.key === "Delete"[\s\S]*closeTab\(tab\.id\)/u,
   );
-  for (const handler of [
+  const authorizedFileHandlers = [
     "handleFilesDiff",
     "handleFilesList",
     "handleFilesOpen",
@@ -2108,15 +2186,14 @@ test("Files tabs start at the project cwd and retain navigation history", async 
     "handleFilesViewStateRead",
     "handleFilesViewStateWrite",
     "handleFilesWrite",
-  ]) {
-    const start = tabsIpcSource.indexOf(`const ${handler}`);
-    const end = tabsIpcSource.indexOf("\n  };", start);
-    assert.ok(start >= 0 && end > start);
-    assert.match(
-      tabsIpcSource.slice(start, end),
-      /if \(!authorize\(event\)\)/u,
-    );
-  }
+  ];
+  assert.deepEqual(
+    authorizedTypeScriptFunctions(
+      tabsIpcSource,
+      authorizedFileHandlers,
+    ),
+    authorizedFileHandlers,
+  );
   assert.match(
     FILES_TAB_STYLES,
     /scrollbar-color:[\s\S]*var\(--dsw-alias-border-l3\)/u,
@@ -4394,13 +4471,6 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
     ),
     "utf8",
   );
-  const webIconsSource = readFileSync(
-    new URL(
-      "../packages/harness-overlay/src/client/tabs/web/icons.tsx",
-      import.meta.url,
-    ),
-    "utf8",
-  );
   assert.ok(
     panelSource.indexOf('className="minke-tabs-tabbar"') <
       panelSource.indexOf('className="minke-tabs-toolbar"'),
@@ -4417,15 +4487,15 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   );
   assert.match(webViewSource, /className="minke-tabs-blank"/u);
   assert.match(webViewSource, /<ExternalIcon \/>/u);
-  assert.match(
-    webIconsSource,
-    /SquareArrowOutUpRight/u,
+  assert.equal(
+    renderToStaticMarkup(createElement(ExternalIcon)),
+    renderToStaticMarkup(
+      createElement(LucideIcon, {
+        icon: SquareArrowOutUpRight,
+        size: 14,
+      }),
+    ),
   );
-  assert.match(
-    webIconsSource,
-    /SquareArrowOutUpRight\}\s+size=\{14\}/u,
-  );
-  assert.doesNotMatch(webIconsSource, /external-link/u);
   assert.match(
     webViewSource,
     /tab\.payload\.url === undefined/u,

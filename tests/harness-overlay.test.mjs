@@ -464,24 +464,34 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.doesNotMatch(bundle, /require\(["']@deepseek-ai\//u);
 });
 
+function inspectBuiltConnectionsBundle(source) {
+  const required = [
+    "minke-remote--connections",
+    "Disable remote access before changing the connection configuration",
+    "Create a locally managed Tunnel",
+    "authorization-cookie/validating-json/#get-your-aud-tag",
+  ];
+  const forbidden = [
+    "minke-remote--hub",
+    "minke-remote__advanced-toggle",
+  ];
+  return {
+    forbiddenPresent: forbidden.filter((marker) =>
+      source.includes(marker)
+    ),
+    requiredMissing: required.filter((marker) =>
+      !source.includes(marker)
+    ),
+  };
+}
+
 test("the built Connections bundle exposes complete Remote access configuration", () => {
-  assert.match(bundle, /minke-remote--connections/u);
-  assert.match(
-    bundle,
-    /Disable remote access before changing the connection configuration/u,
-  );
-  assert.doesNotMatch(bundle, /minke-remote--hub/u);
-  assert.doesNotMatch(
-    bundle,
-    /minke-remote__advanced-toggle/u,
-  );
-  assert.match(
-    bundle,
-    /Create a locally managed Tunnel/u,
-  );
-  assert.match(
-    bundle,
-    /authorization-cookie\/validating-json\/#get-your-aud-tag/u,
+  assert.deepEqual(
+    inspectBuiltConnectionsBundle(bundle),
+    {
+      forbiddenPresent: [],
+      requiredMissing: [],
+    },
   );
 });
 

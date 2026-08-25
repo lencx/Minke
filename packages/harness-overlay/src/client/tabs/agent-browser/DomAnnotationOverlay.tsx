@@ -31,6 +31,41 @@ export interface DomAnnotationOverlayProps {
   readonly labels: BrowserAnnotationLabels;
 }
 
+export interface AnnotationCommentEditorLayout {
+  readonly height: number;
+  readonly overflowY: "auto" | "hidden";
+}
+
+const ANNOTATION_COMMENT_EDITOR_MIN_HEIGHT = 48;
+const ANNOTATION_COMMENT_EDITOR_MAX_HEIGHT = 102;
+
+/** Resolve the two-line editor height without coupling tests to hook source. */
+export function annotationCommentEditorLayout(
+  contentHeight: number,
+): AnnotationCommentEditorLayout {
+  return {
+    height: Math.max(
+      ANNOTATION_COMMENT_EDITOR_MIN_HEIGHT,
+      Math.min(
+        contentHeight,
+        ANNOTATION_COMMENT_EDITOR_MAX_HEIGHT,
+      ),
+    ),
+    overflowY:
+      contentHeight > ANNOTATION_COMMENT_EDITOR_MAX_HEIGHT
+        ? "auto"
+        : "hidden",
+  };
+}
+
+/** Plain Enter submits; Shift+Enter remains available for a new line. */
+export function shouldSubmitAnnotationComment(
+  key: string,
+  shiftKey: boolean,
+): boolean {
+  return key === "Enter" && !shiftKey;
+}
+
 function clamp(
   value: number,
   minimum: number,
@@ -108,14 +143,11 @@ function CommentEditor({
     const input = inputRef.current;
     if (input === null) return;
     input.style.height = "0px";
-    const contentHeight = input.scrollHeight;
-    const nextHeight = Math.max(
-      48,
-      Math.min(contentHeight, 102),
+    const layout = annotationCommentEditorLayout(
+      input.scrollHeight,
     );
-    input.style.height = `${String(nextHeight)}px`;
-    input.style.overflowY =
-      contentHeight > 102 ? "auto" : "hidden";
+    input.style.height = `${String(layout.height)}px`;
+    input.style.overflowY = layout.overflowY;
   }, [comment]);
 
   const submit = (): void => {
@@ -132,8 +164,10 @@ function CommentEditor({
       return;
     }
     if (
-      event.key === "Enter" &&
-      !event.shiftKey
+      shouldSubmitAnnotationComment(
+        event.key,
+        event.shiftKey,
+      )
     ) {
       event.preventDefault();
       submit();

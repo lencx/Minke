@@ -14,6 +14,10 @@ import {
   agentCursorFeedbackDelayMs,
 } from "@minke/harness-overlay/client/tabs/agent-browser/AgentCursorOverlay.tsx";
 import {
+  annotationCommentEditorLayout,
+  shouldSubmitAnnotationComment,
+} from "@minke/harness-overlay/client/tabs/agent-browser/DomAnnotationOverlay.tsx";
+import {
   AgentBrowserTabsController,
 } from "@minke/harness-overlay/client/tabs/agent-browser/controller.ts";
 import {
@@ -665,6 +669,7 @@ test("selecting the same DOM node edits its existing numbered comment", async ()
     /class="minke-agent-browser__annotation-editor"/u,
   );
   assert.match(editorMarkup, /<textarea[^>]*rows="2"/u);
+  assert.doesNotMatch(editorMarkup, /data-multiline/u);
   assert.doesNotMatch(editorMarkup, /<header>|<footer>/u);
 
   target.controller.commitAnnotation(tab.id, "updated question");
@@ -1209,13 +1214,6 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
     ),
     "utf8",
   );
-  const annotationOverlaySource = await readFile(
-    new URL(
-      "../packages/harness-overlay/src/client/tabs/agent-browser/DomAnnotationOverlay.tsx",
-      import.meta.url,
-    ),
-    "utf8",
-  );
   const contract = inspectCssContract(source);
 
   assert.match(
@@ -1356,61 +1354,197 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
     source,
     /\.minke-agent-browser__annotation-layer\[data-phase="sending"\]\s*\{[^}]*pointer-events:\s*auto[^}]*touch-action:\s*none[^}]*user-select:\s*none/u,
   );
-  assert.match(
-    source,
-    /--minke-agent-browser-annotation-accent:\s*#096fdb/u,
+  const sendSelector =
+    ".minke-agent-browser__annotation-send-action";
+  const drawerSendSelector =
+    '.minke-tabs-panel[data-placement="right"]' +
+    '[data-presentation="drawer"] ' +
+    sendSelector;
+  const editorButtonSelector =
+    ".minke-agent-browser__annotation-editor > button";
+  const editorTextAreaSelector =
+    ".minke-agent-browser__annotation-editor textarea";
+  assert.deepEqual(
+    {
+      accent: contract.declaration(
+        ".minke-agent-browser__annotation-layer",
+        "--minke-agent-browser-annotation-accent",
+      ),
+      add: {
+        background: contract.declaration(
+          ".minke-agent-browser__annotation-add",
+          "background",
+        ),
+        borderRadius: contract.declaration(
+          ".minke-agent-browser__annotation-add",
+          "border-radius",
+        ),
+        color: contract.declaration(
+          ".minke-agent-browser__annotation-add",
+          "color",
+        ),
+      },
+      count: {
+        font: contract.declaration(
+          ".minke-agent-browser__annotation-send-count",
+          "font",
+        ),
+        numeric: contract.declaration(
+          ".minke-agent-browser__annotation-send-count",
+          "font-variant-numeric",
+        ),
+      },
+      disabledSend: {
+        background: contract.declaration(
+          `${sendSelector}:disabled`,
+          "background",
+        ),
+        color: contract.declaration(
+          `${sendSelector}:disabled`,
+          "color",
+        ),
+      },
+      drawerSend: {
+        height: contract.declaration(
+          drawerSendSelector,
+          "height",
+        ),
+        minWidth: contract.declaration(
+          drawerSendSelector,
+          "min-width",
+        ),
+      },
+      editor: {
+        alignItems: contract.declaration(
+          ".minke-agent-browser__annotation-editor",
+          "align-items",
+        ),
+        buttonHeight: contract.declaration(
+          editorButtonSelector,
+          "height",
+        ),
+        buttonMarginTop: contract.declaration(
+          editorButtonSelector,
+          "margin-top",
+        ),
+        buttonWidth: contract.declaration(
+          editorButtonSelector,
+          "width",
+        ),
+        numberAlignSelf: contract.declaration(
+          ".minke-agent-browser__annotation-editor-number",
+          "align-self",
+        ),
+        numberMarginTop: contract.declaration(
+          ".minke-agent-browser__annotation-editor-number",
+          "margin-top",
+        ),
+        textareaHeight: contract.declaration(
+          editorTextAreaSelector,
+          "height",
+        ),
+        textareaMaxHeight: contract.declaration(
+          editorTextAreaSelector,
+          "max-height",
+        ),
+        textareaMinHeight: contract.declaration(
+          editorTextAreaSelector,
+          "min-height",
+        ),
+      },
+      legacyModeSelector: contract.hasSelector(
+        ".minke-agent-browser__annotation-mode",
+      ),
+      send: {
+        background: contract.declaration(
+          sendSelector,
+          "background",
+        ),
+        borderRadius: contract.declaration(
+          sendSelector,
+          "border-radius",
+        ),
+        color: contract.declaration(sendSelector, "color"),
+        gap: contract.declaration(sendSelector, "gap"),
+        height: contract.declaration(sendSelector, "height"),
+        minWidth: contract.declaration(
+          sendSelector,
+          "min-width",
+        ),
+        padding: contract.declaration(sendSelector, "padding"),
+      },
+    },
+    {
+      accent: "#096fdb",
+      add: {
+        background:
+          "var(--minke-agent-browser-annotation-accent) !important",
+        borderRadius: "8px !important",
+        color: "#fff !important",
+      },
+      count: {
+        font: "700 10px/1 var(--ds-font-family-ui)",
+        numeric: "tabular-nums",
+      },
+      disabledSend: {
+        background:
+          "color-mix( in srgb, " +
+          "var(--minke-agent-browser-annotation-accent) 9%, " +
+          "var(--dsw-alias-bg-base) )",
+        color: "var(--dsw-alias-label-tertiary)",
+      },
+      drawerSend: {
+        height: "44px",
+        minWidth: "52px",
+      },
+      editor: {
+        alignItems: "flex-start",
+        buttonHeight: "28px",
+        buttonMarginTop: "1px",
+        buttonWidth: "28px",
+        numberAlignSelf: "flex-start",
+        numberMarginTop: "4px",
+        textareaHeight: "48px",
+        textareaMaxHeight: "102px",
+        textareaMinHeight: "48px",
+      },
+      legacyModeSelector: false,
+      send: {
+        background:
+          "var(--minke-agent-browser-annotation-accent)",
+        borderRadius: "999px",
+        color: "#fff",
+        gap: "4px",
+        height: "28px",
+        minWidth: "40px",
+        padding: "0 8px",
+      },
+    },
   );
-  assert.match(
-    source,
-    /\.minke-agent-browser__annotation-send-action\s*\{[^}]*min-width:\s*40px[^}]*height:\s*28px[^}]*gap:\s*4px[^}]*padding:\s*0 8px[^}]*border-radius:\s*999px[^}]*background:\s*var\(--minke-agent-browser-annotation-accent\)[^}]*color:\s*#fff/u,
+  assert.deepEqual(
+    [
+      annotationCommentEditorLayout(24),
+      annotationCommentEditorLayout(72),
+      annotationCommentEditorLayout(132),
+    ],
+    [
+      { height: 48, overflowY: "hidden" },
+      { height: 72, overflowY: "hidden" },
+      { height: 102, overflowY: "auto" },
+    ],
   );
-  assert.match(
-    source,
-    /\.minke-agent-browser__annotation-send-count\s*\{[^}]*font:\s*700 10px\/1[^}]*font-variant-numeric:\s*tabular-nums/u,
-  );
-  assert.match(
-    source,
-    /\.minke-tabs-panel\[data-placement="right"\]\[data-presentation="drawer"\][\s\S]*\.minke-agent-browser__annotation-send-action\s*\{[^}]*min-width:\s*52px[^}]*height:\s*44px/u,
-  );
-  assert.match(
-    source,
-    /\.minke-agent-browser__annotation-send-action:disabled\s*\{[^}]*background:\s*color-mix\([^}]*color:\s*var\(--dsw-alias-label-tertiary\)/u,
-  );
-  assert.match(
-    source,
-    /\.minke-agent-browser__annotation-add\s*\{[^}]*border-radius:\s*8px !important[^}]*background:[^}]*var\(--minke-agent-browser-annotation-accent\) !important[^}]*color:\s*#fff !important/u,
-  );
-  assert.match(
-    source,
-    /\.minke-agent-browser__annotation-editor\s*\{[^}]*align-items:\s*flex-start/u,
-  );
-  assert.match(
-    source,
-    /\.minke-agent-browser__annotation-editor-number\s*\{[^}]*align-self:\s*flex-start[^}]*margin-top:\s*4px/u,
-  );
-  assert.match(
-    source,
-    /\.minke-agent-browser__annotation-editor > button\s*\{[^}]*width:\s*28px[^}]*height:\s*28px[^}]*margin-top:\s*1px/u,
-  );
-  assert.match(
-    source,
-    /\.minke-agent-browser__annotation-editor textarea\s*\{[^}]*min-height:\s*48px[^}]*max-height:\s*102px[^}]*height:\s*48px/u,
-  );
-  assert.doesNotMatch(
-    source,
-    /\.minke-agent-browser__annotation-mode/u,
-  );
-  assert.match(
-    annotationOverlaySource,
-    /useLayoutEffect\(\(\) => \{[\s\S]*input\.scrollHeight[\s\S]*Math\.max\(\s*48,\s*Math\.min\(contentHeight, 102\)[\s\S]*contentHeight > 102 \? "auto" : "hidden"[\s\S]*\}, \[comment\]\)/u,
-  );
-  assert.doesNotMatch(
-    annotationOverlaySource,
-    /data-multiline/u,
-  );
-  assert.match(
-    annotationOverlaySource,
-    /event\.key === "Enter"[\s\S]*!event\.shiftKey/u,
+  assert.deepEqual(
+    {
+      enter: shouldSubmitAnnotationComment("Enter", false),
+      shiftedEnter:
+        shouldSubmitAnnotationComment("Enter", true),
+      text: shouldSubmitAnnotationComment("a", false),
+    },
+    {
+      enter: true,
+      shiftedEnter: false,
+      text: false,
+    },
   );
 });
 

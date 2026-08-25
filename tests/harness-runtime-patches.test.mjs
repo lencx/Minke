@@ -61,6 +61,65 @@ function normalizeLineEndings(source) {
   return source.replaceAll("\r\n", "\n");
 }
 
+function inspectSubagentModelRoutePatch(source) {
+  const additionsByTarget = new Map();
+  let target;
+  for (
+    const line of normalizeLineEndings(source).split("\n")
+  ) {
+    if (line.startsWith("+++ b/")) {
+      target = line.slice("+++ b/".length);
+      additionsByTarget.set(target, []);
+      continue;
+    }
+    if (
+      target === undefined ||
+      !line.startsWith("+") ||
+      line.startsWith("+++")
+    ) {
+      continue;
+    }
+    additionsByTarget.get(target)?.push(line.slice(1).trim());
+  }
+  const additions = [...additionsByTarget.values()].flat();
+  const count = (statement) =>
+    additions.filter((line) => line === statement).length;
+  const targets = [...additionsByTarget.keys()];
+  return {
+    childModelReads: count(
+      "const agentModel = childAgentOptions.model;",
+    ),
+    childOptionsDeclarations: count(
+      "const childAgentOptions = resolveChildAgentOptions(" +
+        "parent, request.agentOptions, childDepth);",
+    ),
+    childOptionsUses: count(
+      "agentOptions: childAgentOptions,",
+    ),
+    childProviderReads: count(
+      "const agentProvider = childAgentOptions.provider;",
+    ),
+    outOfProcessTargets: targets.filter((candidate) =>
+      /dsh-subagent-(?:codex|claude-code|dsh-sdk)/u.test(
+        candidate,
+      )
+    ),
+    parentModelFallbacks: count(
+      "const parentModel = parentRequest?.model ?? " +
+        "parent.options.model;",
+    ),
+    parentProviderFallbacks: count(
+      "const parentProvider = parentRequest?.provider ?? " +
+        "parent.options.provider;",
+    ),
+    parentRequestConfigReads: count(
+      "const parentRequest = " +
+        "parent.session.requestHeader()?.config;",
+    ),
+    targets,
+  };
+}
+
 async function withFixture(callback, parent = tmpdir()) {
   await mkdir(parent, { recursive: true });
   const projectRoot = await mkdtemp(
@@ -233,19 +292,23 @@ test("the subagent model-route patch stays within in-process routing bundles", a
   ]);
 
   const source = await readFile(patch.absolutePath, "utf8");
-  assert.match(
-    source,
-    /^\+\s*const parentRequest = parent\.session\.requestHeader\(\)\?\.config;/mu,
+  assert.deepEqual(
+    inspectSubagentModelRoutePatch(source),
+    {
+      childModelReads: 1,
+      childOptionsDeclarations: 2,
+      childOptionsUses: 2,
+      childProviderReads: 1,
+      outOfProcessTargets: [],
+      parentModelFallbacks: 1,
+      parentProviderFallbacks: 1,
+      parentRequestConfigReads: 1,
+      targets: [
+        "node_modules/@deepseek-ai/dsh-subagent/lib/index.js",
+        "node_modules/@deepseek-ai/dsh-subagent-in-process-driver/lib/index.js",
+      ],
+    },
   );
-  assert.match(
-    source,
-    /^\+\s*const parentProvider = parentRequest\?\.provider \?\? parent\.options\.provider;/mu,
-  );
-  assert.match(
-    source,
-    /^\+\s*const childAgentOptions = resolveChildAgentOptions\(parent, request\.agentOptions, childDepth\);/mu,
-  );
-  assert.doesNotMatch(source, /dsh-subagent-(?:codex|claude-code|dsh-sdk)/u);
 });
 
 test("the Windows picker worker keeps IPC open until its terminal result", async () => {

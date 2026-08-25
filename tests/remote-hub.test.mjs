@@ -10,8 +10,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createElement } from "react";
+import {
+  act,
+  createElement,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import {
+  JSDOM,
+} from "../vendor/deepseek-harness/node_modules/jsdom/lib/api.js";
 import {
   MAX_WEIXIN_QR_CONTENT_BYTES,
   parseRemoteHubCommand,
@@ -66,6 +72,9 @@ import {
   remoteEn,
 } from "@minke/harness-overlay/client/remote/locales.ts";
 import {
+  RemoteSettingsSection,
+} from "@minke/harness-overlay/client/remote/RemoteSettingsSection.tsx";
+import {
   RemoteSettingsRuntime,
 } from "@minke/harness-overlay/client/remote/runtime.ts";
 import {
@@ -97,6 +106,43 @@ function snapshot(weixin = { state: "unlinked" }) {
 function withoutActivity(value) {
   const { activity: _activity, ...snapshotValue } = value;
   return snapshotValue;
+}
+
+async function withBrowserGlobals(dom, callback) {
+  const values = {
+    document: dom.window.document,
+    Event: dom.window.Event,
+    HTMLElement: dom.window.HTMLElement,
+    HTMLInputElement: dom.window.HTMLInputElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    navigator: dom.window.navigator,
+    Node: dom.window.Node,
+    window: dom.window,
+  };
+  const descriptors = new Map(
+    Object.keys(values).map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(globalThis, key),
+    ]),
+  );
+  try {
+    for (const [key, value] of Object.entries(values)) {
+      Object.defineProperty(globalThis, key, {
+        configurable: true,
+        value,
+        writable: true,
+      });
+    }
+    return await callback();
+  } finally {
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor === undefined) {
+        Reflect.deleteProperty(globalThis, key);
+      } else {
+        Object.defineProperty(globalThis, key, descriptor);
+      }
+    }
+  }
 }
 
 function telegramDirectMessageInput() {
@@ -6133,22 +6179,104 @@ test("Remote entry keeps connection presence green through settings work and wri
 });
 
 test("a manually edited Cloudflare label can remain empty", async () => {
-  const source = await readFile(
-    join(
-      process.cwd(),
-      "packages",
-      "harness-overlay",
-      "src",
-      "client",
-      "remote",
-      "RemoteSettingsSection.tsx",
-    ),
-    "utf8",
+  const writes = [];
+  const remote = new RemoteSettingsRuntime({
+    available: true,
+    async read() {
+      return {
+        available: { tailscale: true, cloudflare: true },
+        settings: {
+          enabled: false,
+          method: "cloudflare",
+          tailscale: {
+            transport: "serve",
+            ipAddress: "",
+          },
+          cloudflare: {
+            hostnameMode: "generated",
+            domain: "example.com",
+            generatedLabel: "manual-label",
+            customHostname: "",
+            teamName: "example",
+            audience: "audience",
+            tunnel: "tunnel-id",
+            configPath: "/tmp/cloudflared.yml",
+            originPort: 49_321,
+          },
+        },
+        runtime: {
+          method: "cloudflare",
+          transport: "access",
+          state: "disabled",
+        },
+      };
+    },
+    async write(value) {
+      writes.push(value);
+    },
+  });
+  await remote.initialize();
+  const dom = new JSDOM(
+    '<!doctype html><div id="root"></div>',
+    { pretendToBeVisual: true },
   );
-  assert.doesNotMatch(
-    source,
-    /cloudflare\.generatedLabel === ""[\s\S]{0,240}runtime\.regenerateCloudflareHostname\(\)/u,
-  );
+  try {
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const container =
+        dom.window.document.getElementById("root");
+      assert.ok(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(
+            createElement(RemoteSettingsSection, {
+              runtime: remote,
+              t: (key) => remoteEn[key],
+            }),
+          );
+        });
+        const input = container.querySelector(
+          'input[maxlength="63"]',
+        );
+        assert.ok(input instanceof dom.window.HTMLInputElement);
+        assert.equal(input.value, "manual-label");
+        const valueSetter =
+          Object.getOwnPropertyDescriptor(
+            dom.window.HTMLInputElement.prototype,
+            "value",
+          )?.set;
+        assert.ok(valueSetter);
+        await act(async () => {
+          valueSetter.call(input, "");
+          input.dispatchEvent(
+            new dom.window.Event("input", {
+              bubbles: true,
+            }),
+          );
+          await Promise.resolve();
+        });
+        assert.equal(
+          remote.getSnapshot().data.settings.cloudflare
+            .generatedLabel,
+          "",
+        );
+        assert.equal(input.value, "");
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+      }
+    });
+    await remote.flush();
+    assert.equal(
+      writes.at(-1)?.cloudflare.generatedLabel,
+      "",
+    );
+  } finally {
+    dom.window.close();
+    remote.dispose();
+  }
 });
 
 test("Remote Hub uses grouped sidebar navigation and stable detail panels", async () => {
