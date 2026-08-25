@@ -562,8 +562,17 @@ test("the conversation outline projects loaded user messages safely", () => {
       { key: "13:steering-1", preview: "Keep tests" },
     ],
   );
-  assert.ok(markerWidthForPreview("A") >= 8);
-  assert.ok(markerWidthForPreview("A".repeat(500)) <= 14);
+  const shortMarkerWidth = markerWidthForPreview("A");
+  const longMarkerWidth = markerWidthForPreview(
+    "A".repeat(500),
+  );
+  assert.equal(
+    shortMarkerWidth,
+    longMarkerWidth,
+    "stationary outline markers must have one visual length",
+  );
+  assert.ok(shortMarkerWidth >= 8);
+  assert.ok(shortMarkerWidth <= 14);
   assert.match(
     conversationOutlineZh.messagePosition,
     /已加载消息/u,

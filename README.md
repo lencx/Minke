@@ -40,15 +40,15 @@ Since v0.2.0, Minke has added Agent Browser and multi-channel remote control, re
 <table>
   <tr>
     <td width="50%"><img src="./assets/minke-new.png" alt="Minke conversation workspace"></td>
-    <td width="50%"><img src="./assets/minke-panel.png" alt="Minke settings and workspace"></td>
-  </tr>
-  <tr>
     <td width="50%"><img src="./assets/minke-code.png" alt="Minke code workspace with Files diff and Terminal"></td>
-    <td width="50%"><img src="./assets/minke-plugin.png" alt="Minke Plugins workspace and tab layout"></td>
   </tr>
   <tr>
+    <td width="50%"><img src="./assets/minke-agent-tab.png" alt="Minke settings and workspace"></td>
     <td width="50%"><img src="./assets/minke-agent-browser.png" alt="Minke agent browser"></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="./assets/minke-remote.png" alt="Minke remote control through WeChat, Telegram, and Discord"></td>
+    <td width="50%"><img src="./assets/minke-plugin.png" alt="Minke Plugins workspace and tab layout"></td>
   </tr>
 </table>
 

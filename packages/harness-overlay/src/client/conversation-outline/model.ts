@@ -27,8 +27,7 @@ export interface ConversationOutlineItem {
 }
 
 const PREVIEW_LIMIT = 360;
-const MIN_MARKER_WIDTH = 8;
-const MAX_MARKER_WIDTH = 14;
+const STATIC_MARKER_WIDTH = 12;
 
 function normalizePreview(value: string): string {
   return value
@@ -60,13 +59,9 @@ export function messagePreview(
   );
 }
 
-/** Encode message length as a quiet visual cue without changing hit targets. */
-export function markerWidthForPreview(preview: string): number {
-  const length = Array.from(preview).length;
-  return Math.min(
-    MAX_MARKER_WIDTH,
-    MIN_MARKER_WIDTH + Math.round(Math.log2(length + 1)),
-  );
+/** Keep stationary markers uniform; interaction owns the width animation. */
+export function markerWidthForPreview(_preview: string): number {
+  return STATIC_MARKER_WIDTH;
 }
 
 /** Select ordinary and steering user messages from the loaded Chat window. */

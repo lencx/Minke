@@ -40,15 +40,15 @@ Minke 在本地运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 <table>
   <tr>
     <td width="50%"><img src="./assets/minke-new.png" alt="Minke 对话工作空间"></td>
-    <td width="50%"><img src="./assets/minke-panel.png" alt="Minke 设置与工作空间"></td>
-  </tr>
-  <tr>
     <td width="50%"><img src="./assets/minke-code.png" alt="Minke 代码工作区：文件 Diff 与终端"></td>
-    <td width="50%"><img src="./assets/minke-plugin.png" alt="Minke 插件工作空间与 Tabs 布局"></td>
   </tr>
   <tr>
+    <td width="50%"><img src="./assets/minke-agent-tab.png" alt="Minke 设置与工作空间"></td>
     <td width="50%"><img src="./assets/minke-agent-browser.png" alt="Minke Agent 浏览器"></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="./assets/minke-remote.png" alt="Minke 通过微信、Telegram 和 Discord 远程控制"></td>
+    <td width="50%"><img src="./assets/minke-plugin.png" alt="Minke 插件工作空间与 Tabs 布局"></td>
   </tr>
 </table>
 
