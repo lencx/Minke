@@ -26,27 +26,33 @@ Minke 在本地运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 
 ## 核心亮点
 
+自 v0.2.0 发布以来，Minke 新增了 Agent Browser、多消息通道远程控制，并完成了全部远程访问链路的端到端回归测试，同时持续打磨桌面工作流。
+
+- **Agent Browser 与人机协作** — 内置免配置 Web 搜索帮助 Agent 找到信息源，Agent Browser 则让它在独立标签页中打开和浏览网站、读取页面结构、点击、输入、按键、等待页面变化并截图。整个过程实时可见，你可以随时接管或交还控制，还能直接标注网页元素，将带截图和页面上下文的反馈发回当前对话。
+- **通过微信、Telegram 和 Discord 远程控制** — 扫码连接微信，或通过 Bot Token 接入 Telegram 与 Discord，即可从常用消息应用向 Minke Agent 发起任务并在原会话中接收结果。微信仅接受扫码账号的一对一消息，Telegram 与 Discord 使用私聊配对；凭据加密保存在本机，持久化 Gateway 会在短暂断线或 Agent 暂不可用时保留待处理消息。
+- **三种 Web 远程访问均已验证可用** — Tailscale Serve HTTPS、Tailscale Direct IP 和 Cloudflare Access 均已完成端到端测试回归，目前都可以使用，切换配置也无需重启 Minke。远程端是响应式 Web 工作空间，而不是桌面投影；你可以在手机或平板上继续对话、启动 Agent、管理项目文件和使用宿主机终端，并通过 HTTPS 地址安装为 PWA。
 - **不只是对话窗口** — 彼此独立的右侧和底部 Tabs，将文件管理器、终端、浏览器、插件和 Session 详情放在当前对话旁边。插件区支持从 GitHub 发现插件，以及安装、状态检查、修复与卸载。文件管理器支持目录浏览、语法高亮预览、编辑与 Diff；终端则连接运行 Minke 的电脑上的真实 PTY。
-- **真正的远程工作空间，而非桌面投影** — Minke Host 将受支持的桌面能力投射到响应式 Web UI。你可以在手机或平板上继续对话、启动智能体任务、管理项目文件和使用宿主机终端，不需要传输 Electron 窗口的像素画面。
-- **可安装的 PWA** — 通过安全的 HTTPS 地址打开 Minke，即可安装到主屏幕并以独立应用模式启动。PWA 提供完整品牌启动界面和更及时的连接状态反馈，同时不会缓存已认证的工作空间内容。
-- **私有远程访问** — Minke 可以通过由应用管理的远程链路提供响应式工作空间。目前完成验证的是 Tailscale Serve HTTPS；Tailscale Direct IP 与 Cloudflare Access 在完成发布测试前仍属于实验性接入。
 - **本地模型集成** — Minke 可以发现并连接 LM Studio、Ollama，以及其他仅监听本机回环地址的 OpenAI 兼容服务。可选的生命周期管理能够按需启动受支持的本地运行时，同时不会接管原本已经运行的服务。
-- **键盘优先的高效操作** — 全局命令面板（`Mod+K`）、可配置快捷键、原生菜单、Session 历史导航与日志导出、主题同步和中英文界面，让常用操作始终触手可及。
+- **日常体验持续打磨** — 长对话消息大纲、Composer 快速聚焦、普通网页标签页的元素标注、跨磁盘文件浏览、Telegram 长回复完整投递，以及更清晰的浏览器和连接设置，让高频操作更顺手。全局命令面板（`Mod+K`）、可配置快捷键、原生菜单、Session 历史导航与日志导出、主题同步和中英文界面也都保持可用。
 - **安全、可恢复的数据迁移** — 自定义 Minke 数据目录，预览并合并现有 Session、插件与设置。Minke 会去重相同文件、保留冲突和源目录，并只在重启迁移成功后切换；也可以选择从全新数据目录开始。
-- **本地优先并覆盖三大平台** — 应用状态和浏览器会话数据保留在本机的 Minke 数据边界内。自动化发布覆盖 macOS、Windows 和 Linux，并提供便携的 AppImage。
+- **本地优先并覆盖三大平台** — 应用状态和浏览器会话数据保留在本机的 Minke 数据边界内。自动化发布覆盖 macOS、Windows 和 Linux，并提供便携的 AppImage；内置更新流程会校验 Release、文件大小和 SHA-256，再由你确认安装。
 
 <table>
   <tr>
-    <td width="50%"><img src="./assets/01.png" alt="Minke 对话工作空间"></td>
-    <td width="50%"><img src="./assets/02.png" alt="Minke 设置与工作空间"></td>
+    <td width="50%"><img src="./assets/minke-new.png" alt="Minke 对话工作空间"></td>
+    <td width="50%"><img src="./assets/minke-panel.png" alt="Minke 设置与工作空间"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="./assets/code.png" alt="Minke 代码工作区：文件 Diff 与终端"></td>
-    <td width="50%"><img src="./assets/plugin.png" alt="Minke 插件工作空间与 Tabs 布局"></td>
+    <td width="50%"><img src="./assets/minke-code.png" alt="Minke 代码工作区：文件 Diff 与终端"></td>
+    <td width="50%"><img src="./assets/minke-plugin.png" alt="Minke 插件工作空间与 Tabs 布局"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="./assets/minke-agent-browser.png" alt="Minke Agent 浏览器"></td>
+    <td width="50%"><img src="./assets/minke-remote.png" alt="Minke 通过微信、Telegram 和 Discord 远程控制"></td>
   </tr>
 </table>
 
-## 通过 Tailscale 在手机上访问
+## 从其他设备远程访问
 
 Minke 的远程访问是由 Minke Host 支撑的响应式 Web 客户端，并不是 Electron
 窗口的视频流或触控投影。你可以在手机上继续对话、启动智能体任务、管理项目文件，
@@ -55,28 +61,30 @@ Minke 的远程访问是由 Minke Host 支撑的响应式 Web 客户端，并不
 ![Minke 在手机与桌面上的远程工作空间](./assets/minke-remote.gif)
 
 > [!NOTE]
-> 当前唯一完成端到端实测的远程链路是 **Tailscale Serve HTTPS**。
-> Tailscale Direct IP 和 Cloudflare Access 虽已提供高级接入能力，但尚未完成
-> 发布验证，目前请视为实验性功能。
+> **Tailscale Serve HTTPS**、**Tailscale Direct IP** 和
+> **Cloudflare Access** 均已完成端到端测试回归，目前都可以使用。
 
-Minke 可以通过 [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve)
-私密地提供响应式 Web 界面。Harness 仍然只监听本机回环地址，不会暴露到
-局域网，也不会启用公开的 Tailscale Funnel。
+- **Tailscale Serve HTTPS（推荐）** — 适合已经加入同一 tailnet 的设备，提供安全的 HTTPS 地址，并支持安装 PWA。
+- **Tailscale Direct IP（高级）** — 仅绑定当前设备的 Tailscale IPv4。流量仍由 Tailscale 端到端加密，但访问地址是 HTTP，不属于浏览器安全上下文。
+- **Cloudflare Access** — 通过受身份策略保护的 Named Tunnel 从公网访问，手机无需安装 Tailscale；使用前需配置 Cloudflare Tunnel、Access 应用和允许访问的身份。
+
+### 推荐方案：Tailscale Serve
+
+Minke 可以通过 [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve) 私密地提供响应式 Web 界面。Harness 仍然只监听本机回环地址，不会暴露到局域网，也不会启用公开的 Tailscale Funnel。
 
 1. 在运行 Minke 的电脑和手机上安装 Tailscale，登录同一个 tailnet，并确认电脑已连接。
-2. 打开 Minke 的 **设置 → Minke → 远程访问**，启用 **通过 Tailscale 访问**。Minke 会在后台连接，无需重启应用。
+2. 打开 Minke 的 **连接 → 设备访问 → 远程访问**，选择 **HTTPS Serve** 并启用远程访问。Minke 会在后台连接，无需重启应用。
 3. 在手机上打开界面显示的 `https://…ts.net` 地址。
 
 ### 安装为 PWA
 
-通过 Tailscale HTTPS 地址打开远程页面，点击侧边栏中的 **安装 Minke**，并接受
-浏览器的安装提示。在 iPhone 或 iPad 上，请使用 **分享 → 添加到主屏幕**。
+通过 Tailscale Serve 或 Cloudflare Access 的 HTTPS 地址打开远程页面，点击侧边栏中的
+**安装 Minke**，并接受浏览器的安装提示。在 iPhone 或 iPad 上，请使用
+**分享 → 添加到主屏幕**。
 安装后会以独立应用模式启动；网络较差时会展示连接中或离线状态，而不是静默展示
 缓存的工作空间内容。
 
-Minke 只在应用运行期间持有前台代理，并会在退出时停止。远程页面能够启动
-智能体任务，并使用 Minke 已授权的本机工具，因此请只允许可信的 tailnet 成员
-访问。
+Minke 同一时间只启用一条远程链路，并只在应用运行期间持有前台代理，退出时会将其停止。远程页面能够启动 Agent 任务，并使用 Minke 已授权的本机工具，因此请只允许可信的 tailnet 成员或 Cloudflare Access 身份访问。
 
 ## 安装
 

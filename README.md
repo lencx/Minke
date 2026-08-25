@@ -26,27 +26,33 @@ Minke brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 ## Highlights
 
+Since v0.2.0, Minke has added Agent Browser and multi-channel remote control, regression-tested every remote-access route end to end, and continued to polish the desktop workflow.
+
+- **Agent Browser with shared human control** — Built-in, credential-free Web search helps agents find sources, while Agent Browser lets them open and navigate sites in dedicated tabs, inspect page structure, click, fill fields, press keys, wait for changes, and capture screenshots. Every action stays visible: take control at any time, return it to the agent, or annotate exact page elements and send screenshot-backed context into the current conversation.
+- **Remote control through WeChat, Telegram, and Discord** — Connect WeChat with a QR code or add Telegram and Discord through Bot tokens, then start Minke Agent tasks from the messaging apps you already use and receive results in the same conversation. WeChat accepts direct messages only from the account that scanned the code, while Telegram and Discord use direct-message pairing. Credentials are encrypted locally, and the durable Gateway retains pending work across temporary connection or Agent failures.
+- **All three Web remote-access routes are verified and available** — Tailscale Serve over HTTPS, Tailscale Direct IP, and Cloudflare Access have all completed end-to-end regression testing and are ready to use; changing routes does not require restarting Minke. The remote side is a responsive Web workspace rather than a desktop projection, so a phone or tablet can continue conversations, start agents, manage project files, use the host terminal, and install the HTTPS experience as a PWA.
 - **More than a chat window** — Independent right and bottom Tabs keep Files, Terminal, Browser, Plugins, and Session details beside the active conversation. The Plugins workspace supports GitHub discovery, installation, status checks, repair, and removal. Files supports navigation, syntax-highlighted previews, editing, and diffs, while Terminal connects to a real PTY on the Minke host.
-- **A real remote workspace, not screen sharing** — Minke Host projects supported desktop capabilities into a responsive Web UI. From a phone or tablet you can continue conversations, start agent tasks, work with project files, and use the host terminal without streaming pixels from the Electron window.
-- **Installable as a PWA** — Open Minke through a secure HTTPS address and install it to the home screen for a standalone, app-like experience. The PWA provides branded launch surfaces and early connection feedback, while deliberately avoiding caches of authenticated workspace traffic.
-- **Private remote access** — Minke can expose its responsive workspace through an application-managed remote route. The currently validated path is Tailscale Serve over HTTPS; Tailscale Direct IP and Cloudflare Access integrations remain experimental until they complete release testing.
 - **Local model integrations** — Minke can discover and connect to LM Studio, Ollama, and other loopback OpenAI-compatible services. Optional lifecycle management can start supported local runtimes when needed without taking ownership of services that were already running.
-- **Fast keyboard-driven control** — The global Command Palette (`Mod+K`), configurable shortcuts, native menus, Session history navigation, log export, synchronized themes, and English and Chinese UI keep common actions close at hand.
+- **Continuous workflow polish** — A message outline for long conversations, fast composer focus, element annotations in regular Web tabs, cross-volume file browsing, lossless long Telegram replies, and clearer browser and connection settings make frequent actions smoother. The global Command Palette (`Mod+K`), configurable shortcuts, native menus, Session history navigation, log export, synchronized themes, and English and Chinese UI remain close at hand.
 - **Safe, recoverable data migration** — Choose where Minke stores its data, then preview and merge existing Sessions, plugins, and settings. Minke deduplicates identical files, preserves conflicts and source directories, and switches only after the restart-time migration succeeds; starting with a clean data home remains an option.
-- **Local-first and cross-platform** — Application state and browser session data stay on your machine under the Minke data boundary. Automated releases target macOS, Windows, and Linux, including a portable AppImage.
+- **Local-first and cross-platform** — Application state and browser session data stay on your machine under the Minke data boundary. Automated releases target macOS, Windows, and Linux, including a portable AppImage; the built-in updater verifies the Release, exact file size, and SHA-256 before asking you to install.
 
 <table>
   <tr>
-    <td width="50%"><img src="./assets/01.png" alt="Minke conversation workspace"></td>
-    <td width="50%"><img src="./assets/02.png" alt="Minke settings and workspace"></td>
+    <td width="50%"><img src="./assets/minke-new.png" alt="Minke conversation workspace"></td>
+    <td width="50%"><img src="./assets/minke-panel.png" alt="Minke settings and workspace"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="./assets/code.png" alt="Minke code workspace with Files diff and Terminal"></td>
-    <td width="50%"><img src="./assets/plugin.png" alt="Minke Plugins workspace and tab layout"></td>
+    <td width="50%"><img src="./assets/minke-code.png" alt="Minke code workspace with Files diff and Terminal"></td>
+    <td width="50%"><img src="./assets/minke-plugin.png" alt="Minke Plugins workspace and tab layout"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="./assets/minke-agent-browser.png" alt="Minke agent browser"></td>
+    <td width="50%"><img src="./assets/minke-remote.png" alt="Minke remote control through WeChat, Telegram, and Discord"></td>
   </tr>
 </table>
 
-## Mobile access with Tailscale
+## Remote access from another device
 
 Minke remote access is a responsive Web client backed by Minke Host—not a
 video stream or touch-controlled projection of the Electron window. From a
@@ -56,35 +62,38 @@ and use a terminal that runs on the Minke computer.
 ![Minke remote workspace on mobile and desktop](./assets/minke-remote.gif)
 
 > [!NOTE]
-> The only remote route currently tested end to end is **Tailscale Serve over
-> HTTPS**. Tailscale Direct IP and Cloudflare Access are available as advanced
-> integrations, but have not yet completed release validation and should be
-> treated as experimental.
+> **Tailscale Serve over HTTPS**, **Tailscale Direct IP**, and
+> **Cloudflare Access** have all completed end-to-end regression testing and
+> are currently available.
 
-Minke can expose its Web UI privately through
-[Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve).
-It keeps Harness on the local loopback address, does not bind it to the LAN,
-and does not enable the public Tailscale Funnel.
+- **Tailscale Serve over HTTPS (recommended)** — Best for devices already joined to the same tailnet. It provides a secure HTTPS address and supports PWA installation.
+- **Tailscale Direct IP (advanced)** — Binds only to the current device's Tailscale IPv4. Traffic remains end-to-end encrypted by Tailscale, but the address uses HTTP and is not a browser secure context.
+- **Cloudflare Access** — Exposes a named tunnel protected by an identity policy, without requiring Tailscale on the phone. It requires a configured Cloudflare Tunnel, Access application, and an explicit allow policy.
+
+### Recommended setup: Tailscale Serve
+
+Minke can expose its Web UI privately through [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve). It keeps Harness on the local loopback address, does not bind it to the LAN, and does not enable the public Tailscale Funnel.
 
 1. Install Tailscale on the Minke computer and the phone, sign both into the
    same tailnet, and confirm the computer is connected.
-2. In Minke, open **Connections → Device access → Remote access**, then enable
-   **Access through Tailscale**. Minke connects in the background; no restart
-   is required.
+2. In Minke, open **Connections → Device access → Remote access**, select
+   **HTTPS Serve**, and enable remote access. Minke connects in the
+   background; no restart is required.
 3. Copy or open the displayed
    `https://…ts.net` address on the phone.
 
 ### Install as a PWA
 
-Open the Tailscale HTTPS address, choose **Install Minke** in the sidebar,
-and accept the browser install prompt. On iPhone or iPad, use
-**Share → Add to Home Screen**. The installed app launches in standalone mode;
-when connectivity is poor it shows connection or offline feedback instead of
-silently presenting cached workspace content.
+Open a Tailscale Serve or Cloudflare Access HTTPS address, choose
+**Install Minke** in the sidebar, and accept the browser install prompt. On
+iPhone or iPad, use **Share → Add to Home Screen**. The installed app launches
+in standalone mode; when connectivity is poor it shows connection or offline
+feedback instead of silently presenting cached workspace content.
 
-Minke owns a foreground Serve session and stops it when the app exits. The
-remote page can start agent tasks and use local tools already authorized in
-Minke, so grant tailnet access only to people you trust.
+Minke activates only one remote route at a time, owns its foreground proxy
+while the app is running, and stops it on exit. The remote page can start
+agent tasks and use local tools already authorized in Minke, so grant access
+only to trusted tailnet members or Cloudflare Access identities.
 
 ## Installation
 
@@ -194,7 +203,7 @@ pnpm make
 如在使用中遇到问题，或希望进一步交流 Minke，可关注公众号「浮之静」，发送 `dsh` 获取进群码。也欢迎大家贡献 PR 或分享给更多朋友，您的每一次 Star 都是对开源项目的巨大支持，感恩。
 
 <p>
-  <img width="150" alt="qrcode" src="https://github.com/user-attachments/assets/f7194e28-a290-444f-89a2-9f656c59e218" />
+  <img width="150" alt="qrcode" src="https://github.com/user-attachments/assets/d8f2dfb5-f3da-4a8e-b913-86724f308c0f" />
   <img width="172" src="https://user-images.githubusercontent.com/16164244/207228300-ea5c4688-c916-4c55-a8c3-7f862888f351.png" alt="浮之静公众号">
   <img width="200" src="https://user-images.githubusercontent.com/16164244/207228025-117b5f77-c5d2-48c2-a070-774b7a1596f2.png" alt="Minke 用户交流群">
 </p>
