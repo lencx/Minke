@@ -18,6 +18,7 @@ import {
 import { packagedApplicationLayout } from "../forge/application-layout.mjs";
 import {
   isCommandUnavailableResult,
+  signalCommandProcessTree,
   spawnCommand,
 } from "./command-invocation.mjs";
 import { parseBootManifest } from "./boot-manifest.mjs";
@@ -474,25 +475,29 @@ async function startServer(
 }
 
 async function stopServer(child) {
-  if (child.exitCode !== null || child.pid === undefined) return;
-  const signal = (name) => {
-    try {
-      if (process.platform === "win32") child.kill(name);
-      else process.kill(-child.pid, name);
-    } catch (error) {
-      if (error.code !== "ESRCH") throw error;
-    }
+  const waitForExit = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return true;
+    return await Promise.race([
+      new Promise((resolvePromise) =>
+        child.once("exit", () => resolvePromise(true)),
+      ),
+      new Promise((resolvePromise) =>
+        setTimeout(() => resolvePromise(false), 2_000),
+      ),
+    ]);
   };
-  signal("SIGTERM");
-  const exited = await Promise.race([
-    new Promise((resolvePromise) =>
-      child.once("exit", () => resolvePromise(true)),
-    ),
-    new Promise((resolvePromise) =>
-      setTimeout(() => resolvePromise(false), 2_000),
-    ),
-  ]);
-  if (!exited) signal("SIGKILL");
+
+  signalCommandProcessTree(child, "SIGTERM");
+  let exited = await waitForExit();
+  if (!exited) {
+    signalCommandProcessTree(child, "SIGKILL");
+    exited = await waitForExit();
+  }
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+  if (!exited) {
+    throw new Error("Harness process tree did not exit during smoke cleanup");
+  }
 }
 
 async function main() {

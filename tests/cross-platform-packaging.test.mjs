@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   isCommandUnavailableResult,
   resolveCommandInvocation,
+  signalCommandProcessTree,
   spawnCommand,
 } from "../scripts/harness/command-invocation.mjs";
 import {
@@ -127,6 +128,43 @@ test("every long-lived Windows batch process uses the shared ComSpec boundary", 
       options,
     },
   ]);
+});
+
+test("Windows batch cleanup terminates the complete command process tree", () => {
+  const killed = [];
+  const child = {
+    exitCode: null,
+    pid: 731,
+    signalCode: null,
+  };
+
+  assert.equal(
+    signalCommandProcessTree(child, "SIGTERM", {
+      killProcess() {
+        assert.fail("Windows cleanup must not signal only the wrapper process");
+      },
+      killWindowsTree(pid) {
+        killed.push(pid);
+      },
+      platform: "win32",
+    }),
+    true,
+  );
+  assert.deepEqual(killed, [731]);
+  assert.equal(
+    signalCommandProcessTree(
+      { ...child, exitCode: 0 },
+      "SIGKILL",
+      {
+        killWindowsTree(pid) {
+          killed.push(pid);
+        },
+        platform: "win32",
+      },
+    ),
+    false,
+  );
+  assert.deepEqual(killed, [731]);
 });
 
 test("missing command controls recognize Windows and POSIX exit conventions", () => {

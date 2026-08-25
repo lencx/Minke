@@ -1,4 +1,7 @@
-import { spawn as spawnChild } from "node:child_process";
+import {
+  spawn as spawnChild,
+  spawnSync,
+} from "node:child_process";
 import { extname } from "node:path";
 
 export function isCommandUnavailableResult(
@@ -79,4 +82,41 @@ export function spawnCommand(
     invocation.args,
     options,
   );
+}
+
+function taskkillProcessTree(pid) {
+  spawnSync(
+    "taskkill",
+    ["/PID", String(pid), "/T", "/F"],
+    { stdio: "ignore" },
+  );
+}
+
+export function signalCommandProcessTree(
+  child,
+  signal,
+  {
+    killProcess = process.kill,
+    killWindowsTree = taskkillProcessTree,
+    platform = process.platform,
+  } = {},
+) {
+  if (
+    child?.pid === undefined ||
+    child.exitCode !== null ||
+    child.signalCode !== null
+  ) {
+    return false;
+  }
+  try {
+    if (platform === "win32") {
+      killWindowsTree(child.pid);
+    } else {
+      killProcess(-child.pid, signal);
+    }
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
 }
