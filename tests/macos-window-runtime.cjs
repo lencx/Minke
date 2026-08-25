@@ -845,6 +845,7 @@ async function run() {
   `);
   const result = {
     activeBackground: before.activeBackground,
+    activeBackgroundAlpha: alphaOf(before.activeBackground),
     addBackground: before.addBackground,
     composerMarker: before.composerMarker,
     detailsHandleAppRegion: before.detailsHandleAppRegion,
@@ -861,6 +862,7 @@ async function run() {
     messagesAfterAuthoritativeDomChange,
     primaryBackground: before.primaryBackground,
     restoredBackground: before.restoredBackground,
+    restoredBackgroundAlpha: alphaOf(before.restoredBackground),
     selectedSessionTitle: before.selectedSessionTitle,
     sessionActionClicks: clicks.sessionAction,
     sessionTitleAppRegion: before.sessionTitleAppRegion,
@@ -909,10 +911,11 @@ async function run() {
     failures.push('nativeTheme did not preserve the Harness system preference');
   }
   if (
-    result.activeBackground !== 'rgb(255, 255, 255)' ||
+    result.activeBackgroundAlpha !== 0 ||
+    result.restoredBackgroundAlpha !== 0 ||
     result.restoredBackground !== result.activeBackground
   ) {
-    failures.push('active New Session did not use the upstream default fill');
+    failures.push('active New Session did not preserve the transparent fill');
   }
   if (
     result.heroBackgroundAlpha !== 0 ||
