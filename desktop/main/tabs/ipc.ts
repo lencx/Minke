@@ -156,6 +156,7 @@ export function bindTabs(
   });
   const files = new FileManagerRuntime({
     rootPath: options.fileSystemRoot,
+    allowCrossVolumeAccess: true,
     openPath: (path) => external.openPath(path),
   });
   const filesViewState = new FilesViewStateStore(

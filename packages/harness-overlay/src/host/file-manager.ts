@@ -21,6 +21,7 @@ import {
   extname,
   isAbsolute,
   join,
+  parse,
   relative,
   resolve,
   sep,
@@ -70,6 +71,11 @@ export interface PathDetailsLike {
 
 export interface FileManagerRuntimeOptions {
   readonly rootPath: string;
+  /**
+   * Extend a filesystem-root boundary to sibling Windows volumes.
+   * Scoped roots such as a workspace directory remain isolated.
+   */
+  readonly allowCrossVolumeAccess?: boolean;
   readonly canonicalizePath?: (
     path: string,
   ) => Promise<string>;
@@ -108,6 +114,29 @@ export interface FileManagerRuntimeOptions {
   ) => Promise<FileManagerRepository | undefined>;
   readonly openPath: (path: string) => Promise<string>;
 }
+
+interface FileManagerPathOperations {
+  readonly sep: string;
+  dirname(path: string): string;
+  isAbsolute(path: string): boolean;
+  parse(path: string): { readonly root: string };
+  relative(from: string, to: string): string;
+  resolve(...paths: string[]): string;
+}
+
+export interface FileManagerBoundaryOptions {
+  readonly allowCrossVolumeAccess?: boolean;
+  readonly path?: FileManagerPathOperations;
+}
+
+const hostPathOperations: FileManagerPathOperations = {
+  dirname,
+  isAbsolute,
+  parse,
+  relative,
+  resolve,
+  sep,
+};
 
 async function readHostDirectory(
   path: string,
@@ -174,23 +203,59 @@ async function writeHostText(
   }
 }
 
-function normalizedAbsolutePath(candidate: string): string {
-  if (!isAbsolute(candidate)) {
+function normalizedAbsolutePath(
+  candidate: string,
+  path: FileManagerPathOperations = hostPathOperations,
+): string {
+  if (!path.isAbsolute(candidate)) {
     throw new TypeError("file manager path must be absolute");
   }
-  return resolve(candidate);
+  return path.resolve(candidate);
 }
 
-function pathWithinRoot(rootPath: string, candidate: string): boolean {
-  const offset = relative(rootPath, candidate);
+function pathWithinRoot(
+  rootPath: string,
+  candidate: string,
+  path: FileManagerPathOperations = hostPathOperations,
+): boolean {
+  const offset = path.relative(rootPath, candidate);
   return (
     offset === "" ||
     (
-      !isAbsolute(offset) &&
+      !path.isAbsolute(offset) &&
       offset !== ".." &&
-      !offset.startsWith(`..${sep}`)
+      !offset.startsWith(`..${path.sep}`)
     )
   );
+}
+
+export function fileManagerBoundaryRoot(
+  rootPath: string,
+  candidate: string,
+  options: FileManagerBoundaryOptions = {},
+): string | undefined {
+  const path = options.path ?? hostPathOperations;
+  const normalizedRoot = normalizedAbsolutePath(rootPath, path);
+  const normalizedCandidate = normalizedAbsolutePath(candidate, path);
+  if (pathWithinRoot(normalizedRoot, normalizedCandidate, path)) {
+    return normalizedRoot;
+  }
+  if (
+    options.allowCrossVolumeAccess !== true ||
+    path.dirname(normalizedRoot) !== normalizedRoot
+  ) {
+    return undefined;
+  }
+  const candidateRoot = normalizedAbsolutePath(
+    path.parse(normalizedCandidate).root,
+    path,
+  );
+  return (
+    path.dirname(candidateRoot) === candidateRoot &&
+    pathWithinRoot(candidateRoot, normalizedCandidate, path)
+  )
+    ? candidateRoot
+    : undefined;
 }
 
 function contentVersion(content: Uint8Array): string {
@@ -433,6 +498,7 @@ async function readGitOriginal(
 /** Trusted host filesystem adapter for Files tabs. */
 export class FileManagerRuntime {
   readonly #rootPath: string;
+  readonly #allowCrossVolumeAccess: boolean;
   readonly #canonicalizePath: NonNullable<
     FileManagerRuntimeOptions["canonicalizePath"]
   >;
@@ -459,6 +525,8 @@ export class FileManagerRuntime {
 
   constructor(options: FileManagerRuntimeOptions) {
     this.#rootPath = normalizedAbsolutePath(options.rootPath);
+    this.#allowCrossVolumeAccess =
+      options.allowCrossVolumeAccess === true;
     this.#canonicalizePath = options.canonicalizePath ?? realpath;
     this.#canonicalRoot = this.#canonicalizePath(
       this.#rootPath,
@@ -483,6 +551,10 @@ export class FileManagerRuntime {
       this.#resolvePath(parsed.path ?? this.#rootPath),
       this.#canonicalRoot,
     ]);
+    const boundaryRoot =
+      fileManagerBoundaryRoot(rootPath, path, {
+        allowCrossVolumeAccess: this.#allowCrossVolumeAccess,
+      }) ?? rootPath;
     const [source, repository] = await Promise.all([
       this.#readDirectory(path),
       parsed.includeRepository === true
@@ -524,12 +596,14 @@ export class FileManagerRuntime {
     const parent = dirname(path);
     const boundedRepository =
       repository !== undefined &&
-        pathWithinRoot(rootPath, repository.root)
+        pathWithinRoot(boundaryRoot, repository.root)
         ? repository
         : undefined;
     return parseFileManagerListResult({
       path,
-      ...(path === rootPath || parent === path ? {} : { parent }),
+      ...(path === boundaryRoot || parent === path
+        ? {}
+        : { parent }),
       entries: entries.slice(0, FILES_MAX_ENTRIES),
       truncated: entries.length > FILES_MAX_ENTRIES,
       ...(boundedRepository === undefined
@@ -686,7 +760,11 @@ export class FileManagerRuntime {
         normalizedAbsolutePath,
       ),
     ]);
-    if (!pathWithinRoot(rootPath, path)) {
+    if (
+      fileManagerBoundaryRoot(rootPath, path, {
+        allowCrossVolumeAccess: this.#allowCrossVolumeAccess,
+      }) === undefined
+    ) {
       throw new TypeError(
         `file manager path is outside its root: ${normalized}`,
       );

@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, parse, resolve } from "node:path";
+import { join, parse, resolve, win32 } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { createElement } from "react";
@@ -150,8 +150,14 @@ import {
   WebTabsController,
 } from "@minke/harness-overlay/client/tabs/web/controller.ts";
 import {
+  installWebLinkTabs,
+} from "@minke/harness-overlay/client/tabs/web/interceptor.ts";
+import {
   FileManagerRuntime,
 } from "@minke/desktop/main/tabs/files.ts";
+import {
+  fileManagerBoundaryRoot,
+} from "@minke/harness-overlay/host/file-manager.ts";
 import {
   FileWatchRuntime,
 } from "@minke/desktop/main/tabs/file-watch.ts";
@@ -701,6 +707,37 @@ test("Files runtime falls back to the system root", async () => {
   await assert.rejects(
     runtime.list({ includeRepository: "yes" }),
     /include repository must be boolean/u,
+  );
+});
+
+test("Files boundary admits another Windows volume only for filesystem-wide access", () => {
+  const homeVolume = "C:\\";
+  const workspace =
+    "D:\\work\\ai\\_tools\\token\\server\\Network\\Video";
+
+  assert.equal(
+    fileManagerBoundaryRoot(homeVolume, workspace, {
+      allowCrossVolumeAccess: true,
+      path: win32,
+    }),
+    "D:\\",
+  );
+  assert.equal(
+    fileManagerBoundaryRoot(homeVolume, workspace, {
+      path: win32,
+    }),
+    undefined,
+  );
+  assert.equal(
+    fileManagerBoundaryRoot(
+      "C:\\Users\\tester",
+      workspace,
+      {
+        allowCrossVolumeAccess: true,
+        path: win32,
+      },
+    ),
+    undefined,
   );
 });
 
@@ -1616,6 +1653,17 @@ test("Files toolbar focus and explorer density stay compact", () => {
   );
 });
 
+test("Tabs toolbar uses a subtle success surface for active actions", () => {
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-toolbar__button\[data-active-tone="success"\][\s\S]*?\[aria-pressed="true"\]\s*\{[\s\S]*?var\(--dsw-alias-state-success-primary\)\s*14%[\s\S]*?color:\s*var\(--dsw-alias-label-primary\);/u,
+  );
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-toolbar__button\[data-active-tone="success"\][\s\S]*?\[aria-pressed="true"\]:hover:not\(:disabled\)[\s\S]*?var\(--dsw-alias-state-success-primary\)\s*20%/u,
+  );
+});
+
 test("Files tabs start at the project cwd and retain navigation history", async () => {
   const tabs = new TabsRuntime({
     showPanel() {},
@@ -1963,6 +2011,10 @@ test("Files tabs start at the project cwd and retain navigation history", async 
       import.meta.url,
     ),
     "utf8",
+  );
+  assert.match(
+    tabsIpcSource,
+    /new FileManagerRuntime\(\{[\s\S]*allowCrossVolumeAccess:\s*true/u,
   );
   assert.doesNotMatch(viewSource, /files\.kind\./u);
   assert.match(viewSource, /controller\.preview\(tab\.id,\s*entry\)/u);
@@ -4369,6 +4421,10 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
     webIconsSource,
     /SquareArrowOutUpRight/u,
   );
+  assert.match(
+    webIconsSource,
+    /SquareArrowOutUpRight\}\s+size=\{14\}/u,
+  );
   assert.doesNotMatch(webIconsSource, /external-link/u);
   assert.match(
     webViewSource,
@@ -4969,4 +5025,85 @@ test("Web tab controls delegate to their attached webview", () => {
     "external:https://example.com/guide",
     "load:https://openai.com/docs",
   ]);
+});
+
+test("Web link interception leaves system-external links to their owner", () => {
+  let clickListener;
+  let removedListener;
+  const root = {
+    defaultView: {},
+    addEventListener(type, listener, capture) {
+      assert.equal(type, "click");
+      assert.equal(capture, true);
+      clickListener = listener;
+    },
+    removeEventListener(type, listener, capture) {
+      assert.equal(type, "click");
+      assert.equal(capture, true);
+      removedListener = listener;
+    },
+  };
+  const opened = [];
+  const dispose = installWebLinkTabs(
+    {
+      open(url, title, options) {
+        opened.push([url, title, options]);
+      },
+    },
+    root,
+  );
+  const eventFor = (anchor) => {
+    let prevented = false;
+    let stopped = false;
+    return {
+      event: {
+        altKey: false,
+        button: 0,
+        ctrlKey: false,
+        defaultPrevented: false,
+        metaKey: false,
+        composedPath: () => [anchor],
+        preventDefault() {
+          prevented = true;
+        },
+        stopPropagation() {
+          stopped = true;
+        },
+      },
+      result: () => ({ prevented, stopped }),
+    };
+  };
+  const anchor = (external) => ({
+    href: "https://tailscale.com/docs/features/tailscale-serve",
+    tagName: "A",
+    textContent: "Tailscale Serve",
+    getAttribute(name) {
+      return external &&
+        name === "data-minke-open-external"
+        ? "system"
+        : null;
+    },
+    hasAttribute() {
+      return false;
+    },
+  });
+
+  const normal = eventFor(anchor(false));
+  clickListener(normal.event);
+  assert.deepEqual(normal.result(), {
+    prevented: true,
+    stopped: true,
+  });
+  assert.equal(opened.length, 1);
+
+  const external = eventFor(anchor(true));
+  clickListener(external.event);
+  assert.deepEqual(external.result(), {
+    prevented: false,
+    stopped: false,
+  });
+  assert.equal(opened.length, 1);
+
+  dispose();
+  assert.equal(removedListener, clickListener);
 });
