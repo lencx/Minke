@@ -106,20 +106,13 @@ test("GitHub Actions packages each supported desktop platform", async () => {
     /process\.arch !== process\.env\.EXPECTED_ARCH/u,
   );
   assert.match(source, /pnpm install --frozen-lockfile/u);
-  const harnessInstallIndex = source.indexOf(
-    "run: pnpm --dir vendor/deepseek-harness install --recursive --frozen-lockfile --config.node-linker=isolated",
-  );
-  const harnessBuildIndex = source.indexOf(
-    "run: pnpm --dir vendor/deepseek-harness run build:lib",
-  );
+  const harnessStageIndex = source.indexOf("run: pnpm harness:stage");
   const typecheckIndex = source.indexOf("run: pnpm typecheck");
   const desktopTestIndex = source.indexOf("run: pnpm test:desktop");
-  assert.notEqual(harnessInstallIndex, -1);
-  assert.notEqual(harnessBuildIndex, -1);
+  assert.notEqual(harnessStageIndex, -1);
   assert.notEqual(typecheckIndex, -1);
   assert.notEqual(desktopTestIndex, -1);
-  assert.ok(harnessInstallIndex < harnessBuildIndex);
-  assert.ok(harnessBuildIndex < typecheckIndex);
+  assert.ok(harnessStageIndex < typecheckIndex);
   assert.ok(typecheckIndex < desktopTestIndex);
 
   assert.match(source, /runner\.os == 'Linux'/u);

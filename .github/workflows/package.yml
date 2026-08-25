@@ -79,11 +79,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Harness dependencies
-        run: pnpm --dir vendor/deepseek-harness install --recursive --frozen-lockfile --config.node-linker=isolated
-
-      - name: Build Harness libraries
-        run: pnpm --dir vendor/deepseek-harness run build:lib
+      - name: Stage Harness runtime
+        run: pnpm harness:stage
 
       - name: Typecheck
         run: pnpm typecheck
