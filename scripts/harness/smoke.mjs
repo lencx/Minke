@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import {
   cp,
@@ -19,7 +18,7 @@ import {
 import { packagedApplicationLayout } from "../forge/application-layout.mjs";
 import {
   isCommandUnavailableResult,
-  resolveCommandInvocation,
+  spawnCommand,
 } from "./command-invocation.mjs";
 import { parseBootManifest } from "./boot-manifest.mjs";
 import { verifyHarnessContract } from "./contract.mjs";
@@ -178,8 +177,7 @@ function formatOutput(stdout, stderr) {
 
 async function run(command, args, options = {}) {
   return await new Promise((resolvePromise, reject) => {
-    const invocation = resolveCommandInvocation(command, args);
-    const child = spawn(invocation.command, invocation.args, {
+    const child = spawnCommand(command, args, {
       ...options,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -418,7 +416,7 @@ async function startServer(
   args,
   env,
 ) {
-  const child = spawn(
+  const child = spawnCommand(
     command,
     args,
     {

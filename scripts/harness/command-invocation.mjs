@@ -1,3 +1,4 @@
+import { spawn as spawnChild } from "node:child_process";
 import { extname } from "node:path";
 
 export function isCommandUnavailableResult(
@@ -54,4 +55,28 @@ export function resolveCommandInvocation(
         ? comspec
         : "cmd.exe",
   };
+}
+
+export function spawnCommand(
+  command,
+  args,
+  options,
+  {
+    comspec = process.env.ComSpec,
+    platform = process.platform,
+    spawnProcess = spawnChild,
+  } = {},
+) {
+  if (typeof spawnProcess !== "function") {
+    throw new TypeError("spawnProcess must be a function");
+  }
+  const invocation = resolveCommandInvocation(command, args, {
+    comspec,
+    platform,
+  });
+  return spawnProcess(
+    invocation.command,
+    invocation.args,
+    options,
+  );
 }

@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   isCommandUnavailableResult,
   resolveCommandInvocation,
+  spawnCommand,
 } from "../scripts/harness/command-invocation.mjs";
 import {
   packagedApplicationLayout,
@@ -86,6 +87,46 @@ test("Windows batch adapters run through ComSpec without enabling a global shell
       command: "/runtime/bin/node",
     },
   );
+});
+
+test("every long-lived Windows batch process uses the shared ComSpec boundary", () => {
+  const calls = [];
+  const options = {
+    cwd: "D:\\a\\Minke\\Minke",
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  };
+  const child = { pid: 42 };
+
+  assert.equal(
+    spawnCommand(
+      "D:\\runtime\\bin\\dsh.cmd",
+      ["web", "--no-open"],
+      options,
+      {
+        comspec: "C:\\Windows\\System32\\cmd.exe",
+        platform: "win32",
+        spawnProcess(command, args, receivedOptions) {
+          calls.push({ command, args, options: receivedOptions });
+          return child;
+        },
+      },
+    ),
+    child,
+  );
+  assert.deepEqual(calls, [
+    {
+      command: "C:\\Windows\\System32\\cmd.exe",
+      args: [
+        "/d",
+        "/c",
+        "D:\\runtime\\bin\\dsh.cmd",
+        "web",
+        "--no-open",
+      ],
+      options,
+    },
+  ]);
 });
 
 test("missing command controls recognize Windows and POSIX exit conventions", () => {
