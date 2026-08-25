@@ -4986,6 +4986,7 @@ test("cancelling after provider registration restores with a newer generation", 
 });
 
 test("Weixin local reset recovers without reading a corrupt credential", async () => {
+  const dataHome = "/tmp/minke-remote-hub-reset-test";
   let vaultDeletes = 0;
   let mailboxResets = 0;
   const cipher = {
@@ -4997,7 +4998,7 @@ test("Weixin local reset recovers without reading a corrupt credential", async (
     },
   };
   const runtime = new WeixinCapabilityRuntime({
-    dataHome: "/tmp/minke-remote-hub-reset-test",
+    dataHome,
     vault: {
       available: true,
       async read() {
@@ -5014,7 +5015,7 @@ test("Weixin local reset recovers without reading a corrupt credential", async (
     createMailbox({ cipher: receivedCipher, path }) {
       assert.equal(
         path,
-        "/tmp/minke-remote-hub-reset-test/minke/im/gateway.sqlite",
+        join(dataHome, "minke", "im", "gateway.sqlite"),
       );
       assert.equal(receivedCipher, cipher);
       return {
@@ -5044,6 +5045,7 @@ test("Weixin local reset recovers without reading a corrupt credential", async (
 });
 
 test("an incompatible shared mailbox requires a separate confirmed Gateway reset", async () => {
+  const dataHome = "/tmp/minke-remote-hub-gateway-reset-test";
   const stored = {
     generation: 1,
     grant: {
@@ -5056,7 +5058,7 @@ test("an incompatible shared mailbox requires a separate confirmed Gateway reset
   let gatewayKeyResets = 0;
   let gatewayResets = 0;
   const runtime = new WeixinCapabilityRuntime({
-    dataHome: "/tmp/minke-remote-hub-gateway-reset-test",
+    dataHome,
     vault: {
       available: true,
       async read() {
@@ -5086,7 +5088,7 @@ test("an incompatible shared mailbox requires a separate confirmed Gateway reset
     async resetGatewayMailbox(path) {
       assert.equal(
         path,
-        "/tmp/minke-remote-hub-gateway-reset-test/minke/im/gateway.sqlite",
+        join(dataHome, "minke", "im", "gateway.sqlite"),
       );
       gatewayResets += 1;
     },

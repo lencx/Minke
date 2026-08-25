@@ -2127,34 +2127,52 @@ test("the Weixin adapter preserves order, checkpoint CAS fields, context, and cl
   );
 });
 
-test("SQLite mailbox permissions are owner-only", async (t) => {
-  const { path, close } = await fixture();
-  t.after(close);
-  assert.equal((await stat(path)).mode & 0o777, 0o600);
-});
-
-test("SQLite tightens a pre-existing mailbox directory", async () => {
-  const directory = await mkdtemp(
-    join(tmpdir(), "minke-im-gateway-permissions-"),
-  );
-  const path = join(directory, "mailbox.sqlite");
-  await chmod(directory, 0o755);
-  let mailbox;
-  try {
-    mailbox = createSqliteGatewayMailbox({
-      cipher: identityCipher,
-      path,
-    });
-    assert.equal(
-      (await stat(directory)).mode & 0o777,
-      0o700,
-    );
+test(
+  "SQLite mailbox permissions are owner-only",
+  {
+    skip:
+      process.platform === "win32"
+        ? "POSIX mode bits are not available on Windows"
+        : false,
+  },
+  async (t) => {
+    const { path, close } = await fixture();
+    t.after(close);
     assert.equal((await stat(path)).mode & 0o777, 0o600);
-  } finally {
-    mailbox?.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+  },
+);
+
+test(
+  "SQLite tightens a pre-existing mailbox directory",
+  {
+    skip:
+      process.platform === "win32"
+        ? "POSIX mode bits are not available on Windows"
+        : false,
+  },
+  async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "minke-im-gateway-permissions-"),
+    );
+    const path = join(directory, "mailbox.sqlite");
+    await chmod(directory, 0o755);
+    let mailbox;
+    try {
+      mailbox = createSqliteGatewayMailbox({
+        cipher: identityCipher,
+        path,
+      });
+      assert.equal(
+        (await stat(directory)).mode & 0o777,
+        0o700,
+      );
+      assert.equal((await stat(path)).mode & 0o777, 0o600);
+    } finally {
+      mailbox?.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test("an incompatible pre-release mailbox is rejected instead of migrated", async (t) => {
   const directory = await mkdtemp(
