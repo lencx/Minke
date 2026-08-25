@@ -464,6 +464,27 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.doesNotMatch(bundle, /require\(["']@deepseek-ai\//u);
 });
 
+test("the built Connections bundle exposes complete Remote access configuration", () => {
+  assert.match(bundle, /minke-remote--connections/u);
+  assert.match(
+    bundle,
+    /Disable remote access before changing the connection configuration/u,
+  );
+  assert.doesNotMatch(bundle, /minke-remote--hub/u);
+  assert.doesNotMatch(
+    bundle,
+    /minke-remote__advanced-toggle/u,
+  );
+  assert.match(
+    bundle,
+    /Create a locally managed Tunnel/u,
+  );
+  assert.match(
+    bundle,
+    /authorization-cookie\/validating-json\/#get-your-aud-tag/u,
+  );
+});
+
 test("the conversation outline projects loaded user messages safely", () => {
   const labels = {
     image: "[Image]",

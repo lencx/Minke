@@ -34,11 +34,17 @@ import {
   type AppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
 import {
+  parseBrowserSettings,
+  type BrowserSettings,
+} from "@minke/harness-overlay/browser-settings-contract.ts";
+import {
   parseWebSearchSettings,
   type WebSearchSettings,
 } from "@minke/harness-overlay/web-search-settings-contract.ts";
 import {
+  parseDiscordNetworkSettings,
   parseTelegramNetworkSettings,
+  type DiscordNetworkSettings,
   type TelegramNetworkSettings,
 } from "@minke/harness-overlay/remote-hub-contract.ts";
 import {
@@ -84,7 +90,10 @@ export class MinkeConfigStore {
   readonly webSearch: MinkeConfigSection<WebSearchSettings>;
   readonly telegramNetwork:
     MinkeConfigSection<TelegramNetworkSettings>;
+  readonly discordNetwork:
+    MinkeConfigSection<DiscordNetworkSettings>;
   readonly appUpdate: MinkeConfigSection<AppUpdateSettings>;
+  readonly browser: MinkeConfigSection<BrowserSettings>;
   readonly dshHome: MinkeConfigSection<string | undefined>;
 
   #document: MinkeConfigDocument | undefined;
@@ -123,9 +132,18 @@ export class MinkeConfigStore {
       write: (value: unknown) =>
         this.#writeTelegramNetwork(value),
     });
+    this.discordNetwork = Object.freeze({
+      read: () => this.#readDiscordNetwork(),
+      write: (value: unknown) =>
+        this.#writeDiscordNetwork(value),
+    });
     this.appUpdate = Object.freeze({
       read: () => this.#readAppUpdate(),
       write: (value: unknown) => this.#writeAppUpdate(value),
+    });
+    this.browser = Object.freeze({
+      read: () => this.#readBrowser(),
+      write: (value: unknown) => this.#writeBrowser(value),
     });
     this.dshHome = Object.freeze({
       read: () => this.#readDshHome(),
@@ -220,9 +238,21 @@ export class MinkeConfigStore {
     }));
   }
 
+  #readDiscordNetwork(): Promise<DiscordNetworkSettings> {
+    return this.#runExclusive(async () => ({
+      ...(await this.#load()).discordNetwork,
+    }));
+  }
+
   #readAppUpdate(): Promise<AppUpdateSettings> {
     return this.#runExclusive(async () => ({
       ...(await this.#load()).appUpdate,
+    }));
+  }
+
+  #readBrowser(): Promise<BrowserSettings> {
+    return this.#runExclusive(async () => ({
+      ...(await this.#load()).browser,
     }));
   }
 
@@ -327,12 +357,37 @@ export class MinkeConfigStore {
     });
   }
 
+  #writeDiscordNetwork(value: unknown): Promise<void> {
+    return this.#runExclusive(async () => {
+      const discordNetwork =
+        parseDiscordNetworkSettings(value);
+      const next: MinkeConfigDocument = {
+        ...(await this.#load()),
+        discordNetwork,
+      };
+      await this.#persist(next);
+      this.#document = next;
+    });
+  }
+
   #writeAppUpdate(value: unknown): Promise<void> {
     return this.#runExclusive(async () => {
       const appUpdate = parseAppUpdateSettings(value);
       const next: MinkeConfigDocument = {
         ...(await this.#load()),
         appUpdate,
+      };
+      await this.#persist(next);
+      this.#document = next;
+    });
+  }
+
+  #writeBrowser(value: unknown): Promise<void> {
+    return this.#runExclusive(async () => {
+      const browser = parseBrowserSettings(value);
+      const next: MinkeConfigDocument = {
+        ...(await this.#load()),
+        browser,
       };
       await this.#persist(next);
       this.#document = next;

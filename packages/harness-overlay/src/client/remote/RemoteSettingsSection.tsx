@@ -1,10 +1,15 @@
 import {
+  CircleQuestionMark,
+  RotateCw,
+} from "@lucide/icons";
+import {
   useEffect,
   useId,
   useRef,
   useState,
   useSyncExternalStore,
   type ClipboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import {
@@ -19,27 +24,51 @@ import {
 } from "./presentation.ts";
 import {
   canEnableRemoteSettings,
+  cloudflareBaseDomainAdvisory,
+  cloudflareHostnameFields,
+  cloudflareHostnameLabelAdvisory,
+  tailscaleIpAddressAdvisory,
   type RemoteSettingsRuntime,
 } from "./runtime.ts";
+import {
+  LucideIcon,
+} from "../tabs/components/LucideIcon.ts";
 
 type CopyAddress = typeof copyRemoteAddress;
+type OpenExternal = (url: string) => void;
 type CopyState = "idle" | "copying" | "copied" | "error";
 const TAILSCALE_SERVE_PERMISSION_ISSUE =
   "https://github.com/tailscale/tailscale/issues/19933";
+const TAILSCALE_SERVE_GUIDE =
+  "https://tailscale.com/docs/features/tailscale-serve";
+const TAILSCALE_IP_GUIDE =
+  "https://tailscale.com/docs/concepts/ip-and-dns-addresses";
+const TAILSCALE_ACCESS_CONTROL_GUIDE =
+  "https://tailscale.com/docs/features/access-control";
+const TAILSCALE_SHARING_GUIDE =
+  "https://tailscale.com/docs/features/sharing";
+const TAILSCALE_REMOVE_DEVICE_GUIDE =
+  "https://tailscale.com/docs/features/access-control/device-management/how-to/remove";
+const CLOUDFLARE_TUNNEL_GUIDE =
+  "https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/";
+const CLOUDFLARE_ACCESS_APP_GUIDE =
+  "https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/";
+const CLOUDFLARE_AUDIENCE_GUIDE =
+  "https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/#get-your-aud-tag";
 
 export interface RemoteSettingsSectionProps {
   runtime?: RemoteSettingsRuntime;
   t?: RemoteTranslate;
   copyAddress?: CopyAddress;
-  variant?: "settings" | "hub";
+  openExternal?: OpenExternal;
 }
 
-/** Desktop-only Settings page for controlled mobile access. */
+/** Desktop-only connection controls for managed remote access. */
 export function RemoteSettingsSection({
   runtime,
   t,
   copyAddress = copyRemoteAddress,
-  variant = "settings",
+  openExternal,
 }: RemoteSettingsSectionProps): ReactNode {
   if (runtime === undefined || t === undefined) return null;
   return (
@@ -47,7 +76,7 @@ export function RemoteSettingsSection({
       runtime={runtime}
       t={t}
       copyAddress={copyAddress}
-      variant={variant}
+      openExternal={openExternal}
     />
   );
 }
@@ -56,12 +85,12 @@ function LoadedRemoteSettings({
   runtime,
   t,
   copyAddress,
-  variant,
+  openExternal,
 }: {
   runtime: RemoteSettingsRuntime;
   t: RemoteTranslate;
   copyAddress: CopyAddress;
-  variant: "settings" | "hub";
+  openExternal: OpenExternal | undefined;
 }): ReactNode {
   const snapshot = useSyncExternalStore(
     runtime.subscribe,
@@ -71,10 +100,23 @@ function LoadedRemoteSettings({
   const titleId = useId();
   const methodName = useId();
   const tailscaleTransportName = useId();
-  const cloudflareHostnameName = useId();
+  const tailscaleIpInputId = useId();
+  const tailscaleIpHintId = useId();
+  const tailscaleIpAdvisoryId = useId();
+  const baseDomainInputId = useId();
+  const baseDomainHintId = useId();
+  const baseDomainAdvisoryId = useId();
+  const generatedLabelInputId = useId();
+  const generatedLabelAdvisoryId = useId();
+  const securityCleanupTitleId = useId();
   const [copyState, setCopyState] =
     useState<CopyState>("idle");
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [baseDomainHelpHovered, setBaseDomainHelpHovered] =
+    useState(false);
+  const [baseDomainHelpFocused, setBaseDomainHelpFocused] =
+    useState(false);
+  const [baseDomainHelpDismissed, setBaseDomainHelpDismissed] =
+    useState(false);
   const copyReset = useRef<number | undefined>(undefined);
   const data = snapshot.data;
   const settings = data.settings;
@@ -96,23 +138,40 @@ function LoadedRemoteSettings({
     enabled ||
     canEnableRemoteSettings(settings, data.available);
   const cloudflare = settings.cloudflare;
+  const hostnameFields =
+    cloudflareHostnameFields(cloudflare);
   const generatedHostname =
-    cloudflare.generatedLabel === "" ||
-    cloudflare.domain === ""
+    hostnameFields.label === "" ||
+    hostnameFields.baseDomain === ""
       ? ""
-      : `${cloudflare.generatedLabel}.${cloudflare.domain}`;
+      : `${hostnameFields.label}.${hostnameFields.baseDomain}`;
   const configuredHostname =
-    cloudflare.hostnameMode === "generated"
+    generatedHostname !== ""
       ? generatedHostname
-      : cloudflare.customHostname;
+      : cloudflare.hostnameMode === "custom"
+        ? cloudflare.customHostname
+        : "";
+  const baseDomainAdvisory =
+    cloudflareBaseDomainAdvisory(
+      hostnameFields.baseDomain,
+    );
+  const generatedLabelAdvisory =
+    cloudflareHostnameLabelAdvisory(
+      hostnameFields.label,
+    );
+  const tailscaleIpAdvisory =
+    tailscaleIpAddressAdvisory(
+      settings.tailscale.ipAddress,
+    );
+  const baseDomainDescriptionIds =
+    baseDomainAdvisory === undefined
+      ? baseDomainHintId
+      : `${baseDomainHintId} ${baseDomainAdvisoryId}`;
+  const baseDomainHelpOpen =
+    !baseDomainHelpDismissed &&
+    (baseDomainHelpHovered || baseDomainHelpFocused);
   const originAddress =
     `http://127.0.0.1:${String(cloudflare.originPort)}`;
-  const compact = variant === "hub";
-  const methodBlocked = !available;
-  const showTailscaleConfiguration =
-    method === "tailscale" && (!compact || advancedOpen);
-  const showCloudflareConfiguration =
-    method === "cloudflare";
 
   useEffect(() => {
     setCopyState("idle");
@@ -126,23 +185,6 @@ function LoadedRemoteSettings({
       }
     };
   }, [address]);
-
-  useEffect(() => {
-    if (
-      snapshot.editable &&
-      !enabled &&
-      method === "cloudflare" &&
-      cloudflare.generatedLabel === ""
-    ) {
-      runtime.regenerateCloudflareHostname();
-    }
-  }, [
-    cloudflare.generatedLabel,
-    enabled,
-    method,
-    runtime,
-    snapshot.editable,
-  ]);
 
   const scheduleCopyReset = (): void => {
     if (copyReset.current !== undefined) {
@@ -178,14 +220,9 @@ function LoadedRemoteSettings({
 
   return (
     <section
-      className={
-        compact
-          ? "minke-remote minke-remote--hub"
-          : "minke-remote"
-      }
+      className="minke-remote minke-remote--connections"
       aria-labelledby={titleId}
       data-minke-remote
-      data-variant={variant}
     >
       <div className="minke-remote__intro">
         <h2 id={titleId} className="minke-remote__title">
@@ -202,58 +239,53 @@ function LoadedRemoteSettings({
       </div>
 
       <div className="minke-remote__card">
-        {(!compact ||
-          enabled ||
-          methodBlocked ||
-          presentation.helpKey !== undefined) && (
-          <div className="minke-remote__card-header">
-            <div className="minke-remote__method">
-              <span className="minke-remote__method-name">
-                {t(
-                  method === "tailscale"
-                    ? "tailscaleTitle"
-                    : "cloudflareTitle",
-                )}
-              </span>
-              <span className="minke-remote__method-description">
-                {t(
-                  method === "tailscale"
-                    ? "tailscaleDescription"
-                    : "cloudflareDescription",
-                )}
-              </span>
-            </div>
-            <div className="minke-remote__status-actions">
-              <span
-                className="minke-remote__status"
-                data-state={presentation.state}
-                role="status"
-                aria-live="polite"
-              >
-                {t(presentation.statusKey)}
-              </span>
-              {presentation.canRefresh && (
-                <button
-                  type="button"
-                  className="minke-remote__refresh"
-                  disabled={
-                    snapshot.operation.kind === "refreshing"
-                  }
-                  aria-busy={
-                    snapshot.operation.kind === "refreshing"
-                  }
-                  onClick={() => {
-                    void runtime.refresh();
-                  }}
-                >
-                  {snapshot.operation.kind === "refreshing"
-                    ? t("refreshing")
-                    : t("refresh")}
-                </button>
+        <div className="minke-remote__card-header">
+          <div className="minke-remote__method">
+            <span className="minke-remote__method-name">
+              {t(
+                method === "tailscale"
+                  ? "tailscaleTitle"
+                  : "cloudflareTitle",
               )}
-            </div>
+            </span>
+            <span className="minke-remote__method-description">
+              {t(
+                method === "tailscale"
+                  ? "tailscaleDescription"
+                  : "cloudflareDescription",
+              )}
+            </span>
           </div>
-        )}
+          <div className="minke-remote__status-actions">
+            <span
+              className="minke-remote__status"
+              data-state={presentation.state}
+              role="status"
+              aria-live="polite"
+            >
+              {t(presentation.statusKey)}
+            </span>
+            {presentation.canRefresh && (
+              <button
+                type="button"
+                className="minke-remote__refresh"
+                disabled={
+                  snapshot.operation.kind === "refreshing"
+                }
+                aria-busy={
+                  snapshot.operation.kind === "refreshing"
+                }
+                onClick={() => {
+                  void runtime.refresh();
+                }}
+              >
+                {snapshot.operation.kind === "refreshing"
+                  ? t("refreshing")
+                  : t("refresh")}
+              </button>
+            )}
+          </div>
+        </div>
 
         {address !== undefined && (
           <div className="minke-remote__address">
@@ -319,24 +351,27 @@ function LoadedRemoteSettings({
           >
             <p>{t(presentation.helpKey)}</p>
             {data.runtime.error === "serve-permission" && (
-              <a
+              <ExternalReferenceLink
                 className="minke-remote__help-link"
                 href={TAILSCALE_SERVE_PERMISSION_ISSUE}
-                target="_blank"
-                rel="noreferrer"
+                openExternal={openExternal}
               >
                 {t("servePermissionIssue")}
-              </a>
+              </ExternalReferenceLink>
             )}
           </div>
         )}
+        {enabled && (
+          <p className="minke-remote__help">
+            {t("configurationLocked")}
+          </p>
+        )}
 
-        {(!compact || !enabled) && (
-          <fieldset className="minke-remote__fieldset">
-            <legend className="minke-remote__fieldset-title">
-              {t("methodTitle")}
-            </legend>
-            <div className="minke-remote__choices">
+        <fieldset className="minke-remote__fieldset">
+          <legend className="minke-remote__fieldset-title">
+            {t("methodTitle")}
+          </legend>
+          <div className="minke-remote__choices">
             <label
               className="minke-remote__choice"
               data-selected={method === "tailscale"}
@@ -389,31 +424,10 @@ function LoadedRemoteSettings({
                 </span>
               </span>
             </label>
-            </div>
-          </fieldset>
-        )}
+          </div>
+        </fieldset>
 
-        {compact &&
-          !enabled &&
-          !methodBlocked &&
-          method === "tailscale" && (
-            <button
-              type="button"
-              className="minke-remote__advanced-toggle"
-              aria-expanded={advancedOpen}
-              onClick={() => setAdvancedOpen((value) => !value)}
-            >
-              {t(
-                advancedOpen
-                  ? "hideAdvancedSettings"
-                  : "advancedSettings",
-              )}
-            </button>
-          )}
-
-        {(!compact || (!enabled && !methodBlocked)) &&
-        method === "tailscale" &&
-        showTailscaleConfiguration ? (
+        {method === "tailscale" ? (
           <fieldset className="minke-remote__fieldset">
             <legend className="minke-remote__fieldset-title">
               {t("tailscaleTransportTitle")}
@@ -483,146 +497,295 @@ function LoadedRemoteSettings({
                 </span>
               </label>
             </div>
+            {settings.tailscale.transport === "direct" && (
+              <div className="minke-remote__direct-settings">
+                <div className="minke-remote__field">
+                  <label htmlFor={tailscaleIpInputId}>
+                    {t("tailscaleIpAddress")}
+                  </label>
+                  <input
+                    id={tailscaleIpInputId}
+                    type="text"
+                    inputMode="decimal"
+                    value={settings.tailscale.ipAddress}
+                    placeholder={t("tailscaleIpPlaceholder")}
+                    disabled={providerLocked}
+                    maxLength={15}
+                    aria-describedby={
+                      tailscaleIpAdvisory === undefined
+                        ? tailscaleIpHintId
+                        : `${tailscaleIpHintId} ${tailscaleIpAdvisoryId}`
+                    }
+                    aria-invalid={
+                      tailscaleIpAdvisory === "invalid"
+                        ? true
+                        : undefined
+                    }
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    onChange={(event) => {
+                      runtime.setTailscaleSettings({
+                        ipAddress:
+                          event.currentTarget.value.trim(),
+                      });
+                    }}
+                  />
+                  <small id={tailscaleIpHintId}>
+                    {t("tailscaleIpHint")}
+                  </small>
+                  {tailscaleIpAdvisory !== undefined && (
+                    <small
+                      id={tailscaleIpAdvisoryId}
+                      className="minke-remote__field-warning"
+                      role="status"
+                    >
+                      {t("tailscaleIpInvalidWarning")}
+                    </small>
+                  )}
+                </div>
+              </div>
+            )}
+            <nav
+              className="minke-remote__references minke-remote__references--tailscale"
+              aria-label={t("tailscaleReferencesTitle")}
+            >
+              <span className="minke-remote__references-title">
+                {t("tailscaleReferencesTitle")}
+              </span>
+              <ul>
+                <li>
+                  <ExternalReferenceLink
+                    href={TAILSCALE_SERVE_GUIDE}
+                    openExternal={openExternal}
+                  >
+                    {t("tailscaleServeReference")}
+                  </ExternalReferenceLink>
+                </li>
+                <li>
+                  <ExternalReferenceLink
+                    href={TAILSCALE_IP_GUIDE}
+                    openExternal={openExternal}
+                  >
+                    {t("tailscaleIpReference")}
+                  </ExternalReferenceLink>
+                </li>
+                <li>
+                  <ExternalReferenceLink
+                    href={TAILSCALE_ACCESS_CONTROL_GUIDE}
+                    openExternal={openExternal}
+                  >
+                    {t("tailscaleAccessControlReference")}
+                  </ExternalReferenceLink>
+                </li>
+                <li>
+                  <ExternalReferenceLink
+                    href={TAILSCALE_SHARING_GUIDE}
+                    openExternal={openExternal}
+                  >
+                    {t("tailscaleSharingReference")}
+                  </ExternalReferenceLink>
+                </li>
+                <li>
+                  <ExternalReferenceLink
+                    href={TAILSCALE_REMOVE_DEVICE_GUIDE}
+                    openExternal={openExternal}
+                  >
+                    {t("tailscaleRemoveDeviceReference")}
+                  </ExternalReferenceLink>
+                </li>
+              </ul>
+            </nav>
           </fieldset>
-        ) : (!compact || (!enabled && !methodBlocked)) &&
-          showCloudflareConfiguration ? (
+        ) : (
           <div className="minke-remote__cloudflare">
             <div className="minke-remote__notice">
               <strong>{t("cloudflareSetupTitle")}</strong>
               <span>{t("cloudflareSetupDescription")}</span>
+              <nav
+                className="minke-remote__references"
+                aria-label={t("cloudflareReferencesTitle")}
+              >
+                <span className="minke-remote__references-title">
+                  {t("cloudflareReferencesTitle")}
+                </span>
+                <ul>
+                  <li>
+                    <ExternalReferenceLink
+                      href={CLOUDFLARE_TUNNEL_GUIDE}
+                      openExternal={openExternal}
+                    >
+                      {t("cloudflareTunnelReference")}
+                    </ExternalReferenceLink>
+                  </li>
+                  <li>
+                    <ExternalReferenceLink
+                      href={CLOUDFLARE_ACCESS_APP_GUIDE}
+                      openExternal={openExternal}
+                    >
+                      {t("cloudflareAccessAppReference")}
+                    </ExternalReferenceLink>
+                  </li>
+                  <li>
+                    <ExternalReferenceLink
+                      href={CLOUDFLARE_AUDIENCE_GUIDE}
+                      openExternal={openExternal}
+                    >
+                      {t("cloudflareAudienceReference")}
+                    </ExternalReferenceLink>
+                  </li>
+                </ul>
+              </nav>
             </div>
 
-            <fieldset className="minke-remote__fieldset">
-              <legend className="minke-remote__fieldset-title">
-                {t("hostnameModeTitle")}
-              </legend>
-              <div className="minke-remote__choices">
-                <label
-                  className="minke-remote__choice"
-                  data-selected={
-                    cloudflare.hostnameMode === "generated"
-                  }
-                >
-                  <input
-                    type="radio"
-                    name={cloudflareHostnameName}
-                    checked={
-                      cloudflare.hostnameMode === "generated"
-                    }
-                    disabled={providerLocked}
-                    onChange={() => {
-                      runtime.setCloudflareSettings({
-                        hostnameMode: "generated",
-                      });
-                    }}
-                  />
-                  <span className="minke-remote__choice-copy">
-                    <span className="minke-remote__choice-title">
-                      {t("generatedHostnameTitle")}
-                      <span className="minke-remote__tag">
-                        {t("recommended")}
-                      </span>
-                    </span>
-                    <span className="minke-remote__help">
-                      {t("generatedHostnameDescription")}
-                    </span>
-                  </span>
-                </label>
-                <label
-                  className="minke-remote__choice"
-                  data-selected={
-                    cloudflare.hostnameMode === "custom"
-                  }
-                >
-                  <input
-                    type="radio"
-                    name={cloudflareHostnameName}
-                    checked={
-                      cloudflare.hostnameMode === "custom"
-                    }
-                    disabled={providerLocked}
-                    onChange={() => {
-                      runtime.setCloudflareSettings({
-                        hostnameMode: "custom",
-                      });
-                    }}
-                  />
-                  <span className="minke-remote__choice-copy">
-                    <span className="minke-remote__choice-title">
-                      {t("customHostnameTitle")}
-                    </span>
-                    <span className="minke-remote__help">
-                      {t("customHostnameDescription")}
-                    </span>
-                  </span>
-                </label>
-              </div>
-            </fieldset>
-
             <div className="minke-remote__form-grid">
-              {cloudflare.hostnameMode === "generated" ? (
-                <>
-                  <label className="minke-remote__field">
-                    <span>{t("baseDomain")}</span>
-                    <input
-                      type="text"
-                      value={cloudflare.domain}
-                      placeholder="example.com"
-                      disabled={providerLocked}
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      onChange={(event) => {
-                        runtime.setCloudflareSettings({
-                          domain: event.currentTarget.value
-                            .trim()
-                            .toLowerCase(),
-                        });
-                      }}
-                    />
-                  </label>
-                  <label className="minke-remote__field">
-                    <span>{t("randomLabel")}</span>
-                    <span className="minke-remote__inline-control">
-                      <input
-                        type="text"
-                        value={cloudflare.generatedLabel}
-                        readOnly
-                      />
-                      <button
-                        type="button"
-                        disabled={providerLocked}
-                        onClick={() => {
-                          runtime.regenerateCloudflareHostname();
-                        }}
-                      >
-                        {t("regenerateHostname")}
-                      </button>
-                    </span>
-                  </label>
-                </>
-              ) : (
-                <label className="minke-remote__field minke-remote__field--wide">
-                  <span>{t("customHostname")}</span>
+              <div className="minke-remote__field">
+                <label htmlFor={baseDomainInputId}>
+                  {t("baseDomain")}
+                </label>
+                <span
+                  className="minke-remote__input-help"
+                  onMouseEnter={() => {
+                    setBaseDomainHelpHovered(true);
+                    setBaseDomainHelpDismissed(false);
+                  }}
+                  onMouseLeave={() => {
+                    setBaseDomainHelpHovered(false);
+                    setBaseDomainHelpDismissed(false);
+                  }}
+                >
                   <input
+                    id={baseDomainInputId}
                     type="text"
-                    value={cloudflare.customHostname}
-                    placeholder="minke.example.com"
+                    value={hostnameFields.baseDomain}
+                    placeholder="example.com"
                     disabled={providerLocked}
+                    aria-describedby={baseDomainDescriptionIds}
+                    aria-invalid={
+                      baseDomainAdvisory === "invalid"
+                        ? true
+                        : undefined
+                    }
                     autoCapitalize="none"
                     autoCorrect="off"
                     spellCheck={false}
                     onChange={(event) => {
                       runtime.setCloudflareSettings({
-                        customHostname:
+                        hostnameMode: "generated",
+                        domain:
+                          event.currentTarget.value
+                            .trim()
+                            .toLowerCase(),
+                        generatedLabel: hostnameFields.label,
+                      });
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="minke-remote__help-trigger"
+                    aria-label={t("baseDomainHelpLabel")}
+                    aria-describedby={baseDomainHintId}
+                    onFocus={() => {
+                      setBaseDomainHelpFocused(true);
+                      setBaseDomainHelpDismissed(false);
+                    }}
+                    onBlur={() => {
+                      setBaseDomainHelpFocused(false);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Escape") return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setBaseDomainHelpDismissed(true);
+                    }}
+                  >
+                    <LucideIcon
+                      icon={CircleQuestionMark}
+                      size={15}
+                    />
+                  </button>
+                  <span
+                    id={baseDomainHintId}
+                    className="minke-remote__help-tooltip"
+                    role="tooltip"
+                    data-open={baseDomainHelpOpen}
+                  >
+                    {t("baseDomainHint")}
+                  </span>
+                </span>
+                {baseDomainAdvisory !== undefined && (
+                  <small
+                    id={baseDomainAdvisoryId}
+                    className="minke-remote__field-warning"
+                    role="status"
+                  >
+                    {t(
+                      baseDomainAdvisory === "invalid"
+                        ? "baseDomainInvalidWarning"
+                        : "baseDomainNestedWarning",
+                    )}
+                  </small>
+                )}
+              </div>
+              <div className="minke-remote__field">
+                <label htmlFor={generatedLabelInputId}>
+                  {t("randomLabel")}
+                </label>
+                <span className="minke-remote__inline-control">
+                  <input
+                    id={generatedLabelInputId}
+                    type="text"
+                    value={hostnameFields.label}
+                    disabled={providerLocked}
+                    maxLength={63}
+                    aria-describedby={
+                      generatedLabelAdvisory === undefined
+                        ? undefined
+                        : generatedLabelAdvisoryId
+                    }
+                    aria-invalid={
+                      generatedLabelAdvisory === "invalid"
+                        ? true
+                        : undefined
+                    }
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    onChange={(event) => {
+                      runtime.setCloudflareSettings({
+                        hostnameMode: "generated",
+                        domain: hostnameFields.baseDomain,
+                        generatedLabel:
                           event.currentTarget.value
                             .trim()
                             .toLowerCase(),
                       });
                     }}
                   />
-                </label>
-              )}
+                  <button
+                    type="button"
+                    className="minke-remote__regenerate"
+                    disabled={providerLocked}
+                    aria-label={t("regenerateHostname")}
+                    title={t("regenerateHostname")}
+                    onClick={() => {
+                      runtime.regenerateCloudflareHostname();
+                    }}
+                  >
+                    <LucideIcon icon={RotateCw} size={16} />
+                  </button>
+                </span>
+                {generatedLabelAdvisory !== undefined && (
+                  <small
+                    id={generatedLabelAdvisoryId}
+                    className="minke-remote__field-warning"
+                    role="status"
+                  >
+                    {t("randomLabelInvalidWarning")}
+                  </small>
+                )}
+              </div>
 
               <div className="minke-remote__field minke-remote__field--wide">
                 <span>{t("hostnamePreview")}</span>
@@ -742,75 +905,128 @@ function LoadedRemoteSettings({
               {t("cloudflareAccessRequired")}
             </p>
           </div>
-        ) : null}
-
-        {compact ? (
-          (enabled || !methodBlocked) && (
-            <div className="minke-remote__action-row">
-              <p className="minke-remote__help">
-                {t("lifecycle")}
-              </p>
-              <button
-                type="button"
-                className="minke-remote__primary-action"
-                disabled={
-                  !snapshot.editable ||
-                  (!canEnable && !enabled)
-                }
-                onClick={() => {
-                  runtime.setEnabled(!enabled);
-                }}
-              >
-                {t(enabled ? "disable" : "enable")}
-              </button>
-            </div>
-          )
-        ) : (
-          <label className="minke-remote__toggle-row">
-            <span className="minke-remote__toggle-copy">
-              <span className="minke-remote__label">
-                {t("enable")}
-              </span>
-              <span className="minke-remote__help">
-                {t("lifecycle")}
-              </span>
-            </span>
-            <span className="minke-remote__switch">
-              <input
-                type="checkbox"
-                checked={enabled}
-                disabled={
-                  !snapshot.editable ||
-                  (!canEnable && !enabled)
-                }
-                aria-label={t("enable")}
-                onChange={(event) => {
-                  runtime.setEnabled(
-                    event.currentTarget.checked,
-                  );
-                }}
-              />
-              <span aria-hidden="true" />
-            </span>
-          </label>
         )}
 
+        <div className="minke-remote__action-row">
+          <p className="minke-remote__help">
+            {t("lifecycle")}
+          </p>
+          <button
+            type="button"
+            className="minke-remote__primary-action"
+            disabled={
+              !snapshot.editable ||
+              (!canEnable && !enabled)
+            }
+            onClick={() => {
+              runtime.setEnabled(!enabled);
+            }}
+          >
+            {t(enabled ? "disable" : "enable")}
+          </button>
+        </div>
       </div>
 
-      {compact ? (
-        <details className="minke-remote__security-disclosure">
-          <summary>{t("securityTitle")}</summary>
-          <p>{t("securityBody")}</p>
-        </details>
-      ) : (
-        <aside className="minke-remote__security">
-          <span className="minke-remote__security-title">
-            {t("securityTitle")}
-          </span>
-          <p>{t("securityBody")}</p>
-        </aside>
-      )}
+      <details
+        className="minke-remote__security-disclosure"
+        open
+      >
+        <summary>{t("securityTitle")}</summary>
+        <div className="minke-remote__security-content">
+          <p>
+            {t(
+              method === "tailscale"
+                ? "tailscaleSecurityBody"
+                : "securityBody",
+            )}
+          </p>
+          <section
+            className="minke-remote__security-cleanup"
+            role="note"
+            aria-labelledby={securityCleanupTitleId}
+          >
+            <strong
+              id={securityCleanupTitleId}
+              className="minke-remote__security-cleanup-title"
+            >
+              {t(
+                method === "cloudflare"
+                  ? "securityCleanupTitle"
+                  : "tailscaleCleanupTitle",
+              )}
+            </strong>
+            <p>
+              {t(
+                method === "cloudflare"
+                  ? "securityCleanupIntro"
+                  : "tailscaleCleanupIntro",
+              )}
+            </p>
+            {method === "cloudflare" ? (
+              <ol>
+                <li>{t("securityCleanupStepDisable")}</li>
+                <li>{t("securityCleanupStepProcess")}</li>
+                <li>{t("securityCleanupStepDns")}</li>
+                <li>{t("securityCleanupStepAccess")}</li>
+                <li>{t("securityCleanupStepTunnel")}</li>
+              </ol>
+            ) : (
+              <ol>
+                <li>{t("tailscaleCleanupStepDisable")}</li>
+                <li>
+                  {t(
+                    settings.tailscale.transport === "serve"
+                      ? "tailscaleCleanupStepServe"
+                      : "tailscaleCleanupStepDirect",
+                  )}
+                </li>
+                <li>{t("tailscaleCleanupStepAccess")}</li>
+                <li>{t("tailscaleCleanupStepDevice")}</li>
+              </ol>
+            )}
+            <p className="minke-remote__security-cleanup-note">
+              {t(
+                method === "cloudflare"
+                  ? "securityCleanupNote"
+                  : "tailscaleCleanupNote",
+              )}
+            </p>
+          </section>
+        </div>
+      </details>
     </section>
+  );
+}
+
+function ExternalReferenceLink({
+  children,
+  className,
+  href,
+  openExternal,
+}: {
+  children: ReactNode;
+  className?: string;
+  href: string;
+  openExternal: OpenExternal | undefined;
+}): ReactNode {
+  const handleClick = (
+    event: ReactMouseEvent<HTMLAnchorElement>,
+  ): void => {
+    if (openExternal === undefined) return;
+    event.preventDefault();
+    openExternal(href);
+  };
+  return (
+    <a
+      className={className}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      data-minke-open-external="system"
+      onClick={handleClick}
+    >
+      {children}
+    </a>
   );
 }
 

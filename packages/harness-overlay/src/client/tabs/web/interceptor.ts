@@ -44,7 +44,9 @@ export function installWebLinkTabs(
     const anchor = anchorFromClick(event);
     if (
       anchor === undefined ||
-      anchor.hasAttribute("download")
+      anchor.hasAttribute("download") ||
+      anchor.getAttribute("data-minke-open-external") ===
+        "system"
     ) {
       return;
     }

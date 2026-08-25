@@ -21,12 +21,17 @@ import {
   parseAppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
 import {
+  DEFAULT_BROWSER_SETTINGS,
+  parseBrowserSettings,
+} from "@minke/harness-overlay/browser-settings-contract.ts";
+import {
   DEFAULT_WEB_SEARCH_SETTINGS,
   parseWebSearchSettings,
 } from "@minke/harness-overlay/web-search-settings-contract.ts";
 import type {
   AppUpdatePort,
   AppUpdateSettingsStore,
+  BrowserSettingsStore,
   DataHomeSettingsPort,
   DesktopBridgeWindow,
   DesktopRemoteHubPort,
@@ -42,6 +47,7 @@ import {
   parseRemoteSettingsSnapshot,
 } from "@lencx/minke-remote-access/contract";
 import {
+  DEFAULT_DISCORD_NETWORK_SNAPSHOT,
   DEFAULT_TELEGRAM_NETWORK_SETTINGS,
   parseRemoteHubCommand,
   parseRemoteHubSnapshot,
@@ -120,6 +126,36 @@ export function desktopWebSearchSettingsStore(
     },
     async write(settings) {
       await bridge.write(parseWebSearchSettings(settings));
+    },
+  };
+}
+
+/** Adapt the isolated preload bridge for ordinary and Agent browser UAs. */
+export function desktopBrowserSettingsStore(
+  source: DesktopBridgeWindow =
+    window as unknown as DesktopBridgeWindow,
+): BrowserSettingsStore {
+  const bridge = source.minkeDesktop?.browser;
+  if (bridge === undefined) {
+    return {
+      available: false,
+      async read() {
+        return { ...DEFAULT_BROWSER_SETTINGS };
+      },
+      async write() {
+        throw new Error(
+          "Minke desktop browser settings bridge is unavailable",
+        );
+      },
+    };
+  }
+  return {
+    available: true,
+    async read() {
+      return parseBrowserSettings(await bridge.read());
+    },
+    async write(settings) {
+      await bridge.write(parseBrowserSettings(settings));
     },
   };
 }
@@ -302,6 +338,9 @@ export function desktopRemoteHubPort(
       revision: 0,
       telegramNetwork: {
         ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+      },
+      discordNetwork: {
+        ...DEFAULT_DISCORD_NETWORK_SNAPSHOT,
       },
       dependencies: {
         credentialVault: "unavailable",

@@ -38,6 +38,7 @@ export interface StoredBotCredential {
   readonly accountId: string;
   readonly accountLabel: string;
   readonly authorizedUserId?: string;
+  readonly connectionPaused?: true;
   readonly generation: number;
   readonly token: string;
 }
@@ -140,11 +141,19 @@ function storedBotCredential(
         "accountId",
         "accountLabel",
         "authorizedUserId",
+        "connectionPaused",
         "generation",
         "token",
       ].includes(key)
     ) ||
-    (keys.length !== 4 && keys.length !== 5) ||
+    ![
+      "accountId",
+      "accountLabel",
+      "generation",
+      "token",
+    ].every((key) => keys.includes(key)) ||
+    keys.length < 4 ||
+    keys.length > 6 ||
     typeof value.accountId !== "string" ||
     value.accountId.length === 0 ||
     value.accountId.length > 128 ||
@@ -164,6 +173,10 @@ function storedBotCredential(
         value.authorizedUserId.length === 0 ||
         value.authorizedUserId.length > 128
       )
+    ) ||
+    (
+      value.connectionPaused !== undefined &&
+      value.connectionPaused !== true
     )
   ) {
     throw new TypeError("stored bot credential is invalid");
@@ -174,6 +187,9 @@ function storedBotCredential(
     ...(value.authorizedUserId === undefined
       ? {}
       : { authorizedUserId: value.authorizedUserId }),
+    ...(value.connectionPaused === true
+      ? { connectionPaused: true as const }
+      : {}),
     generation: Number(value.generation),
     token: value.token,
   };

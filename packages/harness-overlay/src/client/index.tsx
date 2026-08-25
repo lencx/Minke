@@ -1,5 +1,6 @@
 import { installAbout } from "./about/install.tsx";
 import { installWebBrand } from "./brand/install.tsx";
+import { installBrowserSettings } from "./browser-settings/index.ts";
 import { installConversationOutline } from "./conversation-outline/install.tsx";
 import type {
   HarnessClientContext,
@@ -36,10 +37,11 @@ export function apply(ctx: HarnessClientContext): void {
   installConversationOutline(ctx);
   installAbout(ctx);
   installDataHome(ctx, minkeSettings);
+  installBrowserSettings(ctx, minkeSettings);
   installWebBrand(ctx);
   installPwa(ctx);
   installLocalModel(ctx);
-  const remote = installRemote(ctx, minkeSettings);
+  const remote = installRemote(ctx);
   installRemoteHub(ctx, remote);
   const tabsRuntimes = installTabs(ctx, minkeSettings);
   installShortcuts(ctx, tabsRuntimes, minkeSettings);

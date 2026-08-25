@@ -1,0 +1,188 @@
+.minke-browser-settings {
+  display: flex;
+  width: 100%;
+  max-width: 680px;
+  flex-direction: column;
+  gap: 28px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-browser-settings ::selection {
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.minke-browser-settings__intro {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.minke-browser-settings__intro > h2 {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 26px;
+}
+
+.minke-browser-settings__intro > p,
+.minke-browser-settings__help,
+.minke-browser-settings__edit-hint,
+.minke-browser-settings__error {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.minke-browser-settings__error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.minke-browser-settings__fields {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-browser-settings__field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 0 18px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-browser-settings__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.minke-browser-settings__label {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.minke-browser-settings__control {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.minke-browser-settings__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 72px;
+  max-height: 168px;
+  resize: vertical;
+  padding: 9px 11px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  outline: none;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-primary);
+  caret-color: var(--dsw-alias-brand-primary);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  transition:
+    border-color 120ms ease-out,
+    background-color 120ms ease-out;
+}
+
+.minke-browser-settings__input::placeholder {
+  color: var(--dsw-alias-label-secondary);
+  opacity: 1;
+}
+
+.minke-browser-settings__input:hover:not(:disabled) {
+  border-color: var(--dsw-alias-border-l1);
+}
+
+.minke-browser-settings__input:focus-visible {
+  border-color: var(--dsw-alias-brand-primary);
+  outline: 2px solid
+    color-mix(
+      in srgb,
+      var(--dsw-alias-brand-primary) 28%,
+      transparent
+    );
+  outline-offset: 1px;
+}
+
+.minke-browser-settings__input[aria-invalid="true"] {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.minke-browser-settings__input:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.minke-browser-settings__reset {
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 18px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  transition:
+    border-color 120ms ease-out,
+    background-color 120ms ease-out;
+}
+
+.minke-browser-settings__reset:hover:not(:disabled) {
+  border-color: var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.minke-browser-settings__reset:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.minke-browser-settings__reset:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.minke-browser-settings__edit-hint {
+  padding-right: 104px;
+}
+
+@media (max-width: 720px) {
+  .minke-browser-settings__control {
+    grid-template-columns: 1fr;
+  }
+
+  .minke-browser-settings__reset {
+    justify-self: start;
+  }
+
+  .minke-browser-settings__edit-hint {
+    padding-right: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .minke-browser-settings__input,
+  .minke-browser-settings__reset {
+    transition: none;
+  }
+}

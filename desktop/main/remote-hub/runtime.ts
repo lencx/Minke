@@ -5,6 +5,7 @@ import {
   type DiscordBotIdentity,
   type DiscordGatewayProvider,
   type DiscordInboundMessage,
+  type DiscordWebSocketFactory,
   validateDiscordBotToken,
 } from "@lencx/minke-im-discord";
 import {
@@ -16,10 +17,12 @@ import {
   validateTelegramBotToken,
 } from "@lencx/minke-im-telegram";
 import {
+  DEFAULT_DISCORD_NETWORK_SNAPSHOT,
   DEFAULT_TELEGRAM_NETWORK_SETTINGS,
   parseRemoteHubCommand,
   parseRemoteHubSnapshot,
   type BotHubSnapshot,
+  type DiscordNetworkSnapshot,
   type RemoteHubCommand,
   type RemoteHubSnapshot,
   type TelegramNetworkSettings,
@@ -54,8 +57,10 @@ interface WeixinRuntimePort {
 interface BotRuntimePort {
   approvePairing(requestId: string): Promise<void>;
   connect(token: string): Promise<void>;
+  disconnect(): Promise<void>;
   dismissPairing(requestId: string): Promise<void>;
   dispose(): Promise<void>;
+  refresh?(): Promise<void>;
   getSnapshot(): BotHubSnapshot;
   initialize(): Promise<void>;
   reconnect(): Promise<void>;
@@ -68,6 +73,13 @@ interface TelegramNetworkRuntimePort {
   configure(value: unknown): Promise<void>;
   getSnapshot(): TelegramNetworkSettings;
   initialize(): Promise<void>;
+}
+
+interface DiscordNetworkRuntimePort {
+  configure(value: unknown): Promise<void>;
+  getSnapshot(): DiscordNetworkSnapshot;
+  initialize(): Promise<void>;
+  refresh(): Promise<void>;
 }
 
 interface QueuedRemoteHubCommand {
@@ -139,18 +151,29 @@ class RemoteHubCommandBarrier {
 export interface RemoteHubCapabilityRuntimeOptions {
   readonly dataHome: string;
   readonly vault: RemoteHubCredentialVault;
+  readonly credentialClipboard?: {
+    writeText(value: string): void | Promise<void>;
+  };
   readonly agentRoute?:
     WeixinAgentRoutePort & BotAgentRoutePort;
   readonly telegramFetch?: typeof globalThis.fetch;
+  readonly discordFetch?: typeof globalThis.fetch;
+  readonly discordWebSocketFactory?: DiscordWebSocketFactory;
   readonly weixin?: WeixinRuntimePort;
   readonly telegram?: BotRuntimePort;
   readonly telegramNetwork?: TelegramNetworkRuntimePort;
+  readonly discordNetwork?: DiscordNetworkRuntimePort;
   readonly discord?: BotRuntimePort;
   readonly recoverMailbox?: GatewayMailboxRecovery;
 }
 
 export interface TelegramBotDriverOptions {
   readonly fetch?: typeof globalThis.fetch;
+}
+
+export interface DiscordBotDriverOptions {
+  readonly fetch?: typeof globalThis.fetch;
+  readonly webSocketFactory?: DiscordWebSocketFactory;
 }
 
 const NETWORK_ERROR_CODES = new Set([
@@ -454,7 +477,9 @@ export function createTelegramBotDriver(
   return Object.freeze(driver);
 }
 
-export function createDiscordBotDriver(): BotProviderDriver<
+export function createDiscordBotDriver(
+  options: DiscordBotDriverOptions = {},
+): BotProviderDriver<
   DiscordBotIdentity
 > {
   const driver: BotProviderDriver<DiscordBotIdentity> = {
@@ -488,6 +513,7 @@ export function createDiscordBotDriver(): BotProviderDriver<
     },
     async validate(token, { signal }) {
       return await validateDiscordBotToken({
+        fetch: options.fetch,
         signal,
         token,
       });
@@ -537,8 +563,10 @@ export function createDiscordBotDriver(): BotProviderDriver<
         accountKey: input.accountKey,
         bot: input.identity,
         generation: input.generation,
+        fetch: options.fetch,
         signal: input.signal,
         token: input.token,
+        webSocketFactory: options.webSocketFactory,
       });
     },
   };
@@ -549,6 +577,7 @@ function initialSnapshot(): RemoteHubSnapshot {
   return parseRemoteHubSnapshot({
     revision: 0,
     telegramNetwork: DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+    discordNetwork: DEFAULT_DISCORD_NETWORK_SNAPSHOT,
     dependencies: {
       credentialVault: "pending",
       agentRoute: "pending",
@@ -576,12 +605,17 @@ function isGatewayStoreFailure(
  */
 export class RemoteHubCapabilityRuntime {
   readonly #commandBarrier = new RemoteHubCommandBarrier();
+  readonly #credentialClipboard: {
+    writeText(value: string): void | Promise<void>;
+  };
+  readonly #credentialVault: RemoteHubCredentialVault;
   readonly #listeners = new Set<() => void>();
   readonly #recoverMailbox: GatewayMailboxRecovery;
   readonly #weixin: WeixinRuntimePort;
   readonly #telegram: BotRuntimePort;
   readonly #telegramNetwork: TelegramNetworkRuntimePort;
   readonly #discord: BotRuntimePort;
+  readonly #discordNetwork: DiscordNetworkRuntimePort;
   readonly #unsubscribeWeixin: () => void;
   #snapshot = initialSnapshot();
   #initializePromise: Promise<void> | undefined;
@@ -591,6 +625,15 @@ export class RemoteHubCapabilityRuntime {
   #disposed = false;
 
   constructor(options: RemoteHubCapabilityRuntimeOptions) {
+    this.#credentialVault = options.vault;
+    this.#credentialClipboard =
+      options.credentialClipboard ?? {
+        writeText() {
+          throw new Error(
+            "Credential clipboard is unavailable",
+          );
+        },
+      };
     const mailboxPath = join(
       options.dataHome,
       "minke",
@@ -617,6 +660,24 @@ export class RemoteHubCapabilityRuntime {
         }),
         async initialize() {},
       };
+    this.#discordNetwork =
+      options.discordNetwork ?? {
+        async configure(value: unknown) {
+          const settings = value as {
+            readonly httpProxyUrl: string;
+          };
+          if (settings.httpProxyUrl !== "") {
+            throw new Error(
+              "Discord proxy configuration is unavailable",
+            );
+          }
+        },
+        getSnapshot: () => ({
+          ...DEFAULT_DISCORD_NETWORK_SNAPSHOT,
+        }),
+        async initialize() {},
+        async refresh() {},
+      };
     this.#weixin =
       options.weixin ??
       new WeixinCapabilityRuntime({
@@ -642,7 +703,11 @@ export class RemoteHubCapabilityRuntime {
     this.#discord =
       options.discord ??
       new BotCapabilityRuntime({
-        driver: createDiscordBotDriver(),
+        driver: createDiscordBotDriver({
+          fetch: options.discordFetch,
+          webSocketFactory:
+            options.discordWebSocketFactory,
+        }),
         mailboxPath,
         vault: options.vault,
         agentRoute: options.agentRoute,
@@ -666,13 +731,20 @@ export class RemoteHubCapabilityRuntime {
 
   initialize(): Promise<void> {
     this.#assertActive();
-    this.#initializePromise ??= Promise.allSettled([
-      this.#weixin.initialize(),
-      this.#telegramNetwork
-        .initialize()
-        .then(() => this.#telegram.initialize()),
-      this.#discord.initialize(),
-    ]).then(() => this.#publish());
+    if (this.#initializePromise === undefined) {
+      const telegramNetworkReady =
+        this.#telegramNetwork.initialize();
+      this.#initializePromise = Promise.allSettled([
+        this.#weixin.initialize(),
+        telegramNetworkReady.then(() =>
+          this.#telegram.initialize(),
+        ),
+        telegramNetworkReady
+          .catch(() => undefined)
+          .then(() => this.#discordNetwork.initialize())
+          .then(() => this.#discord.initialize()),
+      ]).then(() => this.#publish());
+    }
     return this.#initializePromise;
   }
 
@@ -685,7 +757,9 @@ export class RemoteHubCapabilityRuntime {
     if (
       command.kind !== "gateway/reset-local" &&
       command.kind !== "telegram/connect" &&
-      command.kind !== "telegram/network/set"
+      command.kind !== "telegram/network/set" &&
+      command.kind !== "discord/connect" &&
+      command.kind !== "discord/network/set"
     ) {
       void this.initialize();
     }
@@ -725,8 +799,13 @@ export class RemoteHubCapabilityRuntime {
       case "refresh":
         await Promise.all([
           this.#weixin.dispatch(command),
-          this.#telegram.reconnect(),
-          this.#discord.reconnect(),
+          this.#telegram.refresh?.() ??
+            this.#telegram.reconnect(),
+          this.#discordNetwork.refresh().then(
+            () =>
+              this.#discord.refresh?.() ??
+              this.#discord.reconnect(),
+          ),
         ]);
         return;
       case "gateway/reset-local":
@@ -743,8 +822,13 @@ export class RemoteHubCapabilityRuntime {
         }
         this.#recoverMailbox.reset?.();
         await Promise.all([
-          this.#telegram.reconnect(),
-          this.#discord.reconnect(),
+          this.#telegram.refresh?.() ??
+            this.#telegram.reconnect(),
+          this.#discordNetwork.refresh().then(
+            () =>
+              this.#discord.refresh?.() ??
+              this.#discord.reconnect(),
+          ),
         ]);
         return;
       case "telegram/connect":
@@ -771,6 +855,12 @@ export class RemoteHubCapabilityRuntime {
       case "telegram/reconnect":
         await this.#telegram.reconnect();
         return;
+      case "telegram/token/copy":
+        await this.#copyBotToken("telegram");
+        return;
+      case "telegram/disconnect":
+        await this.#telegram.disconnect();
+        return;
       case "bot/pairing/approve":
         await (
           command.provider === "telegram"
@@ -792,10 +882,48 @@ export class RemoteHubCapabilityRuntime {
         await this.#telegram.unlink();
         return;
       case "discord/connect":
+        await this.#telegramNetwork
+          .initialize()
+          .catch(() => undefined);
+        await this.#discordNetwork.refresh();
         await this.#discord.connect(command.token);
         return;
+      case "discord/network/set": {
+        const current = this.#discord.getSnapshot();
+        if (
+          current.state === "connecting" ||
+          current.state === "degraded" ||
+          current.state === "pairing" ||
+          current.state === "connected"
+        ) {
+          throw new Error(
+            "Disconnect Discord before changing its network proxy",
+          );
+        }
+        await this.#discordNetwork.configure(
+          command.settings,
+        );
+        if (
+          current.state === "error" &&
+          current.issue === "network" &&
+          current.hasStoredCredential
+        ) {
+          await this.#discord.reconnect();
+        }
+        return;
+      }
       case "discord/reconnect":
+        await this.#telegramNetwork
+          .initialize()
+          .catch(() => undefined);
+        await this.#discordNetwork.refresh();
         await this.#discord.reconnect();
+        return;
+      case "discord/token/copy":
+        await this.#copyBotToken("discord");
+        return;
+      case "discord/disconnect":
+        await this.#discord.disconnect();
         return;
       case "discord/reset-local":
         await this.#discord.resetLocal();
@@ -813,6 +941,19 @@ export class RemoteHubCapabilityRuntime {
     }
   }
 
+  async #copyBotToken(
+    provider: "telegram" | "discord",
+  ): Promise<void> {
+    const credential =
+      await this.#credentialVault.readBot(provider);
+    if (credential === undefined) {
+      throw new Error(`No saved ${provider} token`);
+    }
+    await this.#credentialClipboard.writeText(
+      credential.token,
+    );
+  }
+
   #publish(): void {
     if (this.#disposed) return;
     const weixin = this.#weixin.getSnapshot();
@@ -820,6 +961,8 @@ export class RemoteHubCapabilityRuntime {
       revision: this.#snapshot.revision + 1,
       telegramNetwork:
         this.#telegramNetwork.getSnapshot(),
+      discordNetwork:
+        this.#discordNetwork.getSnapshot(),
       dependencies: weixin.dependencies,
       channels: {
         weixin: weixin.channels.weixin,

@@ -128,6 +128,11 @@ export class MainWindowRuntime {
     );
   }
 
+  /** Apply the ordinary Web Tab identity to its persistent guest Session. */
+  setWebUserAgent(userAgent: string): void {
+    session.fromPartition(TABS_WEB_PARTITION).setUserAgent(userAgent);
+  }
+
   show(): void {
     const window = this.#window;
     if (window === undefined) {

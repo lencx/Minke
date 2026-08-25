@@ -31,6 +31,7 @@ export interface RemoteSettings {
   method: RemoteMethodId;
   tailscale: {
     transport: TailscaleTransport;
+    ipAddress: string;
   };
   cloudflare: {
     hostnameMode: "generated" | "custom";
@@ -56,6 +57,7 @@ export const DEFAULT_REMOTE_SETTINGS: Readonly<RemoteSettings> =
     method: "tailscale",
     tailscale: Object.freeze({
       transport: "serve",
+      ipAddress: "",
     }),
     cloudflare: Object.freeze({
       hostnameMode: "generated",
@@ -72,6 +74,18 @@ export const DEFAULT_REMOTE_SETTINGS: Readonly<RemoteSettings> =
 
 const HOSTNAME_ALPHABET =
   "0123456789abcdefghjkmnpqrstvwxyz";
+const REMOTE_HOSTNAME_LABEL =
+  /^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+
+/** Return whether a value is one canonical DNS hostname label. */
+export function isRemoteHostnameLabel(
+  value: string,
+): boolean {
+  return (
+    value === value.trim().toLowerCase() &&
+    REMOTE_HOSTNAME_LABEL.test(value)
+  );
+}
 
 /** Generate a compact DNS-safe 80-bit label with no machine metadata. */
 export function createRemoteHostnameLabel(
@@ -112,6 +126,7 @@ export function createDefaultRemoteSettings(
     method: "tailscale",
     tailscale: {
       transport: "serve",
+      ipAddress: "",
     },
     cloudflare: {
       ...DEFAULT_REMOTE_SETTINGS.cloudflare,
@@ -142,6 +157,7 @@ export type RemoteRuntimeError =
   | "serve-conflict"
   | "serve-https"
   | "serve-permission"
+  | "direct-ip"
   | "direct-bind"
   | "harness-control"
   | "cloudflare-config"
@@ -223,11 +239,15 @@ export function parseRemoteSettings(
       settings.method !== "tailscale" &&
       settings.method !== "cloudflare"
     ) ||
-    !hasExactKeys(tailscale, ["transport"]) ||
+    !hasExactKeys(tailscale, [
+      "transport",
+      "ipAddress",
+    ]) ||
     (
       tailscale.transport !== "serve" &&
       tailscale.transport !== "direct"
     ) ||
+    !isBoundedString(tailscale.ipAddress, 64) ||
     !hasExactKeys(cloudflare, [
       "hostnameMode",
       "domain",
@@ -261,6 +281,7 @@ export function parseRemoteSettings(
     method: settings.method,
     tailscale: {
       transport: tailscale.transport,
+      ipAddress: tailscale.ipAddress,
     },
     cloudflare: {
       hostnameMode: cloudflare.hostnameMode,
@@ -277,8 +298,8 @@ export function parseRemoteSettings(
 }
 
 /**
- * Upgrade the only previously shipped remote section. Keep this parser out of
- * IPC so obsolete shapes are accepted exclusively at the durable-file seam.
+ * Upgrade previously shipped remote sections. Keep this parser out of IPC so
+ * obsolete shapes are accepted exclusively at the durable-file seam.
  */
 export function migrateLegacyRemoteSettings(
   value: unknown,
@@ -288,6 +309,23 @@ export function migrateLegacyRemoteSettings(
     settings.tailscale,
     "legacy Tailscale remote settings",
   );
+  if (
+    hasExactKeys(settings, [
+      "enabled",
+      "method",
+      "tailscale",
+      "cloudflare",
+    ]) &&
+    hasExactKeys(tailscale, ["transport"])
+  ) {
+    return parseRemoteSettings({
+      ...settings,
+      tailscale: {
+        transport: tailscale.transport,
+        ipAddress: "",
+      },
+    });
+  }
   if (
     !hasExactKeys(settings, ["tailscale"]) ||
     !hasExactKeys(tailscale, ["enabled"]) ||
@@ -319,7 +357,10 @@ export function parseRemoteAvailability(
   };
 }
 
-function isTailscaleIpv4(hostname: string): boolean {
+/** Return whether a value is a canonical Tailscale CGNAT IPv4 address. */
+export function isTailscaleIpv4(
+  hostname: string,
+): boolean {
   const parts = hostname.split(".");
   if (
     parts.length !== 4 ||
@@ -403,6 +444,7 @@ ReadonlySet<RemoteRuntimeError> = new Set([
   "serve-conflict",
   "serve-https",
   "serve-permission",
+  "direct-ip",
   "direct-bind",
   "harness-control",
   "cloudflare-config",

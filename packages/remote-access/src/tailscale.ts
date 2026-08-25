@@ -12,6 +12,7 @@ import {
   type Socket,
 } from "node:net";
 import {
+  isTailscaleIpv4,
   parseRemoteRuntimeSnapshot,
   parseRemoteSettings,
   type RemoteRuntimeSnapshot,
@@ -53,6 +54,8 @@ interface ParsedTailscaleStatus {
   status: Record<string, unknown>;
   self: TailscaleSelf;
 }
+
+class TailscaleIpConfigurationError extends TypeError {}
 
 export interface TailscaleServiceOptions {
   command?: string;
@@ -250,39 +253,38 @@ export function parseTailscaleStatusHostname(
   return hostname;
 }
 
-function isTailscaleIpv4(value: string): boolean {
-  const parts = value.split(".");
-  if (
-    parts.length !== 4 ||
-    parts.some(
-      (part) =>
-        !/^(?:0|[1-9]\d{0,2})$/u.test(part) ||
-        Number(part) > 255,
-    )
-  ) {
-    return false;
-  }
-  return (
-    Number(parts[0]) === 100 &&
-    Number(parts[1]) >= 64 &&
-    Number(parts[1]) <= 127
-  );
-}
-
 /** Resolve the exact CGNAT IPv4 address owned by this Tailscale node. */
 export function parseTailscaleStatusIpv4(
   output: string,
+  preferredIp = "",
 ): string {
+  if (
+    preferredIp !== "" &&
+    !isTailscaleIpv4(preferredIp)
+  ) {
+    throw new TailscaleIpConfigurationError(
+      "Configured Tailscale IP must be a canonical IPv4 address in 100.64.0.0/10",
+    );
+  }
   const { self } = parseTailscaleStatusSelf(output);
   if (!Array.isArray(self.TailscaleIPs)) {
     throw new TypeError(
       "Tailscale status did not provide node addresses",
     );
   }
-  const ipv4 = self.TailscaleIPs.find(
+  const ipv4s = self.TailscaleIPs.filter(
     (value): value is string =>
       typeof value === "string" && isTailscaleIpv4(value),
   );
+  if (
+    preferredIp !== "" &&
+    !ipv4s.includes(preferredIp)
+  ) {
+    throw new TailscaleIpConfigurationError(
+      "Configured Tailscale IP is not assigned to this device",
+    );
+  }
+  const ipv4 = preferredIp === "" ? ipv4s[0] : preferredIp;
   if (ipv4 === undefined) {
     throw new TypeError(
       "Tailscale status did not provide a valid IPv4 address",
@@ -664,6 +666,7 @@ export class TailscaleDirectService
 implements RemoteAccessLifecycle {
   readonly #command: string | undefined;
   readonly #enabled: boolean;
+  readonly #configuredIp: string;
   readonly #execute: RemoteCommandExecutor;
   readonly #environment: NodeJS.ProcessEnv;
   readonly #statusTimeoutMs: number;
@@ -687,6 +690,7 @@ implements RemoteAccessLifecycle {
       settings.enabled &&
       settings.method === "tailscale" &&
       settings.tailscale.transport === "direct";
+    this.#configuredIp = settings.tailscale.ipAddress;
     this.#execute = options.execute ?? defaultExecute;
     this.#environment = tailscaleEnvironment(
       options.environment ?? process.env,
@@ -732,16 +736,29 @@ implements RemoteAccessLifecycle {
           },
         );
         statusOutput = `${result.stdout}\n${result.stderr}`;
-        this.#ip = parseTailscaleStatusIpv4(result.stdout);
+        this.#ip = parseTailscaleStatusIpv4(
+          result.stdout,
+          this.#configuredIp,
+        );
       } catch (error) {
-        this.#publishError("status");
+        const kind =
+          error instanceof TailscaleIpConfigurationError
+            ? "direct-ip"
+            : "status";
+        this.#publishError(kind);
         throw new RemoteAccessError(
-          "status",
-          tailscaleStatusFailureMessage(
-            statusOutput,
-            error,
-            "a connected node IPv4 address",
-          ),
+          kind,
+          kind === "direct-ip"
+            ? (
+                error instanceof Error
+                  ? error.message
+                  : "Configured Tailscale IP is invalid"
+              )
+            : tailscaleStatusFailureMessage(
+                statusOutput,
+                error,
+                "a connected node IPv4 address",
+              ),
           { cause: error },
         );
       }
@@ -932,7 +949,9 @@ implements RemoteAccessLifecycle {
     });
   }
 
-  #publishError(error: "status" | "direct-bind"): void {
+  #publishError(
+    error: "status" | "direct-ip" | "direct-bind",
+  ): void {
     this.#snapshot = parseRemoteRuntimeSnapshot({
       method: "tailscale",
       transport: "direct",

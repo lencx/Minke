@@ -23,6 +23,8 @@ import {
   createDefaultRemoteSettings,
   DEFAULT_REMOTE_SETTINGS,
   discoverRemoteCommands,
+  isRemoteHostnameLabel,
+  isTailscaleIpv4,
   parseCloudflareAccessConfig,
   parseRemoteRuntimeSnapshot,
   parseRemoteSettingsSnapshot,
@@ -50,7 +52,12 @@ import {
   presentRemoteStatus,
 } from "@minke/harness-overlay/client/remote/presentation.ts";
 import {
+  canEnableRemoteSettings,
+  cloudflareBaseDomainAdvisory,
+  cloudflareHostnameFields,
+  cloudflareHostnameLabelAdvisory,
   RemoteSettingsRuntime,
+  tailscaleIpAddressAdvisory,
 } from "@minke/harness-overlay/client/remote/runtime.ts";
 import {
   desktopRemoteSettingsStore,
@@ -74,16 +81,17 @@ afterEach(async () => {
 
 function tailscaleStatus(
   dnsName = "minke.example-tailnet.ts.net.",
+  tailscaleIps = [
+    "100.101.102.103",
+    "fd7a:115c:a1e0::1234",
+  ],
 ) {
   return JSON.stringify({
     BackendState: "Running",
     Self: {
       DNSName: dnsName,
       Online: true,
-      TailscaleIPs: [
-        "100.101.102.103",
-        "fd7a:115c:a1e0::1234",
-      ],
+      TailscaleIPs: tailscaleIps,
     },
   });
 }
@@ -92,12 +100,13 @@ function remoteConfig({
   enabled = false,
   method = "tailscale",
   transport = "serve",
+  ipAddress = "",
   cloudflare = {},
 } = {}) {
   return {
     enabled,
     method,
-    tailscale: { transport },
+    tailscale: { transport, ipAddress },
     cloudflare: {
       hostnameMode: "generated",
       domain: "",
@@ -282,7 +291,7 @@ test("remote contracts default closed and reject malformed snapshots", () => {
   );
 });
 
-test("remote host labels compactly encode 80 bits and custom names require explicit selection", () => {
+test("remote host labels default to 80 random bits and accept manual DNS labels", () => {
   const entropy = Uint8Array.from(
     { length: 10 },
     (_, index) => index,
@@ -298,6 +307,28 @@ test("remote host labels compactly encode 80 bits and custom names require expli
   assert.match(
     createRemoteHostnameLabel(),
     /^m-[0123456789abcdefghjkmnpqrstvwxyz]{16}$/u,
+  );
+  assert.equal(isRemoteHostnameLabel(label), true);
+  assert.deepEqual(
+    cloudflareHostnameFields(
+      configuredCloudflare().cloudflare,
+    ),
+    {
+      baseDomain: "example.com",
+      label: "m-0123456789abcdef",
+    },
+  );
+  assert.deepEqual(
+    cloudflareHostnameFields(
+      configuredCloudflare({
+        hostnameMode: "custom",
+        customHostname: "private.example.com",
+      }).cloudflare,
+    ),
+    {
+      baseDomain: "example.com",
+      label: "private",
+    },
   );
   assert.deepEqual(
     parseCloudflareAccessConfig(configuredCloudflare()),
@@ -320,13 +351,115 @@ test("remote host labels compactly encode 80 bits and custom names require expli
     })).hostname,
     "private.example.com",
   );
-  assert.throws(
-    () =>
-      parseCloudflareAccessConfig(configuredCloudflare({
-        generatedLabel: "lencx-macbook-pro",
-      })),
-    /generated Cloudflare hostname/u,
+  assert.equal(
+    parseCloudflareAccessConfig(configuredCloudflare({
+      generatedLabel: "private-console",
+    })).hostname,
+    "private-console.example.com",
   );
+  for (const generatedLabel of [
+    "private_console",
+    "-private",
+    "private-",
+    "private.console",
+  ]) {
+    assert.equal(
+      isRemoteHostnameLabel(generatedLabel),
+      false,
+    );
+    assert.throws(
+      () =>
+        parseCloudflareAccessConfig(configuredCloudflare({
+          generatedLabel,
+        })),
+      /Cloudflare hostname label/u,
+    );
+  }
+});
+
+test("Cloudflare base-domain advisories do not gate renderer completeness", () => {
+  assert.equal(
+    cloudflareBaseDomainAdvisory("example.com"),
+    undefined,
+  );
+  assert.equal(
+    cloudflareBaseDomainAdvisory("minke.example.com"),
+    "nested",
+  );
+  for (const value of [
+    "invalid_domain.example",
+    "https://example.com",
+    "example.com.",
+    "100.101.102.103",
+    "team.cloudflareaccess.com",
+  ]) {
+    assert.equal(
+      cloudflareBaseDomainAdvisory(value),
+      "invalid",
+    );
+  }
+  assert.equal(
+    canEnableRemoteSettings(
+      configuredCloudflare({
+        domain: "invalid_domain.example",
+      }),
+      { tailscale: true, cloudflare: true },
+    ),
+    true,
+  );
+  assert.equal(
+    cloudflareHostnameLabelAdvisory("private-console"),
+    undefined,
+  );
+  assert.equal(
+    cloudflareHostnameLabelAdvisory("private_console"),
+    "invalid",
+  );
+  assert.equal(
+    canEnableRemoteSettings(
+      configuredCloudflare({
+        generatedLabel: "private_console",
+      }),
+      { tailscale: true, cloudflare: true },
+    ),
+    true,
+  );
+  assert.equal(
+    canEnableRemoteSettings(
+      configuredCloudflare({ domain: "" }),
+      { tailscale: true, cloudflare: true },
+    ),
+    false,
+  );
+});
+
+test("Tailscale IP advisories preserve manual input without gating enablement", () => {
+  assert.equal(tailscaleIpAddressAdvisory(""), undefined);
+  assert.equal(
+    tailscaleIpAddressAdvisory("100.101.102.103"),
+    undefined,
+  );
+  for (const value of [
+    "100.101.102",
+    "100.101.102.999",
+    "100.063.1.2",
+    "192.168.1.2",
+  ]) {
+    assert.equal(
+      tailscaleIpAddressAdvisory(value),
+      "invalid",
+    );
+    assert.equal(
+      canEnableRemoteSettings(
+        remoteConfig({
+          transport: "direct",
+          ipAddress: value,
+        }),
+        { tailscale: true, cloudflare: true },
+      ),
+      true,
+    );
+  }
 });
 
 test("Tailscale status probes allow slow desktop startup and preserve preference failures", async () => {
@@ -390,6 +523,15 @@ test("remote command discovery checks PATH without executing Tailscale", async (
 });
 
 test("Tailscale direct binds only the node CGNAT address", async () => {
+  const selectedIp = "100.111.112.113";
+  const status = tailscaleStatus(
+    "minke.example-tailnet.ts.net.",
+    [
+      "100.101.102.103",
+      selectedIp,
+      "fd7a:115c:a1e0::1234",
+    ],
+  );
   const bindings = [];
   const servers = [];
   const createDirectServer = () => {
@@ -401,7 +543,7 @@ test("Tailscale direct binds only the node CGNAT address", async () => {
       queueMicrotask(() => server.emit("listening"));
     };
     server.address = () => ({
-      address: "100.101.102.103",
+      address: selectedIp,
       family: "IPv4",
       port: 41_877,
     });
@@ -420,9 +562,10 @@ test("Tailscale direct binds only the node CGNAT address", async () => {
     settings: remoteConfig({
       enabled: true,
       transport: "direct",
+      ipAddress: selectedIp,
     }),
     async execute() {
-      return { stdout: tailscaleStatus(), stderr: "" };
+      return { stdout: status, stderr: "" };
     },
     createDirectServer,
   });
@@ -430,6 +573,24 @@ test("Tailscale direct binds only the node CGNAT address", async () => {
   assert.equal(
     parseTailscaleStatusIpv4(tailscaleStatus()),
     "100.101.102.103",
+  );
+  assert.equal(
+    parseTailscaleStatusIpv4(status, selectedIp),
+    selectedIp,
+  );
+  assert.equal(isTailscaleIpv4(selectedIp), true);
+  assert.equal(isTailscaleIpv4("192.168.1.2"), false);
+  assert.throws(
+    () =>
+      parseTailscaleStatusIpv4(
+        status,
+        "100.120.121.122",
+      ),
+    /not assigned to this device/u,
+  );
+  assert.throws(
+    () => parseTailscaleStatusIpv4(status, "192.168.1.2"),
+    /100\.64\.0\.0\/10/u,
   );
   assert.throws(
     () =>
@@ -440,10 +601,10 @@ test("Tailscale direct binds only the node CGNAT address", async () => {
     /valid IPv4/u,
   );
   assert.deepEqual(await service.prepare(), {
-    trustedHosts: ["100.101.102.103:41877"],
+    trustedHosts: [`${selectedIp}:41877`],
   });
   assert.deepEqual(bindings, [{
-    host: "100.101.102.103",
+    host: selectedIp,
     port: 0,
     exclusive: true,
   }]);
@@ -451,7 +612,7 @@ test("Tailscale direct binds only the node CGNAT address", async () => {
     method: "tailscale",
     transport: "direct",
     state: "ready",
-    url: "http://100.101.102.103:41877",
+    url: `http://${selectedIp}:41877`,
   });
 
   await service.start("http://127.0.0.1:43117");
@@ -460,14 +621,49 @@ test("Tailscale direct binds only the node CGNAT address", async () => {
     method: "tailscale",
     transport: "direct",
     state: "active",
-    url: "http://100.101.102.103:41877",
+    url: `http://${selectedIp}:41877`,
   });
   await service.stop();
   assert.deepEqual(service.read(), {
     method: "tailscale",
     transport: "direct",
     state: "ready",
-    url: "http://100.101.102.103:41877",
+    url: `http://${selectedIp}:41877`,
+  });
+});
+
+test("Tailscale direct rejects a configured IP not assigned to this device", async () => {
+  const service = new RemoteAccessService({
+    command: "/usr/bin/tailscale",
+    settings: remoteConfig({
+      enabled: true,
+      transport: "direct",
+      ipAddress: "100.120.121.122",
+    }),
+    async execute() {
+      return { stdout: tailscaleStatus(), stderr: "" };
+    },
+    createDirectServer() {
+      throw new Error("server must not be created");
+    },
+  });
+
+  await assert.rejects(
+    service.prepare(),
+    (error) => {
+      assert.equal(error?.kind, "direct-ip");
+      assert.match(
+        error?.message,
+        /not assigned to this device/u,
+      );
+      return true;
+    },
+  );
+  assert.deepEqual(service.read(), {
+    method: "tailscale",
+    transport: "direct",
+    state: "error",
+    error: "direct-ip",
   });
 });
 
@@ -1133,8 +1329,13 @@ test("remote settings runtime applies saved changes without requiring a restart"
     Object.keys(remoteEn).sort(),
     Object.keys(remoteZh).sort(),
   );
-  assert.equal(remoteZh.nav, "远程访问");
-  assert.equal(remoteEn.nav, "Remote access");
+  assert.equal(remoteZh.randomLabel, "随机或自定义标签");
+  assert.equal(remoteZh.regenerateHostname, "生成随机标签");
+  assert.equal(remoteEn.randomLabel, "Random or custom label");
+  assert.equal(
+    remoteEn.regenerateHostname,
+    "Generate random label",
+  );
   runtime.dispose();
 });
 
@@ -1311,6 +1512,45 @@ test("remote runtime retries Tailscale in the background before exposing Harness
     method: "tailscale",
     transport: "serve",
     state: "disabled",
+  });
+  await runtime.stop();
+});
+
+test("remote runtime does not retry a rejected Tailscale IP override", async () => {
+  let attempts = 0;
+  let retryWaits = 0;
+  const runtime = new RemoteAccessRuntime({
+    settings: remoteConfig({
+      enabled: true,
+      transport: "direct",
+      ipAddress: "100.120.121.122",
+    }),
+    async discoverCommands() {
+      return { tailscale: "/usr/bin/tailscale" };
+    },
+    async replaceTrustedHosts() {},
+    async execute() {
+      attempts += 1;
+      return { stdout: tailscaleStatus(), stderr: "" };
+    },
+    createDirectServer() {
+      throw new Error("server must not be created");
+    },
+    retryDelaysMs: [0],
+    async waitForRetry() {
+      retryWaits += 1;
+    },
+  });
+
+  await runtime.start("http://127.0.0.1:43117");
+
+  assert.equal(attempts, 1);
+  assert.equal(retryWaits, 0);
+  assert.deepEqual(runtime.read(), {
+    method: "tailscale",
+    transport: "direct",
+    state: "error",
+    error: "direct-ip",
   });
   await runtime.stop();
 });

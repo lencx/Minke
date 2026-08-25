@@ -114,7 +114,7 @@
     background-color 120ms ease-out;
 }
 .minke-terminal-settings__input::placeholder {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   opacity: 1;
 }
 .minke-preferences__input:hover:not(:disabled),
@@ -188,6 +188,7 @@
   cursor: default;
   opacity: 0.45;
 }
+
 .minke-preferences__code-previews {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

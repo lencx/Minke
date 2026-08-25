@@ -44,6 +44,12 @@ import {
   type AppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
 import {
+  BROWSER_SETTINGS_READ_CHANNEL,
+  BROWSER_SETTINGS_WRITE_CHANNEL,
+  parseBrowserSettings,
+  type BrowserSettings,
+} from "@minke/harness-overlay/browser-settings-contract.ts";
+import {
   parseWebSearchSettings,
   WEB_SEARCH_SETTINGS_READ_CHANNEL,
   WEB_SEARCH_SETTINGS_WRITE_CHANNEL,
@@ -626,6 +632,20 @@ const webSearch = Object.freeze({
   },
 });
 
+const browser = Object.freeze({
+  async read(): Promise<unknown> {
+    return parseBrowserSettings(
+      await ipcRenderer.invoke(BROWSER_SETTINGS_READ_CHANNEL),
+    );
+  },
+  async write(settings: BrowserSettings): Promise<void> {
+    await ipcRenderer.invoke(
+      BROWSER_SETTINGS_WRITE_CHANNEL,
+      parseBrowserSettings(settings),
+    );
+  },
+});
+
 const modelRuntime = Object.freeze({
   async read(): Promise<unknown> {
     return await ipcRenderer.invoke(
@@ -816,6 +836,7 @@ contextBridge.exposeInMainWorld(
     agentBrowser,
     appUpdate,
     about,
+    browser,
     dataHome,
     files,
     locale,

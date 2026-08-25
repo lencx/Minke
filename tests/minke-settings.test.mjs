@@ -19,6 +19,9 @@ import {
   reconcileMinkeSettingsNavigationLogo,
   shouldMountMinkeSettingsPage,
 } from "@minke/harness-overlay/client/minke-settings/index.ts";
+import {
+  installRemote,
+} from "@minke/harness-overlay/client/remote/install.tsx";
 
 function page(id, order, label = id) {
   return {
@@ -36,8 +39,8 @@ test("Minke Settings owns a sorted directory and one secondary tab", () => {
   const unsubscribe = runtime.subscribe(() => {
     revisions.push(runtime.getSnapshot().revision);
   });
-  const unregisterRemote = runtime.register(
-    page("remote", 40, "Remote access"),
+  const unregisterStorage = runtime.register(
+    page("data-home", 20, "Data & Storage"),
   );
   const unregisterPreferences = runtime.register(
     page("preferences", 0, "Preferences"),
@@ -45,20 +48,20 @@ test("Minke Settings owns a sorted directory and one secondary tab", () => {
 
   assert.deepEqual(
     runtime.getSnapshot().pages.map(({ id }) => id),
-    ["preferences", "remote"],
+    ["preferences", "data-home"],
   );
   assert.equal(runtime.getSnapshot().activeId, "preferences");
-  runtime.select("remote");
-  assert.equal(runtime.getSnapshot().activeId, "remote");
+  runtime.select("data-home");
+  assert.equal(runtime.getSnapshot().activeId, "data-home");
   runtime.select("missing");
-  assert.equal(runtime.getSnapshot().activeId, "remote");
+  assert.equal(runtime.getSnapshot().activeId, "data-home");
 
   assert.throws(
-    () => runtime.register(page("remote", 99)),
+    () => runtime.register(page("data-home", 99)),
     /already registered/u,
     "duplicate contributions are a known-invalid registry input",
   );
-  unregisterRemote();
+  unregisterStorage();
   assert.equal(runtime.getSnapshot().activeId, "preferences");
   unregisterPreferences();
   assert.equal(runtime.getSnapshot().activeId, undefined);
@@ -79,9 +82,9 @@ test("Minke Settings owns a sorted directory and one secondary tab", () => {
   );
   assert.equal(
     shouldMountMinkeSettingsPage(
-      page("remote", 40),
+      page("data-home", 20),
       "preferences",
-      new Set(["remote"]),
+      new Set(["data-home"]),
     ),
     true,
     "stateful settings drafts remain mounted after their first visit",
@@ -140,6 +143,50 @@ test("the installer exposes only one Minke section in DSH Settings", () => {
   );
 
   for (const cleanup of cleanups.reverse()) cleanup();
+});
+
+test("remote access is configured only through Connections", () => {
+  const originalWindow = globalThis.window;
+  const effectLabels = [];
+  globalThis.window = {
+    minkeDesktop: {
+      remote: {
+        async read() {
+          throw new Error("not exercised");
+        },
+        async write() {
+          throw new Error("not exercised");
+        },
+      },
+    },
+  };
+
+  try {
+    installRemote({
+      effect(_callback, label) {
+        effectLabels.push(label);
+      },
+      locale: {
+        register() {
+          return () => {};
+        },
+        bind() {
+          return (key) => key;
+        },
+      },
+    });
+  } finally {
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  }
+
+  assert.doesNotMatch(
+    effectLabels.join("\n"),
+    /Minke Settings/u,
+  );
 });
 
 test("the Minke Settings row uses an adaptive SVG logo", () => {
@@ -236,16 +283,16 @@ test("the unified DSH section renders accessible icon tabs", () => {
   const runtime = new MinkeSettingsRuntime();
   runtime.register(page("preferences", 0, "Preferences"));
   runtime.register({
+    ...page("browser", 5, "Browser"),
+    icon: "browser",
+  });
+  runtime.register({
     ...page("shortcuts", 10, "Keyboard shortcuts"),
     icon: "shortcuts",
   });
   runtime.register({
     ...page("data-home", 20, "Data & Storage"),
     icon: "data-home",
-  });
-  runtime.register({
-    ...page("remote", 40, "Remote access"),
-    icon: "remote",
   });
   const html = renderToStaticMarkup(
     createElement(MinkeSettingsSection, {
@@ -259,7 +306,8 @@ test("the unified DSH section renders accessible icon tabs", () => {
   assert.equal((html.match(/role="tabpanel"/gu) ?? []).length, 4);
   assert.ok(html.includes('aria-selected="true"'));
   assert.ok(html.includes('aria-label="Preferences"'));
-  assert.ok(html.includes('title="Remote access"'));
+  assert.ok(html.includes('aria-label="Browser"'));
+  assert.ok(!html.includes('title="Remote access"'));
   assert.ok(html.includes("Preferences content"));
   assert.ok(!html.includes("Local models"));
   assert.ok(!html.includes('role="dialog"'));

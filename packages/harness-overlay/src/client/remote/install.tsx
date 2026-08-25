@@ -3,6 +3,7 @@ import type {
 } from "../core/context.ts";
 import {
   desktopRemoteSettingsStore,
+  desktopTabsPort,
 } from "../desktop/index.ts";
 import {
   remoteEn,
@@ -14,28 +15,23 @@ import {
   RemoteSettingsRuntime,
 } from "./runtime.ts";
 import {
-  RemoteSettingsSection,
-} from "./RemoteSettingsSection.tsx";
-import {
   installRemoteStyles,
 } from "./styles.ts";
-import type {
-  MinkeSettingsRuntime,
-} from "../minke-settings/index.ts";
 
 const REMOTE_NAMESPACE = "minke.remote";
 
 export interface InstalledRemoteFeature {
   readonly runtime: RemoteSettingsRuntime;
   readonly t: RemoteTranslate;
+  readonly openExternal: (url: string) => void;
 }
 
-/** Register desktop-managed private remote access settings. */
+/** Install the desktop-managed private remote access runtime. */
 export function installRemote(
   ctx: HarnessClientContext,
-  settings: MinkeSettingsRuntime,
 ): InstalledRemoteFeature {
   const store = desktopRemoteSettingsStore();
+  const tabsPort = desktopTabsPort();
 
   ctx.effect(
     () =>
@@ -62,23 +58,11 @@ export function installRemote(
     () => installRemoteStyles(),
     "minke-overlay: remote settings styles",
   );
-  if (store.available) {
-    ctx.effect(
-      () =>
-        settings.register({
-          id: "remote",
-          order: 40,
-          label: () => remoteT("nav"),
-          icon: "remote",
-          render: () => (
-            <RemoteSettingsSection runtime={runtime} t={remoteT} />
-          ),
-        }),
-      "minke-overlay: remote Minke Settings page",
-    );
-  }
   return Object.freeze({
     runtime,
     t: remoteT,
+    openExternal(url: string): void {
+      tabsPort.openExternal(url);
+    },
   });
 }

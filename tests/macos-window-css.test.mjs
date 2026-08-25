@@ -217,7 +217,7 @@ test("Electron wires native desktop capabilities through preload", () => {
   );
   assert.match(
     desktopPreloadSource,
-    /Object\.freeze\(\{\s*agentBrowser,\s*appUpdate,\s*about,\s*dataHome,\s*files,\s*locale,\s*modelRuntime,\s*pluginInstaller,\s*remote,\s*remoteHub,\s*sessionLogs,\s*tabs,\s*terminal,\s*webSearch,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
+    /Object\.freeze\(\{\s*agentBrowser,\s*appUpdate,\s*about,\s*browser,\s*dataHome,\s*files,\s*locale,\s*modelRuntime,\s*pluginInstaller,\s*remote,\s*remoteHub,\s*sessionLogs,\s*tabs,\s*terminal,\s*webSearch,\s*shortcuts,\s*surface,\s*windowTheme,\s*\}\)/,
   );
   assert.match(
     desktopPreloadSource,

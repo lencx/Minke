@@ -20,6 +20,7 @@ import {
   jwtVerify,
 } from "jose";
 import {
+  isRemoteHostnameLabel,
   parseRemoteRuntimeSnapshot,
   parseRemoteSettings,
   type RemoteRuntimeSnapshot,
@@ -43,8 +44,6 @@ const CLOUDFLARED_READY_MARKER =
   "registered tunnel connection";
 const DNS_NAME =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
-const GENERATED_HOST_LABEL =
-  /^m-[0123456789abcdefghjkmnpqrstvwxyz]{16}$/u;
 const TEAM_NAME =
   /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
 const AUDIENCE = /^[A-Za-z0-9_-]{16,512}$/u;
@@ -137,12 +136,12 @@ export function parseCloudflareAccessConfig(
     cloudflare.hostnameMode === "generated"
       ? (() => {
           if (
-            !GENERATED_HOST_LABEL.test(
+            !isRemoteHostnameLabel(
               cloudflare.generatedLabel,
             )
           ) {
             throw new TypeError(
-              "invalid generated Cloudflare hostname label",
+              "invalid Cloudflare hostname label",
             );
           }
           return `${cloudflare.generatedLabel}.${cloudflare.domain}`;

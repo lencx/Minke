@@ -478,6 +478,128 @@
   margin: 0 0 16px;
 }
 
+.minke-remote-hub__activity {
+  overflow: hidden;
+  margin: 0 0 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.minke-remote-hub__activity-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.minke-remote-hub__activity-grid > div {
+  min-width: 0;
+  padding: 10px 11px;
+}
+
+.minke-remote-hub__activity-grid > div + div {
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
+.minke-remote-hub__activity-grid dt {
+  overflow: hidden;
+  margin: 0 0 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 9px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-remote-hub__activity-grid dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.minke-remote-hub__activity-note {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 7px 11px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 9px;
+  line-height: 15px;
+}
+
+.minke-remote-hub__activity-note span:first-child {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.minke-remote-hub__activity-note span:last-child {
+  min-width: 0;
+  text-align: right;
+}
+
+.minke-remote-hub__saved-token {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.minke-remote-hub__saved-token > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.minke-remote-hub__saved-token-hint {
+  margin: 0;
+}
+
+.minke-remote-hub__saved-token small {
+  display: block;
+  margin-top: 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 9px;
+  line-height: 15px;
+}
+
+.minke-remote-hub__saved-token button {
+  min-height: 30px;
+  flex: none;
+  padding: 6px 9px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.minke-remote-hub__saved-token
+  button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.minke-remote-hub__saved-token button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
 .minke-remote-hub__channel-status[data-tone="success"] {
   background: color-mix(
     in srgb,
@@ -639,6 +761,8 @@
 }
 
 .minke-remote-hub__channel-actions
+  .minke-remote-hub__button--quiet,
+.minke-remote-hub__bot-token
   .minke-remote-hub__button--quiet {
   border-color: transparent;
   color: var(--dsw-alias-label-secondary);
@@ -649,6 +773,21 @@
   border-color: var(--dsw-alias-state-error-primary);
   background: var(--dsw-alias-state-error-primary);
   color: var(--dsw-alias-label-primary-foreground);
+}
+
+.minke-remote-hub__channel-actions
+  .minke-remote-hub__button--danger-quiet {
+  border-color: transparent;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.minke-remote-hub__channel-actions
+  .minke-remote-hub__button--danger-quiet:hover:not(:disabled) {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 8%,
+    transparent
+  );
 }
 
 .minke-remote-hub__channel-actions
@@ -712,6 +851,17 @@
   color: var(--dsw-alias-state-error-primary);
   font-size: 11px;
   line-height: 17px;
+}
+
+.minke-remote-hub__network-status {
+  width: fit-content;
+  margin: 8px 0 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 16px;
 }
 
 .minke-remote-hub__bot-token small {
@@ -873,6 +1023,28 @@
   .minke-remote-hub__bot-token > div,
   .minke-remote-hub__access .minke-remote__address-control {
     flex-direction: column;
+  }
+
+  .minke-remote-hub__activity-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .minke-remote-hub__activity-grid > div:nth-child(3) {
+    border-left: 0;
+  }
+
+  .minke-remote-hub__activity-grid > div:nth-child(n + 3) {
+    border-top: 1px solid var(--dsw-alias-border-l2);
+  }
+
+  .minke-remote-hub__activity-note {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .minke-remote-hub__activity-note span:last-child {
+    text-align: left;
   }
 
   .minke-remote-hub__access .minke-remote__choices,

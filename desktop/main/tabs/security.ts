@@ -59,6 +59,7 @@ export function secureTabWebview(
   params.partition = TABS_WEB_PARTITION;
   delete params.allowpopups;
   delete params.preload;
+  delete params.useragent;
   delete params.webpreferences;
 
   delete webPreferences.preload;

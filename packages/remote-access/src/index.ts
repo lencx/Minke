@@ -4,6 +4,8 @@ export {
   createRemoteHostnameLabel,
   DEFAULT_CLOUDFLARE_ORIGIN_PORT,
   DEFAULT_REMOTE_SETTINGS,
+  isRemoteHostnameLabel,
+  isTailscaleIpv4,
   migrateLegacyRemoteSettings,
   NO_REMOTE_AVAILABILITY,
   parseRemoteAvailability,

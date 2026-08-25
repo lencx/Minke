@@ -27,6 +27,14 @@ export {
   type StoredWeixinGrant,
 } from "./credential-vault.ts";
 export {
+  DiscordNetworkRuntime,
+  type DiscordNetworkSessionPort,
+  type DiscordNetworkSettingsStore,
+} from "./discord-network.ts";
+export {
+  createDiscordNetworkWebSocketPort,
+} from "./discord-websocket.ts";
+export {
   TelegramNetworkRuntime,
   type TelegramNetworkSessionPort,
   type TelegramNetworkSettingsStore,

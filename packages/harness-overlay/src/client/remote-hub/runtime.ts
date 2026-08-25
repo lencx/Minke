@@ -1,4 +1,5 @@
 import {
+  DEFAULT_DISCORD_NETWORK_SNAPSHOT,
   DEFAULT_TELEGRAM_NETWORK_SETTINGS,
   parseRemoteHubSnapshot,
   type RemoteHubCommand,
@@ -16,8 +17,10 @@ export type RemoteHubClientOperation =
   | "idle"
   | "starting-link"
   | "connecting-channel"
+  | "copying-token"
   | "verifying"
   | "cancelling"
+  | "disconnecting"
   | "reconnecting"
   | "resetting"
   | "unlinking";
@@ -44,6 +47,9 @@ function initialChannels(
     revision: 0,
     telegramNetwork: {
       ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+    },
+    discordNetwork: {
+      ...DEFAULT_DISCORD_NETWORK_SNAPSHOT,
     },
     dependencies: {
       credentialVault: available ? "pending" : "unavailable",
@@ -78,6 +84,7 @@ function operationFor(
   switch (command.kind) {
     case "refresh":
     case "telegram/network/set":
+    case "discord/network/set":
     case "telegram/reconnect":
     case "discord/reconnect":
     case "weixin/reconnect":
@@ -90,6 +97,9 @@ function operationFor(
     case "telegram/connect":
     case "discord/connect":
       return "connecting-channel";
+    case "telegram/token/copy":
+    case "discord/token/copy":
+      return "copying-token";
     case "weixin/link/start":
       return "starting-link";
     case "weixin/link/verify":
@@ -98,6 +108,9 @@ function operationFor(
     case "weixin/link/cancel":
     case "bot/pairing/dismiss":
       return "cancelling";
+    case "telegram/disconnect":
+    case "discord/disconnect":
+      return "disconnecting";
     case "telegram/unlink":
     case "discord/unlink":
     case "weixin/unlink":

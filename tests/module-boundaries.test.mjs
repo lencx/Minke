@@ -42,6 +42,7 @@ const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/agent-browser-contract",
   "@minke/harness-overlay/agent-turn-contract",
   "@minke/harness-overlay/app-update-contract",
+  "@minke/harness-overlay/browser-settings-contract",
   "@minke/harness-overlay/host/file-manager",
   "@minke/harness-overlay/session-export-contract",
   "@minke/harness-overlay/data-home-contract",

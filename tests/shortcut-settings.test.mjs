@@ -50,7 +50,10 @@ function assertDefaultRemoteSettings(settings) {
   assert.deepEqual(settings, {
     enabled: false,
     method: "tailscale",
-    tailscale: { transport: "serve" },
+    tailscale: {
+      transport: "serve",
+      ipAddress: "",
+    },
     cloudflare: {
       hostnameMode: "generated",
       domain: "",
@@ -102,8 +105,15 @@ test("the desktop store writes the shared Minke config", async () => {
     telegramNetwork: {
       httpProxyUrl: "",
     },
+    discordNetwork: {
+      httpProxyUrl: "",
+    },
     appUpdate: {
       autoDownload: true,
+    },
+    browser: {
+      webUserAgent: "",
+      agentUserAgent: "",
     },
   });
   assertDefaultRemoteSettings(remote);

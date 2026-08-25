@@ -22,6 +22,7 @@ import {
 import type {
   BotHubIssue,
   BotHubSnapshot,
+  ImConnectionActivity,
 } from "@minke/harness-overlay/remote-hub-contract.ts";
 import type {
   BotCredentialProvider,
@@ -449,6 +450,8 @@ export class BotCapabilityRuntime<Identity> {
     delivery: false,
     receive: false,
   };
+  #activity: ImConnectionActivity | undefined;
+  readonly #sentOperationIds = new Set<string>();
   #hasStoredCredential = false;
   #disposed = false;
 
@@ -528,6 +531,13 @@ export class BotCapabilityRuntime<Identity> {
     this.#hasStoredCredential = stored !== undefined;
     if (stored === undefined) {
       this.#publish({ state: "unlinked" });
+      return;
+    }
+    if (stored.connectionPaused === true) {
+      this.#publish({
+        state: "disconnected",
+        accountLabel: stored.accountLabel,
+      });
       return;
     }
     await this.#connectStored(stored, controller);
@@ -800,7 +810,15 @@ export class BotCapabilityRuntime<Identity> {
     }
   }
 
+  async refresh(): Promise<void> {
+    await this.#restoreConnection(false);
+  }
+
   async reconnect(): Promise<void> {
+    await this.#restoreConnection(true);
+  }
+
+  async #restoreConnection(resume: boolean): Promise<void> {
     this.#assertActive();
     if (!this.#vault.available) {
       this.#publish({
@@ -841,7 +859,127 @@ export class BotCapabilityRuntime<Identity> {
       }
       return;
     }
-    await this.#connectStored(stored, controller);
+    if (stored.connectionPaused === true && !resume) {
+      await this.#stopProvider();
+      if (this.#ownsOperation(controller)) {
+        this.#publish({
+          state: "disconnected",
+          accountLabel: stored.accountLabel,
+        });
+      }
+      return;
+    }
+    let activeStored = stored;
+    if (stored.connectionPaused === true) {
+      const {
+        connectionPaused: _connectionPaused,
+        ...resumed
+      } = stored;
+      let resumedResult: VaultOperationResult<
+        StoredBotCredential
+      >;
+      try {
+        resumedResult =
+          await this.#serializeVaultOperation(
+            controller,
+            async () => {
+              await this.#vault.writeBot(
+                this.#driver.provider,
+                resumed,
+              );
+              return resumed;
+            },
+          );
+      } catch {
+        if (!this.#ownsOperation(controller)) return;
+        this.#publish({
+          state: "error",
+          issue: "credential-store",
+        });
+        return;
+      }
+      if (
+        resumedResult.status === "stale" ||
+        !this.#ownsOperation(controller)
+      ) {
+        return;
+      }
+      activeStored = resumedResult.value;
+    }
+    await this.#connectStored(activeStored, controller);
+  }
+
+  async disconnect(): Promise<void> {
+    this.#assertActive();
+    const controller = this.#beginOperation();
+    let stored = this.#credential;
+    if (stored === undefined) {
+      let storedResult: VaultOperationResult<
+        StoredBotCredential | undefined
+      >;
+      try {
+        storedResult = await this.#serializeVaultOperation(
+          controller,
+          async () =>
+            await this.#vault.readBot(
+              this.#driver.provider,
+            ),
+        );
+      } catch {
+        if (!this.#ownsOperation(controller)) return;
+        throw new Error(
+          `${this.#providerLabel()} credential could not be read`,
+        );
+      }
+      if (
+        storedResult.status === "stale" ||
+        !this.#ownsOperation(controller)
+      ) {
+        return;
+      }
+      stored = storedResult.value;
+    }
+    if (stored === undefined) {
+      await this.#stopProvider();
+      if (this.#ownsOperation(controller)) {
+        this.#publish({ state: "unlinked" });
+      }
+      return;
+    }
+    const paused: StoredBotCredential = {
+      ...stored,
+      connectionPaused: true,
+    };
+    try {
+      const result = await this.#serializeVaultOperation(
+        controller,
+        async () => {
+          await this.#vault.writeBot(
+            this.#driver.provider,
+            paused,
+          );
+        },
+      );
+      if (
+        result.status === "stale" ||
+        !this.#ownsOperation(controller)
+      ) {
+        return;
+      }
+      this.#hasStoredCredential = true;
+    } catch {
+      if (!this.#ownsOperation(controller)) return;
+      throw new Error(
+        `${this.#providerLabel()} disconnect state could not be saved`,
+      );
+    }
+    await this.#stopProvider();
+    if (this.#ownsOperation(controller)) {
+      this.#publish({
+        state: "disconnected",
+        accountLabel: paused.accountLabel,
+      });
+    }
   }
 
   async unlink(): Promise<void> {
@@ -1053,6 +1191,7 @@ export class BotCapabilityRuntime<Identity> {
     this.#providerController = input.candidate.controller;
     this.#pairing = undefined;
     this.#resetRuntimeIssues();
+    this.#startActivity();
     return {
       previous,
       status: "activated",
@@ -1398,6 +1537,7 @@ export class BotCapabilityRuntime<Identity> {
     this.#providerController = candidate.controller;
     this.#pairing = undefined;
     this.#resetRuntimeIssues();
+    this.#startActivity();
     await this.#closeActiveProvider(previous);
     const handoffIssue = this.#candidateHealthIssue(
       candidate.provider,
@@ -1443,11 +1583,33 @@ export class BotCapabilityRuntime<Identity> {
       this.#provider === provider
     ) {
       try {
+        const admittedUserMessageIds = new Set<string>();
+        const ingressPolicy =
+          this.#ingressPolicyFor(accountLabel);
         const admission = await this.#pollProviderOnce({
-          ingressPolicy: this.#ingressPolicyFor(accountLabel),
+          ingressPolicy: (input) => {
+            const accepted = ingressPolicy(input);
+            if (
+              accepted &&
+              input.event.kind === "user-message"
+            ) {
+              admittedUserMessageIds.add(
+                input.event.nativeId,
+              );
+            }
+            return accepted;
+          },
           mailbox,
           provider,
           signal: controller.signal,
+        });
+        this.#recordActivity(accountLabel, {
+          confirmedOperationIds:
+            admission.confirmedOperationIds,
+          receivedMessages:
+            admission.admittedNativeIds.filter((nativeId) =>
+              admittedUserMessageIds.has(nativeId)
+            ).length,
         });
         const droppedNativeIds =
           admission.droppedNativeIds ?? [];
@@ -1564,6 +1726,17 @@ export class BotCapabilityRuntime<Identity> {
             `${this.#driver.provider}-delivery:`
             + provider.account.accountKey,
         });
+        if (
+          result.status === "settled" &&
+          result.outcome.status === "accepted"
+        ) {
+          this.#recordActivity(accountLabel, {
+            confirmedOperationIds: [
+              result.attempt.operationId,
+            ],
+            receivedMessages: 0,
+          });
+        }
         const health = mailbox.inspectOutboxHealth({
           accountKey: provider.account.accountKey,
           generation: provider.account.generation,
@@ -1788,6 +1961,47 @@ export class BotCapabilityRuntime<Identity> {
     this.#runtimeIssues.receive = false;
   }
 
+  #startActivity(): void {
+    this.#sentOperationIds.clear();
+    this.#activity = Object.freeze({
+      connectedAt: this.#now(),
+      receivedMessages: 0,
+      sentMessages: 0,
+    });
+  }
+
+  #recordActivity(
+    accountLabel: string,
+    input: {
+      readonly confirmedOperationIds: readonly string[];
+      readonly receivedMessages: number;
+    },
+  ): void {
+    const activity = this.#activity;
+    if (activity === undefined) return;
+    let sentMessages = 0;
+    for (const operationId of input.confirmedOperationIds) {
+      if (this.#sentOperationIds.has(operationId)) continue;
+      this.#sentOperationIds.add(operationId);
+      sentMessages += 1;
+    }
+    if (
+      input.receivedMessages === 0 &&
+      sentMessages === 0
+    ) {
+      return;
+    }
+    this.#activity = Object.freeze({
+      ...activity,
+      lastActivityAt: this.#now(),
+      receivedMessages:
+        activity.receivedMessages + input.receivedMessages,
+      sentMessages:
+        activity.sentMessages + sentMessages,
+    });
+    this.#publishRuntimeState(accountLabel);
+  }
+
   #setRuntimeIssue(
     issue: keyof BotRuntimeIssues,
     active: boolean,
@@ -1977,6 +2191,8 @@ export class BotCapabilityRuntime<Identity> {
     this.#routeTask = Promise.resolve();
     this.#dispatchTask = Promise.resolve();
     this.#resetRuntimeIssues();
+    this.#activity = undefined;
+    this.#sentOperationIds.clear();
     controller.abort();
     return active;
   }
@@ -2034,14 +2250,27 @@ export class BotCapabilityRuntime<Identity> {
 
   #publish(snapshot: BotHubSnapshotInput): void {
     if (this.#disposed) return;
-    this.#snapshot = Object.freeze(
+    const normalized =
       snapshot.state === "error"
         ? {
             ...snapshot,
             hasStoredCredential:
               this.#hasStoredCredential,
           }
-        : snapshot,
+        : snapshot;
+    const active =
+      normalized.state === "pairing" ||
+      normalized.state === "connected" ||
+      normalized.state === "degraded";
+    this.#snapshot = Object.freeze(
+      active && this.#activity !== undefined
+        ? {
+            ...normalized,
+            activity: Object.freeze({
+              ...this.#activity,
+            }),
+          }
+        : normalized,
     );
     this.#onSnapshot?.(this.#snapshot);
   }

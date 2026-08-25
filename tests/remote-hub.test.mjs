@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -77,6 +78,10 @@ function snapshot(weixin = { state: "unlinked" }) {
     telegramNetwork: {
       httpProxyUrl: "",
     },
+    discordNetwork: {
+      httpProxyUrl: "",
+      proxySource: "pending",
+    },
     dependencies: {
       credentialVault: "ready",
       agentRoute: "pending",
@@ -87,6 +92,11 @@ function snapshot(weixin = { state: "unlinked" }) {
       discord: { state: "unlinked" },
     },
   };
+}
+
+function withoutActivity(value) {
+  const { activity: _activity, ...snapshotValue } = value;
+  return snapshotValue;
 }
 
 function telegramDirectMessageInput() {
@@ -591,6 +601,37 @@ test("Remote Hub contract keeps QR payload transient and rejects secret fields",
   );
 });
 
+test("Remote Hub connection activity exposes only bounded session metadata", () => {
+  const value = snapshot({
+    state: "connected",
+    accountLabel: "•• 931D53",
+    activity: {
+      connectedAt: 1_800_000_000_000,
+      lastActivityAt: 1_800_000_060_000,
+      receivedMessages: 12,
+      sentMessages: 9,
+    },
+  });
+  value.channels.telegram = {
+    state: "disconnected",
+    accountLabel: "@minke_bot",
+  };
+  assert.deepEqual(parseRemoteHubSnapshot(value), value);
+
+  const invalid = structuredClone(value);
+  invalid.channels.weixin.activity.receivedMessages = -1;
+  assert.throws(
+    () => parseRemoteHubSnapshot(invalid),
+    /received message count/u,
+  );
+  const secret = structuredClone(value);
+  secret.channels.weixin.activity.token = "must-not-cross-preload";
+  assert.throws(
+    () => parseRemoteHubSnapshot(secret),
+    /unexpected fields/u,
+  );
+});
+
 test("Remote Hub commands are finite and validate verification input", () => {
   assert.deepEqual(
     parseRemoteHubCommand({
@@ -659,6 +700,20 @@ test("Remote Hub commands are finite and validate verification input", () => {
       },
     },
   );
+  assert.deepEqual(
+    parseRemoteHubCommand({
+      kind: "discord/network/set",
+      settings: {
+        httpProxyUrl: "http://LOCALHOST:7897",
+      },
+    }),
+    {
+      kind: "discord/network/set",
+      settings: {
+        httpProxyUrl: "http://localhost:7897",
+      },
+    },
+  );
   assert.throws(
     () =>
       parseRemoteHubCommand({
@@ -703,6 +758,25 @@ test("Remote Hub commands are finite and validate verification input", () => {
       kind: "discord/unlink",
     }),
     { kind: "discord/unlink" },
+  );
+  for (const kind of [
+    "telegram/disconnect",
+    "telegram/token/copy",
+    "discord/disconnect",
+    "discord/token/copy",
+  ]) {
+    assert.deepEqual(
+      parseRemoteHubCommand({ kind }),
+      { kind },
+    );
+  }
+  assert.throws(
+    () =>
+      parseRemoteHubCommand({
+        kind: "telegram/token/copy",
+        token: telegramToken,
+      }),
+    /unexpected fields/u,
   );
   assert.throws(
     () =>
@@ -755,6 +829,7 @@ test("Remote Hub contract exposes a ready Agent route and connected Weixin chann
 
 test("Remote Hub IPC authorizes both reads and finite commands", async () => {
   const handlers = new Map();
+  const commands = [];
   const ipc = {
     handle(channel, listener) {
       handlers.set(channel, listener);
@@ -770,7 +845,8 @@ test("Remote Hub IPC authorizes both reads and finite commands", async () => {
       getSnapshot() {
         return current;
       },
-      async dispatch() {
+      async dispatch(command) {
+        commands.push(command);
         return current;
       },
       subscribe() {
@@ -786,6 +862,13 @@ test("Remote Hub IPC authorizes both reads and finite commands", async () => {
   );
   await assert.rejects(
     handlers.get(REMOTE_HUB_COMMAND_CHANNEL)(
+      "foreign",
+      { kind: "telegram/token/copy" },
+    ),
+    /unauthorized/u,
+  );
+  await assert.rejects(
+    handlers.get(REMOTE_HUB_COMMAND_CHANNEL)(
       "authorized",
       {
         kind: "weixin/link/start",
@@ -797,10 +880,13 @@ test("Remote Hub IPC authorizes both reads and finite commands", async () => {
   assert.deepEqual(
     await handlers.get(REMOTE_HUB_COMMAND_CHANNEL)(
       "authorized",
-      { kind: "refresh" },
+      { kind: "discord/token/copy" },
     ),
     current,
   );
+  assert.deepEqual(commands, [
+    { kind: "discord/token/copy" },
+  ]);
   binding.dispose();
   assert.equal(handlers.size, 0);
 });
@@ -836,6 +922,21 @@ function abortableWait(signal) {
     }
     signal.addEventListener("abort", abort, { once: true });
   });
+}
+
+async function waitForCondition(
+  predicate,
+  label = "condition",
+) {
+  const deadline = Date.now() + 2_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out waiting for ${label}`);
+    }
+    await new Promise((resolvePromise) => {
+      setImmediate(resolvePromise);
+    });
+  }
 }
 
 function deferred() {
@@ -1134,7 +1235,7 @@ test("an unknown Telegram DM creates a pairing reply and approval authorizes onl
 
   await runtime.initialize();
   assert.equal(await ingressDecision.promise, true);
-  assert.deepEqual(runtime.getSnapshot(), {
+  assert.deepEqual(withoutActivity(runtime.getSnapshot()), {
     state: "pairing",
     accountLabel: "@minke_dsh_bot",
     request: {
@@ -1165,7 +1266,7 @@ test("an unknown Telegram DM creates a pairing reply and approval authorizes onl
     generation: 1,
     token: "123456789:telegram-private-token-value",
   });
-  assert.deepEqual(runtime.getSnapshot(), {
+  assert.deepEqual(withoutActivity(runtime.getSnapshot()), {
     state: "connected",
     accountLabel: "@minke_dsh_bot",
   });
@@ -1254,7 +1355,7 @@ test("an unknown Discord DM creates an approvable pairing request", async (t) =>
 
   await runtime.initialize();
   assert.equal(await ingressDecision.promise, true);
-  assert.deepEqual(runtime.getSnapshot(), {
+  assert.deepEqual(withoutActivity(runtime.getSnapshot()), {
     state: "pairing",
     accountLabel: "Minke (@minke)",
     request: {
@@ -1283,7 +1384,7 @@ test("an unknown Discord DM creates an approvable pairing request", async (t) =>
     state.writes.at(-1).authorizedUserId,
     directMessage.senderId,
   );
-  assert.deepEqual(runtime.getSnapshot(), {
+  assert.deepEqual(withoutActivity(runtime.getSnapshot()), {
     state: "connected",
     accountLabel: "Minke (@minke)",
   });
@@ -1342,7 +1443,7 @@ test("an unpaired Discord server mention cannot create an authorization request"
 
   await runtime.initialize();
   assert.equal(await ingressDecision.promise, false);
-  assert.deepEqual(runtime.getSnapshot(), {
+  assert.deepEqual(withoutActivity(runtime.getSnapshot()), {
     state: "pairing",
     accountLabel: "Minke (@minke)",
   });
@@ -1353,7 +1454,10 @@ test("authorized Telegram DMs route through Agent and durable reply dispatch", a
   const routeResult = deferred();
   const dispatchStarted = deferred();
   const agentInputs = [];
+  let now = 1_800_000_000_000;
+  let pollCalls = 0;
   let routeCalls = 0;
+  let dispatchCalls = 0;
   const telegramDriver = createTelegramBotDriver();
   const { runtime } = transactionalBotHarness({
     stored: {
@@ -1382,13 +1486,15 @@ test("authorized Telegram DMs route through Agent and durable reply dispatch", a
             : undefined,
       };
     },
+    now: () => now,
     async pollProviderOnce({
       ingressPolicy,
       provider,
       signal,
     }) {
-      ingressDecision.resolve(
-        ingressPolicy({
+      pollCalls += 1;
+      if (pollCalls === 1) {
+        const accepted = ingressPolicy({
           account: provider.account,
           event: {
             conversationId: "telegram:chat:owner-user",
@@ -1404,8 +1510,25 @@ test("authorized Telegram DMs route through Agent and durable reply dispatch", a
             peerId: "owner-user",
             senderId: "owner-user",
           },
-        }),
-      );
+        });
+        ingressDecision.resolve(accepted);
+        now += 1_000;
+        return {
+          admittedNativeIds: accepted
+            ? ["telegram:update:42"]
+            : [],
+          confirmedOperationIds: [],
+          nextCheckpoint: "42",
+        };
+      }
+      if (pollCalls === 2) {
+        now += 1_000;
+        return {
+          admittedNativeIds: [],
+          confirmedOperationIds: ["gateway-reply-1"],
+          nextCheckpoint: "43",
+        };
+      }
       await abortableWait(signal);
     },
     async routeInboxOnce({ handler, signal }) {
@@ -1449,7 +1572,20 @@ test("authorized Telegram DMs route through Agent and durable reply dispatch", a
       };
     },
     async dispatchProviderOnce({ signal }) {
-      dispatchStarted.resolve();
+      dispatchCalls += 1;
+      if (dispatchCalls === 1) {
+        dispatchStarted.resolve();
+        now += 1_000;
+        return {
+          status: "settled",
+          attempt: {
+            operationId: "gateway-reply-1",
+          },
+          outcome: {
+            status: "accepted",
+          },
+        };
+      }
       await abortableWait(signal);
       return { status: "idle" };
     },
@@ -1487,6 +1623,22 @@ test("authorized Telegram DMs route through Agent and durable reply dispatch", a
     agentInputs[0].sessionId,
     /^minke-im-telegram-[a-f0-9]{32}$/u,
   );
+  await waitForCondition(
+    () => {
+      const activity = runtime.getSnapshot().activity;
+      return (
+        activity?.receivedMessages === 1 &&
+        activity.sentMessages === 1
+      );
+    },
+    "Telegram activity counters",
+  );
+  assert.deepEqual(runtime.getSnapshot().activity, {
+    connectedAt: 1_800_000_000_000,
+    lastActivityAt: now,
+    receivedMessages: 1,
+    sentMessages: 1,
+  });
 });
 
 test("authorized Discord DMs route through Agent and durable reply dispatch", async (t) => {
@@ -1752,6 +1904,133 @@ test("authorized Discord server mentions route in the channel and reply to the t
   );
 });
 
+test("disconnect preserves a bot token until an explicit clear and reconnect reuses it", async (t) => {
+  const credential = {
+    accountId: "transactional-bot-id",
+    accountLabel: "@minke_dsh_bot",
+    authorizedUserId: "owner-user",
+    generation: 4,
+    token: "123456789:telegram-private-token-value",
+  };
+  const activeOptions = {
+    inspectMessage() {
+      return {
+        conversationKind: "direct",
+        senderLabel: "@owner",
+        text: "hello",
+      };
+    },
+    async routeInboxOnce({ signal }) {
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    async dispatchProviderOnce({ signal }) {
+      await abortableWait(signal);
+      return { status: "idle" };
+    },
+    agentRoute: {
+      async runAgentTurn(input) {
+        return {
+          outcome: "completed",
+          sessionId: input.sessionId,
+          text: "ready",
+          turn: 1,
+          endReason: "completed",
+        };
+      },
+    },
+  };
+  const first = transactionalBotHarness({
+    ...activeOptions,
+    stored: credential,
+  });
+  t.after(async () => {
+    await first.runtime.dispose();
+  });
+
+  await first.runtime.initialize();
+  assert.deepEqual(
+    withoutActivity(first.runtime.getSnapshot()),
+    {
+      state: "connected",
+      accountLabel: credential.accountLabel,
+    },
+  );
+
+  await first.runtime.disconnect();
+  assert.deepEqual(first.state.stored, {
+    ...credential,
+    connectionPaused: true,
+  });
+  assert.equal(first.state.deletes, 0);
+  assert.equal(first.state.providers[0].closes, 1);
+  assert.deepEqual(first.runtime.getSnapshot(), {
+    state: "disconnected",
+    accountLabel: credential.accountLabel,
+  });
+  assert.equal(
+    JSON.stringify(first.runtime.getSnapshot()).includes(
+      credential.token,
+    ),
+    false,
+  );
+
+  let validations = 0;
+  const resumed = transactionalBotHarness({
+    ...activeOptions,
+    stored: first.state.stored,
+    async validate(token) {
+      validations += 1;
+      assert.equal(token, credential.token);
+      return {
+        id: credential.accountId,
+        label: credential.accountLabel,
+      };
+    },
+  });
+  t.after(async () => {
+    await resumed.runtime.dispose();
+  });
+
+  await resumed.runtime.initialize();
+  assert.deepEqual(resumed.runtime.getSnapshot(), {
+    state: "disconnected",
+    accountLabel: credential.accountLabel,
+  });
+  assert.equal(validations, 0);
+  assert.equal(resumed.state.providers.length, 0);
+
+  await resumed.runtime.refresh();
+  assert.equal(validations, 0);
+  assert.equal(resumed.state.providers.length, 0);
+  assert.deepEqual(resumed.runtime.getSnapshot(), {
+    state: "disconnected",
+    accountLabel: credential.accountLabel,
+  });
+
+  await resumed.runtime.reconnect();
+  assert.equal(validations, 1);
+  assert.equal(
+    resumed.state.providers[0].input.token,
+    credential.token,
+  );
+  assert.deepEqual(resumed.state.stored, credential);
+  assert.deepEqual(
+    withoutActivity(resumed.runtime.getSnapshot()),
+    {
+      state: "connected",
+      accountLabel: credential.accountLabel,
+    },
+  );
+
+  await resumed.runtime.unlink();
+  assert.equal(resumed.state.deletes, 1);
+  assert.equal(resumed.state.stored, undefined);
+  assert.deepEqual(resumed.runtime.getSnapshot(), {
+    state: "unlinked",
+  });
+});
+
 test("token bot runtime validates before persistence and fences generations", async () => {
   const token = "123456789:telegram-private-token-value";
   let stored = {
@@ -1878,7 +2157,7 @@ test("token bot runtime validates before persistence and fences generations", as
     "telegram:telegram-bot-id",
   );
   assert.equal(mailboxes.at(-1).account.generation, 8);
-  assert.deepEqual(runtime.getSnapshot(), {
+  assert.deepEqual(withoutActivity(runtime.getSnapshot()), {
     state: "degraded",
     accountLabel: "@minke_bot",
     issue: "agent-route-pending",
@@ -2622,7 +2901,7 @@ test("a newer connect cannot be overwritten by a delayed stale write", async () 
   assert.equal(state.providers.length, 2);
   assert.equal(state.providers[0].closes, 1);
   assert.equal(state.providers[1].closes, 0);
-  assert.deepEqual(runtime.getSnapshot(), {
+  assert.deepEqual(withoutActivity(runtime.getSnapshot()), {
     state: "degraded",
     accountLabel: `@${secondToken.slice(0, 8)}`,
     issue: "agent-route-pending",
@@ -2711,7 +2990,7 @@ test("a newer connect fences reset before it removes the durable account", async
     ),
     0,
   );
-  assert.deepEqual(runtime.getSnapshot(), {
+  assert.deepEqual(withoutActivity(runtime.getSnapshot()), {
     state: "degraded",
     accountLabel: `@${replacementToken.slice(0, 8)}`,
     issue: "agent-route-pending",
@@ -2931,6 +3210,18 @@ function botRuntimeStub(initial) {
       calls.push("reconnect");
       current = { state: "unlinked" };
     },
+    async refresh() {
+      calls.push("refresh");
+      current = { state: "unlinked" };
+    },
+    async disconnect() {
+      calls.push("disconnect");
+      current = {
+        state: "disconnected",
+        accountLabel:
+          current.accountLabel ?? "@connected_bot",
+      };
+    },
     async resetLocal() {
       calls.push("reset-local");
       current = { state: "unlinked" };
@@ -3004,11 +3295,11 @@ test("Remote Hub composes bot lifecycles and gates whole-Gateway recovery", asyn
   await runtime.dispatch({ kind: "gateway/reset-local" });
   assert.deepEqual(
     telegram.calls.slice(-2),
-    ["stop-for-gateway-reset", "reconnect"],
+    ["stop-for-gateway-reset", "refresh"],
   );
   assert.deepEqual(
     discord.calls.slice(-2),
-    ["stop-for-gateway-reset", "reconnect"],
+    ["stop-for-gateway-reset", "refresh"],
   );
   assert.equal(
     weixin.calls.includes("gateway/reset-local"),
@@ -3038,6 +3329,52 @@ test("Remote Hub composes bot lifecycles and gates whole-Gateway recovery", asyn
     runtime.dispatch({ kind: "gateway/reset-local" }),
     /only available after a Gateway store failure/u,
   );
+  await runtime.dispose();
+});
+
+test("Remote Hub copies a decrypted bot token only into the main-process clipboard port", async () => {
+  const telegram = botRuntimeStub({
+    state: "disconnected",
+    accountLabel: "@minke_dsh_bot",
+  });
+  const discord = botRuntimeStub({ state: "unlinked" });
+  const weixin = weixinRuntimeStub({ state: "unlinked" });
+  const token =
+    "123456789:telegram-private-token-value";
+  const copied = [];
+  const runtime = new RemoteHubCapabilityRuntime({
+    dataHome: "/tmp/minke-remote-hub-copy-test",
+    vault: {
+      async readBot(provider) {
+        if (provider !== "telegram") return undefined;
+        return {
+          accountId: "123456789",
+          accountLabel: "@minke_dsh_bot",
+          generation: 1,
+          token,
+        };
+      },
+    },
+    credentialClipboard: {
+      writeText(value) {
+        copied.push(value);
+      },
+    },
+    weixin,
+    telegram,
+    discord,
+  });
+
+  const result = await runtime.dispatch({
+    kind: "telegram/token/copy",
+  });
+  assert.deepEqual(copied, [token]);
+  assert.equal(JSON.stringify(result).includes(token), false);
+  await assert.rejects(
+    runtime.dispatch({ kind: "discord/token/copy" }),
+    /No saved discord token/u,
+  );
+
   await runtime.dispose();
 });
 
@@ -3092,7 +3429,132 @@ test("Remote Hub applies Telegram proxy settings only while its provider is inac
     }),
     /Disconnect Telegram/u,
   );
+  await runtime.dispatch({
+    kind: "telegram/disconnect",
+  });
+  assert.equal(
+    telegram.calls.includes("disconnect"),
+    true,
+  );
+  assert.deepEqual(
+    runtime.getSnapshot().channels.telegram,
+    {
+      state: "disconnected",
+      accountLabel: "@connected_bot",
+    },
+  );
+  await runtime.dispatch({
+    kind: "telegram/network/set",
+    settings: { httpProxyUrl: "" },
+  });
+  assert.deepEqual(calls.at(-1), [
+    "configure",
+    { httpProxyUrl: "" },
+  ]);
 
+  await runtime.dispose();
+});
+
+test("Remote Hub refreshes Discord automatic routing before connect and applies a manual fallback only while inactive", async () => {
+  const calls = [];
+  const telegram = botRuntimeStub({ state: "unlinked" });
+  const discord = botRuntimeStub({
+    state: "error",
+    hasStoredCredential: true,
+    issue: "network",
+  });
+  discord.connect = async (token) => {
+    calls.push(["connect", token]);
+  };
+  discord.reconnect = async () => {
+    calls.push(["reconnect"]);
+  };
+  const weixin = weixinRuntimeStub({ state: "unlinked" });
+  const telegramNetwork = {
+    async initialize() {
+      calls.push(["telegram-network"]);
+    },
+    async configure() {},
+    getSnapshot() {
+      return { httpProxyUrl: "http://127.0.0.1:7897" };
+    },
+  };
+  let discordNetworkSnapshot = {
+    httpProxyUrl: "",
+    proxySource: "telegram",
+  };
+  const discordNetwork = {
+    async initialize() {
+      calls.push(["discord-network-initialize"]);
+    },
+    async refresh() {
+      calls.push(["discord-network-refresh"]);
+    },
+    async configure(settings) {
+      calls.push(["discord-network-configure", settings]);
+      discordNetworkSnapshot = {
+        ...settings,
+        proxySource:
+          settings.httpProxyUrl === ""
+            ? "telegram"
+            : "manual",
+      };
+    },
+    getSnapshot() {
+      return discordNetworkSnapshot;
+    },
+  };
+  const runtime = new RemoteHubCapabilityRuntime({
+    dataHome: "/tmp/minke-discord-network-test",
+    vault: {},
+    weixin,
+    telegram,
+    telegramNetwork,
+    discord,
+    discordNetwork,
+  });
+
+  const token = "discord-private-token-value-123456789";
+  await runtime.dispatch({
+    kind: "discord/connect",
+    token,
+  });
+  assert.deepEqual(calls, [
+    ["telegram-network"],
+    ["discord-network-refresh"],
+    ["connect", token],
+  ]);
+
+  calls.length = 0;
+  await runtime.dispatch({
+    kind: "discord/network/set",
+    settings: {
+      httpProxyUrl: "http://127.0.0.1:7898",
+    },
+  });
+  assert.deepEqual(calls, [
+    [
+      "discord-network-configure",
+      { httpProxyUrl: "http://127.0.0.1:7898" },
+    ],
+    ["reconnect"],
+  ]);
+  assert.deepEqual(runtime.getSnapshot().discordNetwork, {
+    httpProxyUrl: "http://127.0.0.1:7898",
+    proxySource: "manual",
+  });
+
+  discord.getSnapshot = () => ({
+    state: "connected",
+    accountLabel: "@connected_bot",
+  });
+  await assert.rejects(
+    runtime.dispatch({
+      kind: "discord/network/set",
+      settings: { httpProxyUrl: "" },
+    }),
+    /Disconnect Discord/u,
+  );
   await runtime.dispose();
 });
 
@@ -3211,7 +3673,7 @@ test("Gateway reset is exclusive while ordinary channel commands remain concurre
 
   releaseReset.resolve();
   await Promise.all([resetting, connecting]);
-  const reconnectIndex = telegram.calls.indexOf("reconnect");
+  const reconnectIndex = telegram.calls.indexOf("refresh");
   const connectIndex = telegram.calls.findIndex(
     (call) =>
       Array.isArray(call) &&
@@ -3461,7 +3923,7 @@ test("Weixin runtime commits the grant before starting its durable provider", as
   });
   assert.equal(stored, undefined);
   assert.deepEqual(
-    runtime.getSnapshot().channels.weixin,
+    withoutActivity(runtime.getSnapshot().channels.weixin),
     { state: "unlinked" },
   );
   await runtime.dispose();
@@ -3492,7 +3954,10 @@ test("authorized Weixin DMs route through Agent and durable reply dispatch", asy
     },
     async close() {},
   };
+  let now = 1_800_000_000_000;
+  let pollCalls = 0;
   let routeCalls = 0;
+  let dispatchCalls = 0;
   const runtime = new WeixinCapabilityRuntime({
     dataHome: "/tmp/minke-remote-hub-agent-route-test",
     vault: {
@@ -3549,12 +4014,28 @@ test("authorized Weixin DMs route through Agent and durable reply dispatch", asy
     createProvider() {
       return provider;
     },
+    now: () => now,
     async pollProviderOnce({ ingressPolicy, signal }) {
+      pollCalls += 1;
+      if (pollCalls > 1) {
+        if (pollCalls === 2) {
+          now += 1_000;
+          return {
+            admittedNativeIds: [],
+            confirmedOperationIds: ["gateway-reply-1"],
+            nextCheckpoint: "2",
+          };
+        }
+        await abortableWait(signal);
+        return;
+      }
       assert.equal(
         ingressPolicy({
           account: provider.account,
           event: {
+            conversationId: "owner-user",
             kind: "user-message",
+            nativeId: "native-message-1",
             senderId: "owner-user",
             peerId: "owner-user",
             payload: { text: "hello" },
@@ -3566,7 +4047,9 @@ test("authorized Weixin DMs route through Agent and durable reply dispatch", asy
         ingressPolicy({
           account: provider.account,
           event: {
+            conversationId: "stranger",
             kind: "user-message",
+            nativeId: "native-message-stranger",
             senderId: "stranger",
             peerId: "stranger",
             payload: { text: "hello" },
@@ -3578,7 +4061,9 @@ test("authorized Weixin DMs route through Agent and durable reply dispatch", asy
         ingressPolicy({
           account: provider.account,
           event: {
+            conversationId: "group-1",
             kind: "user-message",
+            nativeId: "native-message-group",
             senderId: "owner-user",
             peerId: "group-1",
             payload: { groupId: "group-1", text: "hello" },
@@ -3587,7 +4072,12 @@ test("authorized Weixin DMs route through Agent and durable reply dispatch", asy
         false,
       );
       receiveStarted.resolve();
-      await abortableWait(signal);
+      now += 1_000;
+      return {
+        admittedNativeIds: ["native-message-1"],
+        confirmedOperationIds: [],
+        nextCheckpoint: "1",
+      };
     },
     async routeInboxOnce({ handler, signal }) {
       routeCalls += 1;
@@ -3620,7 +4110,20 @@ test("authorized Weixin DMs route through Agent and durable reply dispatch", asy
       };
     },
     async dispatchProviderOnce({ signal }) {
-      dispatchStarted.resolve();
+      dispatchCalls += 1;
+      if (dispatchCalls === 1) {
+        dispatchStarted.resolve();
+        now += 1_000;
+        return {
+          status: "settled",
+          attempt: {
+            operationId: "gateway-reply-1",
+          },
+          outcome: {
+            status: "accepted",
+          },
+        };
+      }
       await abortableWait(signal);
       return { status: "idle" };
     },
@@ -3668,6 +4171,26 @@ test("authorized Weixin DMs route through Agent and durable reply dispatch", asy
   assert.match(
     agentInputs[0].sessionId,
     /^minke-im-weixin-[a-f0-9]{32}$/u,
+  );
+  await waitForCondition(
+    () => {
+      const activity =
+        runtime.getSnapshot().channels.weixin.activity;
+      return (
+        activity?.receivedMessages === 1 &&
+        activity.sentMessages === 1
+      );
+    },
+    "WeChat activity counters",
+  );
+  assert.deepEqual(
+    runtime.getSnapshot().channels.weixin.activity,
+    {
+      connectedAt: 1_800_000_000_000,
+      lastActivityAt: now,
+      receivedMessages: 1,
+      sentMessages: 1,
+    },
   );
 
   await runtime.dispose();
@@ -3801,11 +4324,14 @@ test("Weixin keeps delivery degraded while its outbox remains blocked", async (t
   await new Promise((resolvePromise) => {
     setImmediate(resolvePromise);
   });
-  assert.deepEqual(runtime.getSnapshot().channels.weixin, {
+  assert.deepEqual(
+    withoutActivity(runtime.getSnapshot().channels.weixin),
+    {
     state: "degraded",
     accountLabel: runtime.getSnapshot().channels.weixin.accountLabel,
     issue: "delivery",
-  });
+    },
+  );
 });
 
 test("Weixin live loop persists an authorized DM, runs Agent, and delivers its reply", async (t) => {
@@ -4260,7 +4786,7 @@ test("a stale Weixin cancel fences an in-flight credential commit", async () => 
   assert.equal(stored, undefined);
   assert.equal(providerStarts, 0);
   assert.deepEqual(
-    runtime.getSnapshot().channels.weixin,
+    withoutActivity(runtime.getSnapshot().channels.weixin),
     { state: "unlinked" },
   );
   await runtime.dispose();
@@ -4402,7 +4928,7 @@ test("cancelling after provider registration restores with a newer generation", 
   assert.equal(durableGeneration, 3);
   assert.equal(providerStarts, 3);
   assert.deepEqual(
-    runtime.getSnapshot().channels.weixin,
+    withoutActivity(runtime.getSnapshot().channels.weixin),
     {
       state: "degraded",
       accountLabel:
@@ -5146,7 +5672,7 @@ test("Weixin disposal waits for a delayed vault read without starting later work
   assert.equal(mailboxCreates, 0);
 });
 
-test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () => {
+test("Remote Hub vault encrypts IM tokens with one OS-wrapped AEAD key", async () => {
   const root = await mkdtemp(join(tmpdir(), "minke-remote-hub-vault-"));
   const protectedValues = [];
   const safeStorage = {
@@ -5178,6 +5704,7 @@ test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () =
       accountId: "123456789",
       accountLabel: "@minke_bot",
       authorizedUserId: "approved-telegram-user",
+      connectionPaused: true,
       generation: 2,
       token: "123456789:telegram-private-token-value",
     };
@@ -5205,6 +5732,25 @@ test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () =
       join(root, "secrets", "im-gateway.key.json"),
       "utf8",
     );
+    if (process.platform !== "win32") {
+      assert.equal(
+        (await stat(join(root, "secrets"))).mode & 0o777,
+        0o700,
+      );
+      for (const filename of [
+        "weixin.grant.json",
+        "telegram.bot.json",
+        "discord.bot.json",
+        "im-gateway.key.json",
+      ]) {
+        assert.equal(
+          (
+            await stat(join(root, "secrets", filename))
+          ).mode & 0o777,
+          0o600,
+        );
+      }
+    }
     assert.equal(source.includes("private-token"), false);
     assert.equal(
       telegramSource.includes(telegramCredential.token),
@@ -5299,6 +5845,30 @@ test("Weixin vault wraps one AEAD key and rejects Gateway tampering", async () =
     await assert.rejects(
       reopenedVault.read(),
       /authenticat/u,
+    );
+
+    const unprotectedVault =
+      new RemoteHubCredentialVault(root, {
+        isEncryptionAvailable() {
+          return true;
+        },
+        getSelectedStorageBackend() {
+          return "basic_text";
+        },
+        encryptString() {
+          throw new Error("must not use an unprotected backend");
+        },
+        decryptString() {
+          throw new Error("must not use an unprotected backend");
+        },
+      });
+    assert.equal(unprotectedVault.available, false);
+    await assert.rejects(
+      unprotectedVault.writeBot(
+        "telegram",
+        telegramCredential,
+      ),
+      /OS credential protection is unavailable/u,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -5486,7 +6056,10 @@ test("Remote entry keeps connection presence green through settings work and wri
         settings: {
           enabled: true,
           method: "tailscale",
-          tailscale: { transport: "serve" },
+          tailscale: {
+            transport: "serve",
+            ipAddress: "",
+          },
           cloudflare: {
             hostnameMode: "generated",
             domain: "",
@@ -5559,6 +6132,25 @@ test("Remote entry keeps connection presence green through settings work and wri
   remote.dispose();
 });
 
+test("a manually edited Cloudflare label can remain empty", async () => {
+  const source = await readFile(
+    join(
+      process.cwd(),
+      "packages",
+      "harness-overlay",
+      "src",
+      "client",
+      "remote",
+      "RemoteSettingsSection.tsx",
+    ),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    source,
+    /cloudflare\.generatedLabel === ""[\s\S]{0,240}runtime\.regenerateCloudflareHostname\(\)/u,
+  );
+});
+
 test("Remote Hub uses grouped sidebar navigation and stable detail panels", async () => {
   const remote = new RemoteSettingsRuntime({
     available: true,
@@ -5568,7 +6160,10 @@ test("Remote Hub uses grouped sidebar navigation and stable detail panels", asyn
         settings: {
           enabled: false,
           method: "tailscale",
-          tailscale: { transport: "serve" },
+          tailscale: {
+            transport: "serve",
+            ipAddress: "",
+          },
           cloudflare: {
             hostnameMode: "generated",
             domain: "",
@@ -5719,8 +6314,359 @@ test("Remote Hub uses grouped sidebar navigation and stable detail panels", asyn
   );
   assert.match(remoteDialog, /Access method/u);
   assert.match(remoteDialog, /Enable remote access/u);
-  assert.match(remoteDialog, /Advanced settings/u);
-  assert.doesNotMatch(remoteDialog, /Tailscale connection/u);
+  assert.match(remoteDialog, /Tailscale connection/u);
+  assert.match(remoteDialog, />Configuration references</u);
+  assert.match(
+    remoteDialog,
+    /href="https:\/\/tailscale\.com\/docs\/features\/tailscale-serve"/u,
+  );
+  assert.match(
+    remoteDialog,
+    /href="https:\/\/tailscale\.com\/docs\/concepts\/ip-and-dns-addresses"/u,
+  );
+  assert.match(
+    remoteDialog,
+    /href="https:\/\/tailscale\.com\/docs\/features\/access-control"/u,
+  );
+  assert.match(
+    remoteDialog,
+    /href="https:\/\/tailscale\.com\/docs\/features\/sharing"/u,
+  );
+  assert.match(
+    remoteDialog,
+    /href="https:\/\/tailscale\.com\/docs\/features\/access-control\/device-management\/how-to\/remove"/u,
+  );
+  assert.match(
+    remoteDialog,
+    /Minke adds no second sign-in layer to the Tailscale route/u,
+  );
+  assert.equal(
+    (
+      remoteDialog.match(
+        /data-minke-open-external="system"/gu,
+      ) ?? []
+    ).length,
+    5,
+  );
+  assert.doesNotMatch(
+    remoteDialog,
+    /Allow only trusted tailnet members/u,
+  );
+  assert.doesNotMatch(remoteDialog, /Advanced settings/u);
+  assert.doesNotMatch(
+    remoteDialog,
+    /Disable remote access before changing/u,
+  );
+  assert.match(
+    remoteDialog,
+    /Complete these checks when you stop using private access/u,
+  );
+  assert.match(
+    remoteDialog,
+    /run tailscale serve status/u,
+  );
+  assert.match(
+    remoteDialog,
+    /Do not use tailscale serve reset as routine cleanup/u,
+  );
+  assert.doesNotMatch(
+    remoteDialog,
+    /Remove public access completely/u,
+  );
+
+  remote.setTailscaleTransport("direct");
+  const directRemoteDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    directRemoteDialog,
+    /For Direct IP, confirm that the old 100\.x address and port no longer connect/u,
+  );
+  assert.match(
+    directRemoteDialog,
+    /The device keeps its Tailscale IP while it remains registered/u,
+  );
+  assert.doesNotMatch(
+    directRemoteDialog,
+    /run tailscale serve status/u,
+  );
+  assert.match(directRemoteDialog, />Tailscale IP \(optional\)</u);
+  assert.match(
+    directRemoteDialog,
+    /Leave blank to detect this device&#x27;s Tailscale IPv4 automatically/u,
+  );
+  assert.match(
+    directRemoteDialog,
+    /placeholder="Auto-detect"/u,
+  );
+  assert.doesNotMatch(
+    remoteDialog,
+    />Tailscale IP \(optional\)</u,
+  );
+
+  remote.setTailscaleSettings({
+    ipAddress: "192.168.1.2",
+  });
+  const invalidTailscaleIpDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    invalidTailscaleIpDialog,
+    /100\.64\.0\.0\/10/u,
+  );
+  assert.match(
+    invalidTailscaleIpDialog,
+    /value="192\.168\.1\.2"/u,
+  );
+  assert.match(
+    invalidTailscaleIpDialog,
+    /aria-invalid="true"/u,
+  );
+
+  remote.setMethod("cloudflare");
+  const cloudflareDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(cloudflareDialog, /Named Tunnel \+ Access/u);
+  assert.doesNotMatch(
+    cloudflareDialog,
+    /Public hostname|Base domain \+ label|Full hostname/u,
+  );
+  assert.match(cloudflareDialog, /Base domain/u);
+  assert.match(cloudflareDialog, />Random or custom label</u);
+  assert.match(
+    cloudflareDialog,
+    /<button[^>]*class="minke-remote__regenerate"[^>]*aria-label="Generate random label"[^>]*title="Generate random label"[^>]*>[\s\S]*<svg/u,
+  );
+  assert.doesNotMatch(
+    cloudflareDialog,
+    />Generate random label</u,
+  );
+  assert.doesNotMatch(cloudflareDialog, />Random hostname</u);
+  assert.match(
+    cloudflareDialog,
+    /Use the Cloudflare zone apex/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /<button[^>]*class="minke-remote__help-trigger"[^>]*aria-label="Show base domain guidance"[^>]*aria-describedby="[^"]+"/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /<span[^>]*class="minke-remote__help-tooltip"[^>]*role="tooltip"[^>]*data-open="false"[^>]*>Use the Cloudflare zone apex/u,
+  );
+  assert.doesNotMatch(
+    cloudflareDialog,
+    /class="minke-remote__field-hint"/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /<input[^>]*value="m-0123456789abcdef"[^>]*>/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /maxlength="63"/iu,
+  );
+  assert.doesNotMatch(
+    cloudflareDialog,
+    /<input[^>]*value="m-0123456789abcdef"[^>]*readOnly/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /Cloudflare Zero Trust team name/u,
+  );
+  assert.match(cloudflareDialog, /Access Application AUD/u);
+  assert.match(cloudflareDialog, /Tunnel name or UUID/u);
+  assert.match(
+    cloudflareDialog,
+    /Absolute cloudflared config path/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    />Configuration references</u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /href="https:\/\/developers\.cloudflare\.com\/cloudflare-one\/networks\/connectors\/cloudflare-tunnel\/do-more-with-tunnels\/local-management\/create-local-tunnel\/"/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /href="https:\/\/developers\.cloudflare\.com\/cloudflare-one\/access-controls\/applications\/http-apps\/self-hosted-public-app\/"/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /href="https:\/\/developers\.cloudflare\.com\/cloudflare-one\/access-controls\/applications\/http-apps\/authorization-cookie\/validating-json\/#get-your-aud-tag"/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    />Create a locally managed Tunnel</u,
+  );
+  assert.match(
+    cloudflareDialog,
+    />Create a Self-hosted Access application</u,
+  );
+  assert.match(
+    cloudflareDialog,
+    />Find the Application AUD</u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /<details class="minke-remote__security-disclosure" open="">/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /<section class="minke-remote__security-cleanup" role="note" aria-labelledby=/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /Remove public access completely when you no longer use it/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /Choose Disable remote access in Minke/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /cloudflared process started by Minke has exited/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /Open Cloudflare DNS Records[\s\S]*Zero Trust → Access controls → Applications[\s\S]*Networking → Tunnels/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /cert\.pem is an account-wide management credential/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /DNS caches may continue resolving until their TTL expires/u,
+  );
+  assert.match(
+    cloudflareDialog,
+    /cleanup cannot erase a hostname already recorded in Certificate Transparency logs/u,
+  );
+  assert.equal(
+    (
+      cloudflareDialog.match(
+        /target="_blank" rel="noreferrer"/gu,
+      ) ?? []
+    ).length,
+    3,
+  );
+  assert.equal(
+    (
+      cloudflareDialog.match(
+        /data-minke-open-external="system"/gu,
+      ) ?? []
+    ).length,
+    3,
+  );
+  remote.setCloudflareSettings({
+    domain: "minke.example.com",
+  });
+  const nestedDomainDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    nestedDomainDialog,
+    /final hostname may fall outside free Universal SSL coverage/u,
+  );
+  assert.doesNotMatch(
+    nestedDomainDialog,
+    /aria-invalid="true"/u,
+  );
+
+  remote.setCloudflareSettings({
+    domain: "invalid_domain.example",
+  });
+  const invalidDomainDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    invalidDomainDialog,
+    /does not look like a valid domain/u,
+  );
+  assert.match(
+    invalidDomainDialog,
+    /aria-invalid="true"/u,
+  );
+  remote.setCloudflareSettings({
+    domain: "example.com",
+    generatedLabel: "private_console",
+  });
+  const invalidLabelDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    invalidLabelDialog,
+    /Use 1–63 lowercase letters, numbers, or hyphens/u,
+  );
+  assert.match(
+    invalidLabelDialog,
+    /value="private_console"/u,
+  );
+  assert.match(
+    invalidLabelDialog,
+    /aria-invalid="true"/u,
+  );
+  remote.setCloudflareSettings({
+    hostnameMode: "custom",
+    customHostname: "private.example.com",
+  });
+  const legacyCustomHostnameDialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    legacyCustomHostnameDialog,
+    /<input[^>]*value="example\.com"[^>]*>/u,
+  );
+  assert.match(
+    legacyCustomHostnameDialog,
+    /<input[^>]*value="private"[^>]*>/u,
+  );
+  assert.match(
+    legacyCustomHostnameDialog,
+    /<code>private\.example\.com<\/code>/u,
+  );
+  assert.doesNotMatch(
+    legacyCustomHostnameDialog,
+    /Full hostname/u,
+  );
+  await remote.flush();
+  assert.doesNotMatch(
+    cloudflareDialog,
+    /Tailscale connection/u,
+  );
+  remote.setMethod("tailscale");
+  await remote.flush();
 
   channels = {
     ...snapshot({
@@ -5757,7 +6703,10 @@ test("Remote Hub prioritizes recovery for a blocked active remote route", async 
         settings: {
           enabled: true,
           method: "tailscale",
-          tailscale: { transport: "serve" },
+          tailscale: {
+            transport: "serve",
+            ipAddress: "",
+          },
           cloudflare: {
             hostnameMode: "generated",
             domain: "",
@@ -5823,13 +6772,20 @@ test("Remote Hub prioritizes recovery for a blocked active remote route", async 
   );
   assert.match(dialog, />Refresh status</u);
   assert.match(dialog, />Disable remote access</u);
-  assert.doesNotMatch(dialog, /Access method/u);
+  assert.match(dialog, /Access method/u);
+  assert.match(dialog, /Tailscale connection/u);
+  assert.match(
+    dialog,
+    /Disable remote access before changing the connection configuration/u,
+  );
+  assert.ok(
+    (dialog.match(/disabled=""/gu) ?? []).length >= 4,
+  );
   assert.doesNotMatch(dialog, /Advanced settings/u);
-  assert.doesNotMatch(dialog, /Tailscale connection/u);
   assert.doesNotMatch(dialog, />Enable remote access</u);
   assert.equal(
     (dialog.match(/>Private network</gu) ?? []).length,
-    1,
+    2,
   );
 
   await hub.dispose();
@@ -5857,10 +6813,21 @@ test("Remote Hub keeps channel navigation compact and actions in the detail pane
       weixin: {
         state: "connected",
         accountLabel: "•• 931D53",
+        activity: {
+          connectedAt: 1_800_000_000_000,
+          lastActivityAt: 1_800_000_060_000,
+          receivedMessages: 12,
+          sentMessages: 9,
+        },
       },
       telegram: {
         state: "pairing",
         accountLabel: "@minke_dsh_bot",
+        activity: {
+          connectedAt: 1_800_000_000_000,
+          receivedMessages: 0,
+          sentMessages: 0,
+        },
       },
       discord: {
         state: "pairing",
@@ -5908,11 +6875,21 @@ test("Remote Hub keeps channel navigation compact and actions in the detail pane
     }),
   );
   assert.match(dialog, />System ready</u);
-  assert.match(dialog, /Account •• 931D53/u);
+  assert.match(dialog, /WeChat · Connected/u);
+  assert.doesNotMatch(dialog, /•• 931D53/u);
   assert.doesNotMatch(dialog, />Manage</u);
   assert.doesNotMatch(dialog, />Done</u);
   assert.match(dialog, />Reconnect</u);
   assert.match(dialog, />Disconnect</u);
+  assert.match(dialog, /Current connection/u);
+  assert.match(dialog, /Connected at/u);
+  assert.match(dialog, /Online/u);
+  assert.match(dialog, /Received/u);
+  assert.match(dialog, /Sent/u);
+  assert.match(
+    dialog,
+    /Counts cover this connection and reset after reconnecting or quitting Minke/u,
+  );
   assert.match(
     dialog,
     /minke-remote-hub__navigation-indicator" data-state="connected" data-tone="success"/u,
@@ -5921,10 +6898,7 @@ test("Remote Hub keeps channel navigation compact and actions in the detail pane
     dialog,
     /minke-remote-hub__navigation-indicator" data-state="pairing" data-tone="success"/u,
   );
-  assert.match(
-    dialog,
-    /class="minke-remote-hub__button--danger"[^>]*>Disconnect<\/button>/u,
-  );
+  assert.match(dialog, />Disconnect<\/button>/u);
   assert.equal(
     (dialog.match(/type="password"/gu) ?? []).length,
     0,
@@ -5941,14 +6915,15 @@ test("Remote Hub keeps channel navigation compact and actions in the detail pane
   assert.match(telegramDialog, /Account @minke_dsh_bot/u);
   assert.doesNotMatch(telegramDialog, />Reconnect</u);
   assert.match(telegramDialog, />Disconnect</u);
+  assert.match(telegramDialog, />Copy token</u);
+  assert.match(telegramDialog, />Update token</u);
+  assert.match(telegramDialog, />Clear token</u);
+  assert.match(telegramDialog, /Current connection/u);
   assert.match(
     telegramDialog,
     /minke-remote-hub__channel-status" data-state="pairing" data-tone="success"/u,
   );
-  assert.match(
-    telegramDialog,
-    /class="minke-remote-hub__button--danger"[^>]*>Disconnect<\/button>/u,
-  );
+  assert.match(telegramDialog, />Disconnect<\/button>/u);
 
   hub.setView("discord");
   const discordDialog = renderToStaticMarkup(
@@ -5979,6 +6954,80 @@ test("Remote Hub keeps channel navigation compact and actions in the detail pane
   );
   assert.doesNotMatch(discordDialog, />Reconnect</u);
   assert.match(discordDialog, />Disconnect</u);
+  assert.match(discordDialog, />Copy token</u);
+
+  await hub.dispose();
+  remote.dispose();
+});
+
+test("a disconnected bot offers tokenless reconnect and explicit token management", async () => {
+  const remote = new RemoteSettingsRuntime({
+    available: false,
+    async read() {
+      throw new Error("remote access unavailable");
+    },
+    async write() {},
+  });
+  const channels = {
+    ...snapshot(),
+    dependencies: {
+      credentialVault: "ready",
+      agentRoute: "ready",
+    },
+    channels: {
+      weixin: { state: "unlinked" },
+      telegram: {
+        state: "disconnected",
+        accountLabel: "@minke_dsh_bot",
+      },
+      discord: { state: "unlinked" },
+    },
+  };
+  const hub = new RemoteHubRuntime(remote, {
+    available: true,
+    async read() {
+      return channels;
+    },
+    async dispatch() {
+      return channels;
+    },
+    subscribe() {
+      return () => {};
+    },
+  });
+  await hub.initialize();
+  hub.open();
+  hub.setView("telegram");
+
+  const dialog = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    dialog,
+    /data-provider="telegram" data-state="disconnected"/u,
+  );
+  assert.match(dialog, />Disconnected</u);
+  assert.match(
+    dialog,
+    /The token is encrypted on this device and never shown in the UI/u,
+  );
+  assert.match(
+    dialog,
+    /Copying writes the raw token to the system clipboard/u,
+  );
+  assert.match(dialog, />Reconnect</u);
+  assert.match(dialog, />Copy token</u);
+  assert.match(dialog, />Update token</u);
+  assert.match(dialog, />Clear token</u);
+  assert.equal(
+    (dialog.match(/type="password"/gu) ?? []).length,
+    0,
+  );
+  assert.doesNotMatch(dialog, />Connect<\/button>/u);
 
   await hub.dispose();
   remote.dispose();
@@ -6049,6 +7098,93 @@ test("Telegram network error does not render the Agent route-pending description
   assert.doesNotMatch(telegramCard, />Reconnect</u);
   assert.doesNotMatch(telegramCard, />Disconnect</u);
   assert.match(telegramCard, /Telegram HTTP proxy/u);
+
+  await hub.dispose();
+  remote.dispose();
+});
+
+test("Discord shows manual proxy configuration only after automatic routing fails", async () => {
+  const remote = new RemoteSettingsRuntime({
+    available: false,
+    async read() {
+      throw new Error("remote access unavailable");
+    },
+    async write() {},
+  });
+  let channels = {
+    ...snapshot(),
+    discordNetwork: {
+      httpProxyUrl: "",
+      proxySource: "telegram",
+    },
+    dependencies: {
+      credentialVault: "ready",
+      agentRoute: "ready",
+    },
+  };
+  let push = () => {};
+  const hub = new RemoteHubRuntime(remote, {
+    available: true,
+    async read() {
+      return channels;
+    },
+    async dispatch() {
+      return channels;
+    },
+    subscribe(listener) {
+      push = listener;
+      return () => {};
+    },
+  });
+  await hub.initialize();
+  hub.open();
+  hub.setView("discord");
+
+  const healthy = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    healthy,
+    /Network route: automatic proxy/u,
+  );
+  assert.doesNotMatch(
+    healthy,
+    /Discord HTTP proxy \(manual fallback\)/u,
+  );
+
+  channels = {
+    ...channels,
+    revision: channels.revision + 1,
+    channels: {
+      ...channels.channels,
+      discord: {
+        state: "error",
+        hasStoredCredential: true,
+        issue: "network",
+      },
+    },
+  };
+  push(channels);
+  const failed = renderToStaticMarkup(
+    createElement(RemoteHubDialogHost, {
+      runtime: hub,
+      t: (key) => remoteHubEn[key],
+      remoteT: (key) => remoteEn[key],
+    }),
+  );
+  assert.match(
+    failed,
+    /Discord HTTP proxy \(manual fallback\)/u,
+  );
+  assert.match(
+    failed,
+    /Minke already tries the system proxy and reuses the Telegram proxy when available/u,
+  );
+  assert.match(failed, /type="url"/u);
 
   await hub.dispose();
   remote.dispose();

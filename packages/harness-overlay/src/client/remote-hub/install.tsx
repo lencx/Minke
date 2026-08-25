@@ -87,6 +87,7 @@ export function installRemoteHub(
         label: () => t("title"),
         locale: REMOTE_HUB_NAMESPACE,
         inject: () => ({
+          openExternal: remote.openExternal,
           runtime,
           remoteT: remote.t,
         }),

@@ -28,11 +28,34 @@ export const remoteHubZh = {
   telegramProxyHelp:
     "可选的 HTTP CONNECT 代理；必须填写 http://主机:端口，留空则使用系统网络设置。Minke 不会自动探测本机代理。",
   applyTelegramProxy: "应用代理",
+  discordProxyLabel: "Discord HTTP 代理（手动备用）",
+  discordProxyHelp:
+    "Minke 已自动尝试系统代理，并在可用时复用 Telegram 代理。仅在自动连接仍失败时填写 http://主机:端口；留空可恢复自动选择。",
+  discordProxyDirect: "网络路径：自动使用系统网络",
+  discordProxySystem: "网络路径：自动使用检测到的系统代理",
+  discordProxyTelegram: "网络路径：自动代理",
+  discordProxyManual: "网络路径：使用手动备用代理",
   discordTokenHelp:
     "Token 来自 Discord Developer Portal；Bot 还需启用 Message Content Intent。服务器使用需要查看频道、发送消息和读取消息历史权限。",
   connectBot: "连接 {provider}",
   reconnectBot: "重新连接",
-  unlinkBot: "解除连接",
+  disconnectBot: "断开连接",
+  unlinkBot: "清除 Token",
+  updateBotToken: "更新 Token",
+  updateBotTokenLabel: "新的 {provider} Bot Token",
+  updateBotTokenSubmit: "验证并更新",
+  cancelTokenUpdate: "取消更新",
+  copyBotToken: "复制 Token",
+  copyingBotToken: "复制中…",
+  copiedBotToken: "已复制",
+  copyBotTokenError: "复制失败",
+  copyBotTokenWarning:
+    "复制会将 Token 原文写入系统剪贴板，其他应用可能读取，请在使用后覆盖。",
+  clearBotTokenWarning:
+    "这会清除本机加密保存的 {provider} Token 并断开连接；保留的消息与投递记录不会被删除。",
+  confirmClearBotToken: "确认清除 Token",
+  savedTokenHint:
+    "Token 已加密保存在本机且不会在界面显示。重新连接会自动复用；只有更新或清除 Token 才会更改保存值。",
   botPairingWaiting: "等待私聊配对",
   botPairingApprovalRequired: "配对待确认",
   botPairingInstruction:
@@ -50,6 +73,7 @@ export const remoteHubZh = {
   scanned: "已扫码",
   verificationRequired: "需要验证码",
   connecting: "正在连接",
+  disconnected: "已断开",
   connected: "已连接",
   linkedLimited: "已连接 · 消息入口关闭",
   attention: "需要处理",
@@ -80,6 +104,19 @@ export const remoteHubZh = {
     "微信要求额外验证。输入手机端显示的数字验证码。",
   qrExpires: "二维码有效至 {time}",
   account: "账号 {label}",
+  activityTitle: "本次连接概览",
+  activityConnectedAt: "连接于",
+  activityUptime: "在线时长",
+  activityReceived: "已接收",
+  activitySent: "已发送",
+  activityLast: "最近活动",
+  activityNone: "暂无",
+  activitySessionNote:
+    "统计仅包含本次连接，重新连接或退出 Minke 后重置。",
+  activityUnderMinute: "不足 1 分钟",
+  activityMinutes: "{count} 分钟",
+  activityHoursMinutes: "{hours} 小时 {minutes} 分钟",
+  activityDaysHours: "{days} 天 {hours} 小时",
   agentRoutePending:
     "传输已连接；Agent 授权与路由尚未接通，外部消息会被默认拒绝且不会写入本机。",
   authorizationMissing:
@@ -168,11 +205,35 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   telegramProxyHelp:
     "Optional HTTP CONNECT proxy. Enter http://host:port, or leave it blank to use system network settings. Minke never auto-detects local proxies.",
   applyTelegramProxy: "Apply proxy",
+  discordProxyLabel: "Discord HTTP proxy (manual fallback)",
+  discordProxyHelp:
+    "Minke already tries the system proxy and reuses the Telegram proxy when available. Enter http://host:port only if automatic connection still fails; clear it to restore automatic selection.",
+  discordProxyDirect: "Network route: automatic system network",
+  discordProxySystem:
+    "Network route: automatically detected system proxy",
+  discordProxyTelegram: "Network route: automatic proxy",
+  discordProxyManual: "Network route: manual fallback proxy",
   discordTokenHelp:
     "Get this token from the Discord Developer Portal and enable Message Content Intent. Server use also needs View Channels, Send Messages, and Read Message History.",
   connectBot: "Connect {provider}",
   reconnectBot: "Reconnect",
-  unlinkBot: "Disconnect",
+  disconnectBot: "Disconnect",
+  unlinkBot: "Clear token",
+  updateBotToken: "Update token",
+  updateBotTokenLabel: "New {provider} Bot Token",
+  updateBotTokenSubmit: "Validate and update",
+  cancelTokenUpdate: "Cancel update",
+  copyBotToken: "Copy token",
+  copyingBotToken: "Copying…",
+  copiedBotToken: "Copied",
+  copyBotTokenError: "Copy failed",
+  copyBotTokenWarning:
+    "Copying writes the raw token to the system clipboard, where other apps may read it. Overwrite it after use.",
+  clearBotTokenWarning:
+    "This clears the encrypted {provider} token from this device and disconnects the channel. Retained messages and delivery records are not deleted.",
+  confirmClearBotToken: "Clear token",
+  savedTokenHint:
+    "The token is encrypted on this device and never shown in the UI. Reconnect reuses it; only Update token or Clear token changes the saved value.",
   botPairingWaiting: "Waiting for a direct message",
   botPairingApprovalRequired: "Pairing approval required",
   botPairingInstruction:
@@ -191,6 +252,7 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   scanned: "Scanned",
   verificationRequired: "Code required",
   connecting: "Connecting",
+  disconnected: "Disconnected",
   connected: "Connected",
   linkedLimited: "Connected · ingress disabled",
   attention: "Needs attention",
@@ -222,6 +284,19 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
     "WeChat requires another check. Enter the numeric code shown on your phone.",
   qrExpires: "QR code valid until {time}",
   account: "Account {label}",
+  activityTitle: "Current connection",
+  activityConnectedAt: "Connected at",
+  activityUptime: "Online",
+  activityReceived: "Received",
+  activitySent: "Sent",
+  activityLast: "Last activity",
+  activityNone: "None yet",
+  activitySessionNote:
+    "Counts cover this connection and reset after reconnecting or quitting Minke.",
+  activityUnderMinute: "Under 1 min",
+  activityMinutes: "{count} min",
+  activityHoursMinutes: "{hours} hr {minutes} min",
+  activityDaysHours: "{days} d {hours} hr",
   agentRoutePending:
     "Transport is connected. Until Agent authorization and routing are available, external messages are denied by default and never stored locally.",
   authorizationMissing:

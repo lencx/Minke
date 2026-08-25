@@ -2,7 +2,7 @@ export const preferencesZh = {
   "preferences.nav": "个人偏好",
   "preferences.title": "个人偏好",
   "preferences.description":
-    "集中管理代码编辑器、终端、网页搜索和应用更新偏好。",
+    "集中管理编辑器、终端、网页搜索和应用更新偏好。",
   "preferences.code.title": "代码与终端主题",
   "preferences.code.description":
     "代码编辑器与终端共享同一主题。分别设置 Minke 浅色与深色外观，每个外观都可选择任意配色。",
@@ -85,7 +85,7 @@ export const preferencesEn: Record<
   "preferences.nav": "Preferences",
   "preferences.title": "Personal preferences",
   "preferences.description":
-    "Manage code editor, Terminal, web search, and application update preferences in one place.",
+    "Manage editor, Terminal, web search, and update preferences in one place.",
   "preferences.code.title": "Code & Terminal themes",
   "preferences.code.description":
     "The code editor and Terminal share one theme. Choose any palette separately for Minke's light and dark appearances.",

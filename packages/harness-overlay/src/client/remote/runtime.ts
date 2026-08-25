@@ -1,6 +1,8 @@
 import {
   createRemoteHostnameLabel,
   DEFAULT_REMOTE_SETTINGS,
+  isRemoteHostnameLabel,
+  isTailscaleIpv4,
   NO_REMOTE_AVAILABILITY,
   parseRemoteRuntimeSnapshot,
   parseRemoteSettings,
@@ -30,6 +32,92 @@ export interface RemoteSettingsSnapshot {
   operation: RemoteSettingsOperation;
   error: RemoteSettingsErrorKind | undefined;
   revision: number;
+}
+
+const DNS_NAME =
+  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+const IPV4_ADDRESS = /^\d+(?:\.\d+){3}$/u;
+
+export type CloudflareBaseDomainAdvisory =
+  | "invalid"
+  | "nested";
+export type CloudflareHostnameLabelAdvisory = "invalid";
+export type TailscaleIpAddressAdvisory = "invalid";
+
+export interface CloudflareHostnameFields {
+  baseDomain: string;
+  label: string;
+}
+
+/**
+ * Present the one composed-hostname editor while preserving legacy custom
+ * hostname settings until the user edits or regenerates them.
+ */
+export function cloudflareHostnameFields(
+  settings: Readonly<RemoteSettings["cloudflare"]>,
+): CloudflareHostnameFields {
+  if (settings.hostnameMode === "generated") {
+    return {
+      baseDomain: settings.domain,
+      label: settings.generatedLabel,
+    };
+  }
+  const separator = settings.customHostname.indexOf(".");
+  if (
+    separator <= 0 ||
+    separator === settings.customHostname.length - 1
+  ) {
+    return {
+      baseDomain: "",
+      label: settings.customHostname,
+    };
+  }
+  return {
+    baseDomain: settings.customHostname.slice(separator + 1),
+    label: settings.customHostname.slice(0, separator),
+  };
+}
+
+/** Return a non-blocking advisory for an optional Direct IP override. */
+export function tailscaleIpAddressAdvisory(
+  value: string,
+): TailscaleIpAddressAdvisory | undefined {
+  if (value === "" || isTailscaleIpv4(value)) {
+    return undefined;
+  }
+  return "invalid";
+}
+
+/**
+ * Return a non-blocking browser-side advisory for the generated host base.
+ * The desktop Cloudflare parser remains the authoritative safety boundary.
+ */
+export function cloudflareBaseDomainAdvisory(
+  value: string,
+): CloudflareBaseDomainAdvisory | undefined {
+  if (value === "") return undefined;
+  if (
+    value !== value.trim().toLowerCase() ||
+    !DNS_NAME.test(value) ||
+    IPV4_ADDRESS.test(value) ||
+    value.endsWith(".ts.net") ||
+    value.endsWith(".cloudflareaccess.com")
+  ) {
+    return "invalid";
+  }
+  return value.split(".").length > 2
+    ? "nested"
+    : undefined;
+}
+
+/** Return a non-blocking advisory for a manually edited host label. */
+export function cloudflareHostnameLabelAdvisory(
+  value: string,
+): CloudflareHostnameLabelAdvisory | undefined {
+  if (value === "" || isRemoteHostnameLabel(value)) {
+    return undefined;
+  }
+  return "invalid";
 }
 
 function copySettings(
@@ -64,6 +152,8 @@ function settingsEqual(
     left.method === right.method &&
     left.tailscale.transport ===
       right.tailscale.transport &&
+    left.tailscale.ipAddress ===
+      right.tailscale.ipAddress &&
     left.cloudflare.hostnameMode ===
       right.cloudflare.hostnameMode &&
     left.cloudflare.domain === right.cloudflare.domain &&
@@ -92,12 +182,10 @@ export function canEnableRemoteSettings(
   const hasHostname =
     cloudflare.hostnameMode === "generated"
       ? (
-          /^m-[0123456789abcdefghjkmnpqrstvwxyz]{16}$/u.test(
-            cloudflare.generatedLabel,
-          ) &&
-          cloudflare.domain.includes(".")
+          cloudflare.generatedLabel !== "" &&
+          cloudflare.domain !== ""
         )
-      : cloudflare.customHostname.includes(".");
+      : cloudflare.customHostname !== "";
   return (
     hasHostname &&
     cloudflare.teamName !== "" &&
@@ -193,14 +281,22 @@ export class RemoteSettingsRuntime {
   setTailscaleTransport(
     transport: TailscaleTransport,
   ): void {
+    this.setTailscaleSettings({ transport });
+  }
+
+  setTailscaleSettings(
+    patch: Partial<RemoteSettings["tailscale"]>,
+  ): void {
     const settings = this.#editableSettings();
     if (settings.enabled) {
       throw new Error(
-        "disable remote access before changing transports",
+        "disable remote access before editing Tailscale",
       );
     }
-    if (settings.tailscale.transport === transport) return;
-    settings.tailscale.transport = transport;
+    settings.tailscale = {
+      ...settings.tailscale,
+      ...patch,
+    };
     this.#update(settings);
   }
 
@@ -223,8 +319,12 @@ export class RemoteSettingsRuntime {
   regenerateCloudflareHostname(
     entropy?: Uint8Array,
   ): void {
+    const { baseDomain } = cloudflareHostnameFields(
+      this.#snapshot.data.settings.cloudflare,
+    );
     this.setCloudflareSettings({
       hostnameMode: "generated",
+      domain: baseDomain,
       generatedLabel: createRemoteHostnameLabel(entropy),
     });
   }

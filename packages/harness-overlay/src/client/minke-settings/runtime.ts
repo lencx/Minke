@@ -4,9 +4,9 @@ import type {
 
 export type MinkeSettingsPageIcon =
   | "preferences"
+  | "browser"
   | "shortcuts"
-  | "data-home"
-  | "remote";
+  | "data-home";
 
 export interface MinkeSettingsPage {
   readonly id: string;

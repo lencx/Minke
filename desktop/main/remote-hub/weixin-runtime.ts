@@ -29,9 +29,11 @@ import {
   type WeixinTransport,
 } from "@lencx/minke-im-weixin";
 import {
+  DEFAULT_DISCORD_NETWORK_SNAPSHOT,
   DEFAULT_TELEGRAM_NETWORK_SETTINGS,
   parseRemoteHubCommand,
   parseRemoteHubSnapshot,
+  type ImConnectionActivity,
   type RemoteHubCommand,
   type RemoteHubSnapshot,
   type WeixinHubIssue,
@@ -142,6 +144,7 @@ export interface WeixinCapabilityRuntimeOptions {
   readonly resetGatewayMailbox?: (path: string) => Promise<void>;
   readonly gatewayResetAllowed?: () => boolean;
   readonly createFlowId?: () => string;
+  readonly now?: () => number;
 }
 
 interface ActiveLogin {
@@ -381,6 +384,9 @@ function initialSnapshot(): RemoteHubSnapshot {
     telegramNetwork: {
       ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
     },
+    discordNetwork: {
+      ...DEFAULT_DISCORD_NETWORK_SNAPSHOT,
+    },
     dependencies: {
       credentialVault: "pending",
       agentRoute: "pending",
@@ -460,6 +466,7 @@ export class WeixinCapabilityRuntime {
   readonly #gatewayResetAllowed:
     | (() => boolean)
     | undefined;
+  readonly #now: () => number;
   readonly #listeners = new Set<() => void>();
   #snapshot = initialSnapshot();
   #initializePromise: Promise<void> | undefined;
@@ -479,6 +486,8 @@ export class WeixinCapabilityRuntime {
   readonly #runtimeIssues = new Set<
     "agent" | "delivery" | "receive"
   >();
+  #activity: ImConnectionActivity | undefined;
+  readonly #sentOperationIds = new Set<string>();
   #initializeMayConnect = true;
   #disposed = false;
 
@@ -515,6 +524,7 @@ export class WeixinCapabilityRuntime {
       options.resetGatewayMailbox ?? resetGatewayMailbox;
     this.#gatewayResetAllowed = options.gatewayResetAllowed;
     this.#createFlowId = options.createFlowId ?? randomUUID;
+    this.#now = options.now ?? Date.now;
   }
 
   getSnapshot = (): RemoteHubSnapshot => this.#snapshot;
@@ -1006,6 +1016,7 @@ export class WeixinCapabilityRuntime {
             : botEchoOnlyGatewayIngress
         );
       this.#runtimeIssues.clear();
+      this.#startActivity();
       this.#publishHealthy(label, routeMode);
       this.#runReceiveLoop(
         provider,
@@ -1047,6 +1058,8 @@ export class WeixinCapabilityRuntime {
         this.#provider = undefined;
         this.#mailbox = undefined;
         this.#providerController = undefined;
+        this.#activity = undefined;
+        this.#sentOperationIds.clear();
         await provider.close().catch(() => {});
         mailbox?.close();
       } else if (!providerOwned) {
@@ -1096,11 +1109,31 @@ export class WeixinCapabilityRuntime {
       this.#provider === provider
     ) {
       try {
-        await this.#pollProviderOnce({
-          ingressPolicy,
+        const admittedUserMessageIds = new Set<string>();
+        const admission = await this.#pollProviderOnce({
+          ingressPolicy: (input) => {
+            const accepted = ingressPolicy(input);
+            if (
+              accepted &&
+              input.event.kind === "user-message"
+            ) {
+              admittedUserMessageIds.add(
+                input.event.nativeId,
+              );
+            }
+            return accepted;
+          },
           mailbox,
           provider,
           signal: controller.signal,
+        });
+        this.#recordActivity(label, {
+          confirmedOperationIds:
+            admission.confirmedOperationIds,
+          receivedMessages:
+            admission.admittedNativeIds.filter((nativeId) =>
+              admittedUserMessageIds.has(nativeId)
+            ).length,
         });
         if (routeMode === "ready") {
           this.#setRuntimeIssue("receive", false, label);
@@ -1128,6 +1161,8 @@ export class WeixinCapabilityRuntime {
             this.#provider = undefined;
             this.#mailbox = undefined;
             this.#providerController = undefined;
+            this.#activity = undefined;
+            this.#sentOperationIds.clear();
             await provider.close().catch(() => {});
             mailbox.close();
           }
@@ -1222,6 +1257,17 @@ export class WeixinCapabilityRuntime {
           workerId:
             `weixin-delivery:${provider.account.accountKey}`,
         });
+        if (
+          result.status === "settled" &&
+          result.outcome.status === "accepted"
+        ) {
+          this.#recordActivity(label, {
+            confirmedOperationIds: [
+              result.attempt.operationId,
+            ],
+            receivedMessages: 0,
+          });
+        }
         if (
           result.status !== "idle" &&
           result.outcome.status === "rejected" &&
@@ -1508,6 +1554,56 @@ export class WeixinCapabilityRuntime {
     }, "ready");
   }
 
+  #startActivity(): void {
+    this.#sentOperationIds.clear();
+    this.#activity = Object.freeze({
+      connectedAt: this.#now(),
+      receivedMessages: 0,
+      sentMessages: 0,
+    });
+  }
+
+  #recordActivity(
+    accountLabelValue: string,
+    input: {
+      readonly confirmedOperationIds: readonly string[];
+      readonly receivedMessages: number;
+    },
+  ): void {
+    const activity = this.#activity;
+    if (activity === undefined) return;
+    let sentMessages = 0;
+    for (const operationId of input.confirmedOperationIds) {
+      if (this.#sentOperationIds.has(operationId)) continue;
+      this.#sentOperationIds.add(operationId);
+      sentMessages += 1;
+    }
+    if (
+      input.receivedMessages === 0 &&
+      sentMessages === 0
+    ) {
+      return;
+    }
+    this.#activity = Object.freeze({
+      ...activity,
+      lastActivityAt: this.#now(),
+      receivedMessages:
+        activity.receivedMessages + input.receivedMessages,
+      sentMessages:
+        activity.sentMessages + sentMessages,
+    });
+    const current = this.#snapshot.channels.weixin;
+    if (
+      (
+        current.state === "connected" ||
+        current.state === "degraded"
+      ) &&
+      current.accountLabel === accountLabelValue
+    ) {
+      this.#publish(current, "ready");
+    }
+  }
+
   #publishHealthy(
     accountLabelValue: string,
     routeMode: WeixinRouteMode,
@@ -1591,10 +1687,25 @@ export class WeixinCapabilityRuntime {
     credentialVault: "ready" | "unavailable" | "pending",
   ): void {
     if (this.#disposed) return;
+    const active =
+      weixin.state === "connected" ||
+      weixin.state === "degraded";
+    const channel =
+      active && this.#activity !== undefined
+        ? {
+            ...weixin,
+            activity: Object.freeze({
+              ...this.#activity,
+            }),
+          }
+        : weixin;
     this.#snapshot = parseRemoteHubSnapshot({
       revision: this.#snapshot.revision + 1,
       telegramNetwork: {
         ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+      },
+      discordNetwork: {
+        ...DEFAULT_DISCORD_NETWORK_SNAPSHOT,
       },
       dependencies: {
         credentialVault,
@@ -1602,7 +1713,7 @@ export class WeixinCapabilityRuntime {
           this.#agentRoute === undefined ? "pending" : "ready",
       },
       channels: {
-        weixin,
+        weixin: channel,
         telegram: { state: "loading" },
         discord: { state: "loading" },
       },
@@ -1772,6 +1883,8 @@ export class WeixinCapabilityRuntime {
     this.#routeTask = Promise.resolve();
     this.#dispatchTask = Promise.resolve();
     this.#runtimeIssues.clear();
+    this.#activity = undefined;
+    this.#sentOperationIds.clear();
     mailbox?.close();
   }
 

@@ -17,9 +17,11 @@ import {
   type ReactNode,
 } from "react";
 import {
+  parseDiscordNetworkSettings,
   parseTelegramNetworkSettings,
   type BotHubIssue,
   type BotHubSnapshot,
+  type ImConnectionActivity,
   type RemoteHubCommand,
   type WeixinHubIssue,
   type WeixinHubSnapshot,
@@ -90,6 +92,108 @@ function MessagingProviderIcon({
   );
 }
 
+function activityDuration(
+  connectedAt: number,
+  now: number,
+  t: RemoteHubTranslate,
+): string {
+  const minutes = Math.floor(
+    Math.max(0, now - connectedAt) / 60_000,
+  );
+  if (minutes < 1) return t("activityUnderMinute");
+  if (minutes < 60) {
+    return t("activityMinutes").replace(
+      "{count}",
+      String(minutes),
+    );
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return t("activityHoursMinutes")
+      .replace("{hours}", String(hours))
+      .replace("{minutes}", String(minutes % 60));
+  }
+  return t("activityDaysHours")
+    .replace("{days}", String(Math.floor(hours / 24)))
+    .replace("{hours}", String(hours % 24));
+}
+
+function activityTime(value: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(value);
+}
+
+function ConnectionActivity({
+  activity,
+  t,
+}: {
+  readonly activity: ImConnectionActivity;
+  readonly t: RemoteHubTranslate;
+}): ReactNode {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [activity.connectedAt]);
+  const number = new Intl.NumberFormat();
+  const lastActivity =
+    activity.lastActivityAt === undefined
+      ? t("activityNone")
+      : activityTime(activity.lastActivityAt);
+
+  return (
+    <div
+      className="minke-remote-hub__activity"
+      role="group"
+      aria-label={t("activityTitle")}
+    >
+      <dl className="minke-remote-hub__activity-grid">
+        <div>
+          <dt>{t("activityConnectedAt")}</dt>
+          <dd>
+            <time
+              dateTime={new Date(
+                activity.connectedAt,
+              ).toISOString()}
+            >
+              {activityTime(activity.connectedAt)}
+            </time>
+          </dd>
+        </div>
+        <div>
+          <dt>{t("activityUptime")}</dt>
+          <dd>
+            {activityDuration(activity.connectedAt, now, t)}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("activityReceived")}</dt>
+          <dd>
+            {number.format(activity.receivedMessages)}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("activitySent")}</dt>
+          <dd>{number.format(activity.sentMessages)}</dd>
+        </div>
+      </dl>
+      <p className="minke-remote-hub__activity-note">
+        <span>
+          {t("activityLast")}: {lastActivity}
+        </span>
+        <span>{t("activitySessionNote")}</span>
+      </p>
+    </div>
+  );
+}
+
 interface SessionListSelection {
   readonly current: string | undefined;
   readonly byId: Readonly<
@@ -112,6 +216,7 @@ export interface NewSessionRemoteHubActionProps
 
 export interface RemoteHubDialogHostProps
   extends RemoteHubActionProps {
+  readonly openExternal?: (url: string) => void;
   readonly remoteT: RemoteTranslate;
 }
 
@@ -486,15 +591,6 @@ function WeixinChannel({
   const resetGateway =
     weixin.state === "error" &&
     weixin.issue === "gateway-store";
-  const accountSummary =
-    weixin.state === "connecting" ||
-    weixin.state === "connected" ||
-    weixin.state === "degraded"
-      ? t("account").replace(
-          "{label}",
-          weixin.accountLabel,
-        )
-      : undefined;
   const startLink = (): void => {
     void runtime.dispatch({
       kind: "weixin/link/start",
@@ -513,24 +609,17 @@ function WeixinChannel({
           <MessagingProviderIcon provider="weixin" />
         </span>
         <span className="minke-remote-hub__channel-copy">
-          <strong id="minke-remote-hub-weixin-title">
-            {t("weixinTitle")}
-          </strong>
-          <span>
-            {accountSummary ?? t("weixinDescription")}
-          </span>
-        </span>
-        <span className="minke-remote-hub__channel-controls">
-          <span
-            className="minke-remote-hub__channel-status"
-            data-state={weixin.state}
-            data-tone={connectionTone(weixin.state)}
+          <strong
+            id="minke-remote-hub-weixin-title"
             role="status"
             aria-live="polite"
           >
-            {statusLabel(weixin, t)}
-          </span>
-          {weixin.state === "unlinked" && (
+            {t("weixinTitle")} · {statusLabel(weixin, t)}
+          </strong>
+          <span>{t("weixinDescription")}</span>
+        </span>
+        {weixin.state === "unlinked" && (
+          <span className="minke-remote-hub__channel-controls">
             <button
               type="button"
               disabled={busy}
@@ -538,213 +627,214 @@ function WeixinChannel({
             >
               {busy ? t("busy") : t("connectWeixin")}
             </button>
-          )}
-        </span>
+          </span>
+        )}
       </div>
 
       {weixin.state !== "unlinked" && (
         <div className="minke-remote-hub__channel-body">
-      {(weixin.state === "connecting" ||
-        weixin.state === "connected" ||
-        weixin.state === "degraded") && (
-        <p className="minke-remote-hub__channel-description">
-          {t("weixinDescription")}
-        </p>
-      )}
-      {weixin.state === "linking" && (
-        <div className="minke-remote-hub__link-flow">
-          <div className="minke-remote-hub__qr-frame">
-            {qr.state === "ready" ? (
-              <img
-                src={qr.dataUrl}
-                alt={t("qrAlt")}
-                width="224"
-                height="224"
+          {(weixin.state === "connected" ||
+            weixin.state === "degraded") &&
+            weixin.activity !== undefined && (
+              <ConnectionActivity
+                activity={weixin.activity}
+                t={t}
               />
-            ) : qr.state === "error" ? (
-              <span role="alert">{t("qrRenderError")}</span>
-            ) : (
-              <span role="status">{t("qrPreparing")}</span>
             )}
-          </div>
-          <div className="minke-remote-hub__link-copy">
-            <p>
-              {weixin.phase === "waiting"
-                ? t("qrInstruction")
-                : weixin.phase === "scanned"
-                  ? t("scannedInstruction")
-                  : t("verificationInstruction")}
-            </p>
-            <small>
-              {t("qrExpires").replace(
-                "{time}",
-                new Intl.DateTimeFormat(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }).format(weixin.challenge.expiresAt),
-              )}
-            </small>
-            {weixin.phase === "verification-required" && (
-              <form
-                className="minke-remote-hub__verify"
-                onSubmit={submitVerification}
-              >
-                <label htmlFor={codeId}>
-                  {t("verificationCodeLabel")}
-                </label>
-                <div>
-                  <input
-                    id={codeId}
-                    type="text"
-                    value={code}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]{1,32}"
-                    placeholder={t("verificationCodePlaceholder")}
-                    disabled={busy}
-                    onChange={(event) =>
-                      setCode(
-                        event.currentTarget.value
-                          .replace(/\D/gu, "")
-                          .slice(0, 32),
-                      )}
+          {weixin.state === "linking" && (
+            <div className="minke-remote-hub__link-flow">
+              <div className="minke-remote-hub__qr-frame">
+                {qr.state === "ready" ? (
+                  <img
+                    src={qr.dataUrl}
+                    alt={t("qrAlt")}
+                    width="224"
+                    height="224"
                   />
-                  <button
-                    type="submit"
-                    disabled={
-                      busy || !/^[0-9]{1,32}$/u.test(code)
-                    }
-                  >
-                    {busy ? t("busy") : t("verifyCode")}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-
-      {weixin.state === "degraded" && (
-        <div className="minke-remote-hub__channel-detail">
-          <p>{issueText(weixin.issue, t)}</p>
-        </div>
-      )}
-
-      {(weixin.state === "unavailable" ||
-        weixin.state === "error" ||
-        weixin.state === "session-stale") && (
-        <p className="minke-remote-hub__issue" role="alert">
-          {issueText(weixin.issue, t)}
-        </p>
-      )}
-
-      <div className="minke-remote-hub__channel-actions">
-        {canStart && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={startLink}
-          >
-            {busy ? t("busy") : t("connectWeixin")}
-          </button>
-        )}
-        {canReconnect && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              void runtime.dispatch({
-                kind: "weixin/reconnect",
-              });
-            }}
-          >
-            {busy ? t("busy") : t("reconnectWeixin")}
-          </button>
-        )}
-        {weixin.state === "linking" && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              void runtime.dispatch({
-                kind: "weixin/link/cancel",
-                flowId: weixin.flowId,
-              });
-            }}
-          >
-            {busy ? t("busy") : t("cancelLink")}
-          </button>
-        )}
-        {canUnlink && (
-          <button
-            type="button"
-            className="minke-remote-hub__button--danger"
-            disabled={busy}
-            onClick={() => {
-              void runtime.dispatch({
-                kind: "weixin/unlink",
-              });
-            }}
-          >
-            {t("unlinkWeixin")}
-          </button>
-        )}
-        {canReset && !confirmReset && (
-          <button
-            ref={resetTriggerRef}
-            type="button"
-            className="minke-remote-hub__button--quiet"
-            disabled={busy}
-            onClick={() => setConfirmReset(true)}
-          >
-            {t(resetGateway ? "resetGateway" : "resetLocal")}
-          </button>
-        )}
-      </div>
-      {confirmReset && (
-        <div
-          className="minke-remote-hub__reset-confirmation"
-          role="alert"
-        >
-          <p>
-            {t(
-              resetGateway
-                ? "resetGatewayWarning"
-                : "resetLocalWarning",
-            )}
-          </p>
-          <div className="minke-remote-hub__channel-actions">
-            <button
-              ref={resetConfirmRef}
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                void runtime.dispatch({
-                  kind: resetGateway
-                    ? "gateway/reset-local"
-                    : "weixin/reset-local",
-                });
-              }}
-            >
-              {busy
-                ? t("busy")
-                : t(
-                    resetGateway
-                      ? "confirmResetGateway"
-                      : "confirmResetLocal",
+                ) : qr.state === "error" ? (
+                  <span role="alert">{t("qrRenderError")}</span>
+                ) : (
+                  <span role="status">{t("qrPreparing")}</span>
+                )}
+              </div>
+              <div className="minke-remote-hub__link-copy">
+                <p>
+                  {weixin.phase === "waiting"
+                    ? t("qrInstruction")
+                    : weixin.phase === "scanned"
+                      ? t("scannedInstruction")
+                      : t("verificationInstruction")}
+                </p>
+                <small>
+                  {t("qrExpires").replace(
+                    "{time}",
+                    new Intl.DateTimeFormat(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }).format(weixin.challenge.expiresAt),
                   )}
-            </button>
-            <button
-              type="button"
-              className="minke-remote-hub__button--quiet"
-              disabled={busy}
-              onClick={() => setConfirmReset(false)}
-            >
-              {t("keepLocalData")}
-            </button>
+                </small>
+                {weixin.phase === "verification-required" && (
+                  <form
+                    className="minke-remote-hub__verify"
+                    onSubmit={submitVerification}
+                  >
+                    <label htmlFor={codeId}>
+                      {t("verificationCodeLabel")}
+                    </label>
+                    <div>
+                      <input
+                        id={codeId}
+                        type="text"
+                        value={code}
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        pattern="[0-9]{1,32}"
+                        placeholder={t("verificationCodePlaceholder")}
+                        disabled={busy}
+                        onChange={(event) =>
+                          setCode(
+                            event.currentTarget.value
+                              .replace(/\D/gu, "")
+                              .slice(0, 32),
+                          )}
+                      />
+                      <button
+                        type="submit"
+                        disabled={
+                          busy || !/^[0-9]{1,32}$/u.test(code)
+                        }
+                      >
+                        {busy ? t("busy") : t("verifyCode")}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            </div>
+          )}
+
+          {weixin.state === "degraded" && (
+            <div className="minke-remote-hub__channel-detail">
+              <p>{issueText(weixin.issue, t)}</p>
+            </div>
+          )}
+
+          {(weixin.state === "unavailable" ||
+            weixin.state === "error" ||
+            weixin.state === "session-stale") && (
+            <p className="minke-remote-hub__issue" role="alert">
+              {issueText(weixin.issue, t)}
+            </p>
+          )}
+
+          <div className="minke-remote-hub__channel-actions">
+            {canStart && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={startLink}
+              >
+                {busy ? t("busy") : t("connectWeixin")}
+              </button>
+            )}
+            {canReconnect && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  void runtime.dispatch({
+                    kind: "weixin/reconnect",
+                  });
+                }}
+              >
+                {busy ? t("busy") : t("reconnectWeixin")}
+              </button>
+            )}
+            {weixin.state === "linking" && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  void runtime.dispatch({
+                    kind: "weixin/link/cancel",
+                    flowId: weixin.flowId,
+                  });
+                }}
+              >
+                {busy ? t("busy") : t("cancelLink")}
+              </button>
+            )}
+            {canUnlink && (
+              <button
+                type="button"
+                className="minke-remote-hub__button--danger"
+                disabled={busy}
+                onClick={() => {
+                  void runtime.dispatch({
+                    kind: "weixin/unlink",
+                  });
+                }}
+              >
+                {t("unlinkWeixin")}
+              </button>
+            )}
+            {canReset && !confirmReset && (
+              <button
+                ref={resetTriggerRef}
+                type="button"
+                className="minke-remote-hub__button--quiet"
+                disabled={busy}
+                onClick={() => setConfirmReset(true)}
+              >
+                {t(resetGateway ? "resetGateway" : "resetLocal")}
+              </button>
+            )}
           </div>
-        </div>
-      )}
+          {confirmReset && (
+            <div
+              className="minke-remote-hub__reset-confirmation"
+              role="alert"
+            >
+              <p>
+                {t(
+                  resetGateway
+                    ? "resetGatewayWarning"
+                    : "resetLocalWarning",
+                )}
+              </p>
+              <div className="minke-remote-hub__channel-actions">
+                <button
+                  ref={resetConfirmRef}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    void runtime.dispatch({
+                      kind: resetGateway
+                        ? "gateway/reset-local"
+                        : "weixin/reset-local",
+                    });
+                  }}
+                >
+                  {busy
+                    ? t("busy")
+                    : t(
+                        resetGateway
+                          ? "confirmResetGateway"
+                          : "confirmResetLocal",
+                      )}
+                </button>
+                <button
+                  type="button"
+                  className="minke-remote-hub__button--quiet"
+                  disabled={busy}
+                  onClick={() => setConfirmReset(false)}
+                >
+                  {t("keepLocalData")}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -764,6 +854,8 @@ function botStatusLabel(
       return t("unlinked");
     case "connecting":
       return t("connecting");
+    case "disconnected":
+      return t("disconnected");
     case "pairing":
       return t(
         value.request === undefined
@@ -846,9 +938,22 @@ function BotChannel({
   );
   const [token, setToken] = useState("");
   const savedProxyUrl =
-    snapshot.channels.telegramNetwork.httpProxyUrl;
+    provider === "telegram"
+      ? snapshot.channels.telegramNetwork.httpProxyUrl
+      : snapshot.channels.discordNetwork.httpProxyUrl;
+  const discordProxySource =
+    snapshot.channels.discordNetwork.proxySource;
   const [proxyUrl, setProxyUrl] = useState(savedProxyUrl);
+  const [editingToken, setEditingToken] = useState(false);
+  const [confirmClearToken, setConfirmClearToken] =
+    useState(false);
+  const [copyTokenState, setCopyTokenState] = useState<
+    "idle" | "copying" | "copied" | "error"
+  >("idle");
   const [confirmReset, setConfirmReset] = useState(false);
+  const copyTokenResetRef = useRef<number | undefined>(
+    undefined,
+  );
   const previousConfirmResetRef = useRef(false);
   const channelRef = useRef<HTMLElement>(null);
   const resetTriggerRef = useRef<HTMLButtonElement>(null);
@@ -865,7 +970,11 @@ function BotChannel({
     !/\s/u.test(token);
   let proxyValid = false;
   try {
-    parseTelegramNetworkSettings({
+    (
+      provider === "telegram"
+        ? parseTelegramNetworkSettings
+        : parseDiscordNetworkSettings
+    )({
       httpProxyUrl: proxyUrl.trim(),
     });
     proxyValid = true;
@@ -877,14 +986,26 @@ function BotChannel({
   const pairingRequest = channel.state === "pairing"
     ? channel.request
     : undefined;
-  const canConfigure =
-    channel.state === "unlinked" ||
+  const hasSavedToken =
+    channel.state === "disconnected" ||
+    channel.state === "pairing" ||
+    channel.state === "connected" ||
+    channel.state === "degraded" ||
     (
       channel.state === "error" &&
+      channel.hasStoredCredential
+    );
+  const canConfigure =
+    channel.state === "unlinked" ||
+    editingToken ||
+    (
+      channel.state === "error" &&
+      !channel.hasStoredCredential &&
       channel.issue !== "credential-read" &&
       channel.issue !== "gateway-store"
     );
   const canReconnect =
+    channel.state === "disconnected" ||
     channel.state === "degraded" ||
     (
       channel.state === "error" &&
@@ -897,20 +1018,38 @@ function BotChannel({
         channel.issue === "transport-start"
       )
     );
-  const canUnlink =
-    channel.state === "connecting" ||
+  const canDisconnect =
     channel.state === "pairing" ||
     channel.state === "connected" ||
-    channel.state === "degraded" ||
-    (
-      channel.state === "error" &&
-      channel.hasStoredCredential
-    );
+    channel.state === "degraded";
+  const canUpdateToken =
+    hasSavedToken && !editingToken;
+  const canClearToken = hasSavedToken;
   const canConfigureProxy =
-    provider === "telegram" &&
     (
-      channel.state === "unlinked" ||
-      channel.state === "error"
+      provider === "telegram" &&
+      (
+        channel.state === "unlinked" ||
+        channel.state === "disconnected" ||
+        channel.state === "error"
+      )
+    ) ||
+    (
+      provider === "discord" &&
+      (
+        (
+          channel.state === "error" &&
+          channel.issue === "network"
+        ) ||
+        (
+          savedProxyUrl !== "" &&
+          (
+            channel.state === "unlinked" ||
+            channel.state === "disconnected" ||
+            channel.state === "error"
+          )
+        )
+      )
     );
   const canReset =
     channel.state === "error" &&
@@ -925,6 +1064,7 @@ function BotChannel({
     channel.issue === "gateway-store";
   const accountSummary =
     channel.state === "connecting" ||
+    channel.state === "disconnected" ||
     channel.state === "pairing" ||
     channel.state === "connected" ||
     channel.state === "degraded"
@@ -935,6 +1075,11 @@ function BotChannel({
       : undefined;
   useEffect(() => {
     setConfirmReset(false);
+    setConfirmClearToken(false);
+    if (channel.state === "unlinked") {
+      setEditingToken(false);
+      setToken("");
+    }
   }, [
     channel.state,
     channel.state === "error" ? channel.issue : undefined,
@@ -943,6 +1088,14 @@ function BotChannel({
   useEffect(() => {
     setProxyUrl(savedProxyUrl);
   }, [savedProxyUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTokenResetRef.current !== undefined) {
+        window.clearTimeout(copyTokenResetRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const previous = previousConfirmResetRef.current;
@@ -981,7 +1134,10 @@ function BotChannel({
             kind: "discord/connect",
             token,
           });
-    void operation.finally(() => setToken(""));
+    void operation.finally(() => {
+      setToken("");
+      setEditingToken(false);
+    });
   };
 
   const reconnect = (): void => {
@@ -996,19 +1152,23 @@ function BotChannel({
     event: FormEvent<HTMLFormElement>,
   ): void => {
     event.preventDefault();
-    if (
-      provider !== "telegram" ||
-      !proxyValid ||
-      !proxyChanged ||
-      busy
-    ) {
+    if (!proxyValid || !proxyChanged || busy) {
       return;
     }
     const command: RemoteHubCommand = {
-      kind: "telegram/network/set",
-      settings: parseTelegramNetworkSettings({
-        httpProxyUrl: proxyUrl.trim(),
-      }),
+      ...(provider === "telegram"
+        ? {
+            kind: "telegram/network/set",
+            settings: parseTelegramNetworkSettings({
+              httpProxyUrl: proxyUrl.trim(),
+            }),
+          }
+        : {
+            kind: "discord/network/set",
+            settings: parseDiscordNetworkSettings({
+              httpProxyUrl: proxyUrl.trim(),
+            }),
+          }),
     };
     void runtime.dispatch(command);
   };
@@ -1019,6 +1179,40 @@ function BotChannel({
         ? { kind: "telegram/unlink" }
         : { kind: "discord/unlink" },
     );
+  };
+
+  const disconnect = (): void => {
+    void runtime.dispatch(
+      provider === "telegram"
+        ? { kind: "telegram/disconnect" }
+        : { kind: "discord/disconnect" },
+    );
+  };
+
+  const copyToken = (): void => {
+    if (busy || copyTokenState === "copying") return;
+    if (copyTokenResetRef.current !== undefined) {
+      window.clearTimeout(copyTokenResetRef.current);
+      copyTokenResetRef.current = undefined;
+    }
+    setCopyTokenState("copying");
+    void runtime
+      .dispatch(
+        provider === "telegram"
+          ? { kind: "telegram/token/copy" }
+          : { kind: "discord/token/copy" },
+      )
+      .then(() => {
+        setCopyTokenState(
+          runtime.getSnapshot().error === undefined
+            ? "copied"
+            : "error",
+        );
+        copyTokenResetRef.current = window.setTimeout(() => {
+          setCopyTokenState("idle");
+          copyTokenResetRef.current = undefined;
+        }, 3_000);
+      });
   };
 
   const approvePairing = (requestId: string): void => {
@@ -1079,274 +1273,409 @@ function BotChannel({
       </div>
 
       <div className="minke-remote-hub__channel-body">
-      {(channel.state === "connecting" ||
-        channel.state === "pairing" ||
-        channel.state === "connected" ||
-        channel.state === "degraded") && (
-        <p className="minke-remote-hub__channel-description">
-          {description}
-        </p>
-      )}
-      {(channel.state === "pairing" ||
-        channel.state === "degraded") && (
-        <div className="minke-remote-hub__channel-detail">
-          {channel.state === "degraded" && (
-            <p>
-              {botIssueText(
-                channel.issue,
-                providerLabel,
-                t,
-              )}
-            </p>
-          )}
-          {channel.state === "pairing" &&
-            (pairingRequest === undefined ? (
-              <p>
-                {t("botPairingInstruction")
-                  .replace("{account}", channel.accountLabel)
-                  .replace("{provider}", providerLabel)}
-              </p>
-            ) : (
-              <div
-                role="group"
-                aria-label={t("botPairingRequestLabel").replace(
-                  "{provider}",
-                  providerLabel,
-                )}
-              >
-                <p>
-                  {t("botPairingRequestFrom").replace(
-                    "{label}",
-                    pairingRequest.senderLabel,
-                  )}
-                </p>
-                <p>
-                  <strong>
-                    {t("botPairingCode").replace(
-                      "{code}",
-                      pairingRequest.code,
-                    )}
-                  </strong>
-                </p>
-                <p>
-                  <time
-                    dateTime={new Date(
-                      pairingRequest.expiresAt,
-                    ).toISOString()}
-                  >
-                    {t("botPairingExpires").replace(
-                      "{time}",
-                      new Intl.DateTimeFormat(undefined, {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }).format(
-                        pairingRequest.expiresAt,
-                      ),
-                    )}
-                  </time>
-                </p>
-                <div className="minke-remote-hub__channel-actions">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      approvePairing(
-                        pairingRequest.requestId,
-                      )}
-                  >
-                    {busy
-                      ? t("busy")
-                      : t("approveBotPairing")}
-                  </button>
-                  <button
-                    type="button"
-                    className="minke-remote-hub__button--quiet"
-                    disabled={busy}
-                    onClick={() =>
-                      dismissPairing(
-                        pairingRequest.requestId,
-                      )}
-                  >
-                    {t("dismissBotPairing")}
-                  </button>
-                </div>
-              </div>
-            ))}
-        </div>
-      )}
-
-      {(channel.state === "unavailable" ||
-        channel.state === "error") && (
-        <p className="minke-remote-hub__issue" role="alert">
-          {botIssueText(channel.issue, providerLabel, t)}
-        </p>
-      )}
-
-      {canConfigure && (
-        <form
-          className="minke-remote-hub__bot-token"
-          onSubmit={submitToken}
-        >
-          <label htmlFor={tokenId}>
-            {t("botTokenLabel").replace(
-              "{provider}",
-              providerLabel,
-            )}
-          </label>
-          <div>
-            <input
-              id={tokenId}
-              type="password"
-              value={token}
-              minLength={20}
-              maxLength={4_096}
-              autoComplete="off"
-              autoCapitalize="none"
-              aria-describedby={tokenHelpId}
-              spellCheck={false}
-              placeholder={t("botTokenPlaceholder")}
-              disabled={busy}
-              onChange={(event) =>
-                setToken(event.currentTarget.value)}
+        {(channel.state === "connecting" ||
+          channel.state === "disconnected" ||
+          channel.state === "pairing" ||
+          channel.state === "connected" ||
+          channel.state === "degraded") && (
+          <p className="minke-remote-hub__channel-description">
+            {description}
+          </p>
+        )}
+        {(channel.state === "pairing" ||
+          channel.state === "connected" ||
+          channel.state === "degraded") &&
+          channel.activity !== undefined && (
+            <ConnectionActivity
+              activity={channel.activity}
+              t={t}
             />
+          )}
+        {hasSavedToken && !editingToken && (
+          <div className="minke-remote-hub__saved-token">
+            <div>
+              <p className="minke-remote-hub__saved-token-hint">
+                {t("savedTokenHint")}
+              </p>
+              <small>{t("copyBotTokenWarning")}</small>
+            </div>
             <button
-              type="submit"
-              disabled={busy || !tokenValid}
+              type="button"
+              disabled={busy}
+              onClick={copyToken}
+              aria-live="polite"
             >
-              {busy
-                ? t("busy")
-                : t("connectBot").replace(
+              {t(
+                copyTokenState === "copying"
+                  ? "copyingBotToken"
+                  : copyTokenState === "copied"
+                    ? "copiedBotToken"
+                    : copyTokenState === "error"
+                      ? "copyBotTokenError"
+                      : "copyBotToken",
+              )}
+            </button>
+          </div>
+        )}
+        {(channel.state === "pairing" ||
+          channel.state === "degraded") && (
+          <div className="minke-remote-hub__channel-detail">
+            {channel.state === "degraded" && (
+              <p>
+                {botIssueText(
+                  channel.issue,
+                  providerLabel,
+                  t,
+                )}
+              </p>
+            )}
+            {channel.state === "pairing" &&
+              (pairingRequest === undefined ? (
+                <p>
+                  {t("botPairingInstruction")
+                    .replace("{account}", channel.accountLabel)
+                    .replace("{provider}", providerLabel)}
+                </p>
+              ) : (
+                <div
+                  role="group"
+                  aria-label={t("botPairingRequestLabel").replace(
                     "{provider}",
                     providerLabel,
                   )}
-            </button>
+                >
+                  <p>
+                    {t("botPairingRequestFrom").replace(
+                      "{label}",
+                      pairingRequest.senderLabel,
+                    )}
+                  </p>
+                  <p>
+                    <strong>
+                      {t("botPairingCode").replace(
+                        "{code}",
+                        pairingRequest.code,
+                      )}
+                    </strong>
+                  </p>
+                  <p>
+                    <time
+                      dateTime={new Date(
+                        pairingRequest.expiresAt,
+                      ).toISOString()}
+                    >
+                      {t("botPairingExpires").replace(
+                        "{time}",
+                        new Intl.DateTimeFormat(undefined, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        }).format(
+                          pairingRequest.expiresAt,
+                        ),
+                      )}
+                    </time>
+                  </p>
+                  <div className="minke-remote-hub__channel-actions">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        approvePairing(
+                          pairingRequest.requestId,
+                        )}
+                    >
+                      {busy
+                        ? t("busy")
+                        : t("approveBotPairing")}
+                    </button>
+                    <button
+                      type="button"
+                      className="minke-remote-hub__button--quiet"
+                      disabled={busy}
+                      onClick={() =>
+                        dismissPairing(
+                          pairingRequest.requestId,
+                        )}
+                    >
+                      {t("dismissBotPairing")}
+                    </button>
+                  </div>
+                </div>
+              ))}
           </div>
-          <small id={tokenHelpId}>
-            {t(
-              provider === "telegram"
-                ? "telegramTokenHelp"
-                : "discordTokenHelp",
-            )}
-          </small>
-        </form>
-      )}
-
-      {canConfigureProxy && (
-        <form
-          className="minke-remote-hub__bot-token minke-remote-hub__telegram-proxy"
-          onSubmit={configureProxy}
-        >
-          <label htmlFor={proxyId}>
-            {t("telegramProxyLabel")}
-          </label>
-          <div>
-            <input
-              id={proxyId}
-              type="url"
-              value={proxyUrl}
-              maxLength={2_048}
-              autoComplete="off"
-              autoCapitalize="none"
-              aria-describedby={proxyHelpId}
-              spellCheck={false}
-              placeholder={t("telegramProxyPlaceholder")}
-              disabled={busy}
-              onChange={(event) =>
-                setProxyUrl(event.currentTarget.value)}
-            />
-            <button
-              type="submit"
-              disabled={
-                busy || !proxyValid || !proxyChanged
-              }
-            >
-              {busy ? t("busy") : t("applyTelegramProxy")}
-            </button>
-          </div>
-          <small id={proxyHelpId}>
-            {t("telegramProxyHelp")}
-          </small>
-        </form>
-      )}
-
-      <div className="minke-remote-hub__channel-actions">
-        {canReconnect && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={reconnect}
-          >
-            {busy ? t("busy") : t("reconnectBot")}
-          </button>
         )}
-        {canUnlink && (
-          <button
-            type="button"
-            className="minke-remote-hub__button--danger"
-            disabled={busy}
-            onClick={unlink}
-          >
-            {t("unlinkBot")}
-          </button>
-        )}
-        {canReset && !confirmReset && (
-          <button
-            ref={resetTriggerRef}
-            type="button"
-            className="minke-remote-hub__button--quiet"
-            disabled={busy}
-            onClick={() => setConfirmReset(true)}
-          >
-            {t(resetGateway ? "resetGateway" : "resetLocal")}
-          </button>
-        )}
-      </div>
 
-      {confirmReset && (
-        <div
-          className="minke-remote-hub__reset-confirmation"
-          role="alert"
-        >
-          <p>
-            {resetGateway
-              ? t("resetGatewayWarning")
-              : t("resetBotLocalWarning").replace(
-                  "{provider}",
-                  providerLabel,
-                )}
+        {(channel.state === "unavailable" ||
+          channel.state === "error") && (
+          <p className="minke-remote-hub__issue" role="alert">
+            {botIssueText(channel.issue, providerLabel, t)}
           </p>
-          <div className="minke-remote-hub__channel-actions">
+        )}
+
+        {provider === "discord" &&
+          discordProxySource !== "pending" && (
+            <p className="minke-remote-hub__network-status">
+              {t(
+                discordProxySource === "direct"
+                  ? "discordProxyDirect"
+                  : discordProxySource === "system"
+                    ? "discordProxySystem"
+                    : discordProxySource === "telegram"
+                      ? "discordProxyTelegram"
+                      : "discordProxyManual",
+              )}
+            </p>
+          )}
+
+        {canConfigure && (
+          <form
+            className="minke-remote-hub__bot-token"
+            onSubmit={submitToken}
+          >
+            <label htmlFor={tokenId}>
+              {t(
+                editingToken
+                  ? "updateBotTokenLabel"
+                  : "botTokenLabel",
+              ).replace("{provider}", providerLabel)}
+            </label>
+            <div>
+              <input
+                id={tokenId}
+                type="password"
+                value={token}
+                minLength={20}
+                maxLength={4_096}
+                autoComplete="off"
+                autoCapitalize="none"
+                aria-describedby={tokenHelpId}
+                spellCheck={false}
+                placeholder={t("botTokenPlaceholder")}
+                disabled={busy}
+                onChange={(event) =>
+                  setToken(event.currentTarget.value)}
+              />
+              <button
+                type="submit"
+                disabled={busy || !tokenValid}
+              >
+                {busy
+                  ? t("busy")
+                  : editingToken
+                    ? t("updateBotTokenSubmit")
+                    : t("connectBot").replace(
+                        "{provider}",
+                        providerLabel,
+                      )}
+              </button>
+              {editingToken && (
+                <button
+                  type="button"
+                  className="minke-remote-hub__button--quiet"
+                  disabled={busy}
+                  onClick={() => {
+                    setToken("");
+                    setEditingToken(false);
+                  }}
+                >
+                  {t("cancelTokenUpdate")}
+                </button>
+              )}
+            </div>
+            <small id={tokenHelpId}>
+              {t(
+                provider === "telegram"
+                  ? "telegramTokenHelp"
+                  : "discordTokenHelp",
+              )}
+            </small>
+          </form>
+        )}
+
+        {canConfigureProxy && (
+          <form
+            className="minke-remote-hub__bot-token minke-remote-hub__telegram-proxy"
+            onSubmit={configureProxy}
+          >
+            <label htmlFor={proxyId}>
+              {t(
+                provider === "telegram"
+                  ? "telegramProxyLabel"
+                  : "discordProxyLabel",
+              )}
+            </label>
+            <div>
+              <input
+                id={proxyId}
+                type="url"
+                value={proxyUrl}
+                maxLength={2_048}
+                autoComplete="off"
+                autoCapitalize="none"
+                aria-describedby={proxyHelpId}
+                spellCheck={false}
+                placeholder={t("telegramProxyPlaceholder")}
+                disabled={busy}
+                onChange={(event) =>
+                  setProxyUrl(event.currentTarget.value)}
+              />
+              <button
+                type="submit"
+                disabled={
+                  busy || !proxyValid || !proxyChanged
+                }
+              >
+                {busy ? t("busy") : t("applyTelegramProxy")}
+              </button>
+            </div>
+            <small id={proxyHelpId}>
+              {t(
+                provider === "telegram"
+                  ? "telegramProxyHelp"
+                  : "discordProxyHelp",
+              )}
+            </small>
+          </form>
+        )}
+
+        <div className="minke-remote-hub__channel-actions">
+          {canReconnect && !editingToken && (
             <button
-              ref={resetConfirmRef}
               type="button"
               disabled={busy}
-              onClick={reset}
+              onClick={reconnect}
             >
-              {busy
-                ? t("busy")
-                : t(
-                    resetGateway
-                      ? "confirmResetGateway"
-                      : "confirmResetLocal",
-                  )}
+              {busy ? t("busy") : t("reconnectBot")}
             </button>
+          )}
+          {canDisconnect && !editingToken && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={disconnect}
+            >
+              {busy ? t("busy") : t("disconnectBot")}
+            </button>
+          )}
+          {canUpdateToken && (
             <button
               type="button"
               className="minke-remote-hub__button--quiet"
               disabled={busy}
-              onClick={() => setConfirmReset(false)}
+              onClick={() => {
+                setConfirmClearToken(false);
+                setEditingToken(true);
+              }}
             >
-              {t("keepLocalData")}
+              {t("updateBotToken")}
             </button>
+          )}
+          {canClearToken &&
+            !editingToken &&
+            !confirmClearToken && (
+              <button
+                type="button"
+                className="minke-remote-hub__button--danger-quiet"
+                disabled={busy}
+                onClick={() => {
+                  setConfirmReset(false);
+                  setConfirmClearToken(true);
+                }}
+              >
+                {t("unlinkBot")}
+              </button>
+            )}
+          {canReset && !confirmReset && (
+            <button
+              ref={resetTriggerRef}
+              type="button"
+              className="minke-remote-hub__button--quiet"
+              disabled={busy}
+              onClick={() => setConfirmReset(true)}
+            >
+              {t(resetGateway ? "resetGateway" : "resetLocal")}
+            </button>
+          )}
+        </div>
+
+        {confirmClearToken && (
+          <div
+            className="minke-remote-hub__reset-confirmation"
+            role="alert"
+          >
+            <p>
+              {t("clearBotTokenWarning").replace(
+                "{provider}",
+                providerLabel,
+              )}
+            </p>
+            <div className="minke-remote-hub__channel-actions">
+              <button
+                type="button"
+                className="minke-remote-hub__button--danger"
+                disabled={busy}
+                onClick={unlink}
+              >
+                {busy ? t("busy") : t("confirmClearBotToken")}
+              </button>
+              <button
+                type="button"
+                className="minke-remote-hub__button--quiet"
+                disabled={busy}
+                onClick={() => setConfirmClearToken(false)}
+              >
+                {t("keepLocalData")}
+              </button>
+            </div>
           </div>
-        </div>
-      )}
-        </div>
+        )}
+
+        {confirmReset && (
+          <div
+            className="minke-remote-hub__reset-confirmation"
+            role="alert"
+          >
+            <p>
+              {resetGateway
+                ? t("resetGatewayWarning")
+                : t("resetBotLocalWarning").replace(
+                    "{provider}",
+                    providerLabel,
+                  )}
+            </p>
+            <div className="minke-remote-hub__channel-actions">
+              <button
+                ref={resetConfirmRef}
+                type="button"
+                disabled={busy}
+                onClick={reset}
+              >
+                {busy
+                  ? t("busy")
+                  : t(
+                      resetGateway
+                        ? "confirmResetGateway"
+                        : "confirmResetLocal",
+                    )}
+              </button>
+              <button
+                type="button"
+                className="minke-remote-hub__button--quiet"
+                disabled={busy}
+                onClick={() => setConfirmReset(false)}
+              >
+                {t("keepLocalData")}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
 
 function RemoteHubDialog({
+  openExternal,
   runtime,
   remoteT,
   t,
@@ -1742,9 +2071,9 @@ function RemoteHubDialog({
             ) : (
               <div className="minke-remote-hub__access">
                 <RemoteSettingsSection
+                  openExternal={openExternal}
                   runtime={runtime.remote}
                   t={remoteT}
-                  variant="hub"
                 />
               </div>
             )}

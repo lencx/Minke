@@ -35,6 +35,9 @@ import {
   DEFAULT_WEB_SEARCH_SETTINGS,
   parseWebSearchSettings,
 } from "@minke/harness-overlay/web-search-settings-contract.ts";
+import {
+  DEFAULT_BROWSER_SETTINGS,
+} from "@minke/harness-overlay/browser-settings-contract.ts";
 
 async function withStore(callback) {
   const root = await mkdtemp(join(tmpdir(), "minke-config-"));
@@ -56,7 +59,10 @@ function assertDefaultRemoteSettings(settings, enabled = false) {
   assert.deepEqual(settings, {
     enabled,
     method: "tailscale",
-    tailscale: { transport: "serve" },
+    tailscale: {
+      transport: "serve",
+      ipAddress: "",
+    },
     cloudflare: {
       hostnameMode: "generated",
       domain: "",
@@ -352,9 +358,16 @@ test("desktop settings share one versioned Minke config", async () => {
     assert.deepEqual(await store.telegramNetwork.read(), {
       httpProxyUrl: "",
     });
+    assert.deepEqual(await store.discordNetwork.read(), {
+      httpProxyUrl: "",
+    });
     assert.deepEqual(await store.appUpdate.read(), {
       autoDownload: true,
     });
+    assert.deepEqual(
+      await store.browser.read(),
+      DEFAULT_BROWSER_SETTINGS,
+    );
 
     await Promise.all([
       store.shortcuts.write({
@@ -383,6 +396,13 @@ test("desktop settings share one versioned Minke config", async () => {
       }),
       store.telegramNetwork.write({
         httpProxyUrl: "http://127.0.0.1:7897",
+      }),
+      store.discordNetwork.write({
+        httpProxyUrl: "http://127.0.0.1:7898",
+      }),
+      store.browser.write({
+        webUserAgent: "Ordinary/1",
+        agentUserAgent: "Agent/2",
       }),
     ]);
 
@@ -415,8 +435,15 @@ test("desktop settings share one versioned Minke config", async () => {
       telegramNetwork: {
         httpProxyUrl: "http://127.0.0.1:7897",
       },
+      discordNetwork: {
+        httpProxyUrl: "http://127.0.0.1:7898",
+      },
       appUpdate: {
         autoDownload: true,
+      },
+      browser: {
+        webUserAgent: "Ordinary/1",
+        agentUserAgent: "Agent/2",
       },
     });
     assert.deepEqual(
@@ -461,6 +488,13 @@ test("invalid section updates leave the shared document unchanged", async () => 
       }),
       /web search settings/u,
     );
+    await assert.rejects(
+      store.browser.write({
+        webUserAgent: "Browser/1\nInjected: true",
+        agentUserAgent: "",
+      }),
+      /web user agent/u,
+    );
     assert.equal(await readFile(store.path, "utf8"), before);
   });
 });
@@ -487,6 +521,44 @@ test("legacy version 1 configs migrate remote settings into the new schema", asy
     assertDefaultRemoteSettings(
       await store.remote.read(),
       true,
+    );
+  });
+});
+
+test("stored remote settings add the optional Tailscale IP field", async () => {
+  await withStore(async ({ root, store }) => {
+    await mkdir(join(root, "desktop"), { recursive: true });
+    await writeFile(
+      store.path,
+      JSON.stringify({
+        version: MINKE_CONFIG_VERSION,
+        shortcuts: {},
+        terminal: DEFAULT_TERMINAL_SETTINGS,
+        remote: {
+          enabled: false,
+          method: "tailscale",
+          tailscale: { transport: "direct" },
+          cloudflare: {
+            hostnameMode: "generated",
+            domain: "",
+            generatedLabel: "m-0123456789abcdef",
+            customHostname: "",
+            teamName: "",
+            audience: "",
+            tunnel: "",
+            configPath: "",
+            originPort: 49_321,
+          },
+        },
+      }),
+    );
+
+    assert.deepEqual(
+      (await store.remote.read()).tailscale,
+      {
+        transport: "direct",
+        ipAddress: "",
+      },
     );
   });
 });

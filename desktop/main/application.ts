@@ -1,5 +1,6 @@
 import {
   app,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -32,6 +33,12 @@ import {
   DEFAULT_APP_UPDATE_SETTINGS,
 } from "@minke/harness-overlay/app-update-contract";
 import {
+  DEFAULT_BROWSER_SETTINGS,
+  parseBrowserSettings,
+  resolveBrowserUserAgent,
+  type BrowserSettings,
+} from "@minke/harness-overlay/browser-settings-contract";
+import {
   DEFAULT_WEB_SEARCH_SETTINGS,
 } from "@minke/harness-overlay/web-search-settings-contract";
 import { requestDesktopRestart } from "./app-restart";
@@ -49,6 +56,10 @@ import {
   bindAppUpdateSettingsIpc,
   type AppUpdateSettingsBinding,
 } from "./app-update-settings";
+import {
+  bindBrowserSettingsIpc,
+  type BrowserSettingsBinding,
+} from "./browser-settings";
 import {
   bindDataHomeSettingsIpc,
   type DataHomeSettingsBinding,
@@ -91,6 +102,8 @@ import {
 } from "./remote-settings";
 import {
   bindRemoteHubIpc,
+  createDiscordNetworkWebSocketPort,
+  DiscordNetworkRuntime,
   type RemoteHubBinding,
   RemoteHubCapabilityRuntime,
   RemoteHubCredentialVault,
@@ -130,6 +143,7 @@ class DesktopApplication {
     | AppUpdateSettingsBinding
     | undefined;
   #agentBrowser: AgentBrowserRuntime | undefined;
+  #browserSettingsBinding: BrowserSettingsBinding | undefined;
   #runtime: HarnessRuntime | undefined;
   #harnessLifecycle: HarnessLifecycle | undefined;
   #remoteAccess: RemoteAccessRuntime | undefined;
@@ -195,6 +209,7 @@ class DesktopApplication {
     const pluginSettingsStore = minkeConfig.plugins;
     const webSearchSettingsStore = minkeConfig.webSearch;
     const appUpdateSettingsStore = minkeConfig.appUpdate;
+    const browserSettingsStore = minkeConfig.browser;
     const dataHomeManager = new DataHomeManager({
       userDataPath: app.getPath("userData"),
       homeDirectory: app.getPath("home"),
@@ -296,6 +311,9 @@ class DesktopApplication {
     let appUpdateSettings = {
       ...DEFAULT_APP_UPDATE_SETTINGS,
     };
+    let browserSettings: BrowserSettings = {
+      ...DEFAULT_BROWSER_SETTINGS,
+    };
     try {
       shortcutBindings = await shortcutStore.read();
     } catch (error) {
@@ -345,6 +363,35 @@ class DesktopApplication {
         error,
       );
     }
+    try {
+      browserSettings = await browserSettingsStore.read();
+    } catch (error) {
+      console.error(
+        "Unable to read browser identity settings:",
+        error,
+      );
+    }
+
+    const sourceUserAgent = session.defaultSession.getUserAgent();
+    const applyBrowserSettings = (
+      value: BrowserSettings,
+    ): void => {
+      const settings = parseBrowserSettings(value);
+      windows.setWebUserAgent(
+        resolveBrowserUserAgent(
+          settings.webUserAgent,
+          sourceUserAgent,
+        ),
+      );
+      agentBrowser.setUserAgent(
+        resolveBrowserUserAgent(
+          settings.agentUserAgent,
+          sourceUserAgent,
+        ),
+      );
+      browserSettings = settings;
+    };
+    applyBrowserSettings(browserSettings);
 
     this.#shortcutMenuBinding = bindShortcutMenu(
       Menu,
@@ -375,6 +422,15 @@ class DesktopApplication {
     this.#webSearchSettingsBinding = bindWebSearchSettingsIpc(
       ipcMain,
       webSearchSettingsStore,
+      (candidate) =>
+        windows.authorize(
+          candidate as IpcMainInvokeEvent,
+        ),
+    );
+    this.#browserSettingsBinding = bindBrowserSettingsIpc(
+      ipcMain,
+      browserSettingsStore,
+      applyBrowserSettings,
       (candidate) =>
         windows.authorize(
           candidate as IpcMainInvokeEvent,
@@ -512,14 +568,47 @@ class DesktopApplication {
           telegramNetworkSession.closeAllConnections(),
       },
     });
+    const discordNetworkSession = session.fromPartition(
+      "minke:discord-bot-api",
+      { cache: false },
+    );
+    const discordNetwork = new DiscordNetworkRuntime({
+      fallbackProxyUrl: () =>
+        telegramNetwork.getSnapshot().httpProxyUrl,
+      store: minkeConfig.discordNetwork,
+      webSocket: createDiscordNetworkWebSocketPort(),
+      session: {
+        fetch: (input, init) =>
+          discordNetworkSession.fetch(
+            input instanceof URL ? input.href : input,
+            {
+              ...init,
+              bypassCustomProtocolHandlers: true,
+            },
+          ),
+        setProxy: (config) =>
+          discordNetworkSession.setProxy(config),
+        closeAllConnections: () =>
+          discordNetworkSession.closeAllConnections(),
+        resolveProxy: (url) =>
+          discordNetworkSession.resolveProxy(url),
+      },
+    });
     const remoteHub = new RemoteHubCapabilityRuntime({
       dataHome: activeDshHome,
       vault: new RemoteHubCredentialVault(
         app.getPath("userData"),
         safeStorage,
       ),
+      credentialClipboard: {
+        writeText: (value) => clipboard.writeText(value),
+      },
       telegramFetch: telegramNetwork.fetch,
       telegramNetwork,
+      discordFetch: discordNetwork.fetch,
+      discordNetwork,
+      discordWebSocketFactory:
+        discordNetwork.webSocketFactory,
       agentRoute: {
         runAgentTurn: async (input, options) =>
           externalizeAgentTurnPreviews(
@@ -783,6 +872,8 @@ class DesktopApplication {
     this.#terminalSettingsBinding = undefined;
     this.#webSearchSettingsBinding?.dispose();
     this.#webSearchSettingsBinding = undefined;
+    this.#browserSettingsBinding?.dispose();
+    this.#browserSettingsBinding = undefined;
     this.#modelRuntimeSettingsBinding?.dispose();
     this.#modelRuntimeSettingsBinding = undefined;
     this.#remoteSettingsBinding?.dispose();

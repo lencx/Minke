@@ -1,6 +1,7 @@
 export type {
   AppUpdatePort,
   AppUpdateSettingsStore,
+  BrowserSettingsStore,
   DataHomeSettingsPort,
   DesktopAgentBrowserPort,
   DesktopAboutInfo,
@@ -23,6 +24,7 @@ export type {
 export {
   desktopAppUpdatePort,
   desktopAppUpdateSettingsStore,
+  desktopBrowserSettingsStore,
   desktopDataHomeSettingsPort,
   desktopModelRuntimeSettingsStore,
   desktopRemoteHubPort,

@@ -32,19 +32,27 @@ import {
   type AppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
 import {
+  DEFAULT_BROWSER_SETTINGS,
+  parseBrowserSettings,
+  type BrowserSettings,
+} from "@minke/harness-overlay/browser-settings-contract.ts";
+import {
   DEFAULT_WEB_SEARCH_SETTINGS,
   parseWebSearchSettings,
   type WebSearchSettings,
 } from "@minke/harness-overlay/web-search-settings-contract.ts";
 import {
+  DEFAULT_DISCORD_NETWORK_SETTINGS,
   DEFAULT_TELEGRAM_NETWORK_SETTINGS,
+  parseDiscordNetworkSettings,
   parseTelegramNetworkSettings,
+  type DiscordNetworkSettings,
   type TelegramNetworkSettings,
 } from "@minke/harness-overlay/remote-hub-contract.ts";
 
 /** Current schema version of the unified Minke desktop configuration. */
-export const MINKE_CONFIG_VERSION = 3;
-const LEGACY_MINKE_CONFIG_VERSIONS = new Set([1, 2]);
+export const MINKE_CONFIG_VERSION = 5;
+const LEGACY_MINKE_CONFIG_VERSIONS = new Set([1, 2, 3, 4]);
 
 /** Complete Minke-owned desktop configuration stored on disk. */
 export interface MinkeConfigDocument {
@@ -56,7 +64,9 @@ export interface MinkeConfigDocument {
   plugins: PluginManagementSettings;
   webSearch: WebSearchSettings;
   telegramNetwork: TelegramNetworkSettings;
+  discordNetwork: DiscordNetworkSettings;
   appUpdate: AppUpdateSettings;
+  browser: BrowserSettings;
   dshHome?: string;
 }
 
@@ -69,7 +79,9 @@ const CONFIG_KEYS = new Set([
   "plugins",
   "webSearch",
   "telegramNetwork",
+  "discordNetwork",
   "appUpdate",
+  "browser",
   "dshHome",
 ]);
 
@@ -100,8 +112,14 @@ export function createDefaultMinkeConfigDocument():
     telegramNetwork: {
       ...DEFAULT_TELEGRAM_NETWORK_SETTINGS,
     },
+    discordNetwork: {
+      ...DEFAULT_DISCORD_NETWORK_SETTINGS,
+    },
     appUpdate: {
       ...DEFAULT_APP_UPDATE_SETTINGS,
+    },
+    browser: {
+      ...DEFAULT_BROWSER_SETTINGS,
     },
   };
 }
@@ -186,10 +204,20 @@ export function parseMinkeConfigDocument(
         : parseTelegramNetworkSettings(
             record.telegramNetwork,
           ),
+    discordNetwork:
+      record.discordNetwork === undefined
+        ? { ...DEFAULT_DISCORD_NETWORK_SETTINGS }
+        : parseDiscordNetworkSettings(
+            record.discordNetwork,
+          ),
     appUpdate:
       record.appUpdate === undefined
         ? { ...DEFAULT_APP_UPDATE_SETTINGS }
         : parseAppUpdateSettings(record.appUpdate),
+    browser:
+      record.browser === undefined
+        ? { ...DEFAULT_BROWSER_SETTINGS }
+        : parseBrowserSettings(record.browser),
     ...(record.dshHome === undefined
       ? {}
       : { dshHome: parseDataHomePath(record.dshHome) }),

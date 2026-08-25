@@ -1,8 +1,8 @@
 import {
   DatabaseBackup,
+  Globe,
   Keyboard,
   Palette,
-  RadioTower,
   type LucideIconData,
 } from "@lucide/icons";
 import {
@@ -32,9 +32,9 @@ const PAGE_ICONS: Readonly<
   Record<MinkeSettingsPageIcon, LucideIconData>
 > = {
   preferences: Palette,
+  browser: Globe,
   shortcuts: Keyboard,
   "data-home": DatabaseBackup,
-  remote: RadioTower,
 };
 
 type TabNavigationKey =

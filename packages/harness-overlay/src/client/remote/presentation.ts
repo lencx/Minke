@@ -115,6 +115,8 @@ function errorHelpKey(
       return "serveHttpsErrorHelp";
     case "serve-permission":
       return "servePermissionErrorHelp";
+    case "direct-ip":
+      return "directIpErrorHelp";
     case "direct-bind":
       return "directBindErrorHelp";
     case "harness-control":

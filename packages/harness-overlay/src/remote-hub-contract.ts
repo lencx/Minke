@@ -13,11 +13,46 @@ export const DEFAULT_TELEGRAM_NETWORK_SETTINGS:
     httpProxyUrl: "",
   });
 
+export interface DiscordNetworkSettings {
+  /** Empty means automatic system/Telegram proxy discovery. */
+  readonly httpProxyUrl: string;
+}
+
+export type DiscordProxySource =
+  | "pending"
+  | "direct"
+  | "system"
+  | "telegram"
+  | "manual";
+
+export interface DiscordNetworkSnapshot
+  extends DiscordNetworkSettings {
+  readonly proxySource: DiscordProxySource;
+}
+
+export const DEFAULT_DISCORD_NETWORK_SETTINGS:
+  DiscordNetworkSettings = Object.freeze({
+    httpProxyUrl: "",
+  });
+
+export const DEFAULT_DISCORD_NETWORK_SNAPSHOT:
+  DiscordNetworkSnapshot = Object.freeze({
+    ...DEFAULT_DISCORD_NETWORK_SETTINGS,
+    proxySource: "pending",
+  });
+
 export interface BotDmPairingRequest {
   readonly code: string;
   readonly expiresAt: number;
   readonly requestId: string;
   readonly senderLabel: string;
+}
+
+export interface ImConnectionActivity {
+  readonly connectedAt: number;
+  readonly lastActivityAt?: number;
+  readonly receivedMessages: number;
+  readonly sentMessages: number;
 }
 
 export type RemoteHubDependencyState =
@@ -72,10 +107,12 @@ export type WeixinHubSnapshot =
   | {
       readonly state: "connected";
       readonly accountLabel: string;
+      readonly activity?: ImConnectionActivity;
     }
   | {
       readonly state: "degraded";
       readonly accountLabel: string;
+      readonly activity?: ImConnectionActivity;
       readonly issue:
         | "agent"
         | "agent-route-pending"
@@ -127,17 +164,24 @@ export type BotHubSnapshot =
       readonly accountLabel: string;
     }
   | {
+      readonly state: "disconnected";
+      readonly accountLabel: string;
+    }
+  | {
       readonly state: "pairing";
       readonly accountLabel: string;
+      readonly activity?: ImConnectionActivity;
       readonly request?: BotDmPairingRequest;
     }
   | {
       readonly state: "connected";
       readonly accountLabel: string;
+      readonly activity?: ImConnectionActivity;
     }
   | {
       readonly state: "degraded";
       readonly accountLabel: string;
+      readonly activity?: ImConnectionActivity;
       readonly issue:
         | "agent"
         | "agent-route-pending"
@@ -160,6 +204,7 @@ export type BotHubSnapshot =
 export interface RemoteHubSnapshot {
   readonly revision: number;
   readonly telegramNetwork: TelegramNetworkSettings;
+  readonly discordNetwork: DiscordNetworkSnapshot;
   readonly dependencies: {
     readonly credentialVault: RemoteHubDependencyState;
     readonly agentRoute: RemoteHubDependencyState;
@@ -183,6 +228,10 @@ export type RemoteHubCommand =
       readonly settings: TelegramNetworkSettings;
     }
   | {
+      readonly kind: "discord/network/set";
+      readonly settings: DiscordNetworkSettings;
+    }
+  | {
       readonly kind:
         | "bot/pairing/approve"
         | "bot/pairing/dismiss";
@@ -190,6 +239,8 @@ export type RemoteHubCommand =
       readonly requestId: string;
     }
   | { readonly kind: "telegram/reconnect" }
+  | { readonly kind: "telegram/token/copy" }
+  | { readonly kind: "telegram/disconnect" }
   | { readonly kind: "telegram/reset-local" }
   | { readonly kind: "telegram/unlink" }
   | {
@@ -197,6 +248,8 @@ export type RemoteHubCommand =
       readonly token: string;
     }
   | { readonly kind: "discord/reconnect" }
+  | { readonly kind: "discord/token/copy" }
+  | { readonly kind: "discord/disconnect" }
   | { readonly kind: "discord/reset-local" }
   | { readonly kind: "discord/unlink" }
   | { readonly kind: "weixin/link/start" }
@@ -276,39 +329,94 @@ function revision(value: unknown): number {
   return Number(value);
 }
 
-function timestamp(value: unknown): number {
+function timestamp(
+  value: unknown,
+  label = "Weixin QR expiry",
+): number {
   if (!Number.isSafeInteger(value) || Number(value) <= 0) {
-    throw new TypeError("Weixin QR expiry is invalid");
+    throw new TypeError(`${label} is invalid`);
   }
   return Number(value);
 }
 
-export function parseTelegramNetworkSettings(
+function activityCount(
   value: unknown,
-): TelegramNetworkSettings {
+  label: string,
+): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new TypeError(`${label} is invalid`);
+  }
+  return Number(value);
+}
+
+function parseImConnectionActivity(
+  value: unknown,
+  label: string,
+): ImConnectionActivity {
+  const candidate = record(value, label);
+  exactKeys(
+    candidate,
+    candidate.lastActivityAt === undefined
+      ? ["connectedAt", "receivedMessages", "sentMessages"]
+      : [
+          "connectedAt",
+          "lastActivityAt",
+          "receivedMessages",
+          "sentMessages",
+        ],
+    label,
+  );
+  return {
+    connectedAt: timestamp(
+      candidate.connectedAt,
+      `${label} connection time`,
+    ),
+    ...(candidate.lastActivityAt === undefined
+      ? {}
+      : {
+          lastActivityAt: timestamp(
+            candidate.lastActivityAt,
+            `${label} last activity time`,
+          ),
+        }),
+    receivedMessages: activityCount(
+      candidate.receivedMessages,
+      `${label} received message count`,
+    ),
+    sentMessages: activityCount(
+      candidate.sentMessages,
+      `${label} sent message count`,
+    ),
+  };
+}
+
+function parseHttpProxySettings(
+  value: unknown,
+  provider: "Telegram" | "Discord",
+): { readonly httpProxyUrl: string } {
   const candidate = record(
     value,
-    "Telegram network settings",
+    `${provider} network settings`,
   );
   exactKeys(
     candidate,
     ["httpProxyUrl"],
-    "Telegram network settings",
+    `${provider} network settings`,
   );
   if (candidate.httpProxyUrl === "") {
-    return { ...DEFAULT_TELEGRAM_NETWORK_SETTINGS };
+    return { httpProxyUrl: "" };
   }
   if (
     typeof candidate.httpProxyUrl !== "string" ||
     candidate.httpProxyUrl.length > 2_048
   ) {
-    throw new TypeError("Telegram HTTP proxy URL is invalid");
+    throw new TypeError(`${provider} HTTP proxy URL is invalid`);
   }
   let url: URL;
   try {
     url = new URL(candidate.httpProxyUrl);
   } catch {
-    throw new TypeError("Telegram HTTP proxy URL is invalid");
+    throw new TypeError(`${provider} HTTP proxy URL is invalid`);
   }
   const port = Number(url.port);
   if (
@@ -325,11 +433,58 @@ export function parseTelegramNetworkSettings(
     url.hash !== ""
   ) {
     throw new TypeError(
-      "Telegram HTTP proxy must be an unauthenticated http://host:port endpoint",
+      `${provider} HTTP proxy must be an unauthenticated http://host:port endpoint`,
     );
   }
   return {
     httpProxyUrl: `http://${url.host}`,
+  };
+}
+
+export function parseTelegramNetworkSettings(
+  value: unknown,
+): TelegramNetworkSettings {
+  return parseHttpProxySettings(value, "Telegram");
+}
+
+export function parseDiscordNetworkSettings(
+  value: unknown,
+): DiscordNetworkSettings {
+  return parseHttpProxySettings(value, "Discord");
+}
+
+export function parseDiscordNetworkSnapshot(
+  value: unknown,
+): DiscordNetworkSnapshot {
+  const candidate = record(
+    value,
+    "Discord network snapshot",
+  );
+  exactKeys(
+    candidate,
+    ["httpProxyUrl", "proxySource"],
+    "Discord network snapshot",
+  );
+  const settings = parseDiscordNetworkSettings({
+    httpProxyUrl: candidate.httpProxyUrl,
+  });
+  const sources: readonly DiscordProxySource[] = [
+    "pending",
+    "direct",
+    "system",
+    "telegram",
+    "manual",
+  ];
+  if (
+    !sources.includes(
+      candidate.proxySource as DiscordProxySource,
+    )
+  ) {
+    throw new TypeError("Discord proxy source is invalid");
+  }
+  return {
+    ...settings,
+    proxySource: candidate.proxySource as DiscordProxySource,
   };
 }
 
@@ -387,24 +542,50 @@ function parseWeixinHubSnapshot(
       };
     }
     case "connecting":
-    case "connected":
       exactKeys(
         candidate,
         ["state", "accountLabel"],
-        `Weixin ${candidate.state} snapshot`,
+        "Weixin connecting snapshot",
       );
       return {
-        state: candidate.state,
+        state: "connecting",
         accountLabel: boundedText(
           candidate.accountLabel,
           "Weixin account label",
           64,
         ),
       };
+    case "connected": {
+      exactKeys(
+        candidate,
+        candidate.activity === undefined
+          ? ["state", "accountLabel"]
+          : ["state", "accountLabel", "activity"],
+        "Weixin connected snapshot",
+      );
+      return {
+        state: "connected",
+        accountLabel: boundedText(
+          candidate.accountLabel,
+          "Weixin account label",
+          64,
+        ),
+        ...(candidate.activity === undefined
+          ? {}
+          : {
+              activity: parseImConnectionActivity(
+                candidate.activity,
+                "Weixin connection activity",
+              ),
+            }),
+      };
+    }
     case "degraded":
       exactKeys(
         candidate,
-        ["state", "accountLabel", "issue"],
+        candidate.activity === undefined
+          ? ["state", "accountLabel", "issue"]
+          : ["state", "accountLabel", "issue", "activity"],
         "Weixin degraded snapshot",
       );
       if (
@@ -423,6 +604,14 @@ function parseWeixinHubSnapshot(
           "Weixin account label",
           64,
         ),
+        ...(candidate.activity === undefined
+          ? {}
+          : {
+              activity: parseImConnectionActivity(
+                candidate.activity,
+                "Weixin connection activity",
+              ),
+            }),
         issue: candidate.issue,
       };
     case "error":
@@ -512,12 +701,31 @@ function parseBotHubSnapshot(
           128,
         ),
       };
-    case "pairing": {
+    case "disconnected":
       exactKeys(
         candidate,
-        candidate.request === undefined
-          ? ["state", "accountLabel"]
-          : ["state", "accountLabel", "request"],
+        ["state", "accountLabel"],
+        `${provider} disconnected snapshot`,
+      );
+      return {
+        state: "disconnected",
+        accountLabel: boundedText(
+          candidate.accountLabel,
+          `${provider} account label`,
+          128,
+        ),
+      };
+    case "pairing": {
+      const pairingKeys = ["state", "accountLabel"];
+      if (candidate.request !== undefined) {
+        pairingKeys.push("request");
+      }
+      if (candidate.activity !== undefined) {
+        pairingKeys.push("activity");
+      }
+      exactKeys(
+        candidate,
+        pairingKeys,
         `${provider} pairing snapshot`,
       );
       let request: BotDmPairingRequest | undefined;
@@ -561,13 +769,23 @@ function parseBotHubSnapshot(
           `${provider} account label`,
           128,
         ),
+        ...(candidate.activity === undefined
+          ? {}
+          : {
+              activity: parseImConnectionActivity(
+                candidate.activity,
+                `${provider} connection activity`,
+              ),
+            }),
         ...(request === undefined ? {} : { request }),
       };
     }
     case "connected":
       exactKeys(
         candidate,
-        ["state", "accountLabel"],
+        candidate.activity === undefined
+          ? ["state", "accountLabel"]
+          : ["state", "accountLabel", "activity"],
         `${provider} connected snapshot`,
       );
       return {
@@ -577,11 +795,21 @@ function parseBotHubSnapshot(
           `${provider} account label`,
           128,
         ),
+        ...(candidate.activity === undefined
+          ? {}
+          : {
+              activity: parseImConnectionActivity(
+                candidate.activity,
+                `${provider} connection activity`,
+              ),
+            }),
       };
     case "degraded":
       exactKeys(
         candidate,
-        ["state", "accountLabel", "issue"],
+        candidate.activity === undefined
+          ? ["state", "accountLabel", "issue"]
+          : ["state", "accountLabel", "issue", "activity"],
         `${provider} degraded snapshot`,
       );
       if (
@@ -601,6 +829,14 @@ function parseBotHubSnapshot(
           `${provider} account label`,
           128,
         ),
+        ...(candidate.activity === undefined
+          ? {}
+          : {
+              activity: parseImConnectionActivity(
+                candidate.activity,
+                `${provider} connection activity`,
+              ),
+            }),
         issue: candidate.issue,
       };
     case "error": {
@@ -649,6 +885,7 @@ export function parseRemoteHubSnapshot(
     [
       "revision",
       "telegramNetwork",
+      "discordNetwork",
       "dependencies",
       "channels",
     ],
@@ -687,6 +924,9 @@ export function parseRemoteHubSnapshot(
     revision: revision(candidate.revision),
     telegramNetwork: parseTelegramNetworkSettings(
       candidate.telegramNetwork,
+    ),
+    discordNetwork: parseDiscordNetworkSnapshot(
+      candidate.discordNetwork,
     ),
     dependencies: {
       credentialVault: dependencies.credentialVault,
@@ -727,9 +967,13 @@ export function parseRemoteHubCommand(
     case "refresh":
     case "gateway/reset-local":
     case "telegram/reconnect":
+    case "telegram/token/copy":
+    case "telegram/disconnect":
     case "telegram/reset-local":
     case "telegram/unlink":
     case "discord/reconnect":
+    case "discord/token/copy":
+    case "discord/disconnect":
     case "discord/reset-local":
     case "discord/unlink":
     case "weixin/link/start":
@@ -747,6 +991,18 @@ export function parseRemoteHubCommand(
       return {
         kind: candidate.kind,
         settings: parseTelegramNetworkSettings(
+          candidate.settings,
+        ),
+      };
+    case "discord/network/set":
+      exactKeys(
+        candidate,
+        ["kind", "settings"],
+        "Remote Hub Discord network command",
+      );
+      return {
+        kind: candidate.kind,
+        settings: parseDiscordNetworkSettings(
           candidate.settings,
         ),
       };

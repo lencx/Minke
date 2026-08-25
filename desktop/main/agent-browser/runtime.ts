@@ -333,6 +333,7 @@ export class AgentBrowserRuntime {
     new Set<AgentBrowserProcessChannel>();
   #windowBinding: WindowProjectionBinding | undefined;
   #windowBindingDisposer: (() => void) | undefined;
+  #userAgent: string | undefined;
   #disposed = false;
 
   constructor(options: AgentBrowserRuntimeOptions) {
@@ -353,6 +354,19 @@ export class AgentBrowserRuntime {
     return [...this.#states.values()].map((state) =>
       this.#projection(state)
     );
+  }
+
+  /** Apply one main-owned identity to current and future Agent sessions. */
+  setUserAgent(userAgent: string): void {
+    const normalized = userAgent.trim();
+    if (normalized === "") {
+      throw new TypeError("Agent Browser user agent must not be empty");
+    }
+    if (normalized === this.#userAgent) return;
+    this.#userAgent = normalized;
+    for (const state of this.#states.values()) {
+      state.session.setUserAgent(normalized);
+    }
   }
 
   bindChild(
@@ -561,6 +575,7 @@ export class AgentBrowserRuntime {
     params.src = INITIAL_GUEST_URL;
     delete params.allowpopups;
     delete params.preload;
+    delete params.useragent;
     delete params.webpreferences;
 
     delete webPreferences.preload;
@@ -1246,6 +1261,9 @@ export class AgentBrowserRuntime {
       partition,
       { cache: false },
     );
+    if (this.#userAgent !== undefined) {
+      browserSession.setUserAgent(this.#userAgent);
+    }
     this.#agentSessions.add(browserSession);
     if (
       browserSession.isPersistent() ||

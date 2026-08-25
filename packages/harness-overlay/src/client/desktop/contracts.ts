@@ -49,6 +49,9 @@ import type {
   AppUpdateSettings,
 } from "@minke/harness-overlay/app-update-contract.ts";
 import type {
+  BrowserSettings,
+} from "@minke/harness-overlay/browser-settings-contract.ts";
+import type {
   WebSearchSettings,
 } from "@minke/harness-overlay/web-search-settings-contract.ts";
 import type {
@@ -106,6 +109,12 @@ export interface WebSearchSettingsStore {
   readonly available: boolean;
   read(): Promise<WebSearchSettings>;
   write(settings: WebSearchSettings): Promise<void>;
+}
+
+export interface BrowserSettingsStore {
+  readonly available: boolean;
+  read(): Promise<BrowserSettings>;
+  write(settings: BrowserSettings): Promise<void>;
 }
 
 export interface AppUpdatePort extends AppUpdateSettingsStore {
@@ -352,6 +361,11 @@ export interface DesktopWebSearchBridge {
   write(settings: WebSearchSettings): Promise<void>;
 }
 
+export interface DesktopBrowserBridge {
+  read(): Promise<unknown>;
+  write(settings: BrowserSettings): Promise<void>;
+}
+
 export interface DesktopModelRuntimeBridge {
   read(): Promise<unknown>;
   write(settings: ModelRuntimeSettings): Promise<void>;
@@ -412,6 +426,7 @@ export interface DesktopBridgeWindow {
     agentBrowser?: DesktopAgentBrowserBridge;
     appUpdate?: DesktopAppUpdateBridge;
     about?: DesktopAboutBridge;
+    browser?: DesktopBrowserBridge;
     dataHome?: DesktopDataHomeBridge;
     files?: DesktopFilesBridge;
     locale?: DesktopWindowLocaleBridge;
