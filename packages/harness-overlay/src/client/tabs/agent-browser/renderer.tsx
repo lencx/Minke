@@ -5,6 +5,12 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  Send,
+} from "@lucide/icons";
+import {
+  LucideIcon,
+} from "@minke/harness-overlay/client/tabs/components/LucideIcon.ts";
+import {
   ToolbarButton,
 } from "@minke/harness-overlay/client/tabs/components/ToolbarButton.tsx";
 import type {
@@ -50,11 +56,24 @@ function statusLabel(
     : t("agentBrowser.state.human");
 }
 
-function identity(
-  tab: ManagedTab,
-  t: AgentBrowserTabsTranslate,
-): ReactNode {
-  if (!isAgentBrowserTab(tab)) return null;
+function AgentBrowserIdentity({
+  tab,
+  controller,
+  t,
+}: {
+  readonly tab: AgentBrowserTab;
+  readonly controller: AgentBrowserTabsController;
+  readonly t: AgentBrowserTabsTranslate;
+}): ReactNode {
+  const snapshot = useSyncExternalStore(
+    (listener) => controller.subscribeAnnotation(tab.id, listener),
+    () => controller.getAnnotationSnapshot(tab.id),
+    () => controller.getAnnotationSnapshot(tab.id),
+  );
+  const annotating =
+    snapshot.phase === "active" ||
+    snapshot.phase === "sending";
+
   return (
     <div className="minke-agent-browser__identity">
       <span
@@ -63,10 +82,45 @@ function identity(
       >
         {tab.payload.url ?? t("agentBrowser.tab.defaultTitle")}
       </span>
-      <span className="minke-agent-browser__owner">
-        <span className="minke-agent-browser__owner-label">
-          {statusLabel(tab, t)}
-        </span>
+      <span
+        className="minke-agent-browser__owner"
+        data-annotation-active={annotating || undefined}
+      >
+        {annotating
+          ? (
+              <>
+                <span className="minke-agent-browser__owner-label">
+                  {t("agentBrowser.annotation.status.active")}
+                </span>
+                <span
+                  className={
+                    "minke-agent-browser__annotation-status-separator"
+                  }
+                  aria-hidden="true"
+                >
+                  ·
+                </span>
+                <span
+                  className={
+                    "minke-agent-browser__annotation-status-summary"
+                  }
+                  role="status"
+                >
+                  {snapshot.count === 0
+                    ? t("agentBrowser.annotation.status.pick")
+                    : t("agentBrowser.annotation.status.count")
+                        .replace(
+                          "{count}",
+                          String(snapshot.count),
+                        )}
+                </span>
+              </>
+            )
+          : (
+              <span className="minke-agent-browser__owner-label">
+                {statusLabel(tab, t)}
+              </span>
+            )}
         {tab.payload.controlError !== undefined && (
           <span
             className="minke-agent-browser__control-error"
@@ -122,17 +176,26 @@ function AnnotationActions({
     snapshot.phase === "sending";
   return (
     <>
-      {active && (
+      {active && snapshot.count > 0 && (
         <button
           type="button"
           className="minke-agent-browser__annotation-send-action"
-          aria-label={t("agentBrowser.annotation.action.sendCount")
-            .replace("{count}", String(snapshot.count))}
-          title={t("agentBrowser.annotation.action.sendCount")
-            .replace("{count}", String(snapshot.count))}
+          aria-label={
+            busy
+              ? t("agentBrowser.annotation.action.sending")
+              : t("agentBrowser.annotation.action.sendCount")
+                  .replace("{count}", String(snapshot.count))
+          }
+          aria-busy={busy || undefined}
+          data-sending={busy || undefined}
+          title={
+            busy
+              ? t("agentBrowser.annotation.action.sending")
+              : t("agentBrowser.annotation.action.sendCount")
+                  .replace("{count}", String(snapshot.count))
+          }
           disabled={
             busy ||
-            snapshot.count === 0 ||
             snapshot.draft !== undefined ||
             (snapshot.staleTargetIds?.length ?? 0) > 0
           }
@@ -140,8 +203,10 @@ function AnnotationActions({
             void controller.sendAnnotations(tab.id);
           }}
         >
-          <span>
-            {t("agentBrowser.annotation.action.send")}{" "}
+          <LucideIcon icon={Send} size={12} />
+          <span
+            className="minke-agent-browser__annotation-send-count"
+          >
             {snapshot.count}
           </span>
         </button>
@@ -153,6 +218,7 @@ function AnnotationActions({
             : t("agentBrowser.annotation.action.start")
         }
         pressed={active}
+        activeTone="success"
         disabled={
           snapshot.phase === "starting" ||
           tab.payload.controlPending ||
@@ -180,7 +246,16 @@ export function createAgentBrowserTabRenderer(
   return {
     kind: AGENT_BROWSER_TAB_KIND,
     renderIcon: controlSignal,
-    renderToolbarCenter: (tab) => identity(tab, t),
+    renderToolbarCenter: (tab) =>
+      isAgentBrowserTab(tab)
+        ? (
+            <AgentBrowserIdentity
+              tab={tab}
+              controller={controller}
+              t={t}
+            />
+          )
+        : null,
     renderTrailingActions: (tab) => {
       if (!isAgentBrowserTab(tab)) return null;
       const human = tab.payload.owner === "human";

@@ -4,6 +4,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  MessageCirclePlus,
   MousePointerClick,
 } from "@lucide/icons";
 import {
@@ -146,9 +147,11 @@ const translations = {
   "agentBrowser.annotation.action.start": "Annotate page",
   "agentBrowser.annotation.action.cancel": "Stop annotating",
   "agentBrowser.annotation.action.send": "Send",
+  "agentBrowser.annotation.action.sending": "Sending…",
   "agentBrowser.annotation.action.sendCount": "Send {count} annotations",
   "agentBrowser.annotation.action.dismiss": "Dismiss",
   "agentBrowser.annotation.action.add": "Add",
+  "agentBrowser.annotation.action.save": "Save",
   "agentBrowser.annotation.action.delete": "Delete",
   "agentBrowser.annotation.action.editNumber": "Edit annotation {number}",
   "agentBrowser.annotation.comment.label": "Page element comment",
@@ -483,6 +486,17 @@ test("numbered DOM comments keep their Chat target and send one bundle", async (
     target.controller.getAnnotationSnapshot(tab.id).phase,
     "active",
   );
+  const renderer = createAgentBrowserTabRenderer(
+    target.controller,
+    translate,
+  );
+  const emptyAnnotationActions = renderToStaticMarkup(
+    renderer.renderTrailingActions(target.tabs.tab(tab.id)),
+  );
+  assert.doesNotMatch(
+    emptyAnnotationActions,
+    /minke-agent-browser__annotation-send-action/u,
+  );
 
   currentChat = "chat-2";
   target.publishAnnotation({
@@ -506,18 +520,39 @@ test("numbered DOM comments keep their Chat target and send one bundle", async (
     target.controller.getAnnotationSnapshot(tab.id).count,
     1,
   );
-  const renderer = createAgentBrowserTabRenderer(
-    target.controller,
-    translate,
-  );
   const enabledSendMarkup = renderToStaticMarkup(
     renderer.renderTrailingActions(target.tabs.tab(tab.id)),
   ).match(
     /<button[^>]*minke-agent-browser__annotation-send-action[\s\S]*?<\/button>/u,
   )?.[0];
   assert.ok(enabledSendMarkup);
-  assert.match(enabledSendMarkup, />Send 1</u);
-  assert.doesNotMatch(enabledSendMarkup, /disabled=""|<svg|<b>/u);
+  assert.match(enabledSendMarkup, /<svg/u);
+  assert.match(
+    enabledSendMarkup,
+    /minke-agent-browser__annotation-send-count">1</u,
+  );
+  assert.match(enabledSendMarkup, /title="Send 1 annotations"/u);
+  assert.doesNotMatch(
+    enabledSendMarkup,
+    /disabled=""|>Send(?: 1)?<|<b>/u,
+  );
+  const annotationStatusMarkup = renderToStaticMarkup(
+    renderer.renderToolbarCenter(target.tabs.tab(tab.id)),
+  );
+  assert.match(
+    annotationStatusMarkup,
+    /data-annotation-active="true"/u,
+  );
+  assert.match(annotationStatusMarkup, />Annotating</u);
+  assert.match(annotationStatusMarkup, /role="status"/u);
+  assert.match(annotationStatusMarkup, />1 added</u);
+  const annotatedViewMarkup = renderToStaticMarkup(
+    renderer.renderView(target.tabs.tab(tab.id), true),
+  );
+  assert.doesNotMatch(
+    annotatedViewMarkup,
+    /minke-agent-browser__annotation-mode/u,
+  );
 
   await target.controller.sendAnnotations(tab.id);
 
@@ -629,7 +664,7 @@ test("selecting the same DOM node edits its existing numbered comment", async ()
     editorMarkup,
     /class="minke-agent-browser__annotation-editor"/u,
   );
-  assert.match(editorMarkup, /<textarea[^>]*rows="1"/u);
+  assert.match(editorMarkup, /<textarea[^>]*rows="2"/u);
   assert.doesNotMatch(editorMarkup, /<header>|<footer>/u);
 
   target.controller.commitAnnotation(tab.id, "updated question");
@@ -817,9 +852,15 @@ test("missing refreshed DOM targets stay editable but cannot be sent", async () 
     /<button[^>]*minke-agent-browser__annotation-send-action[\s\S]*?<\/button>/u,
   )?.[0];
   assert.ok(sendActionMarkup);
-  assert.match(sendActionMarkup, />Send 1</u);
+  assert.match(sendActionMarkup, /<svg/u);
+  assert.match(
+    sendActionMarkup,
+    /minke-agent-browser__annotation-send-count">1</u,
+  );
+  assert.match(sendActionMarkup, /title="Send 1 annotations"/u);
+  assert.doesNotMatch(sendActionMarkup, />Send(?: 1)?</u);
   assert.match(sendActionMarkup, /disabled=""/u);
-  assert.doesNotMatch(sendActionMarkup, /<svg|<b>/u);
+  assert.doesNotMatch(sendActionMarkup, /<b>/u);
   const viewMarkup = renderToStaticMarkup(
     renderer.renderView(target.tabs.tab(tab.id), true),
   );
@@ -921,10 +962,6 @@ test("Agent Browser webviews start blank in their assigned partition", () => {
   configureAgentBrowserWebview(view, {
     partition: "minke-agent-session-1",
     label: "Agent session",
-    userAgent:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-      + "AppleWebKit/537.36 (KHTML, like Gecko) "
-      + "Chrome/150.0.0.0 Electron/43.4.0 Safari/537.36",
   });
 
   assert.equal(view.className, "minke-agent-browser__guest");
@@ -934,12 +971,7 @@ test("Agent Browser webviews start blank in their assigned partition", () => {
     "minke-agent-session-1",
   );
   assert.equal(attributes.get("aria-label"), "Agent session");
-  assert.equal(
-    attributes.get("useragent"),
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-      + "AppleWebKit/537.36 (KHTML, like Gecko) "
-      + "Chrome/150.0.0.0 Safari/537.36",
-  );
+  assert.equal(attributes.has("useragent"), false);
   assert.match(attributes.get("webpreferences"), /sandbox=yes/u);
   assert.match(
     attributes.get("webpreferences"),
@@ -985,7 +1017,7 @@ test("Agent Browser renderer shields agent input and exposes takeover", () => {
   const controlIconMarkup = renderToStaticMarkup(
     createElement(LucideIcon, {
       icon: MousePointerClick,
-      size: 13,
+      size: 14,
     }),
   );
   assert.match(actionMarkup, /aria-label="Take control"/u);
@@ -993,6 +1025,17 @@ test("Agent Browser renderer shields agent input and exposes takeover", () => {
     actionMarkup.includes(controlIconMarkup),
     "the control action must use MousePointerClick, not the page globe",
   );
+  const annotationIconMarkup = renderToStaticMarkup(
+    createElement(LucideIcon, {
+      icon: MessageCirclePlus,
+      size: 14,
+    }),
+  );
+  assert.ok(
+    actionMarkup.includes(annotationIconMarkup),
+    "the annotation action must use MessageCirclePlus",
+  );
+  assert.match(actionMarkup, /data-active-tone="success"/u);
   const agentMarkup = renderToStaticMarkup(
     renderer.renderView(agentTab, true),
   );
@@ -1166,6 +1209,13 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
     ),
     "utf8",
   );
+  const annotationOverlaySource = await readFile(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/agent-browser/DomAnnotationOverlay.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
   const contract = inspectCssContract(source);
 
   assert.match(
@@ -1308,11 +1358,59 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
   );
   assert.match(
     source,
-    /\.minke-agent-browser__annotation-send-action\s*\{[^}]*background:\s*var\(--dsw-alias-brand-primary\)[^}]*color:\s*var\(--dsw-alias-label-on-color\)/u,
+    /--minke-agent-browser-annotation-accent:\s*#096fdb/u,
   );
   assert.match(
     source,
-    /\.minke-agent-browser__annotation-send-action:disabled\s*\{[^}]*background:\s*var\(--dsw-alias-bg-hover\)[^}]*color:\s*var\(--dsw-alias-label-tertiary\)/u,
+    /\.minke-agent-browser__annotation-send-action\s*\{[^}]*min-width:\s*40px[^}]*height:\s*28px[^}]*gap:\s*4px[^}]*padding:\s*0 8px[^}]*border-radius:\s*999px[^}]*background:\s*var\(--minke-agent-browser-annotation-accent\)[^}]*color:\s*#fff/u,
+  );
+  assert.match(
+    source,
+    /\.minke-agent-browser__annotation-send-count\s*\{[^}]*font:\s*700 10px\/1[^}]*font-variant-numeric:\s*tabular-nums/u,
+  );
+  assert.match(
+    source,
+    /\.minke-tabs-panel\[data-placement="right"\]\[data-presentation="drawer"\][\s\S]*\.minke-agent-browser__annotation-send-action\s*\{[^}]*min-width:\s*52px[^}]*height:\s*44px/u,
+  );
+  assert.match(
+    source,
+    /\.minke-agent-browser__annotation-send-action:disabled\s*\{[^}]*background:\s*color-mix\([^}]*color:\s*var\(--dsw-alias-label-tertiary\)/u,
+  );
+  assert.match(
+    source,
+    /\.minke-agent-browser__annotation-add\s*\{[^}]*border-radius:\s*8px !important[^}]*background:[^}]*var\(--minke-agent-browser-annotation-accent\) !important[^}]*color:\s*#fff !important/u,
+  );
+  assert.match(
+    source,
+    /\.minke-agent-browser__annotation-editor\s*\{[^}]*align-items:\s*flex-start/u,
+  );
+  assert.match(
+    source,
+    /\.minke-agent-browser__annotation-editor-number\s*\{[^}]*align-self:\s*flex-start[^}]*margin-top:\s*4px/u,
+  );
+  assert.match(
+    source,
+    /\.minke-agent-browser__annotation-editor > button\s*\{[^}]*width:\s*28px[^}]*height:\s*28px[^}]*margin-top:\s*1px/u,
+  );
+  assert.match(
+    source,
+    /\.minke-agent-browser__annotation-editor textarea\s*\{[^}]*min-height:\s*48px[^}]*max-height:\s*102px[^}]*height:\s*48px/u,
+  );
+  assert.doesNotMatch(
+    source,
+    /\.minke-agent-browser__annotation-mode/u,
+  );
+  assert.match(
+    annotationOverlaySource,
+    /useLayoutEffect\(\(\) => \{[\s\S]*input\.scrollHeight[\s\S]*Math\.max\(\s*48,\s*Math\.min\(contentHeight, 102\)[\s\S]*contentHeight > 102 \? "auto" : "hidden"[\s\S]*\}, \[comment\]\)/u,
+  );
+  assert.doesNotMatch(
+    annotationOverlaySource,
+    /data-multiline/u,
+  );
+  assert.match(
+    annotationOverlaySource,
+    /event\.key === "Enter"[\s\S]*!event\.shiftKey/u,
   );
 });
 

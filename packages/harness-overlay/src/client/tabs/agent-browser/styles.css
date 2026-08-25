@@ -465,6 +465,14 @@
   white-space: nowrap;
 }
 
+.minke-agent-browser__identity,
+.minke-agent-browser__annotation-send-action,
+.minke-agent-browser__annotation-layer {
+  --minke-agent-browser-annotation-accent: #096fdb;
+  --minke-agent-browser-annotation-accent-hover: #075fc0;
+  --minke-agent-browser-annotation-accent-pressed: #064fa0;
+}
+
 .minke-agent-browser__identity {
   display: flex;
   min-width: 0;
@@ -501,6 +509,25 @@
   flex: none;
 }
 
+.minke-agent-browser__owner[data-annotation-active]
+  .minke-agent-browser__owner-label {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 650;
+}
+
+.minke-agent-browser__annotation-status-separator {
+  flex: none;
+  color: var(--dsw-alias-border-l1);
+}
+
+.minke-agent-browser__annotation-status-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .minke-agent-browser__control-error {
   min-width: 0;
   overflow: hidden;
@@ -512,24 +539,83 @@
 
 .minke-agent-browser__annotation-send-action {
   display: inline-flex;
-  min-width: 58px;
-  height: 26px;
+  min-width: 40px;
+  height: 28px;
   align-items: center;
   justify-content: center;
-  padding: 0 10px;
+  gap: 4px;
+  padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-label-on-color);
+  border-radius: 999px;
+  background: var(--minke-agent-browser-annotation-accent);
+  color: #fff;
   cursor: pointer;
-  font: 650 10px/1 var(--ds-font-family-ui);
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.minke-agent-browser__annotation-send-action > svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.minke-agent-browser__annotation-send-count {
+  min-width: 1ch;
+  color: inherit;
+  font: 700 10px/1 var(--ds-font-family-ui);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.minke-agent-browser__annotation-send-action:hover:not(:disabled) {
+  background:
+    var(--minke-agent-browser-annotation-accent-hover);
+}
+
+.minke-agent-browser__annotation-send-action:active:not(:disabled) {
+  background:
+    var(--minke-agent-browser-annotation-accent-pressed);
+}
+
+.minke-agent-browser__annotation-send-action:focus-visible {
+  outline: 2px solid
+    var(--minke-agent-browser-annotation-accent);
+  outline-offset: 1px;
 }
 
 .minke-agent-browser__annotation-send-action:disabled {
-  border-color: var(--dsw-alias-border-l1);
-  background: var(--dsw-alias-bg-hover);
+  border-color: color-mix(
+    in srgb,
+    var(--minke-agent-browser-annotation-accent) 22%,
+    var(--dsw-alias-border-l1)
+  );
+  background: color-mix(
+    in srgb,
+    var(--minke-agent-browser-annotation-accent) 9%,
+    var(--dsw-alias-bg-base)
+  );
   color: var(--dsw-alias-label-tertiary);
   cursor: not-allowed;
+}
+
+.minke-agent-browser__annotation-send-action[data-sending] {
+  cursor: wait;
+}
+
+.minke-tabs-panel[data-placement="right"][data-presentation="drawer"]
+  .minke-agent-browser__annotation-send-action {
+  min-width: 52px;
+  height: 44px;
+  padding: 0 12px;
+}
+
+.minke-tabs-panel[data-placement="right"][data-presentation="drawer"]
+  .minke-agent-browser__annotation-send-action > svg {
+  width: 14px;
+  height: 14px;
 }
 
 .minke-agent-browser__annotation-layer {
@@ -547,42 +633,6 @@
   user-select: none;
 }
 
-.minke-agent-browser__annotation-mode {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: flex;
-  height: 30px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 9px;
-  border: 1px solid color-mix(
-    in srgb,
-    var(--dsw-alias-brand-primary) 48%,
-    var(--dsw-alias-border-l1)
-  );
-  border-radius: 9px;
-  background: color-mix(
-    in srgb,
-    var(--dsw-alias-bg-base) 94%,
-    transparent
-  );
-  color: var(--dsw-alias-label-primary);
-  box-shadow: var(--dsw-shadow-lv3);
-  font-size: 10px;
-  pointer-events: auto;
-}
-
-.minke-agent-browser__annotation-mode > span {
-  font-weight: 650;
-}
-
-.minke-agent-browser__annotation-mode > small {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 9px;
-}
-
-.minke-agent-browser__annotation-mode button,
 .minke-agent-browser__annotation-editor button {
   display: inline-grid;
   border: 0;
@@ -593,20 +643,11 @@
   place-items: center;
 }
 
-.minke-agent-browser__annotation-mode button {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-}
-
-.minke-agent-browser__annotation-mode button:hover {
-  background: var(--dsw-alias-bg-hover);
-}
-
 .minke-agent-browser__annotation-target {
   position: absolute;
   box-sizing: border-box;
-  border: 2px solid #0878ff;
+  border: 2px solid
+    var(--minke-agent-browser-annotation-accent);
   background: rgb(8 120 255 / 10%);
   pointer-events: none;
 }
@@ -635,7 +676,7 @@
   padding: 0;
   border: 2px solid #fff;
   border-radius: 999px;
-  background: #0878ff;
+  background: var(--minke-agent-browser-annotation-accent);
   color: #fff;
   cursor: pointer;
   font: 700 10px/1 var(--ds-font-family-ui);
@@ -645,8 +686,14 @@
 }
 
 .minke-agent-browser__annotation-target > button:hover {
-  background: #0067df;
+  background:
+    var(--minke-agent-browser-annotation-accent-hover);
   transform: translate(50%, -50%) scale(1.06);
+}
+
+.minke-agent-browser__annotation-target > button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 .minke-agent-browser__annotation-target[data-stale] > button {
@@ -659,7 +706,7 @@
   width: min(430px, calc(100% - 24px));
   min-height: 42px;
   box-sizing: border-box;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   padding: 5px 6px;
   border: 1px solid var(--dsw-alias-border-l1);
@@ -678,9 +725,11 @@
   display: grid;
   width: 22px;
   height: 22px;
+  align-self: flex-start;
   flex: none;
+  margin-top: 4px;
   border-radius: 999px;
-  background: #0878ff;
+  background: var(--minke-agent-browser-annotation-accent);
   color: #fff;
   font: 700 9px/1 var(--ds-font-family-ui);
   place-items: center;
@@ -688,7 +737,9 @@
 
 .minke-agent-browser__annotation-editor textarea {
   min-width: 0;
-  height: 30px;
+  min-height: 48px;
+  max-height: 102px;
+  height: 48px;
   box-sizing: border-box;
   flex: 1;
   resize: none;
@@ -703,13 +754,18 @@
 }
 
 .minke-agent-browser__annotation-editor textarea:focus {
-  background: var(--dsw-alias-bg-hover);
+  background: color-mix(
+    in srgb,
+    var(--minke-agent-browser-annotation-accent) 7%,
+    var(--dsw-alias-bg-hover)
+  );
 }
 
 .minke-agent-browser__annotation-editor > button {
   width: 28px;
   height: 28px;
   flex: none;
+  margin-top: 1px;
   border-radius: 8px;
 }
 
@@ -721,15 +777,44 @@
   color: var(--dsw-alias-label-secondary) !important;
 }
 
+.minke-agent-browser__annotation-delete:hover:not(:disabled),
+.minke-agent-browser__annotation-dismiss:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-hover);
+}
+
+.minke-agent-browser__annotation-editor > button:focus-visible {
+  outline: 2px solid
+    var(--minke-agent-browser-annotation-accent);
+  outline-offset: 1px;
+}
+
 .minke-agent-browser__annotation-add {
-  border-radius: 999px !important;
-  background: var(--dsw-alias-brand-primary) !important;
-  color: var(--dsw-alias-label-on-color) !important;
+  border-radius: 8px !important;
+  background:
+    var(--minke-agent-browser-annotation-accent) !important;
+  color: #fff !important;
+}
+
+.minke-agent-browser__annotation-add:hover:not(:disabled) {
+  background:
+    var(--minke-agent-browser-annotation-accent-hover) !important;
+}
+
+.minke-agent-browser__annotation-add:active:not(:disabled) {
+  background:
+    var(--minke-agent-browser-annotation-accent-pressed) !important;
+}
+
+.minke-agent-browser__annotation-add:focus-visible {
+  outline: 2px solid
+    var(--minke-agent-browser-annotation-accent);
+  outline-offset: 1px;
 }
 
 .minke-agent-browser__annotation-add:disabled {
   cursor: default;
-  opacity: 0.44;
+  background: var(--dsw-alias-bg-hover) !important;
+  color: var(--dsw-alias-label-tertiary) !important;
 }
 
 .minke-agent-browser__annotation-error {

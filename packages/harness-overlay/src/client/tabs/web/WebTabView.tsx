@@ -1,6 +1,7 @@
 import {
   useEffect,
   useRef,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import type {
@@ -32,6 +33,12 @@ import {
 import type {
   WebTabsTranslate,
 } from "./locales.ts";
+import {
+  webAnnotationLabels,
+} from "./locales.ts";
+import {
+  DomAnnotationOverlay,
+} from "../agent-browser/DomAnnotationOverlay.tsx";
 
 function syncNavigation(
   controller: WebTabsController,
@@ -58,6 +65,14 @@ export function WebTabView({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<WebviewTag | null>(null);
   const canCreateView = tab.payload.url !== undefined;
+  const annotation = useSyncExternalStore(
+    (listener) => controller.annotation.subscribe(
+      tab.id,
+      listener,
+    ),
+    () => controller.annotation.getSnapshot(tab.id),
+    () => controller.annotation.getSnapshot(tab.id),
+  );
 
   useEffect(() => {
     const host = hostRef.current;
@@ -90,6 +105,7 @@ export function WebTabView({
 
     const detach = controller.attach(tab.id, view);
     const handleStart = (): void => {
+      controller.pageChanged(tab.id);
       syncNavigation(controller, tab.id, {
         loading: true,
         error: null,
@@ -113,6 +129,7 @@ export function WebTabView({
     const handleNavigate = (
       event: DidNavigateEvent,
     ): void => {
+      controller.pageChanged(tab.id);
       syncNavigation(controller, tab.id, {
         url: event.url,
         error: null,
@@ -122,6 +139,7 @@ export function WebTabView({
       event: DidNavigateInPageEvent,
     ): void => {
       if (!event.isMainFrame) return;
+      controller.pageChanged(tab.id);
       syncNavigation(controller, tab.id, { url: event.url });
     };
     const handleFailure = (
@@ -182,6 +200,9 @@ export function WebTabView({
       role="tabpanel"
       aria-labelledby={`minke-tab-${tab.id}`}
       hidden={!active}
+      data-annotation-phase={
+        annotation.phase === "idle" ? undefined : annotation.phase
+      }
     >
       {tab.payload.url === undefined && (
         <div className="minke-tabs-blank">
@@ -217,6 +238,12 @@ export function WebTabView({
           </div>
         </div>
       )}
+      <DomAnnotationOverlay
+        tabId={tab.id}
+        snapshot={annotation}
+        controller={controller.annotation}
+        labels={webAnnotationLabels(t)}
+      />
     </div>
   );
 }

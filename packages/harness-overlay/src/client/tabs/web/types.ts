@@ -12,8 +12,15 @@ export interface WebTabPayload {
 }
 
 export interface WebviewHandle {
+  capturePage(): Promise<{
+    toDataURL(): string;
+  }>;
   canGoBack(): boolean;
   canGoForward(): boolean;
+  executeJavaScript(
+    code: string,
+    userGesture?: boolean,
+  ): Promise<unknown>;
   getTitle(): string;
   getURL(): string;
   goBack(): void;

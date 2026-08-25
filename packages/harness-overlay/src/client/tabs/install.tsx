@@ -323,6 +323,15 @@ export function installTabs(
       "minke-overlay: Web tab dictionaries",
     );
   }
+  if (
+    agentBrowserPort.available ||
+    tabsPort.embeddedWebAvailable
+  ) {
+    ctx.effect(
+      () => installAgentBrowserTabStyles(),
+      "minke-overlay: Browser annotation and Agent Browser styles",
+    );
+  }
   if (agentBrowserPort.available) {
     ctx.effect(
       () =>
@@ -331,10 +340,6 @@ export function installTabs(
           en: agentBrowserTabsEn,
         }),
       "minke-overlay: Agent Browser tab dictionaries",
-    );
-    ctx.effect(
-      () => installAgentBrowserTabStyles(),
-      "minke-overlay: Agent Browser tab styles",
     );
   }
   if (pluginLifecyclePort.available) {
@@ -407,6 +412,37 @@ export function installTabs(
   const pluginsT = ctx.locale.bind<PluginsLocaleKey>(
     PLUGINS_NAMESPACE,
   ) as PluginsTranslate;
+  const browserCommentsComposerCapability:
+    AgentBrowserComposerBridge =
+      createAgentBrowserComposerBridge(ctx.sessions);
+  if (
+    (
+      agentBrowserPort.available ||
+      tabsPort.embeddedWebAvailable
+    ) &&
+    ctx.inject !== undefined
+  ) {
+    ctx.inject(
+      ["conversation", "inputTriggers"],
+      (scope) => {
+        const conversation = scope.get("conversation");
+        const inputTriggers = scope.get("inputTriggers");
+        scope.effect(
+          () => (
+            browserCommentsComposerCapability.connect(
+              conversation,
+              inputTriggers,
+            )
+          ),
+          "minke-overlay: Browser comments Chat composer bridge",
+        );
+      },
+    );
+  }
+  const browserCommentsChat = createAgentBrowserChatPort(
+    ctx.sessions,
+    browserCommentsComposerCapability,
+  );
 
   const createTabsWorkspace = (
     tabs: TabsRuntime,
@@ -414,7 +450,9 @@ export function installTabs(
   ) => {
     const renderers = new TabRendererRegistry();
     const webTabs = tabsPort.embeddedWebAvailable
-      ? new WebTabsController(tabs, tabsPort)
+      ? new WebTabsController(tabs, tabsPort, {
+          chat: browserCommentsChat,
+        })
       : undefined;
     const pluginTabs =
       pluginLifecyclePort.available && webTabs !== undefined
@@ -505,39 +543,12 @@ export function installTabs(
     ctx.locale.bind<AgentBrowserTabsLocaleKey>(
       AGENT_BROWSER_TABS_NAMESPACE,
     ) as AgentBrowserTabsTranslate;
-  const agentBrowserComposerCapability:
-    AgentBrowserComposerBridge =
-      createAgentBrowserComposerBridge(ctx.sessions);
-  if (
-    agentBrowserPort.available &&
-    ctx.inject !== undefined
-  ) {
-    ctx.inject(
-      ["conversation", "inputTriggers"],
-      (scope) => {
-        const conversation = scope.get("conversation");
-        const inputTriggers = scope.get("inputTriggers");
-        scope.effect(
-          () => (
-            agentBrowserComposerCapability.connect(
-              conversation,
-              inputTriggers,
-            )
-          ),
-          "minke-overlay: Agent Browser Chat composer bridge",
-        );
-      },
-    );
-  }
   const agentBrowserTabs = agentBrowserPort.available
     ? new AgentBrowserTabsController(
         rightTabs,
         agentBrowserPort,
         {
-          chat: createAgentBrowserChatPort(
-            ctx.sessions,
-            agentBrowserComposerCapability,
-          ),
+          chat: browserCommentsChat,
         },
       )
     : undefined;

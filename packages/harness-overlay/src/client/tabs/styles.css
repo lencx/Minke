@@ -512,6 +512,9 @@ body:has(
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
 }
 
 .minke-tabs-toolbar__button:hover:not(:disabled) {
@@ -523,6 +526,26 @@ body:has(
   .minke-tabs-toolbar__button:focus-visible {
   outline: none;
   background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-tabs-toolbar__button[data-active-tone="success"][aria-pressed="true"] {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 14%,
+    transparent
+  );
+  color: var(--dsw-alias-label-primary);
+}
+
+.minke-tabs-toolbar__button[data-active-tone="success"][aria-pressed="true"]:hover:not(:disabled),
+.minke-tabs-panel
+  .minke-tabs-toolbar__button[data-active-tone="success"][aria-pressed="true"]:focus-visible {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary) 20%,
+    transparent
+  );
   color: var(--dsw-alias-label-primary);
 }
 

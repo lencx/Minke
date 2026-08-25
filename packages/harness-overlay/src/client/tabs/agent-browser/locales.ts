@@ -1,12 +1,18 @@
+import type {
+  BrowserAnnotationLabels,
+} from "@minke/harness-overlay/client/tabs/browser-annotation/types.ts";
+
 export const agentBrowserTabsZh = {
   "agentBrowser.action.takeControl": "接管页面",
   "agentBrowser.action.returnControl": "交还给 Agent",
   "agentBrowser.annotation.action.start": "标注网页",
   "agentBrowser.annotation.action.cancel": "退出标注",
   "agentBrowser.annotation.action.send": "发送",
+  "agentBrowser.annotation.action.sending": "正在发送…",
   "agentBrowser.annotation.action.sendCount": "发送 {count} 条标注",
   "agentBrowser.annotation.action.dismiss": "关闭评论框",
   "agentBrowser.annotation.action.add": "添加",
+  "agentBrowser.annotation.action.save": "保存",
   "agentBrowser.annotation.action.delete": "删除",
   "agentBrowser.annotation.action.editNumber": "编辑第 {number} 条标注",
   "agentBrowser.annotation.comment.label": "网页元素评论",
@@ -33,6 +39,27 @@ export type AgentBrowserTabsTranslate = (
   key: AgentBrowserTabsLocaleKey,
 ) => string;
 
+export function agentBrowserAnnotationLabels(
+  t: AgentBrowserTabsTranslate,
+): BrowserAnnotationLabels {
+  return {
+    commentLabel: t("agentBrowser.annotation.comment.label"),
+    commentAdd: t("agentBrowser.annotation.comment.add"),
+    commentEdit: t("agentBrowser.annotation.comment.edit"),
+    commentPlaceholder: t(
+      "agentBrowser.annotation.comment.placeholder",
+    ),
+    actionDelete: t("agentBrowser.annotation.action.delete"),
+    actionDismiss: t("agentBrowser.annotation.action.dismiss"),
+    actionAdd: t("agentBrowser.annotation.action.add"),
+    actionSave: t("agentBrowser.annotation.action.save"),
+    errorStale: t("agentBrowser.annotation.error.stale"),
+    actionEditNumber: (number) =>
+      t("agentBrowser.annotation.action.editNumber")
+        .replace("{number}", String(number)),
+  };
+}
+
 export const agentBrowserTabsEn: Record<
   AgentBrowserTabsLocaleKey,
   string
@@ -42,9 +69,11 @@ export const agentBrowserTabsEn: Record<
   "agentBrowser.annotation.action.start": "Annotate page",
   "agentBrowser.annotation.action.cancel": "Stop annotating",
   "agentBrowser.annotation.action.send": "Send",
+  "agentBrowser.annotation.action.sending": "Sending…",
   "agentBrowser.annotation.action.sendCount": "Send {count} annotations",
   "agentBrowser.annotation.action.dismiss": "Close comment editor",
   "agentBrowser.annotation.action.add": "Add",
+  "agentBrowser.annotation.action.save": "Save",
   "agentBrowser.annotation.action.delete": "Delete",
   "agentBrowser.annotation.action.editNumber": "Edit annotation {number}",
   "agentBrowser.annotation.comment.label": "Page element comment",

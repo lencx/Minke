@@ -28,8 +28,8 @@ function loadAgentBrowserSource() {
       parseAgentBrowserAnnotationEvent,
     } from "./packages/harness-overlay/src/agent-browser-annotation-contract.ts";
     export {
-      agentBrowserUserAgent,
-    } from "./packages/harness-overlay/src/client/tabs/agent-browser/webview.ts";
+      defaultChromeUserAgent,
+    } from "./packages/harness-overlay/src/browser-settings-contract.ts";
   `;
   const bundled = buildSync({
     alias: {
@@ -222,8 +222,8 @@ async function run() {
   const {
     AGENT_BROWSER_ANNOTATION_EVENT_CHANNEL,
     AgentBrowserRuntime,
-    agentBrowserUserAgent,
     createAgentBrowserRequest,
+    defaultChromeUserAgent,
     parseAgentBrowserAnnotationEvent,
     parseAgentBrowserProjection,
   } = loadAgentBrowserSource();
@@ -247,6 +247,10 @@ async function run() {
       webviewTag: true,
     },
   });
+  const expectedUserAgent = defaultChromeUserAgent(
+    window.webContents.getUserAgent(),
+  );
+  runtime.setUserAgent(expectedUserAgent);
   const annotationEvents = interceptAnnotationEvents(
     window.webContents,
     AGENT_BROWSER_ANNOTATION_EVENT_CHANNEL,
@@ -315,17 +319,11 @@ async function run() {
     assert.notEqual(pending, undefined);
     assert.equal(pending.status, 'pending');
     assert.equal(pending.partition.startsWith('persist:'), false);
-    const expectedUserAgent = agentBrowserUserAgent(
-      window.webContents.getUserAgent(),
-    );
     assert.doesNotMatch(expectedUserAgent, /\bElectron\//u);
+    assert.doesNotMatch(expectedUserAgent, /\bMinke\//u);
     await window.webContents.executeJavaScript(`
       (() => {
         const view = document.createElement("webview");
-        view.setAttribute(
-          "useragent",
-          ${JSON.stringify(expectedUserAgent)}
-        );
         view.setAttribute("src", "about:blank");
         view.setAttribute(
           "partition",

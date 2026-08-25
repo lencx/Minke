@@ -1,11 +1,11 @@
 import {
-  MessageSquarePlus,
-  Send,
+  Check,
   Trash2,
   X,
 } from "@lucide/icons";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -19,18 +19,16 @@ import type {
   AgentBrowserAnnotationTarget,
 } from "@minke/harness-overlay/agent-browser-annotation-contract.ts";
 import type {
-  AgentBrowserAnnotationSnapshot,
-  AgentBrowserTabsController,
-} from "./controller.ts";
-import type {
-  AgentBrowserTabsTranslate,
-} from "./locales.ts";
+  BrowserAnnotationController,
+  BrowserAnnotationLabels,
+  BrowserAnnotationSnapshot,
+} from "@minke/harness-overlay/client/tabs/browser-annotation/types.ts";
 
 export interface DomAnnotationOverlayProps {
   readonly tabId: string;
-  readonly snapshot: AgentBrowserAnnotationSnapshot;
-  readonly controller: AgentBrowserTabsController;
-  readonly t: AgentBrowserTabsTranslate;
+  readonly snapshot: BrowserAnnotationSnapshot;
+  readonly controller: BrowserAnnotationController;
+  readonly labels: BrowserAnnotationLabels;
 }
 
 function clamp(
@@ -59,7 +57,7 @@ function targetStyle(
 }
 
 function draftStyle(
-  snapshot: AgentBrowserAnnotationSnapshot,
+  snapshot: BrowserAnnotationSnapshot,
 ): CSSProperties {
   const target = snapshot.draft;
   if (target === undefined) return { display: "none" };
@@ -70,7 +68,8 @@ function draftStyle(
     horizontalMargin,
     Math.max(horizontalMargin, viewport.width - horizontalMargin),
   );
-  const showAbove = rect.y + rect.height + 70 > viewport.height;
+  const showAbove =
+    rect.y + rect.height + 124 > viewport.height;
   return {
     left: `${String(center / viewport.width * 100)}%`,
     top: showAbove
@@ -91,7 +90,7 @@ function CommentEditor({
   tabId,
   snapshot,
   controller,
-  t,
+  labels,
 }: DomAnnotationOverlayProps): ReactNode {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [comment, setComment] = useState(
@@ -104,6 +103,20 @@ function CommentEditor({
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);
+
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (input === null) return;
+    input.style.height = "0px";
+    const contentHeight = input.scrollHeight;
+    const nextHeight = Math.max(
+      48,
+      Math.min(contentHeight, 102),
+    );
+    input.style.height = `${String(nextHeight)}px`;
+    input.style.overflowY =
+      contentHeight > 102 ? "auto" : "hidden";
+  }, [comment]);
 
   const submit = (): void => {
     if (comment.trim() === "") return;
@@ -131,24 +144,22 @@ function CommentEditor({
     <section
       className="minke-agent-browser__annotation-editor"
       style={draftStyle(snapshot)}
-      aria-label={t("agentBrowser.annotation.comment.label")}
+      aria-label={labels.commentLabel}
     >
       <span className="minke-agent-browser__annotation-editor-number">
         {number}
       </span>
       <textarea
         ref={inputRef}
-        rows={1}
+        rows={2}
         maxLength={2_000}
         value={comment}
         aria-label={
           snapshot.editingIndex === undefined
-            ? t("agentBrowser.annotation.comment.add")
-            : t("agentBrowser.annotation.comment.edit")
+            ? labels.commentAdd
+            : labels.commentEdit
         }
-        placeholder={t(
-          "agentBrowser.annotation.comment.placeholder",
-        )}
+        placeholder={labels.commentPlaceholder}
         onChange={(event) => setComment(event.currentTarget.value)}
         onKeyDown={handleKeyDown}
       />
@@ -156,8 +167,8 @@ function CommentEditor({
         <button
           type="button"
           className="minke-agent-browser__annotation-delete"
-          aria-label={t("agentBrowser.annotation.action.delete")}
-          title={t("agentBrowser.annotation.action.delete")}
+          aria-label={labels.actionDelete}
+          title={labels.actionDelete}
           onClick={() => {
             controller.removeAnnotation(
               tabId,
@@ -171,8 +182,8 @@ function CommentEditor({
       <button
         type="button"
         className="minke-agent-browser__annotation-dismiss"
-        aria-label={t("agentBrowser.annotation.action.dismiss")}
-        title={t("agentBrowser.annotation.action.dismiss")}
+        aria-label={labels.actionDismiss}
+        title={labels.actionDismiss}
         onClick={() => controller.dismissAnnotationDraft(tabId)}
       >
         <LucideIcon icon={X} size={14} />
@@ -180,12 +191,20 @@ function CommentEditor({
       <button
         type="button"
         className="minke-agent-browser__annotation-add"
-        aria-label={t("agentBrowser.annotation.action.add")}
-        title={t("agentBrowser.annotation.action.add")}
+        aria-label={
+          snapshot.editingIndex === undefined
+            ? labels.actionAdd
+            : labels.actionSave
+        }
+        title={
+          snapshot.editingIndex === undefined
+            ? labels.actionAdd
+            : labels.actionSave
+        }
         disabled={comment.trim() === ""}
         onClick={submit}
       >
-        <LucideIcon icon={Send} size={15} />
+        <LucideIcon icon={Check} size={15} />
       </button>
     </section>
   );
@@ -195,7 +214,7 @@ function CommentEditor({
 export function DomAnnotationOverlay(
   props: DomAnnotationOverlayProps,
 ): ReactNode {
-  const { tabId, snapshot, controller, t } = props;
+  const { tabId, snapshot, controller, labels } = props;
   if (
     snapshot.phase !== "active" &&
     snapshot.phase !== "sending"
@@ -218,32 +237,6 @@ export function DomAnnotationOverlay(
       className="minke-agent-browser__annotation-layer"
       data-phase={snapshot.phase}
     >
-      <div
-        className="minke-agent-browser__annotation-mode"
-        role="status"
-      >
-        <LucideIcon icon={MessageSquarePlus} size={13} />
-        <span>{t("agentBrowser.annotation.status.active")}</span>
-        <small>
-          {snapshot.count === 0
-            ? t("agentBrowser.annotation.status.pick")
-            : t("agentBrowser.annotation.status.count").replace(
-                "{count}",
-                String(snapshot.count),
-              )}
-        </small>
-        <button
-          type="button"
-          aria-label={t("agentBrowser.annotation.action.cancel")}
-          title={t("agentBrowser.annotation.action.cancel")}
-          onClick={() => {
-            void controller.cancelAnnotation(tabId);
-          }}
-        >
-          <LucideIcon icon={X} size={13} />
-        </button>
-      </div>
-
       {snapshot.comments.map((comment) => (
         <div
           key={comment.target.targetId}
@@ -257,9 +250,7 @@ export function DomAnnotationOverlay(
         >
           <button
             type="button"
-            aria-label={t(
-              "agentBrowser.annotation.action.editNumber",
-            ).replace("{number}", String(comment.index))}
+            aria-label={labels.actionEditNumber(comment.index)}
             onClick={() =>
               controller.editAnnotation(tabId, comment.index)}
           >
@@ -295,7 +286,7 @@ export function DomAnnotationOverlay(
           role="alert"
         >
           {(snapshot.staleTargetIds?.length ?? 0) > 0
-            ? t("agentBrowser.annotation.error.stale")
+            ? labels.errorStale
             : snapshot.error}
         </div>
       )}

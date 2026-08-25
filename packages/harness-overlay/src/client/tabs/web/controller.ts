@@ -13,6 +13,10 @@ import {
   type WebTabStatePatch,
   type WebviewHandle,
 } from "./types.ts";
+import {
+  WebTabAnnotationController,
+  type WebAnnotationDependencies,
+} from "./annotation-controller.ts";
 
 export function fallbackWebTabTitle(value: string): string {
   const url = new URL(value);
@@ -71,14 +75,23 @@ function readableWebTitle(
 
 /** Browser-specific state and commands layered on the generic Tabs runtime. */
 export class WebTabsController {
+  readonly annotation: WebTabAnnotationController;
   readonly #tabs: TabsRuntime;
   readonly #desktop: DesktopTabsPort;
   readonly #views = new Map<string, WebviewHandle>();
   #nextBlankId = 0;
 
-  constructor(tabs: TabsRuntime, desktop: DesktopTabsPort) {
+  constructor(
+    tabs: TabsRuntime,
+    desktop: DesktopTabsPort,
+    dependencies?: WebAnnotationDependencies,
+  ) {
     this.#tabs = tabs;
     this.#desktop = desktop;
+    this.annotation = new WebTabAnnotationController(
+      tabs,
+      dependencies,
+    );
   }
 
   open(
@@ -119,9 +132,15 @@ export class WebTabsController {
 
   attach(id: string, view: WebviewHandle): () => void {
     this.#views.set(id, view);
+    const detachAnnotation = this.annotation.attach(id, view);
     return () => {
+      detachAnnotation();
       if (this.#views.get(id) === view) this.#views.delete(id);
     };
+  }
+
+  pageChanged(id: string): void {
+    this.annotation.pageChanged(id);
   }
 
   update(id: string, patch: WebTabStatePatch): void {
@@ -227,6 +246,7 @@ export class WebTabsController {
     if (url === undefined) return false;
     const tab = this.#tabs.tab(id);
     if (tab === undefined || !isWebTab(tab)) return false;
+    this.annotation.pageChanged(id);
     this.update(id, {
       url,
       loading: true,
@@ -261,12 +281,18 @@ export class WebTabsController {
     if (tab === undefined || !isWebTab(tab)) return;
     this.#withView(id, (view) => {
       if (tab.payload.loading) view.stop();
-      else view.reload();
+      else {
+        this.annotation.pageChanged(id);
+        view.reload();
+      }
     });
   }
 
   retry(id: string): void {
-    this.#withView(id, (view) => view.reload());
+    this.#withView(id, (view) => {
+      this.annotation.pageChanged(id);
+      view.reload();
+    });
   }
 
   openExternal(id: string): void {
@@ -281,6 +307,7 @@ export class WebTabsController {
   }
 
   dispose(): void {
+    this.annotation.dispose();
     this.#views.clear();
   }
 

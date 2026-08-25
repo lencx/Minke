@@ -10,8 +10,9 @@ import type {
 import type {
   AgentBrowserTabsController,
 } from "./controller.ts";
-import type {
-  AgentBrowserTabsTranslate,
+import {
+  agentBrowserAnnotationLabels,
+  type AgentBrowserTabsTranslate,
 } from "./locales.ts";
 import {
   hasStableAgentControl,
@@ -69,7 +70,6 @@ export function AgentBrowserTabView({
     configureAgentBrowserWebview(view, {
       partition: tab.payload.partition,
       label: tab.title,
-      userAgent: globalThis.navigator.userAgent,
     });
     viewRef.current = view;
     host.append(view);
@@ -169,7 +169,7 @@ export function AgentBrowserTabView({
         tabId={tab.id}
         snapshot={annotation}
         controller={controller}
-        t={t}
+        labels={agentBrowserAnnotationLabels(t)}
       />
     </div>
   );

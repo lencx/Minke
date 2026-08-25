@@ -55,6 +55,7 @@ const taskFiles = Object.freeze({
     "agent-browser-chat.test.mjs",
     "agent-browser-tabs.test.mjs",
     "bootstrap-theme.test.mjs",
+    "browser-settings.test.mjs",
     "client-actions.test.mjs",
     "command-palette.test.mjs",
     "data-home-settings.test.mjs",
@@ -75,6 +76,7 @@ const taskFiles = Object.freeze({
     "tabs.test.mjs",
     "terminal-settings.test.mjs",
     "terminal-tabs.test.mjs",
+    "web-tab-annotations.test.mjs",
     "web-search-settings.test.mjs",
     "window-theme.test.mjs",
   ]),
@@ -87,6 +89,7 @@ const taskFiles = Object.freeze({
     "minke-host.test.mjs",
     "model-runtime.test.mjs",
     "remote.test.mjs",
+    "discord-network.test.mjs",
     "remote-hub.test.mjs",
   ]),
 });

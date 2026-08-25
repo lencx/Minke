@@ -28,7 +28,7 @@ export function StopIcon(): ReactNode {
 }
 
 export function ExternalIcon(): ReactNode {
-  return <LucideIcon icon={SquareArrowOutUpRight} />;
+  return <LucideIcon icon={SquareArrowOutUpRight} size={14} />;
 }
 
 export function WebIcon(props: { size?: number }): ReactNode {

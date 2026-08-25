@@ -1,8 +1,18 @@
 import {
   useEffect,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
+import {
+  Send,
+} from "@lucide/icons";
+import {
+  BrowserAnnotationIcon,
+} from "@minke/harness-overlay/client/tabs/browser-annotation/BrowserAnnotationIcon.tsx";
+import {
+  LucideIcon,
+} from "@minke/harness-overlay/client/tabs/components/LucideIcon.ts";
 import {
   ToolbarButton,
 } from "@minke/harness-overlay/client/tabs/components/ToolbarButton.tsx";
@@ -150,6 +160,94 @@ function leadingActions(
   );
 }
 
+function WebAnnotationActions({
+  tab,
+  controller,
+  t,
+}: {
+  readonly tab: ManagedTab;
+  readonly controller: WebTabsController;
+  readonly t: WebTabsTranslate;
+}): ReactNode {
+  const snapshot = useSyncExternalStore(
+    (listener) => controller.annotation.subscribe(
+      tab.id,
+      listener,
+    ),
+    () => controller.annotation.getSnapshot(tab.id),
+    () => controller.annotation.getSnapshot(tab.id),
+  );
+  const active =
+    snapshot.phase === "active" ||
+    snapshot.phase === "sending";
+  const busy =
+    snapshot.phase === "starting" ||
+    snapshot.phase === "sending";
+  return (
+    <>
+      {active && snapshot.count > 0 && (
+        <button
+          type="button"
+          className="minke-agent-browser__annotation-send-action"
+          aria-label={
+            busy
+              ? t("web.annotation.action.sending")
+              : t("web.annotation.action.sendCount")
+                  .replace("{count}", String(snapshot.count))
+          }
+          aria-busy={busy || undefined}
+          data-sending={busy || undefined}
+          title={
+            busy
+              ? t("web.annotation.action.sending")
+              : t("web.annotation.action.sendCount")
+                  .replace("{count}", String(snapshot.count))
+          }
+          disabled={
+            busy ||
+            snapshot.draft !== undefined ||
+            (snapshot.staleTargetIds?.length ?? 0) > 0
+          }
+          onClick={() => {
+            void controller.annotation.send(tab.id);
+          }}
+        >
+          <LucideIcon icon={Send} size={12} />
+          <span
+            className="minke-agent-browser__annotation-send-count"
+          >
+            {snapshot.count}
+          </span>
+        </button>
+      )}
+      <ToolbarButton
+        label={
+          active
+            ? t("web.annotation.action.cancel")
+            : t("web.annotation.action.start")
+        }
+        pressed={active}
+        activeTone="success"
+        disabled={
+          !isWebTab(tab) ||
+          tab.payload.url === undefined ||
+          tab.payload.loading ||
+          snapshot.phase === "starting"
+        }
+        onClick={() => {
+          if (active) {
+            void controller.annotation.cancel(tab.id);
+          } else {
+            void controller.annotation.start(tab.id);
+          }
+        }}
+      >
+        <BrowserAnnotationIcon />
+      </ToolbarButton>
+    </>
+  );
+}
+
 /** Browser renderer registered beside, not inside, the generic Tabs core. */
 export function createWebTabRenderer(
   controller: WebTabsController,
@@ -173,15 +271,22 @@ export function createWebTabRenderer(
     renderLeadingActions: (tab) =>
       leadingActions(tab, t, controller),
     renderTrailingActions: (tab) => (
-      <ToolbarButton
-        label={t("web.nav.external")}
-        disabled={
-          !isWebTab(tab) || tab.payload.url === undefined
-        }
-        onClick={() => controller.openExternal(tab.id)}
-      >
-        <ExternalIcon />
-      </ToolbarButton>
+      <>
+        <WebAnnotationActions
+          tab={tab}
+          controller={controller}
+          t={t}
+        />
+        <ToolbarButton
+          label={t("web.nav.external")}
+          disabled={
+            !isWebTab(tab) || tab.payload.url === undefined
+          }
+          onClick={() => controller.openExternal(tab.id)}
+        >
+          <ExternalIcon />
+        </ToolbarButton>
+      </>
     ),
     renderToolbarCenter: (tab) =>
       isWebTab(tab)

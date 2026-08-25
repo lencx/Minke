@@ -15,6 +15,10 @@ import type {
   ManagedTab,
 } from "@minke/harness-overlay/client/tabs/types.ts";
 import type {
+  BrowserAnnotationPhase,
+  BrowserAnnotationSnapshot,
+} from "@minke/harness-overlay/client/tabs/browser-annotation/types.ts";
+import type {
   TabsRuntime,
 } from "@minke/harness-overlay/client/tabs/runtime.ts";
 import {
@@ -33,27 +37,9 @@ import {
   type AgentBrowserNumberedComment,
 } from "./chat.ts";
 
-export type AgentBrowserAnnotationPhase =
-  | "idle"
-  | "starting"
-  | "active"
-  | "sending"
-  | "error";
-
-export interface AgentBrowserAnnotationSnapshot {
-  readonly phase: AgentBrowserAnnotationPhase;
-  readonly count: number;
-  readonly comments: readonly AgentBrowserNumberedComment[];
-  readonly draft?: AgentBrowserAnnotationTarget;
-  readonly draftComment?: string;
-  readonly editingIndex?: number;
-  readonly page?: AgentBrowserAnnotationPage;
-  readonly annotationSessionId?: string;
-  readonly generation?: number;
-  readonly chatTarget?: AgentBrowserChatTarget;
-  readonly staleTargetIds?: readonly string[];
-  readonly error?: string;
-}
+export type AgentBrowserAnnotationPhase = BrowserAnnotationPhase;
+export type AgentBrowserAnnotationSnapshot =
+  BrowserAnnotationSnapshot;
 
 interface ActiveAgentBrowserAnnotation
   extends AgentBrowserAnnotationSnapshot {
