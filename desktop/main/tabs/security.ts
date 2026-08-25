@@ -6,19 +6,13 @@ import {
   normalizeWebTabUrl,
   TABS_WEB_PARTITION,
 } from "@minke/harness-overlay/tabs/contract.ts";
+import {
+  normalizeExternalLinkUrl,
+  normalizeUserGestureExternalLinkUrl,
+} from "@minke/harness-overlay/tabs/web-link-contract.ts";
 import type {
   ExternalTabOpener,
 } from "./types.ts";
-
-function canOpenWithHost(value: string): boolean {
-  try {
-    return ["https:", "http:", "mailto:"].includes(
-      new URL(value).protocol,
-    );
-  } catch {
-    return false;
-  }
-}
 
 export function canGrantTabWebPermission(
   permission: string,
@@ -51,18 +45,18 @@ function openWithHost(
 export function secureTabWebview(
   webPreferences: WebPreferences,
   params: Record<string, string>,
+  trustedPreload: string,
 ): boolean {
   const url = normalizeWebTabUrl(params.src ?? "");
   if (url === undefined) return false;
 
   params.src = url;
   params.partition = TABS_WEB_PARTITION;
-  delete params.allowpopups;
   delete params.preload;
   delete params.useragent;
   delete params.webpreferences;
 
-  delete webPreferences.preload;
+  webPreferences.preload = trustedPreload;
   webPreferences.allowRunningInsecureContent = false;
   webPreferences.contextIsolation = true;
   webPreferences.nodeIntegration = false;
@@ -93,17 +87,30 @@ export function protectTabWebviewGuest(
       return;
     }
     event.preventDefault();
-    if (canOpenWithHost(event.url)) {
-      openWithHost(external, event.url);
+    const externalUrl = normalizeExternalLinkUrl(event.url);
+    if (externalUrl !== undefined) {
+      openWithHost(external, externalUrl);
     }
   };
 
   guest.on("will-navigate", keepWebNavigationInsideGuest);
   guest.on("will-redirect", keepWebNavigationInsideGuest);
   guest.setWindowOpenHandler(({ url }) => {
-    if (canOpenWithHost(url)) openWithHost(external, url);
+    const externalUrl = normalizeExternalLinkUrl(url);
+    if (externalUrl !== undefined) {
+      openWithHost(external, externalUrl);
+    }
     return { action: "deny" };
   });
+}
+
+export function openUserGestureTabLinkExternally(
+  external: ExternalTabOpener,
+  candidate: unknown,
+): void {
+  if (typeof candidate !== "string") return;
+  const url = normalizeUserGestureExternalLinkUrl(candidate);
+  if (url !== undefined) openWithHost(external, url);
 }
 
 export function openNormalizedTabExternally(

@@ -14,11 +14,11 @@ export default defineConfig({
     rollupOptions: {
       external: ["electron"],
       input: {
-        "desktop-preload": resolve(
+        "tabs-web-preload": resolve(
           projectRoot,
           "desktop",
           "preload",
-          "desktop-preload.ts",
+          "tabs-web-preload.ts",
         ),
       },
       output: {

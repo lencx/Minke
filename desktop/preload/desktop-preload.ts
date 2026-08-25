@@ -83,6 +83,10 @@ import {
   type TabsLayoutStateUpdate,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
+  fileUrlToAbsoluteLocalPath,
+  normalizeAbsoluteLocalPath,
+} from "@minke/harness-overlay/tabs/web-link-contract.ts";
+import {
   parseFileManagerChangeEvent,
   parseFileManagerDiffRequest,
   parseFileManagerDiffResult,
@@ -316,6 +320,12 @@ const tabs = Object.freeze({
     await ipcRenderer.invoke(
       TABS_LAYOUT_STATE_WRITE_CHANNEL,
       parseTabsLayoutStateUpdate(update),
+    );
+  },
+  resolveLocalPath(candidate: string): string | undefined {
+    return (
+      normalizeAbsoluteLocalPath(candidate) ??
+      fileUrlToAbsoluteLocalPath(candidate, process.platform)
     );
   },
   openExternal(candidate: string): void {

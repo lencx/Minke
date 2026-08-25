@@ -37,6 +37,14 @@ import {
   TABS_WEB_PARTITION,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
+  fileUrlToAbsoluteLocalPath,
+  isAbsoluteLocalPath,
+  normalizeAbsoluteLocalPath,
+  normalizeExternalLinkUrl,
+  normalizeUserGestureExternalLinkUrl,
+  parseWebTabLocalPathRequest,
+} from "@minke/harness-overlay/tabs/web-link-contract.ts";
+import {
   FILES_IMAGE_PREVIEW_MAX_BYTES,
   FILES_TEXT_PREVIEW_MAX_BYTES,
   parseFileManagerViewState,
@@ -173,6 +181,7 @@ import {
 } from "@minke/desktop/main/tabs/file-watch.ts";
 import {
   canGrantTabWebPermission,
+  openUserGestureTabLinkExternally,
   protectTabWebviewGuest,
   secureTabWebview,
 } from "@minke/desktop/main/tabs/security.ts";
@@ -681,6 +690,30 @@ test("Web tab URLs accept only credential-free HTTP(S)", () => {
     ),
     undefined,
   );
+  assert.equal(
+    normalizeExternalLinkUrl("tel:+123456789"),
+    "tel:+123456789",
+  );
+  assert.equal(
+    normalizeExternalLinkUrl("vscode://file/workspace/main.ts"),
+    undefined,
+  );
+  assert.equal(
+    normalizeUserGestureExternalLinkUrl(
+      "vscode://file/workspace/main.ts",
+    ),
+    "vscode://file/workspace/main.ts",
+  );
+  for (const candidate of [
+    "file:///workspace/private.txt",
+    "javascript:alert(1)",
+    "data:text/html,unsafe",
+  ]) {
+    assert.equal(
+      normalizeUserGestureExternalLinkUrl(candidate),
+      undefined,
+    );
+  }
 });
 
 test("Files runtime falls back to the system root", async () => {
@@ -2928,6 +2961,153 @@ test("conversation file routing falls back and restores safely", async () => {
   ]);
 });
 
+test("local link targets distinguish absolute paths from web paths", () => {
+  for (const path of [
+    "/workspace/src",
+    "C:\\workspace\\src",
+    "\\\\server\\share\\src",
+  ]) {
+    assert.equal(isAbsoluteLocalPath(path), true);
+    assert.equal(normalizeAbsoluteLocalPath(` ${path} `), path);
+  }
+  for (const path of [
+    "workspace/src",
+    "./workspace",
+    "https://example.com/workspace",
+  ]) {
+    assert.equal(isAbsoluteLocalPath(path), false);
+    assert.equal(normalizeAbsoluteLocalPath(path), undefined);
+  }
+  assert.deepEqual(
+    parseWebTabLocalPathRequest({
+      path: "/workspace/src",
+      title: "Source",
+    }),
+    {
+      path: "/workspace/src",
+      title: "Source",
+    },
+  );
+  assert.throws(
+    () => parseWebTabLocalPathRequest({
+      path: "relative/path",
+    }),
+    /invalid Web Tab local path request/u,
+  );
+  assert.equal(
+    fileUrlToAbsoluteLocalPath(
+      "file:///workspace/My%20Project",
+      "darwin",
+    ),
+    "/workspace/My Project",
+  );
+  assert.equal(
+    fileUrlToAbsoluteLocalPath(
+      "file:///C:/workspace/My%20Project",
+      "win32",
+    ),
+    "C:\\workspace\\My Project",
+  );
+  assert.equal(
+    fileUrlToAbsoluteLocalPath(
+      "file://server/share/My%20Project",
+      "win32",
+    ),
+    "\\\\server\\share\\My Project",
+  );
+  for (const candidate of [
+    "file://server/share/private",
+    "file:///workspace/a%2Fb",
+    "https://example.com/workspace",
+  ]) {
+    assert.equal(
+      fileUrlToAbsoluteLocalPath(candidate, "darwin"),
+      undefined,
+    );
+  }
+});
+
+test("Files routes linked directories and files through one local path seam", async () => {
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const previewRequests = [];
+  const files = new FilesTabsController(tabs, {
+    available: true,
+    async list(request) {
+      if (request.path === "/workspace/src/main.ts") {
+        throw new Error("ENOTDIR");
+      }
+      return {
+        path: request.path ?? "/",
+        entries: [],
+        truncated: false,
+      };
+    },
+    async open() {},
+    async preview(request) {
+      previewRequests.push(request);
+      return {
+        kind: "text",
+        path: request.path,
+        name: "main.ts",
+        size: 0,
+        content: "",
+        truncated: false,
+        version: fileVersion(Buffer.from("")),
+      };
+    },
+    async write() {
+      throw new Error("not used");
+    },
+    watch() {
+      return () => {};
+    },
+  });
+
+  assert.equal(
+    files.openLocalPath("/workspace/src", "Source"),
+    true,
+  );
+  await settleAsyncWork();
+  await settleAsyncWork();
+  assert.equal(
+    tabs.getSnapshot().tabs.some(
+      (tab) =>
+        tab.kind === "files" &&
+        tab.payload.path === "/workspace/src",
+    ),
+    true,
+  );
+
+  assert.equal(
+    files.openLocalPath(
+      "/workspace/src/main.ts",
+      "main.ts",
+    ),
+    true,
+  );
+  await settleAsyncWork();
+  await settleAsyncWork();
+  assert.deepEqual(previewRequests, [
+    { path: "/workspace/src/main.ts" },
+  ]);
+  assert.equal(
+    tabs.getSnapshot().tabs.some(
+      (tab) =>
+        tab.kind === "files" &&
+        tab.payload.preview?.entry.path ===
+          "/workspace/src/main.ts",
+    ),
+    true,
+  );
+
+  assert.equal(files.openLocalPath("relative", "Files"), false);
+  files.dispose();
+  tabs.dispose();
+});
+
 test("Web tab favicons accept safe site and CDN URLs", () => {
   assert.equal(
     normalizeWebFaviconUrl(
@@ -2977,13 +3157,23 @@ test("webview attachment overwrites untrusted guest preferences", () => {
     webpreferences: "nodeIntegration=yes",
   };
 
-  assert.equal(secureTabWebview(preferences, params), true);
+  assert.equal(
+    secureTabWebview(
+      preferences,
+      params,
+      "/trusted/tabs-web-preload.js",
+    ),
+    true,
+  );
   assert.equal(params.src, "https://example.com/docs");
   assert.equal(params.partition, TABS_WEB_PARTITION);
-  assert.equal(Object.hasOwn(params, "allowpopups"), false);
+  assert.equal(Object.hasOwn(params, "allowpopups"), true);
   assert.equal(Object.hasOwn(params, "preload"), false);
   assert.equal(Object.hasOwn(params, "webpreferences"), false);
-  assert.equal(Object.hasOwn(preferences, "preload"), false);
+  assert.equal(
+    preferences.preload,
+    "/trusted/tabs-web-preload.js",
+  );
   assert.equal(preferences.contextIsolation, true);
   assert.equal(preferences.nodeIntegration, false);
   assert.equal(preferences.nodeIntegrationInSubFrames, false);
@@ -2996,6 +3186,7 @@ test("webview attachment overwrites untrusted guest preferences", () => {
     secureTabWebview(
       {},
       { src: "file:///tmp/report.html" },
+      "/trusted/tabs-web-preload.js",
     ),
     false,
   );
@@ -3090,6 +3281,80 @@ test("attached Web guests keep navigation isolated and deny popups", () => {
     { action: "deny" },
   );
   assert.equal(opened.length, 2);
+});
+
+test("trusted Web guest clicks may open registered app protocols", () => {
+  const opened = [];
+  const external = {
+    openExternal(url) {
+      opened.push(url);
+      return Promise.resolve();
+    },
+  };
+  openUserGestureTabLinkExternally(
+    external,
+    "vscode://file/workspace/main.ts",
+  );
+  openUserGestureTabLinkExternally(
+    external,
+    "javascript:alert(1)",
+  );
+  assert.deepEqual(opened, [
+    "vscode://file/workspace/main.ts",
+  ]);
+});
+
+test("Web address paths route through the local Files seam", () => {
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const localPaths = [];
+  const web = new WebTabsController(
+    tabs,
+    {
+      available: true,
+      resolveLocalPath(candidate) {
+        return candidate === "file:///workspace/src"
+          ? "/workspace/src"
+          : undefined;
+      },
+      openExternal() {},
+    },
+    {
+      openLocalPath(request) {
+        localPaths.push(request);
+        return true;
+      },
+    },
+  );
+  const tabId = web.open("https://example.com/");
+  assert.ok(tabId);
+  assert.equal(
+    web.navigate(tabId, " /workspace/src "),
+    true,
+  );
+  assert.equal(
+    web.navigate(tabId, "file:///workspace/src"),
+    true,
+  );
+  assert.equal(
+    web.openLocalPath({
+      path: "C:\\workspace\\src",
+      title: "Source",
+    }),
+    true,
+  );
+  assert.deepEqual(localPaths, [
+    { path: "/workspace/src" },
+    { path: "/workspace/src" },
+    {
+      path: "C:\\workspace\\src",
+      title: "Source",
+    },
+  ]);
+  web.dispose();
+  tabs.dispose();
 });
 
 test("Tabs is content-agnostic and preserves hidden tab state", () => {

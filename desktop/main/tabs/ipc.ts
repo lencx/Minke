@@ -5,7 +5,7 @@ import type {
   WebContents,
   WebPreferences,
 } from "electron";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { stat } from "node:fs/promises";
 import {
   parseTabsLayoutStateUpdate,
@@ -13,6 +13,9 @@ import {
   TABS_LAYOUT_STATE_WRITE_CHANNEL,
   TABS_OPEN_EXTERNAL_CHANNEL,
 } from "@minke/harness-overlay/tabs/contract.ts";
+import {
+  TABS_WEB_EXTERNAL_LINK_CHANNEL,
+} from "@minke/harness-overlay/tabs/web-link-contract.ts";
 import {
   parseFileManagerDiffRequest,
   parseFileManagerListRequest,
@@ -58,6 +61,7 @@ import {
 } from "./layout-state.ts";
 import {
   openNormalizedTabExternally,
+  openUserGestureTabLinkExternally,
   protectTabWebviewGuest,
   secureTabWebview,
 } from "./security.ts";
@@ -172,6 +176,7 @@ export function bindTabs(
       }
     },
   });
+  const attachedWebGuests = new Set<WebContents>();
   const agentBrowserProjection =
     options.agentBrowser.bindWindowProjection(
       ipc,
@@ -193,7 +198,13 @@ export function bindTabs(
       event.preventDefault();
       return;
     }
-    if (!secureTabWebview(webPreferences, params)) {
+    if (
+      !secureTabWebview(
+        webPreferences,
+        params,
+        join(__dirname, "tabs-web-preload.js"),
+      )
+    ) {
       event.preventDefault();
     }
   };
@@ -204,7 +215,18 @@ export function bindTabs(
     if (options.agentBrowser.attachGuest(embedder, guest)) {
       return;
     }
+    attachedWebGuests.add(guest);
+    guest.once("destroyed", () => {
+      attachedWebGuests.delete(guest);
+    });
     protectTabWebviewGuest(guest, external);
+  };
+  const handleGuestExternalLink = (
+    event: IpcMainEvent,
+    candidate: unknown,
+  ): void => {
+    if (!attachedWebGuests.has(event.sender)) return;
+    openUserGestureTabLinkExternally(external, candidate);
   };
   const handleOpenExternal = (
     event: IpcMainEvent,
@@ -374,6 +396,10 @@ export function bindTabs(
   embedder.on("will-attach-webview", handleWillAttach);
   embedder.on("did-attach-webview", handleDidAttach);
   ipc.on(TABS_OPEN_EXTERNAL_CHANNEL, handleOpenExternal);
+  ipc.on(
+    TABS_WEB_EXTERNAL_LINK_CHANNEL,
+    handleGuestExternalLink,
+  );
   ipc.handle(
     TABS_LAYOUT_STATE_READ_CHANNEL,
     handleTabsLayoutStateRead,
@@ -413,6 +439,11 @@ export function bindTabs(
         TABS_OPEN_EXTERNAL_CHANNEL,
         handleOpenExternal,
       );
+      ipc.removeListener(
+        TABS_WEB_EXTERNAL_LINK_CHANNEL,
+        handleGuestExternalLink,
+      );
+      attachedWebGuests.clear();
       ipc.removeHandler(TABS_LAYOUT_STATE_READ_CHANNEL);
       ipc.removeHandler(TABS_LAYOUT_STATE_WRITE_CHANNEL);
       ipc.removeHandler(TABS_TERMINAL_CREATE_CHANNEL);

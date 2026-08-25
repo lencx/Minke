@@ -252,6 +252,11 @@ const config: ForgeConfig = {
           config: "vite.preload.config.mts",
           target: "preload",
         },
+        {
+          entry: "desktop/preload/tabs-web-preload.ts",
+          config: "vite.tabs-web-preload.config.mts",
+          target: "preload",
+        },
       ],
       renderer: [
         {

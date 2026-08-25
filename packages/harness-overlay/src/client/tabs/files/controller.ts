@@ -13,6 +13,9 @@ import type {
   FileManagerViewStateUpdate,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
+  isAbsoluteLocalPath,
+} from "@minke/harness-overlay/tabs/web-link-contract.ts";
+import {
   isDirectoryEntry,
   isFilesTab,
   type FilesExplorerPosition,
@@ -68,14 +71,6 @@ function parentPath(path: string): string {
 
 function directlyContains(directory: string, path: string): boolean {
   return path === directory || parentPath(path) === directory;
-}
-
-function isAbsoluteFilePath(path: string): boolean {
-  return (
-    path.startsWith("/") ||
-    /^[A-Za-z]:[\\/]/u.test(path) ||
-    path.startsWith("\\\\")
-  );
 }
 
 /** Files-specific navigation layered over the content-agnostic Tabs core. */
@@ -155,7 +150,7 @@ export class FilesTabsController {
     if (
       this.#disposed ||
       !this.#desktop.available ||
-      !isAbsoluteFilePath(path)
+      !isAbsoluteLocalPath(path)
     ) {
       return undefined;
     }
@@ -208,6 +203,18 @@ export class FilesTabsController {
       kind: "file",
     });
     return tabId;
+  }
+
+  openLocalPath(path: string, title: string): boolean {
+    if (
+      this.#disposed ||
+      !this.#desktop.available ||
+      !isAbsoluteLocalPath(path)
+    ) {
+      return false;
+    }
+    void this.#openLocalPath(path, title);
+    return true;
   }
 
   navigate(tabId: string, path: string): void {
@@ -714,6 +721,21 @@ export class FilesTabsController {
       subscription.dispose();
     }
     this.#watchSubscriptions.clear();
+  }
+
+  async #openLocalPath(
+    path: string,
+    title: string,
+  ): Promise<void> {
+    try {
+      await this.#desktop.list({
+        path,
+        includeRepository: true,
+      });
+      if (!this.#disposed) this.create(path, title);
+    } catch {
+      if (!this.#disposed) this.openFile(path, title);
+    }
   }
 
   #hydrateViewState(): void {

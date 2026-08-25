@@ -1,6 +1,10 @@
 import {
   normalizeWebTabUrl,
 } from "@minke/harness-overlay/tabs/contract.ts";
+import {
+  normalizeAbsoluteLocalPath,
+  type WebTabLocalPathRequest,
+} from "@minke/harness-overlay/tabs/web-link-contract.ts";
 import type {
   DesktopTabsPort,
 } from "@minke/harness-overlay/client/desktop/index.ts";
@@ -17,6 +21,13 @@ import {
   WebTabAnnotationController,
   type WebAnnotationDependencies,
 } from "./annotation-controller.ts";
+
+export interface WebTabsDependencies
+  extends WebAnnotationDependencies {
+  readonly openLocalPath?: (
+    request: WebTabLocalPathRequest,
+  ) => boolean;
+}
 
 export function fallbackWebTabTitle(value: string): string {
   const url = new URL(value);
@@ -79,12 +90,15 @@ export class WebTabsController {
   readonly #tabs: TabsRuntime;
   readonly #desktop: DesktopTabsPort;
   readonly #views = new Map<string, WebviewHandle>();
+  readonly #openLocalPath:
+    | WebTabsDependencies["openLocalPath"]
+    | undefined;
   #nextBlankId = 0;
 
   constructor(
     tabs: TabsRuntime,
     desktop: DesktopTabsPort,
-    dependencies?: WebAnnotationDependencies,
+    dependencies?: WebTabsDependencies,
   ) {
     this.#tabs = tabs;
     this.#desktop = desktop;
@@ -92,6 +106,7 @@ export class WebTabsController {
       tabs,
       dependencies,
     );
+    this.#openLocalPath = dependencies?.openLocalPath;
   }
 
   open(
@@ -242,6 +257,12 @@ export class WebTabsController {
   }
 
   navigate(id: string, candidate: string): boolean {
+    const localPath =
+      this.#desktop.resolveLocalPath?.(candidate) ??
+      normalizeAbsoluteLocalPath(candidate);
+    if (localPath !== undefined) {
+      return this.openLocalPath({ path: localPath });
+    }
     const url = normalizeWebAddressInput(candidate);
     if (url === undefined) return false;
     const tab = this.#tabs.tab(id);
@@ -304,6 +325,10 @@ export class WebTabsController {
     ) {
       this.#desktop.openExternal(tab.payload.url);
     }
+  }
+
+  openLocalPath(request: WebTabLocalPathRequest): boolean {
+    return this.#openLocalPath?.(request) ?? false;
   }
 
   dispose(): void {

@@ -449,9 +449,19 @@ export function installTabs(
     placement: "bottom" | "right",
   ) => {
     const renderers = new TabRendererRegistry();
+    const filesTabs = filesPort.available
+      ? new FilesTabsController(tabs, filesPort, {
+          placement,
+        })
+      : undefined;
     const webTabs = tabsPort.embeddedWebAvailable
       ? new WebTabsController(tabs, tabsPort, {
           chat: browserCommentsChat,
+          openLocalPath: ({ path, title }) =>
+            filesTabs?.openLocalPath(
+              path,
+              title ?? filesT("files.tab.new"),
+            ) ?? false,
         })
       : undefined;
     const pluginTabs =
@@ -462,11 +472,6 @@ export function installTabs(
           tabsPort,
           webTabs,
         )
-      : undefined;
-    const filesTabs = filesPort.available
-      ? new FilesTabsController(tabs, filesPort, {
-          placement,
-        })
       : undefined;
     const terminalTabs = terminalPort.available
       ? new TerminalTabsController(tabs, terminalPort)

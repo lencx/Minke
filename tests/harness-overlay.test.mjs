@@ -907,7 +907,7 @@ test("About stays hidden when desktop metadata is unavailable", () => {
 test("Tabs stays generic while content types register as adapters", () => {
   assert.match(
     tabsInstallSource,
-    /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new WebTabsController[\s\S]*new FilesTabsController[\s\S]*new TerminalTabsController[\s\S]*installDetailsTabs/u,
+    /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new FilesTabsController[\s\S]*new WebTabsController[\s\S]*new TerminalTabsController[\s\S]*installDetailsTabs/u,
   );
   assert.match(
     tabsInstallSource,

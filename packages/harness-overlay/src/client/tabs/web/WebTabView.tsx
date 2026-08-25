@@ -8,6 +8,7 @@ import type {
   DidFailLoadEvent,
   DidNavigateEvent,
   DidNavigateInPageEvent,
+  IpcMessageEvent,
   PageFaviconUpdatedEvent,
   PageTitleUpdatedEvent,
   WebviewTag,
@@ -15,6 +16,10 @@ import type {
 import {
   TABS_WEB_PARTITION,
 } from "@minke/harness-overlay/tabs/contract.ts";
+import {
+  parseWebTabLocalPathRequest,
+  TABS_WEB_LOCAL_PATH_CHANNEL,
+} from "@minke/harness-overlay/tabs/web-link-contract.ts";
 import type {
   ManagedTab,
 } from "@minke/harness-overlay/client/tabs/types.ts";
@@ -89,6 +94,7 @@ export function WebTabView({
       "webview",
     ) as WebviewTag;
     view.className = "minke-tabs-view__guest";
+    view.setAttribute("allowpopups", "");
     view.setAttribute("src", initialUrl);
     view.setAttribute("partition", TABS_WEB_PARTITION);
     view.setAttribute(
@@ -152,6 +158,18 @@ export function WebTabView({
         error: event.errorDescription,
       });
     };
+    const handleIpcMessage = (
+      event: IpcMessageEvent,
+    ): void => {
+      if (event.channel !== TABS_WEB_LOCAL_PATH_CHANNEL) return;
+      try {
+        controller.openLocalPath(
+          parseWebTabLocalPathRequest(event.args[0]),
+        );
+      } catch {
+        // Invalid guest messages never gain access to Files tabs.
+      }
+    };
 
     view.addEventListener("did-start-loading", handleStart);
     view.addEventListener("did-stop-loading", handleStop);
@@ -166,6 +184,7 @@ export function WebTabView({
       handleNavigateInPage,
     );
     view.addEventListener("did-fail-load", handleFailure);
+    view.addEventListener("ipc-message", handleIpcMessage);
     host.append(view);
 
     return () => {
@@ -182,6 +201,7 @@ export function WebTabView({
         handleNavigateInPage,
       );
       view.removeEventListener("did-fail-load", handleFailure);
+      view.removeEventListener("ipc-message", handleIpcMessage);
       detach();
       view.remove();
       viewRef.current = null;

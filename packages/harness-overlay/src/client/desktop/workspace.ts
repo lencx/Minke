@@ -283,6 +283,9 @@ export function desktopTabsPort(
         parseTabsLayoutStateUpdate(update),
       );
     },
+    resolveLocalPath(candidate) {
+      return bridge.resolveLocalPath?.(candidate);
+    },
     openExternal(url) {
       bridge.openExternal(url);
     },

@@ -184,6 +184,7 @@ export interface DesktopTabsPort {
   readonly embeddedWebAvailable: boolean;
   readLayoutState(): Promise<TabsLayoutState>;
   writeLayoutState(update: TabsLayoutStateUpdate): Promise<void>;
+  resolveLocalPath?(candidate: string): string | undefined;
   openExternal(url: string): void;
 }
 
@@ -296,6 +297,9 @@ export interface DesktopTabsBridge {
   writeLayoutState?(
     update: TabsLayoutStateUpdate,
   ): Promise<void>;
+  resolveLocalPath?(
+    candidate: string,
+  ): string | undefined;
   openExternal(url: string): void;
 }
 
