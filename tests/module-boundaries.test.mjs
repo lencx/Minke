@@ -52,6 +52,7 @@ const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/tabs/contract",
   "@minke/harness-overlay/tabs/files-contract",
   "@minke/harness-overlay/tabs/terminal-contract",
+  "@minke/harness-overlay/tabs/web-link-contract",
   "@minke/harness-overlay/terminal-settings-contract",
   "@minke/harness-overlay/trusted-host-control-contract",
   "@minke/harness-overlay/web-search-settings-contract",

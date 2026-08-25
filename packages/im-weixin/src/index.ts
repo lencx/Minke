@@ -42,4 +42,7 @@ export {
   type WeixinVoiceCodec,
 } from "./contract.ts";
 export { beginWeixinLogin } from "./login.ts";
+export {
+  MINKE_WEIXIN_DEFAULT_BOT_AGENT,
+} from "./network.ts";
 export { createWeixinTransport } from "./transport.ts";

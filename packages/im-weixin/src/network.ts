@@ -18,7 +18,7 @@ import {
 const DEFAULT_JSON_LIMIT = 2 * 1024 * 1024;
 const DEFAULT_MEDIA_LIMIT = 100 * 1024 * 1024;
 const DEFAULT_TRUSTED_HOST_SUFFIXES = [".weixin.qq.com"] as const;
-const DEFAULT_BOT_AGENT = "Minke/0.2.0";
+export const MINKE_WEIXIN_DEFAULT_BOT_AGENT = "Minke/0.3.0";
 const BOT_AGENT_MAX_BYTES = 256;
 const MAX_RETRY_AFTER_MS = 24 * 60 * 60_000;
 const STALE_SESSION_CODE = -14;
@@ -104,7 +104,9 @@ function buildClientVersion(version: string): number {
 }
 
 export function sanitizeBotAgent(raw: string | undefined): string {
-  if (raw === undefined || raw.trim() === "") return DEFAULT_BOT_AGENT;
+  if (raw === undefined || raw.trim() === "") {
+    return MINKE_WEIXIN_DEFAULT_BOT_AGENT;
+  }
   const printable = [...raw.trim()]
     .filter((character) => {
       const code = character.charCodeAt(0);
@@ -112,7 +114,7 @@ export function sanitizeBotAgent(raw: string | undefined): string {
     })
     .join("")
     .replace(/\s+/gu, " ");
-  if (printable === "") return DEFAULT_BOT_AGENT;
+  if (printable === "") return MINKE_WEIXIN_DEFAULT_BOT_AGENT;
 
   let result = "";
   for (const character of printable) {
@@ -120,7 +122,7 @@ export function sanitizeBotAgent(raw: string | undefined): string {
     if (Buffer.byteLength(candidate, "utf8") > BOT_AGENT_MAX_BYTES) break;
     result = candidate;
   }
-  return result || DEFAULT_BOT_AGENT;
+  return result || MINKE_WEIXIN_DEFAULT_BOT_AGENT;
 }
 
 function randomWechatUin(): string {

@@ -42,6 +42,7 @@
     "src/**/*.css",
     "vite.main.config.mts",
     "vite.preload.config.mts",
-    "vite.renderer.config.mts"
+    "vite.renderer.config.mts",
+    "vite.tabs-web-preload.config.mts"
   ]
 }

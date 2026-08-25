@@ -88,6 +88,14 @@ jobs:
       - name: Test desktop
         run: pnpm test:desktop
 
+      - name: Test Electron runtimes
+        if: runner.os == 'macOS'
+        run: |
+          pnpm test:desktop:about-layout
+          pnpm test:desktop:agent-browser-runtime
+          pnpm test:desktop:web-tab-links-runtime
+          pnpm test:desktop:runtime
+
       - name: Prepare short Windows package temp
         if: runner.os == 'Windows'
         shell: pwsh
@@ -99,6 +107,9 @@ jobs:
           TMP: ${{ runner.os == 'Windows' && 'D:\t' || runner.temp }}
           SQUIRREL_TEMP: ${{ runner.os == 'Windows' && 'D:\t' || runner.temp }}
         run: pnpm make
+
+      - name: Test packaged runtime
+        run: pnpm harness:smoke:packaged
 
       - name: Test Agent Browser conversation
         if: matrix.platform == 'darwin' && matrix.arch == 'arm64'

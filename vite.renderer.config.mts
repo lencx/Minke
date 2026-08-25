@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import { productSourceAliases } from "./config/product-source-aliases.mts";
 
 const projectRoot = dirname(fileURLToPath(import.meta.url));
 
@@ -11,6 +12,7 @@ export default defineConfig({
   publicDir: resolve(projectRoot, "public"),
   plugins: [react(), tailwindcss()],
   resolve: {
+    alias: productSourceAliases(projectRoot),
     tsconfigPaths: true,
   },
   build: {

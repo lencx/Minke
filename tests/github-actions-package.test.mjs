@@ -126,14 +126,59 @@ test("GitHub Actions packages each supported desktop platform", async () => {
     /name:\s*Make distributables\s*\n\s*env:\s*\n\s*TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*TMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*SQUIRREL_TEMP:\s*\$\{\{\s*runner\.os == 'Windows' && 'D:\\t' \|\| runner\.temp\s*\}\}\s*\n\s*run:\s*pnpm make/u,
   );
   const makeIndex = source.indexOf("run: pnpm make");
+  const electronRuntimeStepIndex = source.indexOf(
+    "- name: Test Electron runtimes",
+  );
+  const electronRuntimeConditionIndex = source.indexOf(
+    "if: runner.os == 'macOS'",
+    electronRuntimeStepIndex,
+  );
+  const aboutRuntimeTestIndex = source.indexOf(
+    "pnpm test:desktop:about-layout",
+    electronRuntimeStepIndex,
+  );
+  const agentBrowserRuntimeTestIndex = source.indexOf(
+    "pnpm test:desktop:agent-browser-runtime",
+    electronRuntimeStepIndex,
+  );
+  const webTabLinksRuntimeTestIndex = source.indexOf(
+    "pnpm test:desktop:web-tab-links-runtime",
+    electronRuntimeStepIndex,
+  );
+  const desktopRuntimeTestIndex = source.indexOf(
+    "pnpm test:desktop:runtime",
+    electronRuntimeStepIndex,
+  );
+  const packagedSmokeIndex = source.indexOf(
+    "run: pnpm harness:smoke:packaged",
+  );
   const agentBrowserTestIndex = source.indexOf(
     "run: pnpm test:desktop:agent-browser-conversation:prepared",
   );
   const artifactUploadIndex = source.indexOf(
     "uses: actions/upload-artifact@",
   );
+  for (const index of [
+    electronRuntimeStepIndex,
+    electronRuntimeConditionIndex,
+    aboutRuntimeTestIndex,
+    agentBrowserRuntimeTestIndex,
+    webTabLinksRuntimeTestIndex,
+    desktopRuntimeTestIndex,
+    packagedSmokeIndex,
+  ]) {
+    assert.notEqual(index, -1);
+  }
+  assert.ok(typecheckIndex < electronRuntimeStepIndex);
+  assert.ok(electronRuntimeStepIndex < makeIndex);
+  assert.ok(electronRuntimeConditionIndex < aboutRuntimeTestIndex);
+  assert.ok(aboutRuntimeTestIndex < agentBrowserRuntimeTestIndex);
+  assert.ok(agentBrowserRuntimeTestIndex < webTabLinksRuntimeTestIndex);
+  assert.ok(webTabLinksRuntimeTestIndex < desktopRuntimeTestIndex);
+  assert.ok(desktopRuntimeTestIndex < makeIndex);
+  assert.ok(makeIndex < packagedSmokeIndex);
   assert.notEqual(agentBrowserTestIndex, -1);
-  assert.ok(makeIndex < agentBrowserTestIndex);
+  assert.ok(packagedSmokeIndex < agentBrowserTestIndex);
   assert.ok(agentBrowserTestIndex < artifactUploadIndex);
   assert.match(
     source,

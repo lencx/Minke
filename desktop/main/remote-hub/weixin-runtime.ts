@@ -23,6 +23,7 @@ import {
 import {
   beginWeixinLogin,
   createWeixinTransport,
+  MINKE_WEIXIN_DEFAULT_BOT_AGENT,
   WeixinTransportError,
   type WeixinLoginFlow,
   type WeixinLoginOptions,
@@ -691,7 +692,7 @@ export class WeixinCapabilityRuntime {
     this.#pendingLoginController = controller;
     try {
       const flow = await this.#beginLogin({
-        botAgent: "Minke/0.2.0",
+        botAgent: MINKE_WEIXIN_DEFAULT_BOT_AGENT,
         ...(previousGrant === undefined
           ? {}
           : {
@@ -974,7 +975,7 @@ export class WeixinCapabilityRuntime {
         path: this.#mailboxPath,
       });
       const transport = this.#createTransport({
-        botAgent: "Minke/0.2.0",
+        botAgent: MINKE_WEIXIN_DEFAULT_BOT_AGENT,
         credential: {
           accountId: stored.grant.accountId,
           token: stored.grant.token,

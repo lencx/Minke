@@ -33,6 +33,8 @@ const taskFiles = Object.freeze({
     "minke-config.test.mjs",
     "navigation-policy.test.mjs",
     "package-artifact.test.mjs",
+    "product-source-resolution.test.mjs",
+    "product-version.test.mjs",
     "sys-native-module.test.mjs",
   ]),
   harness: Object.freeze([
@@ -83,6 +85,7 @@ const taskFiles = Object.freeze({
   host: Object.freeze([
     "im-discord.test.mjs",
     "im-gateway.test.mjs",
+    "im-gateway-inbox-limits.test.mjs",
     "im-telegram.test.mjs",
     "im-weixin.test.mjs",
     "local-model-settings.test.mjs",
@@ -91,6 +94,7 @@ const taskFiles = Object.freeze({
     "remote.test.mjs",
     "discord-network.test.mjs",
     "remote-hub.test.mjs",
+    "telegram-network.test.mjs",
   ]),
 });
 
