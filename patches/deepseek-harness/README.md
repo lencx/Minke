@@ -48,6 +48,12 @@ then rejects any direct or restricted launch site that remains visible.
 - validates every replacement before changing the live policy and retains the loopback-only fence for privileged methods;
 - lets Minke apply an exact authority through its private parent-child process channel without restarting Harness.
 
+`subagent-effective-model-route.patch` is pinned to the same Harness commit. It:
+
+- makes an in-process child inherit each omitted provider/model field from the parent's latest effective `request/header`, with the creation-time route as the pre-request fallback;
+- preserves explicit child `agentOptions` as the highest-priority route and leaves provider-owned out-of-process subagents unchanged;
+- snapshots one resolved route before asynchronous one-shot or continuable child creation, and persists the same route in continuable descriptors.
+
 After changing the upstream pin or a patch, run:
 
 ```sh

@@ -1,0 +1,91 @@
+diff --git a/node_modules/@deepseek-ai/dsh-subagent/lib/index.js b/node_modules/@deepseek-ai/dsh-subagent/lib/index.js
+index bd9741e..77e3adc 100644
+--- a/node_modules/@deepseek-ai/dsh-subagent/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-subagent/lib/index.js
+@@ -488,21 +488,23 @@ function resolveChildDepth(parent, maxDepth) {
+ 	if (!Number.isSafeInteger(childDepth)) throw new RangeError("subagent child depth exceeds the safe-integer range");
+ 	if (maxDepth !== void 0 && childDepth > maxDepth) throw new SubagentDepthError(childDepth, maxDepth);
+ 	return childDepth;
+ }
+ /**
+-* Resolve the child's `AgentOptions`: the parent's provider/model/maxTokens
+-* route unless the request overrides it, stamped with the child's own
+-* delegation depth.
++* Resolve the child's `AgentOptions`: explicit child values override the
++* parent's latest logged provider/model route, or its creation route before
++* the first request. The parent's creation-time output cap remains the
++* inherited cap. The result is stamped with the child's delegation depth.
+ * @param parent - the delegating parent whose route the child inherits.
+ * @param requested - per-child overrides, if any.
+ * @param childDepth - the resolved delegation depth to stamp.
+ * @returns the resolved options for `ctx.agents.create()`.
+ */
+ function resolveChildAgentOptions(parent, requested, childDepth) {
+-	const parentProvider = parent.options.provider;
+-	const parentModel = parent.options.model;
++	const parentRequest = parent.session.requestHeader()?.config;
++	const parentProvider = parentRequest?.provider ?? parent.options.provider;
++	const parentModel = parentRequest?.model ?? parent.options.model;
+ 	const parentMaxTokens = parent.options.maxTokens;
+ 	return {
+ 		...parentProvider !== void 0 ? { provider: parentProvider } : {},
+ 		...parentModel !== void 0 ? { model: parentModel } : {},
+ 		...parentMaxTokens !== void 0 ? { maxTokens: parentMaxTokens } : {},
+@@ -775,12 +777,13 @@ var SubagentContinuationManager = class {
+ 		const persistence = this.requirePersistence();
+ 		assertSubagentMaxDepth(request.maxDepth);
+ 		const childId = spec.childId ?? SessionId(randomUUID());
+ 		this.assertChildIdAvailable(childId);
+ 		const childDepth = resolveChildDepth(parent, request.maxDepth);
+-		const agentProvider = request.agentOptions?.provider ?? parent.options.provider;
+-		const agentModel = request.agentOptions?.model ?? parent.options.model;
++		const childAgentOptions = resolveChildAgentOptions(parent, request.agentOptions, childDepth);
++		const agentProvider = childAgentOptions.provider;
++		const agentModel = childAgentOptions.model;
+ 		const descriptor = snapshotSubagentDescriptor({
+ 			mode: "continuable",
+ 			provider: spec.provider,
+ 			label: spec.label,
+ 			...agentProvider !== void 0 ? { agentProvider } : {},
+@@ -818,11 +821,11 @@ var SubagentContinuationManager = class {
+ 					create: {
+ 						seed,
+ 						meta: childSessionMeta(parent, childDepth, lineageSeedLength),
+ 						delegatedPolicies
+ 					},
+-					agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
++					agentOptions: childAgentOptions,
+ 					composition: {
+ 						persona: request.persona,
+ 						toolFilter: request.toolFilter
+ 					},
+ 					signal: spec.signal
+diff --git a/node_modules/@deepseek-ai/dsh-subagent-in-process-driver/lib/index.js b/node_modules/@deepseek-ai/dsh-subagent-in-process-driver/lib/index.js
+index 6266e34..3ba16e4 100644
+--- a/node_modules/@deepseek-ai/dsh-subagent-in-process-driver/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-subagent-in-process-driver/lib/index.js
+@@ -160,10 +160,11 @@ function attachDescriptorAppend(childCtx, descriptor) {
+ async function startInProcessRun(request, options) {
+ 	assertSubagentMaxDepth(request.maxDepth);
+ 	if (request.signal.aborted) throw prePublicationAbort();
+ 	const parent = request.parent;
+ 	const childDepth = resolveChildDepth(parent, request.maxDepth);
++	const childAgentOptions = resolveChildAgentOptions(parent, request.agentOptions, childDepth);
+ 	const childId = SessionId(randomUUID());
+ 	const seed = options.seed;
+ 	const activationBoundary = seed?.length ?? 0;
+ 	const inherited = captureDelegatedPolicyOverrides(parent);
+ 	let structured;
+@@ -178,11 +179,11 @@ async function startInProcessRun(request, options) {
+ 	};
+ 	return drivePublishedRun(await parent.ctx.agents.create({
+ 		sessionId: childId,
+ 		meta: childSessionMeta(parent, childDepth, activationBoundary),
+ 		...seed !== void 0 ? { seed } : {},
+-		agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
++		agentOptions: childAgentOptions,
+ 		signal: request.signal,
+ 		setup
+ 	}), request.signal, request.prompt, childId, activationBoundary, structured);
+ }
+ /**

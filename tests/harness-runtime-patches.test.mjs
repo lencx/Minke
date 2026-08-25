@@ -172,6 +172,34 @@ test("the background-process patch leaves generated ACL bundles to the runtime t
   );
 });
 
+test("the subagent model-route patch stays within in-process routing bundles", async () => {
+  const [patch] = await resolveHarnessRuntimePatches(
+    repositoryRoot,
+    [
+      "patches/deepseek-harness/subagent-effective-model-route.patch",
+    ],
+  );
+  assert.deepEqual(patch.targets, [
+    "node_modules/@deepseek-ai/dsh-subagent/lib/index.js",
+    "node_modules/@deepseek-ai/dsh-subagent-in-process-driver/lib/index.js",
+  ]);
+
+  const source = await readFile(patch.absolutePath, "utf8");
+  assert.match(
+    source,
+    /^\+\s*const parentRequest = parent\.session\.requestHeader\(\)\?\.config;/mu,
+  );
+  assert.match(
+    source,
+    /^\+\s*const parentProvider = parentRequest\?\.provider \?\? parent\.options\.provider;/mu,
+  );
+  assert.match(
+    source,
+    /^\+\s*const childAgentOptions = resolveChildAgentOptions\(parent, request\.agentOptions, childDepth\);/mu,
+  );
+  assert.doesNotMatch(source, /dsh-subagent-(?:codex|claude-code|dsh-sdk)/u);
+});
+
 async function withProcessPolicyFixture(
   {
     aclBundles,
