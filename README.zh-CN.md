@@ -122,6 +122,35 @@ Minke 同一时间只启用一条远程链路，并只在应用运行期间持�
 > [!CAUTION]
 > 移除 quarantine 属性会绕过一项 macOS 安全检查。Minke 更新器绝不会自动执行该命令。请仅将它作为最后手段，对从官方 Releases 页面下载的 `Minke.app` 使用，并且不要把路径替换为宽泛目录。
 
+#### 微信、Telegram 或 Discord 提示凭据存储不可用
+
+微信、Telegram 和 Discord 共用一个由 Electron `safeStorage` 与 macOS
+钥匙串保护的加密凭据保险库。未签名或签名不一致的 macOS 构建可能导致钥匙串
+无法识别 Minke，此时三个通道都会保持关闭，并提示系统无法提供受保护的凭据存储。
+
+先检查已安装应用：
+
+```bash
+codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app"
+```
+
+如果校验提示应用包无效或 `Info.plist` 已被修改，可使用下面这一条命令退出
+Minke、添加本机临时签名、验证并重新打开应用：
+
+```bash
+/usr/bin/osascript -e 'tell application "Minke" to quit' 2>/dev/null || true; while /usr/bin/pgrep -f '^/Applications/Minke\.app/Contents/MacOS/Minke( |$)' >/dev/null; do /bin/sleep 0.2; done; /usr/bin/codesign --force --deep --sign - --timestamp=none "/Applications/Minke.app" && /usr/bin/codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app" && /usr/bin/open "/Applications/Minke.app"
+```
+
+macOS 弹出钥匙串授权窗口后，输入 Mac 登录密码并选择**始终允许**。如果
+`codesign` 提示权限不足，只在执行签名的命令（`/usr/bin/codesign --force ...`）
+前添加 `sudo`。
+
+> [!WARNING]
+> 该命令会替换已安装应用的现有签名，仅适用于未签名或签名已经无效的预发布构建；
+> 不要对 Developer ID 签名且经过 Apple 公证的有效正式版本执行。重新安装或更新
+> Minke 后可能需要再次修复。不要删除 `~/.minke/secrets`，也不要删除“钥匙串访问”
+> 中的 Minke Safe Storage 项，因为已有消息通道凭据依赖其中的加密密钥。
+
 ### Windows
 
 1. 下载 Windows x64 `.exe` 安装程序。

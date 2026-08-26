@@ -137,6 +137,40 @@ platform behavior.
 > [!CAUTION]
 > Removing the quarantine attribute bypasses a macOS security check. Minke's updater never runs this command automatically. Use it only as a last resort for `Minke.app` downloaded from the official Releases page, and never replace the path with a broad directory.
 
+#### WeChat, Telegram, or Discord reports unavailable credential storage
+
+WeChat, Telegram, and Discord share one encrypted credential vault backed by
+Electron `safeStorage` and the macOS Keychain. An unsigned or inconsistently
+signed macOS build may prevent Keychain from recognizing Minke, so all three
+channels stay disabled and report that protected credential storage is
+unavailable.
+
+Check the installed application first:
+
+```bash
+codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app"
+```
+
+If verification reports an invalid bundle or modified `Info.plist`, quit
+Minke, apply a local ad-hoc signature, verify it, and reopen the application
+with this single command:
+
+```bash
+/usr/bin/osascript -e 'tell application "Minke" to quit' 2>/dev/null || true; while /usr/bin/pgrep -f '^/Applications/Minke\.app/Contents/MacOS/Minke( |$)' >/dev/null; do /bin/sleep 0.2; done; /usr/bin/codesign --force --deep --sign - --timestamp=none "/Applications/Minke.app" && /usr/bin/codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app" && /usr/bin/open "/Applications/Minke.app"
+```
+
+When macOS asks for Keychain access, enter the Mac login password and choose
+**Always Allow**. If `codesign` reports insufficient permissions, prefix only
+the signing invocation (`/usr/bin/codesign --force ...`) with `sudo`.
+
+> [!WARNING]
+> This command replaces the installed app's existing signature and is only a
+> local workaround for an unsigned or already-invalid pre-release build. Do
+> not run it on a valid Developer ID-signed and notarized release. The repair
+> may need to be repeated after reinstalling or updating Minke. Do not delete
+> `~/.minke/secrets` or the Minke Safe Storage item from Keychain Access,
+> because existing channel credentials depend on that encryption key.
+
 ### Windows
 
 1. Download the Windows x64 `.exe` installer.
