@@ -47,11 +47,11 @@ export const preferencesZh = {
     "行高必须在 {min} 到 {max} 之间。",
   "preferences.webSearch.title": "网页搜索",
   "preferences.webSearch.description":
-    "控制 Minke 是否注册免凭据的默认搜索 provider。",
+    "控制独立的免凭据 minke_web_search 工具；不会替换原生 web_search 与 web_fetch。",
   "preferences.webSearch.fallback.label":
-    "启用 Minke 默认搜索兜底",
+    "启用 Minke 搜索兜底",
   "preferences.webSearch.fallback.help":
-    "仅在未通过 web.searchProvider 或 DSH_WEB_SEARCH_PROVIDER 显式选择 provider 时生效。关闭后不会自动回退；重启 Minke 后生效。",
+    "原生 web_search 失败时自动用相同查询重试；web_fetch 失败时搜索替代来源并保留原错误。重启 Minke 后生效。",
   "preferences.webSearch.error.unavailable":
     "当前环境无法保存网页搜索设置。",
   "preferences.webSearch.error.read":
@@ -130,11 +130,11 @@ export const preferencesEn: Record<
     "Line height must be between {min} and {max}.",
   "preferences.webSearch.title": "Web search",
   "preferences.webSearch.description":
-    "Control whether Minke registers its credential-free default search provider.",
+    "Control the independent, credential-free minke_web_search tool. It does not replace native web_search or web_fetch.",
   "preferences.webSearch.fallback.label":
-    "Enable Minke default search fallback",
+    "Enable Minke search fallback",
   "preferences.webSearch.fallback.help":
-    "Used only when no provider is selected through web.searchProvider or DSH_WEB_SEARCH_PROVIDER. Disabling it does not fall back automatically; restart Minke for changes to take effect.",
+    "Automatically retries failed native web_search queries and finds alternative sources after web_fetch fails, while preserving the original error. Restart Minke for changes to take effect.",
   "preferences.webSearch.error.unavailable":
     "Web search settings cannot be saved in this environment.",
   "preferences.webSearch.error.read":

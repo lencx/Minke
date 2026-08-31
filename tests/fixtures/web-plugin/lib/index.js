@@ -4,7 +4,7 @@ export function apply(ctx) {
   return ctx.webServer.register({
     kind: "exact",
     path: "/smoke/plugin-inventory",
-    handler(request, response) {
+    async handler(request, response) {
       if (request.method !== "GET") {
         response.writeHead(405, { allow: "GET" });
         response.end();
@@ -14,7 +14,8 @@ export function apply(ctx) {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
       });
-      response.end(JSON.stringify(ctx.pluginInventory.list()));
+      const inventory = await ctx.pluginInventory.list();
+      response.end(JSON.stringify(inventory));
     },
   });
 }

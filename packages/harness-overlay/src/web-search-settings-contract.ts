@@ -1,4 +1,8 @@
-/** Shared desktop/host contract for Minke's credential-free search fallback. */
+/**
+ * Shared desktop/host contract for Minke's credential-free fallback tool.
+ * The persisted `fallbackEnabled` key and environment name remain stable for
+ * existing installations; they no longer imply a `ctx.web` provider override.
+ */
 
 export const MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV =
   "MINKE_WEB_SEARCH_FALLBACK_ENABLED";

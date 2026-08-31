@@ -1,38 +1,18 @@
 import assert from "node:assert/strict";
-import { registerHooks } from "node:module";
-import {
-  mkdir,
-  mkdtemp,
-  rm,
-  writeFile,
-} from "node:fs/promises";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  MINKE_WEB_SEARCH_TOOL_NAME,
+  apply,
+  formatMinkeWebSearchOutput,
+  parseMinkeWebSearchArgs,
+} from "@minke/harness-overlay/web-search/index.ts";
 import {
   parseRssSearchResult,
 } from "@minke/harness-overlay/web-search/provider.ts";
 import {
-  MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV,
-} from "@minke/harness-overlay/web-search-settings-contract.ts";
-
-const projectRoot = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-);
-const harnessRoot = join(projectRoot, "vendor", "deepseek-harness");
-const harnessUrl = pathToFileURL(`${harnessRoot}/`).href;
-const harnessModulesAnchor = pathToFileURL(
-  join(
-    harnessRoot,
-    "node_modules",
-    ".pnpm",
-    "node_modules",
-    "_minke_test.mjs",
-  ),
-).href;
+  assertSupportedJsonSchema,
+} from "../vendor/deepseek-harness/packages/core/tools/src/json-schema.ts";
 
 async function listen(server) {
   await new Promise((resolveListen, rejectListen) => {
@@ -55,42 +35,6 @@ async function close(server) {
     });
   });
 }
-
-// Harness uses an isolated pnpm linker. Re-anchor only its bare imports to
-// the workspace facade so every plugin shares the pinned Cordis singleton.
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (
-      specifier ===
-      "@lencx/minke-harness-overlay/web-search"
-    ) {
-      return {
-        shortCircuit: true,
-        url: pathToFileURL(
-          join(
-            projectRoot,
-            "packages",
-            "harness-overlay",
-            "lib",
-            "web-search.js",
-          ),
-        ).href,
-      };
-    }
-    const fromHarness = context.parentURL?.startsWith(harnessUrl) ?? false;
-    const isBare =
-      !specifier.startsWith(".") &&
-      !specifier.startsWith("/") &&
-      !specifier.startsWith("node:");
-    if (specifier.startsWith("@deepseek-ai/") || (fromHarness && isBare)) {
-      return nextResolve(specifier, {
-        ...context,
-        parentURL: harnessModulesAnchor,
-      });
-    }
-    return nextResolve(specifier, context);
-  },
-});
 
 test("Minke RSS search parsing is bounded and rejects unsafe XML", () => {
   const longSnippet = "x".repeat(3_000);
@@ -145,79 +89,53 @@ test("Minke RSS search parsing is bounded and rejects unsafe XML", () => {
   }
 });
 
-function testOverlay(settingsPath, storageRoot) {
-  // Keep the real host and Agent Preset capability rows; remove only bound
-  // ports, file watchers, and unrelated Minke services from this smoke.
-  return [
-    {
-      id: "settings",
-      config: { path: settingsPath, watch: false },
-    },
-    {
-      id: "storage-json",
-      config: { root: storageRoot },
-    },
-    { id: "webserver", disabled: true },
-    { id: "web-runtime", disabled: true },
-    { id: "session-telemetry-otel", disabled: true },
-    { id: "modules", disabled: true },
-    { id: "connection", disabled: true },
-    { id: "client-hmr", disabled: true },
-    { id: "directory-picker", disabled: true },
-    { id: "model-runtime", disabled: true },
-    { id: "minke-overlay", disabled: true },
-    {
-      id: "agent-presets",
-      config: {
-        default: "standard",
-        roots: [
-          {
-            path: join(
-              harnessRoot,
-              "apps",
-              "cli",
-              "config",
-              "agent-presets",
-            ),
-            trust: "system",
-          },
-        ],
-        includeUserRoot: false,
-      },
-    },
-    {
-      insert: [
-        {
-          id: "directory-picker-browse",
-          name: "@deepseek-ai/dsh-host-directory-picker-browse",
-        },
-        {
-          id: "ui-directory-picker-browse",
-          name: "@deepseek-ai/dsh-client-ui-directory-picker-browse",
-        },
-      ],
-    },
-  ];
-}
+test("minke_web_search validates bounded query batches", () => {
+  assert.deepEqual(
+    parseMinkeWebSearchArgs({
+      queries: [" alpha ", "beta", "alpha"],
+    }),
+    ["alpha", "beta"],
+  );
+  for (const queries of [
+    [],
+    [""],
+    ["a", "b", "c", "d", "e"],
+  ]) {
+    assert.throws(
+      () => parseMinkeWebSearchArgs({ queries }),
+      /quer(?:y|ies)/u,
+    );
+  }
+});
+
+test("minke_web_search renders guarded citation-ready output", () => {
+  const rendered = formatMinkeWebSearchOutput({
+    sources: [{
+      url: "https://example.test/result",
+      title: "Result",
+      snippet: "External snippet.",
+      publishedAt: "2026-08-24T00:00:00.000Z",
+    }],
+    truncated: true,
+  });
+  assert.match(rendered, /untrusted external content/u);
+  assert.match(
+    rendered,
+    /\[Result\]\(https:\/\/example\.test\/result\)/u,
+  );
+  assert.match(rendered, /Cite the relevant URLs/u);
+  assert.match(rendered, /Refine the query/u);
+});
 
 test(
-  "the Minke Web profile composes bounded web_search in every full Agent Preset",
-  { timeout: 120_000 },
+  "Minke registers an independent minke_web_search without replacing native web tools",
   async () => {
-    const home = await mkdtemp(join(tmpdir(), "minke-web-search-"));
-    const previousHome = process.env.DSH_HOME;
-    const previousDeepSeekApiKey = process.env.DEEPSEEK_API_KEY;
-    const previousSearchBaseURL =
-      process.env.MINKE_WEB_SEARCH_BASE_URL;
-    const previousFallbackEnabled =
-      process.env[MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV];
-    const previousExplicitProvider =
-      process.env.DSH_WEB_SEARCH_PROVIDER;
-    const searchRequests = [];
-    const searchServer = createServer((request, response) => {
+    const requests = [];
+    const server = createServer((request, response) => {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
-      searchRequests.push({
-        query: url.searchParams.get("q"),
+      const query = url.searchParams.get("q") ?? "";
+      requests.push({
+        query,
         userAgent: request.headers["user-agent"],
       });
       response.writeHead(200, {
@@ -226,280 +144,350 @@ test(
       response.end(`<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
   <item>
-    <title>Minke Browser</title>
-    <link>https://example.test/minke-browser</link>
-    <description>Product-owned search result.</description>
-    <pubDate>Sun, 24 Aug 2026 00:00:00 GMT</pubDate>
+    <title>${query} result</title>
+    <link>https://example.test/${encodeURIComponent(query)}</link>
+    <description>Result for ${query}.</description>
+  </item>
+  <item>
+    <title>Shared result</title>
+    <link>https://example.test/shared</link>
+    <description>Shared result.</description>
   </item>
 </channel></rss>`);
     });
-    const searchBaseURL = await listen(searchServer);
-    process.env.DSH_HOME = home;
-    delete process.env.DEEPSEEK_API_KEY;
-    delete process.env[MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV];
-    delete process.env.DSH_WEB_SEARCH_PROVIDER;
-    process.env.MINKE_WEB_SEARCH_BASE_URL = searchBaseURL;
+    const baseURL = await listen(server);
+    const definitions = new Map([
+      ["web_search", { name: "web_search", native: true }],
+      ["web_fetch", { name: "web_fetch", native: true }],
+    ]);
+    const sections = [];
+    const effects = [];
+    const listeners = new Map();
+    const restricted = [];
+    const lifted = [];
+    const ctx = {
+      effect(callback) {
+        effects.push(callback());
+      },
+      tools: {
+        register(definition) {
+          assert.equal(definitions.has(definition.name), false);
+          definitions.set(definition.name, definition);
+        },
+      },
+      systemPrompt: {
+        getSectionOrder() {
+          return 100;
+        },
+        section(section) {
+          sections.push(section);
+        },
+      },
+      agentPresets: {
+        composedPreset(agentContext) {
+          return agentContext.preset;
+        },
+      },
+      on(event, listener) {
+        listeners.set(event, listener);
+      },
+    };
 
-    let ctx;
     try {
-      const settingsPath = join(home, "settings.yaml");
-      const profileDir = join(home, "profiles", "web-search-test");
-      const rootConfig = join(profileDir, "cordis.yml");
-      await mkdir(profileDir, { recursive: true });
-      await writeFile(settingsPath, "{}\n");
-      await writeFile(rootConfig, "[]\n");
+      apply(ctx, {
+        baseURL,
+        maxResults: 2,
+        maxQueries: 4,
+      });
 
-      const [
-        {
-          boot,
-          healProfilesModuleFallback,
-          loadOverlayPatches,
-        },
-        { provideCmdline },
-      ] =
-        await Promise.all([
-          import("@deepseek-ai/dsh-app-boot"),
-          import("@deepseek-ai/dsh-cmdline"),
-        ]);
-      healProfilesModuleFallback(
-        join(harnessRoot, "apps", "cli", "package.json"),
-        home,
-      );
-      const createPatches = () => [
-        ...loadOverlayPatches(
-          "minke-web-search-test",
-          join(
-            harnessRoot,
-            "packages",
-            "bundle",
-            "base",
-            "cordis.patch.yml",
-          ),
-        ),
-        ...loadOverlayPatches(
-          "minke-web-search-test",
-          join(
-            harnessRoot,
-            "packages",
-            "bundle",
-            "web-app",
-            "cordis.patch.yml",
-          ),
-        ),
-        ...loadOverlayPatches(
-          "minke-web-search-test",
-          join(
-            projectRoot,
-            "packages",
-            "harness-overlay",
-            "cordis.patch.yml",
-          ),
-        ),
-        ...testOverlay(settingsPath, join(home, "storages")),
-      ];
-      const bootContext = () =>
-        boot(
-          "minke-web-search-test",
-          rootConfig,
-          createPatches(),
-          (hostCtx) => {
-            provideCmdline(hostCtx, {
-              args: [],
-              exit: () => {},
-            });
-          },
-        );
-      ctx = await bootContext();
-
-      assert.deepEqual(
-        ctx.tools.schemas().map(({ name }) => name),
-        [],
-        "web_search must not leak from an Agent Preset into the host layer",
-      );
-      assert.deepEqual(
-        await ctx.web.search({
-          query: "Minke product route",
-          maxResults: 1,
-        }),
-        {
-          sources: [
-            {
-              title: "Minke Browser",
-              url: "https://example.test/minke-browser",
-              snippet: "Product-owned search result.",
-              publishedAt: "2026-08-24T00:00:00.000Z",
-            },
-          ],
-          truncated: false,
-        },
-        "web_search must use Minke's credential-free provider instead of DeepSeek",
-      );
-      assert.deepEqual(searchRequests.map(({ query }) => query), [
-        "Minke product route",
+      assert.deepEqual([...definitions.keys()], [
+        "web_search",
+        "web_fetch",
+        MINKE_WEB_SEARCH_TOOL_NAME,
       ]);
+      assert.equal(definitions.get("web_search").native, true);
+      assert.equal(definitions.get("web_fetch").native, true);
       assert.equal(
-        searchRequests.some(({ userAgent }) =>
+        Object.hasOwn(ctx, "web"),
+        false,
+        "the Minke plugin must not depend on or mutate ctx.web",
+      );
+      const routingGuidance =
+        typeof sections[0]?.text === "function"
+          ? sections[0].text({
+              scope: { ctx: { preset: "standard" } },
+            })
+          : sections[0]?.text ?? "";
+      assert.match(
+        routingGuidance,
+        /automatically retries failed native web_search[\s\S]*minke_web_search/u,
+      );
+      assert.match(
+        routingGuidance,
+        /failed web_fetch remains an error[\s\S]*alternatives/u,
+      );
+      assert.equal(
+        sections[0].text({
+          scope: { ctx: { preset: "minimal" } },
+        }),
+        "",
+      );
+
+      const definition = definitions.get(
+        MINKE_WEB_SEARCH_TOOL_NAME,
+      );
+      assert.doesNotThrow(
+        () => assertSupportedJsonSchema(definition.output.schema),
+        "the alpha.2 tool registry must accept the output schema",
+      );
+      const result = await definition.execute(
+        { queries: ["alpha", "beta"] },
+        { signal: new AbortController().signal },
+      );
+      assert.deepEqual(
+        result.sources.map(({ url }) => url),
+        [
+          "https://example.test/alpha",
+          "https://example.test/beta",
+        ],
+      );
+      assert.equal(result.truncated, true);
+      assert.deepEqual(
+        requests.map(({ query }) => query).sort(),
+        ["alpha", "beta"],
+      );
+      assert.equal(
+        requests.some(({ userAgent }) =>
           /\bElectron\//u.test(userAgent ?? "")
         ),
         false,
       );
-
-      for (const preset of ["standard", "code", "cordis"]) {
-        const handle = await ctx.agents.create({
-          sessionId: `minke-web-search-${preset}`,
-          setup: (agentCtx) =>
-            ctx.agentPresets.mount(agentCtx, preset).then(() => undefined),
-        });
-        try {
-          const definition = ctx.tools.get("web_search", handle.agent);
-          assert.ok(
-            definition,
-            `${preset} must register web_search in its scoped tool layer`,
-          );
-          assert.equal(definition.timeoutMs, 60_000);
-          assert.match(definition.description, /1–4 queries/u);
-          assert.equal(
-            ctx.tools.get("web_fetch", handle.agent),
-            undefined,
-            `${preset} must keep web_fetch disabled`,
-          );
-
-          const assembly = await ctx.systemPrompt.assemble({
-            scope: handle.agent,
-          });
-          if (preset === "code") {
-            assert.deepEqual(
-              assembly.tools.map(({ name }) => name),
-              ["run_code"],
-            );
-            assert.match(
-              assembly.sections.find(({ name }) => name === "tools:sdk")
-                ?.text ?? "",
-              /web_search/u,
-            );
-          } else {
-            assert.ok(
-              assembly.tools.some(({ name }) => name === "web_search"),
-              `${preset} must present web_search to the model`,
-            );
-            assert.ok(
-              !assembly.tools.some(({ name }) => name === "web_fetch"),
-              `${preset} must not present web_fetch to the model`,
-            );
-          }
-        } finally {
-          await handle.dispose();
-        }
-      }
-
-      const minimal = await ctx.agents.create({
-        sessionId: "minke-web-search-minimal",
-        setup: (agentCtx) =>
-          ctx.agentPresets.mount(agentCtx, "minimal").then(() => undefined),
-      });
-      try {
-        assert.equal(ctx.tools.get("web_search", minimal.agent), undefined);
-        assert.equal(ctx.tools.get("web_fetch", minimal.agent), undefined);
-      } finally {
-        await minimal.dispose();
-      }
-
-      await ctx.fiber.dispose();
-      ctx = undefined;
-      process.env[MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV] = "0";
-      ctx = await bootContext();
-      await assert.rejects(
-        ctx.web.search({
-          query: "disabled Minke fallback",
-          maxResults: 1,
-        }),
-        (error) =>
-          error instanceof Error &&
-          error.code === "WEB_PROVIDER_UNAVAILABLE",
-      );
-      assert.equal(
-        searchRequests.length,
-        1,
-        "disabling the fallback must not call the Minke RSS endpoint",
+      assert.match(
+        definition.output.render(
+          { queries: ["alpha", "beta"] },
+          result,
+        )[0].text,
+        /https:\/\/example\.test\/alpha/u,
       );
 
-      await ctx.fiber.dispose();
-      ctx = undefined;
-      delete process.env[MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV];
-      process.env.DSH_WEB_SEARCH_PROVIDER =
-        "explicit-test-provider";
-      ctx = await bootContext();
-      let explicitSearches = 0;
-      const unregisterExplicit =
-        ctx.web.registerSearchProvider({
-          id: "explicit-test-provider",
-          available: () => true,
-          async search() {
-            explicitSearches += 1;
-            return {
-              sources: [{
-                title: "Explicit provider",
-                url: "https://explicit.test/result",
-              }],
-              truncated: false,
-            };
+      const nativeSearchFailure = {
+        isError: true,
+        error: {
+          message:
+            'DeepSeek API error (HTTP 503)\n\nThe web search request used endpoint "https://search.example/v1/messages".',
+          info: {
+            name: "WebError",
+            code: "WEB_PROVIDER_ERROR",
           },
-        });
-      try {
-        assert.deepEqual(
-          await ctx.web.search({
-            query: "respect explicit provider",
-            maxResults: 1,
-          }),
+          // Unknown/internal fields must never be serialized into fallback
+          // output. Only the ToolFailure contract is safe to project.
+          details: { apiKey: "must-not-leak" },
+        },
+        content: [
           {
-            sources: [{
-              title: "Explicit provider",
-              url: "https://explicit.test/result",
-            }],
-            truncated: false,
+            type: "text",
+            text:
+              'Error: DeepSeek API error (HTTP 503)\n\nThe web search request used endpoint "https://search.example/v1/messages".',
           },
-        );
-      } finally {
-        unregisterExplicit();
-      }
-      assert.equal(explicitSearches, 1);
-      assert.equal(
-        searchRequests.length,
-        1,
-        "an explicit DSH provider must not fall through to Minke",
+          {
+            type: "text",
+            text:
+              "Search endpoint configuration is separate from chat.",
+          },
+          {
+            type: "text",
+            text: [
+              "Diagnostic mirror: https://alice:must-not-leak@search.example/v1/messages?api_key=must-not-leak&mode=web",
+              "Authorization: Bearer must-not-leak",
+              "token=must-not-leak",
+            ].join("\n"),
+          },
+        ],
+        debug: { authorization: "Bearer must-not-leak" },
+      };
+      const routedSearch = await listeners.get("tools/execute")(
+        {
+          name: "web_search",
+          arguments: { queries: ["native failure"] },
+          signal: new AbortController().signal,
+        },
+        async () => nativeSearchFailure,
       );
+      assert.equal(routedSearch.isError, false);
+      assert.match(
+        routedSearch.value.content,
+        /automatic minke_web_search fallback/u,
+      );
+      assert.match(
+        routedSearch.value.content,
+        /WebError[\s\S]*WEB_PROVIDER_ERROR/u,
+      );
+      assert.match(
+        routedSearch.value.content,
+        /The web search request used endpoint "https:\/\/search\.example\/v1\/messages"/u,
+      );
+      assert.match(
+        routedSearch.value.content,
+        /Search endpoint configuration is separate from chat/u,
+      );
+      assert.match(
+        routedSearch.value.content,
+        /https:\/\/search\.example\/v1\/messages\?api_key=REDACTED&mode=web/u,
+      );
+      assert.match(
+        routedSearch.value.content,
+        /Authorization: REDACTED/u,
+      );
+      assert.match(
+        routedSearch.value.content,
+        /token=REDACTED/u,
+      );
+      assert.doesNotMatch(
+        routedSearch.value.content,
+        /must-not-leak|alice:|apiKey/iu,
+      );
+      assert.deepEqual(
+        routedSearch.value.sources.map(({ url }) => url),
+        [
+          "https://example.test/native%20failure",
+          "https://example.test/shared",
+        ],
+      );
+
+      const nativeFetchFailure = {
+        isError: true,
+        error: {
+          message: "upstream returned HTTP 503",
+          info: {
+            name: "WebError",
+            code: "WEB_PROVIDER_ERROR",
+          },
+        },
+        content: [
+          {
+            type: "text",
+            text: "Error: upstream returned HTTP 503",
+          },
+          {
+            type: "text",
+            text: "Effective fetch endpoint: https://failed.example/page",
+          },
+        ],
+      };
+      const routedFetch = await listeners.get("tools/execute")(
+        {
+          name: "web_fetch",
+          arguments: { url: "https://failed.example/page" },
+          signal: new AbortController().signal,
+        },
+        async () => nativeFetchFailure,
+      );
+      assert.equal(
+        routedFetch.isError,
+        true,
+        "search alternatives must not masquerade as fetched content",
+      );
+      assert.equal(routedFetch.error, nativeFetchFailure.error);
+      assert.deepEqual(
+        routedFetch.content.slice(0, -1),
+        nativeFetchFailure.content,
+      );
+      assert.equal(
+        routedFetch.content[0],
+        nativeFetchFailure.content[0],
+      );
+      assert.match(
+        routedFetch.content.at(-1).text,
+        /original URL was not fetched/u,
+      );
+      assert.match(
+        routedFetch.content.at(-1).text,
+        /minke_web_search fallback found search alternatives/u,
+      );
+      assert.match(
+        routedFetch.content.at(-1).text,
+        /https:\/\/example\.test\/https%3A%2F%2Ffailed\.example%2Fpage/u,
+      );
+
+      const cancelledFailure = {
+        ...nativeSearchFailure,
+        error: {
+          message: "aborted",
+          info: { code: "ABORTED" },
+        },
+      };
+      assert.equal(
+        await listeners.get("tools/execute")(
+          {
+            name: "web_search",
+            arguments: { queries: ["must not run"] },
+            signal: new AbortController().signal,
+          },
+          async () => cancelledFailure,
+        ),
+        cancelledFailure,
+      );
+
+      const providerCancelledFailure = {
+        ...nativeSearchFailure,
+        error: {
+          message: "DeepSeek search aborted",
+          info: {
+            name: "WebError",
+            code: "WEB_ABORTED",
+          },
+        },
+        content: [{
+          type: "text",
+          text: "Error: DeepSeek search aborted",
+        }],
+      };
+      const requestCountBeforeProviderCancellation = requests.length;
+      assert.equal(
+        await listeners.get("tools/execute")(
+          {
+            name: "web_search",
+            arguments: { queries: ["must also not run"] },
+            signal: new AbortController().signal,
+          },
+          async () => providerCancelledFailure,
+        ),
+        providerCancelledFailure,
+      );
+      assert.equal(
+        requests.length,
+        requestCountBeforeProviderCancellation,
+      );
+
+      const minimalAgent = {
+        session: { id: "minimal-session" },
+        ctx: {
+          preset: "minimal",
+          tools: {
+            restrict({ deny }) {
+              restricted.push(deny);
+              return () => lifted.push(deny);
+            },
+          },
+        },
+      };
+      listeners.get("agent/created")({
+        agent: minimalAgent,
+      });
+      assert.deepEqual(restricted, [[MINKE_WEB_SEARCH_TOOL_NAME]]);
+      listeners.get("agent-preset/selected")(
+        minimalAgent.session.id,
+        "standard",
+      );
+      assert.equal(lifted.length, 1);
+      listeners.get("agent/disposed")({
+        agent: minimalAgent,
+      });
     } finally {
-      await ctx?.fiber.dispose();
-      if (previousHome === undefined) {
-        delete process.env.DSH_HOME;
-      } else {
-        process.env.DSH_HOME = previousHome;
+      for (const dispose of effects.reverse()) {
+        await dispose?.();
       }
-      if (previousDeepSeekApiKey === undefined) {
-        delete process.env.DEEPSEEK_API_KEY;
-      } else {
-        process.env.DEEPSEEK_API_KEY = previousDeepSeekApiKey;
-      }
-      if (previousSearchBaseURL === undefined) {
-        delete process.env.MINKE_WEB_SEARCH_BASE_URL;
-      } else {
-        process.env.MINKE_WEB_SEARCH_BASE_URL =
-          previousSearchBaseURL;
-      }
-      if (previousFallbackEnabled === undefined) {
-        delete process.env[MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV];
-      } else {
-        process.env[MINKE_WEB_SEARCH_FALLBACK_ENABLED_ENV] =
-          previousFallbackEnabled;
-      }
-      if (previousExplicitProvider === undefined) {
-        delete process.env.DSH_WEB_SEARCH_PROVIDER;
-      } else {
-        process.env.DSH_WEB_SEARCH_PROVIDER =
-          previousExplicitProvider;
-      }
-      await close(searchServer);
-      await rm(home, { recursive: true, force: true });
+      await close(server);
     }
   },
 );
