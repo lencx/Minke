@@ -11,6 +11,7 @@ import {
   parseRssSearchResult,
 } from "@minke/harness-overlay/web-search/provider.ts";
 import {
+  assertObjectJsonSchema,
   assertSupportedJsonSchema,
 } from "../vendor/deepseek-harness/packages/core/tools/src/json-schema.ts";
 
@@ -235,6 +236,10 @@ test(
 
       const definition = definitions.get(
         MINKE_WEB_SEARCH_TOOL_NAME,
+      );
+      assert.doesNotThrow(
+        () => assertObjectJsonSchema(definition.parameters),
+        "model function parameters must use an object-rooted JSON Schema",
       );
       assert.doesNotThrow(
         () => assertSupportedJsonSchema(definition.output.schema),

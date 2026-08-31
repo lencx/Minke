@@ -713,13 +713,17 @@ export function apply(
     description:
       `Search the web through Minke's credential-free RSS endpoint. Provide 1–${String(resolved.maxQueries)} queries. This independent tool is the automatic fallback when native web_search fails and can discover alternative sources after web_fetch fails.`,
     parameters: {
-      queries: {
-        type: "array",
-        required: true,
-        items: { type: "string" },
-        description:
-          `Required search queries; accepts 1–${String(resolved.maxQueries)} items and merges their results.`,
+      type: "object",
+      properties: {
+        queries: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            `Required search queries; accepts 1–${String(resolved.maxQueries)} items and merges their results.`,
+        },
       },
+      required: ["queries"],
+      additionalProperties: false,
     },
     output: {
       schema: {
