@@ -44,17 +44,13 @@ export function installLocalModel(
   );
   ctx.effect(
     () => {
-      let active = true;
-      let disposeView = (): void => {};
-      void modelRuntimeSettings.initialize().then(() => {
-        if (!active) return;
-        disposeView = installLocalModelSettings(
-          modelRuntimeSettings,
-          localModelT,
-        );
-      });
+      const disposeView = installLocalModelSettings(
+        ctx.slots,
+        modelRuntimeSettings,
+        localModelT,
+      );
+      void modelRuntimeSettings.initialize();
       return () => {
-        active = false;
         disposeView();
         modelRuntimeSettings.dispose();
       };

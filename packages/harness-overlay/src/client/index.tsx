@@ -1,7 +1,6 @@
 import { installAbout } from "./about/install.tsx";
 import { installWebBrand } from "./brand/install.tsx";
 import { installBrowserSettings } from "./browser-settings/index.ts";
-import { installConversationOutline } from "./conversation-outline/install.tsx";
 import type {
   HarnessClientContext,
 } from "./core/context.ts";
@@ -22,10 +21,11 @@ import { installTabs } from "./tabs/install.tsx";
 /** Cordis services required by this out-of-tree browser plugin. */
 export const inject = [
   "connection",
+  "remote",
   "slots",
   "locale",
   "theme",
-  "workspaces",
+  "uiWorkspace",
   "sessions",
   "layout",
 ];
@@ -34,7 +34,6 @@ export const inject = [
 export function apply(ctx: HarnessClientContext): void {
   const minkeSettings = new MinkeSettingsRuntime();
   installDesktopClient(ctx);
-  installConversationOutline(ctx);
   installAbout(ctx);
   installDataHome(ctx, minkeSettings);
   installBrowserSettings(ctx, minkeSettings);

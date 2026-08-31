@@ -118,13 +118,50 @@ function rootBlocks(source) {
   return blocks;
 }
 
+function splitSelectorList(prelude) {
+  const selectors = [];
+  let start = 0;
+  let roundDepth = 0;
+  let squareDepth = 0;
+  let quote;
+  for (let index = 0; index < prelude.length; index += 1) {
+    const current = prelude[index];
+    if (quote !== undefined) {
+      if (current === "\\") {
+        index += 1;
+      } else if (current === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (current === "'" || current === '"') {
+      quote = current;
+      continue;
+    }
+    if (current === "(") roundDepth += 1;
+    else if (current === ")") roundDepth -= 1;
+    else if (current === "[") squareDepth += 1;
+    else if (current === "]") squareDepth -= 1;
+    else if (
+      current === "," &&
+      roundDepth === 0 &&
+      squareDepth === 0
+    ) {
+      selectors.push(prelude.slice(start, index));
+      start = index + 1;
+    }
+  }
+  selectors.push(prelude.slice(start));
+  return selectors;
+}
+
 export function inspectCssContract(source) {
   const declarationsBySelector = new Map();
   for (const block of rootBlocks(source)) {
     const prelude = block.prelude;
     if (prelude.startsWith("@")) continue;
     const declarations = parseDeclarations(block.body);
-    for (const selector of prelude.split(",")) {
+    for (const selector of splitSelectorList(prelude)) {
       const normalized = normalizeWhitespace(selector);
       if (normalized.length === 0) continue;
       const rules =
@@ -159,6 +196,9 @@ export function inspectCssContract(source) {
       return declarationsBySelector.has(
         normalizeWhitespace(selector),
       );
+    },
+    selectors() {
+      return Object.freeze([...declarationsBySelector.keys()]);
     },
   });
 }

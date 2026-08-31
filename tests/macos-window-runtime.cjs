@@ -298,10 +298,19 @@ async function run() {
     })()
   `);
   await waitFor(() => localeMessages.length >= 1, 'Harness window locale');
-  const invalidLocaleError = await window.webContents.executeJavaScript(`
+  await window.webContents.executeJavaScript(`
+    (() => {
+      window.minkeDesktop.locale.publish('fr-FR');
+    })()
+  `);
+  await waitFor(
+    () => localeMessages.length >= 2,
+    'language-pack window locale',
+  );
+  const malformedLocaleError = await window.webContents.executeJavaScript(`
     (() => {
       try {
-        window.minkeDesktop.locale.publish('fr');
+        window.minkeDesktop.locale.publish('fr_FR');
         return '';
       } catch (error) {
         return String(error);
@@ -855,7 +864,7 @@ async function run() {
     dragSafety,
     initialThemeBeforeDomReady,
     initialThemeSource,
-    invalidLocaleError,
+    malformedLocaleError,
     heroBackground: before.heroBackground,
     heroBackgroundAlpha: alphaOf(before.heroBackground),
     localeMessages,
@@ -894,11 +903,14 @@ async function run() {
   ) {
     failures.push('theme preload did not publish the expected state sequence');
   }
-  if (JSON.stringify(result.localeMessages) !== JSON.stringify(['zh'])) {
-    failures.push('locale preload did not publish the Harness locale');
+  if (
+    JSON.stringify(result.localeMessages) !==
+    JSON.stringify(['zh', 'fr-FR'])
+  ) {
+    failures.push('locale preload did not preserve valid Harness locales');
   }
-  if (!result.invalidLocaleError.includes('invalid Harness locale snapshot')) {
-    failures.push('locale preload accepted an unsupported locale');
+  if (result.malformedLocaleError !== '') {
+    failures.push('malformed locale interrupted the renderer event chain');
   }
   if (result.messagesAfterAuthoritativeDomChange !== 2) {
     failures.push('DOM observer overrode the authoritative Harness theme');

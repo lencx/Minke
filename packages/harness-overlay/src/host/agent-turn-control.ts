@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 import {
+  remoteErrorOf,
+} from "@deepseek-ai/dsh-typert-protocol";
+import {
   agentTurnErrorResponse,
   agentTurnResultResponse,
   isAgentTurnProcessMessage,
@@ -10,63 +13,49 @@ import {
   type AgentTurnResult,
 } from "../agent-turn-contract.ts";
 
-const HISTORY_PAGE_MESSAGES = 100;
 const DEFAULT_POLL_INTERVAL_MS = 200;
 const MAX_FAILURE_MESSAGE_LENGTH = 8 * 1024;
 const MAX_OPERATION_FINGERPRINTS = 10_000;
+const CONSUMED_SESSION_EVENT_TYPES: ReadonlySet<string> =
+  new Set([
+    "assistant/message",
+    "tool/call",
+    "tool/result",
+    "turn/end",
+    "turn/start",
+    "user/message",
+  ]);
 
-interface RpcError {
-  readonly code: string;
-  readonly message: string;
-}
-
-type RpcResponse<Value> = {
-  readonly rpcId: string;
-  readonly result:
-    | { readonly ok: true; readonly value: Value }
-    | { readonly ok: false; readonly error: RpcError };
-};
-
-interface HistoryPage {
-  readonly events: readonly {
-    readonly event: unknown;
-    readonly view?: unknown;
-  }[];
-  readonly hasMore: boolean;
-}
-
-export interface AgentTurnSessionsPort {
+export interface AgentTurnSessionControllerPort {
   create(request: {
-    readonly rpcId: string;
-    readonly payload: { readonly sessionId: string };
-  }): Promise<RpcResponse<{ readonly sessionId: string }>>;
-  history(request: {
-    readonly rpcId: string;
-    readonly payload: {
-      readonly sessionId: string;
-      readonly beforeSeq?: number;
-      readonly maxMessages: number;
-    };
-  }): Promise<RpcResponse<HistoryPage>>;
-  prompt(request: {
-    readonly rpcId: string;
-    readonly payload: {
-      readonly sessionId: string;
-      readonly mode: "queue";
-      readonly content: readonly {
-        readonly type: "text";
-        readonly text: string;
-      }[];
-    };
-  }): Promise<
-    RpcResponse<{
-      readonly accepted: true;
-      readonly command?: {
-        readonly kind: "success";
-        readonly text?: string;
+    readonly sessionId: string;
+  }): Promise<{ readonly sessionId: string }>;
+  inspect(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    readonly events: readonly unknown[];
+  }>;
+  follow?(
+    request: {
+      readonly address: {
+        readonly kind: "session";
+        readonly sessionId: string;
       };
-    }>
-  >;
+    },
+    signal: AbortSignal,
+  ): AsyncIterable<unknown>;
+  prompt(request: {
+    readonly requestId: string;
+    readonly sessionId: string;
+    readonly mode: "queue";
+    readonly content: readonly {
+      readonly type: "text";
+      readonly text: string;
+    }[];
+  }, signal: AbortSignal): Promise<{
+    readonly accepted: true;
+  }>;
 }
 
 export interface AgentTurnProcessPort {
@@ -92,9 +81,7 @@ interface AgentTurnControlContext {
     callback: () => void | (() => void),
     label: string,
   ): unknown;
-  readonly apiProxy: {
-    readonly sessions: AgentTurnSessionsPort;
-  };
+  readonly sessionController: AgentTurnSessionControllerPort;
 }
 
 export interface AgentTurnExecutionOptions {
@@ -127,9 +114,18 @@ interface SessionEventRecord {
   readonly data: Record<string, unknown>;
 }
 
-interface HistoryEntryRecord {
-  readonly event: SessionEventRecord;
-  readonly view?: unknown;
+interface OperationInspectionCursor {
+  scannedLength: number;
+  lastSeq: number;
+  lastType: string | undefined;
+  latestTurnStart: SessionEventRecord | undefined;
+  user: SessionEventRecord | undefined;
+  turn: number | undefined;
+  turnEnd: SessionEventRecord | undefined;
+  closingAssistant: SessionEventRecord | undefined;
+  closingProducedPaths: readonly string[];
+  readonly toolCalls: Map<string, readonly string[]>;
+  readonly producedPaths: Set<string>;
 }
 
 function object(
@@ -147,66 +143,32 @@ function object(
 
 function sessionEvent(
   value: unknown,
-): SessionEventRecord | undefined {
+): Record<string, unknown> | undefined {
   const event = object(value);
-  const data = object(event?.data);
   if (
     event === undefined ||
-    data === undefined ||
     typeof event.type !== "string" ||
     !Number.isSafeInteger(event.seq) ||
-    Number(event.seq) < 0
+    Number(event.seq) < 0 ||
+    event.data === undefined ||
+    (
+      event.ignorable !== undefined &&
+      event.ignorable !== true
+    )
   ) {
     return undefined;
   }
-  return {
-    type: event.type,
-    seq: Number(event.seq),
-    data,
-  };
-}
-
-function validatedHistoryPage(value: unknown): {
-  readonly entries: readonly HistoryEntryRecord[];
-  readonly hasMore: boolean;
-} {
-  const page = object(value);
+  // SessionController owns persistence compatibility and validates the full
+  // event vocabulary before exposing an inspection. Minke only validates the
+  // payloads it interprets; unrelated events may legitimately carry scalar
+  // data and must remain forward compatible.
   if (
-    page === undefined ||
-    !Array.isArray(page.events) ||
-    typeof page.hasMore !== "boolean"
+    CONSUMED_SESSION_EVENT_TYPES.has(event.type) &&
+    object(event.data) === undefined
   ) {
-    invalidControlState(
-      "invalid-history",
-      "session.history returned an invalid page",
-    );
+    return undefined;
   }
-  const entries: HistoryEntryRecord[] = [];
-  let previousSeq = -1;
-  for (const value of page.events) {
-    const entry = object(value);
-    const parsed = sessionEvent(entry?.event);
-    if (
-      parsed === undefined ||
-      parsed.seq <= previousSeq
-    ) {
-      invalidControlState(
-        "invalid-history",
-        "session.history returned invalid event ordering",
-      );
-    }
-    previousSeq = parsed.seq;
-    entries.push({
-      event: parsed,
-      ...(entry?.view === undefined
-        ? {}
-        : { view: entry.view }),
-    });
-  }
-  return {
-    entries,
-    hasMore: page.hasMore,
-  };
+  return event;
 }
 
 function boundedFailureMessage(value: unknown): string {
@@ -227,17 +189,23 @@ export class AgentTurnControlError extends Error {
   }
 }
 
-function unwrap<Value>(
+async function controllerCall<Value>(
   operation: string,
-  response: RpcResponse<Value>,
-): Value {
-  if (response.result.ok) return response.result.value;
-  throw new AgentTurnControlError(
-    "control-rpc-error",
-    boundedFailureMessage(
-      `${operation} failed (${response.result.error.code}): ${response.result.error.message}`,
-    ),
-  );
+  call: () => Promise<Value>,
+): Promise<Value> {
+  try {
+    return await call();
+  } catch (error) {
+    const failure = remoteErrorOf(error);
+    if (failure === undefined) throw error;
+    throw new AgentTurnControlError(
+      "control-rpc-error",
+      boundedFailureMessage(
+        `${operation} failed (${failure.code}): ` +
+          boundedFailureMessage(error),
+      ),
+    );
+  }
 }
 
 function sameInput(
@@ -364,17 +332,6 @@ function sendControlError(
   );
 }
 
-function findLastEvent(
-  events: readonly SessionEventRecord[],
-  predicate: (event: SessionEventRecord) => boolean,
-): SessionEventRecord | undefined {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event !== undefined && predicate(event)) return event;
-  }
-  return undefined;
-}
-
 function sourceRpcId(event: SessionEventRecord): string | undefined {
   if (event.type !== "user/message") return undefined;
   const source = object(event.data.source);
@@ -421,81 +378,82 @@ function assistantText(event: SessionEventRecord): string | undefined {
     .join("");
 }
 
-function producedPathsForTurn(
-  entries: readonly HistoryEntryRecord[],
-  input: {
-    readonly firstSeq: number;
-    readonly lastSeq: number;
-    readonly turn: number;
-  },
-): readonly string[] {
-  const calls = new Map<string, readonly string[]>();
-  const produced = new Set<string>();
-  const ordered = [...entries].sort(
-    (left, right) => left.event.seq - right.event.seq,
-  );
-  for (const entry of ordered) {
-    const event = entry.event;
-    if (
-      event.seq <= input.firstSeq ||
-      event.seq >= input.lastSeq ||
-      numericField(event.data, "turn") !== input.turn
-    ) {
-      continue;
-    }
-    if (event.type === "tool/call") {
-      const callId = event.data.callId;
-      const presentation = object(entry.view);
-      const view = object(presentation?.view);
-      const isWrite =
-        view?.card === "diff" ||
-        (
-          view?.card === "generic" &&
-          view.kind === "edit"
-        );
-      if (
-        typeof callId !== "string" ||
-        callId.length === 0 ||
-        presentation?.for !== "call" ||
-        !isWrite ||
-        !Array.isArray(view?.locations)
-      ) {
-        continue;
-      }
-      calls.set(
-        callId,
-        view.locations.flatMap((value) => {
-          const location = object(value);
-          return typeof location?.path === "string" &&
-              location.path.length > 0
-            ? [location.path]
-            : [];
-        }),
-      );
-      continue;
-    }
-    if (event.type !== "tool/result") continue;
-    const message = object(event.data.message);
-    const source = object(message?.source);
-    const content = message?.content;
-    if (
-      typeof source?.callId !== "string" ||
-      !Array.isArray(content)
-    ) {
-      continue;
-    }
-    const result = object(content[0]);
-    if (
-      result?.type !== "tool-result" ||
-      result.isError === true
-    ) {
-      continue;
-    }
-    for (const path of calls.get(source.callId) ?? []) {
-      produced.add(path);
-    }
+function nonEmptyString(
+  value: unknown,
+): string | undefined {
+  return typeof value === "string" && value.length > 0
+    ? value
+    : undefined;
+}
+
+function toolArguments(
+  event: SessionEventRecord,
+): Record<string, unknown> | undefined {
+  if (
+    event.type !== "tool/call" ||
+    typeof event.data.arguments !== "string"
+  ) {
+    return undefined;
   }
-  return [...produced];
+  try {
+    return object(JSON.parse(event.data.arguments));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Recover paths only from the mutating filesystem tools shipped by Harness.
+ * The raw Session log intentionally carries no presentation `view`, so unknown
+ * tools are ignored instead of guessing that an arbitrary path-like argument
+ * represents a successful write.
+ */
+function producedPathsForCall(
+  event: SessionEventRecord,
+): readonly string[] {
+  const name = nonEmptyString(event.data.name);
+  const args = toolArguments(event);
+  if (name === undefined || args === undefined) return [];
+  if (name === "write" || name === "edit") {
+    const path = nonEmptyString(args.file_path);
+    return path === undefined ? [] : [path];
+  }
+  if (name !== "str_replace_editor") return [];
+  if (
+    args.command !== "create" &&
+    args.command !== "str_replace" &&
+    args.command !== "insert"
+  ) {
+    return [];
+  }
+  const path = nonEmptyString(args.path);
+  return path === undefined ? [] : [path];
+}
+
+function successfulToolResultCallId(
+  event: SessionEventRecord,
+): string | undefined {
+  if (
+    event.type !== "tool/result" ||
+    event.data.error !== undefined
+  ) {
+    return undefined;
+  }
+  const message = object(event.data.message);
+  const source = object(message?.source);
+  const callId = nonEmptyString(source?.callId);
+  if (callId === undefined || !Array.isArray(message?.content)) {
+    return undefined;
+  }
+  const result = message.content
+    .map(object)
+    .find((block) =>
+      block?.type === "tool-result" &&
+      block.toolCallId === callId
+    );
+  return result === undefined || result.isError === true
+    ? undefined
+    : callId;
 }
 
 function externalPromptContent(
@@ -516,42 +474,133 @@ function externalPromptContent(
   ];
 }
 
-function inspectOperation(
-  rawEntries: readonly HistoryEntryRecord[],
-  input: AgentTurnInput,
-): OperationInspection {
-  const entries = [...rawEntries]
-    .sort(
-      (left, right) => left.event.seq - right.event.seq,
-    );
-  const events = entries.map(({ event }) => event);
-  const user = findLastEvent(
-    events,
-    (event) => sourceRpcId(event) === input.operationId,
+function createInspectionCursor(): OperationInspectionCursor {
+  return {
+    scannedLength: 0,
+    lastSeq: -1,
+    lastType: undefined,
+    latestTurnStart: undefined,
+    user: undefined,
+    turn: undefined,
+    turnEnd: undefined,
+    closingAssistant: undefined,
+    closingProducedPaths: [],
+    toolCalls: new Map(),
+    producedPaths: new Set(),
+  };
+}
+
+function resetInspectionCursor(
+  cursor: OperationInspectionCursor,
+): void {
+  cursor.scannedLength = 0;
+  cursor.lastSeq = -1;
+  cursor.lastType = undefined;
+  cursor.latestTurnStart = undefined;
+  cursor.user = undefined;
+  cursor.turn = undefined;
+  cursor.turnEnd = undefined;
+  cursor.closingAssistant = undefined;
+  cursor.closingProducedPaths = [];
+  cursor.toolCalls.clear();
+  cursor.producedPaths.clear();
+}
+
+/**
+ * SessionController inspections are immutable append-only prefixes. Remote
+ * calls may deserialize them into fresh arrays, so continuation is verified by
+ * the prior boundary's stable envelope instead of object identity. A reset or
+ * replacement falls back to a complete rescan.
+ */
+function inspectionPrefixContinues(
+  events: readonly unknown[],
+  cursor: OperationInspectionCursor,
+): boolean {
+  if (cursor.scannedLength === 0) return true;
+  if (events.length < cursor.scannedLength) return false;
+  const boundary = sessionEvent(
+    events[cursor.scannedLength - 1],
   );
+  return (
+    boundary !== undefined &&
+    Number(boundary.seq) === cursor.lastSeq &&
+    boundary.type === cursor.lastType
+  );
+}
+
+function consumeOperationEvent(
+  event: SessionEventRecord,
+  input: AgentTurnInput,
+  cursor: OperationInspectionCursor,
+): void {
+  if (event.type === "turn/start") {
+    cursor.latestTurnStart = event;
+  }
+  if (sourceRpcId(event) === input.operationId) {
+    assertPersistedInput(event, input);
+    cursor.user = event;
+    cursor.turn = cursor.latestTurnStart === undefined
+      ? undefined
+      : numericField(cursor.latestTurnStart.data, "turn");
+    cursor.turnEnd = undefined;
+    cursor.closingAssistant = undefined;
+    cursor.closingProducedPaths = [];
+    cursor.toolCalls.clear();
+    cursor.producedPaths.clear();
+    return;
+  }
+  if (
+    cursor.user === undefined ||
+    cursor.turn === undefined ||
+    event.seq <= cursor.user.seq ||
+    numericField(event.data, "turn") !== cursor.turn ||
+    cursor.turnEnd !== undefined
+  ) {
+    return;
+  }
+  if (event.type === "tool/call") {
+    const callId = nonEmptyString(event.data.callId);
+    if (callId !== undefined) {
+      cursor.toolCalls.set(
+        callId,
+        producedPathsForCall(event),
+      );
+    }
+    return;
+  }
+  const resultCallId = successfulToolResultCallId(event);
+  if (resultCallId !== undefined) {
+    for (
+      const path of cursor.toolCalls.get(resultCallId) ?? []
+    ) {
+      cursor.producedPaths.add(path);
+    }
+    return;
+  }
+  if (event.type === "assistant/message") {
+    cursor.closingAssistant = event;
+    cursor.closingProducedPaths = [...cursor.producedPaths];
+    return;
+  }
+  if (event.type === "turn/end") {
+    cursor.turnEnd = event;
+  }
+}
+
+function inspectionFromCursor(
+  input: AgentTurnInput,
+  cursor: OperationInspectionCursor,
+): OperationInspection {
+  const user = cursor.user;
   if (user === undefined) return { state: "absent" };
-  assertPersistedInput(user, input);
   const { sessionId } = input;
 
-  const turnStart = findLastEvent(
-    events,
-    (event) =>
-      event.seq < user.seq &&
-      event.type === "turn/start",
-  );
-  const turn = turnStart === undefined
-    ? undefined
-    : numericField(turnStart.data, "turn");
+  const turn = cursor.turn;
   if (turn === undefined) {
     return { state: "needs-older-history" };
   }
 
-  const turnEnd = events.find(
-    (event) =>
-      event.seq > user.seq &&
-      event.type === "turn/end" &&
-      numericField(event.data, "turn") === turn,
-  );
+  const turnEnd = cursor.turnEnd;
   if (turnEnd === undefined) return { state: "pending" };
   const reason = object(turnEnd.data.reason);
   if (
@@ -561,7 +610,7 @@ function inspectOperation(
   ) {
     invalidControlState(
       "invalid-history",
-      "session.history returned an invalid turn/end reason",
+      "session.inspect returned an invalid turn/end reason",
     );
   }
   const endReason = reason.kind;
@@ -585,25 +634,10 @@ function inspectOperation(
     };
   }
 
-  const closingAssistant = events
-    .filter(
-      (event) =>
-        event.seq > user.seq &&
-        event.seq < turnEnd.seq &&
-        event.type === "assistant/message" &&
-        numericField(event.data, "turn") === turn,
-    )
-    .at(-1);
+  const closingAssistant = cursor.closingAssistant;
   const answer = closingAssistant === undefined
     ? ""
     : assistantText(closingAssistant) ?? "";
-  const producedPaths = closingAssistant === undefined
-    ? []
-    : producedPathsForTurn(entries, {
-        firstSeq: user.seq,
-        lastSeq: closingAssistant.seq,
-        turn,
-      });
   return answer.length === 0
     ? {
         state: "terminal",
@@ -617,7 +651,7 @@ function inspectOperation(
       }
     : {
         state: "terminal",
-        producedPaths,
+        producedPaths: cursor.closingProducedPaths,
         result: {
           outcome: "completed",
           sessionId,
@@ -626,6 +660,252 @@ function inspectOperation(
           endReason,
         },
       };
+}
+
+function inspectOperation(
+  rawEvents: readonly unknown[],
+  input: AgentTurnInput,
+  cursor: OperationInspectionCursor,
+): OperationInspection {
+  if (!inspectionPrefixContinues(rawEvents, cursor)) {
+    resetInspectionCursor(cursor);
+  }
+  for (
+    let index = cursor.scannedLength;
+    index < rawEvents.length;
+    index += 1
+  ) {
+    const candidate = sessionEvent(rawEvents[index]);
+    if (candidate === undefined) {
+      invalidControlState(
+        "invalid-history",
+        "session.inspect returned invalid event ordering",
+      );
+    }
+    const seq = Number(candidate.seq);
+    if (seq <= cursor.lastSeq) {
+      invalidControlState(
+        "invalid-history",
+        "session.inspect returned invalid event ordering",
+      );
+    }
+    cursor.scannedLength = index + 1;
+    cursor.lastSeq = seq;
+    cursor.lastType = String(candidate.type);
+    if (
+      !CONSUMED_SESSION_EVENT_TYPES.has(
+        String(candidate.type),
+      )
+    ) {
+      continue;
+    }
+    consumeOperationEvent(
+      candidate as unknown as SessionEventRecord,
+      input,
+      cursor,
+    );
+  }
+
+  return inspectionFromCursor(input, cursor);
+}
+
+function appendFollowEvent(
+  value: unknown,
+  input: AgentTurnInput,
+  cursor: OperationInspectionCursor,
+  allowOverlapThroughSeq: number,
+): void {
+  const candidate = sessionEvent(value);
+  if (candidate === undefined) {
+    invalidControlState(
+      "invalid-history",
+      "session.follow returned an invalid event",
+    );
+  }
+  const seq = Number(candidate.seq);
+  if (seq <= cursor.lastSeq) {
+    if (seq <= allowOverlapThroughSeq) return;
+    invalidControlState(
+      "invalid-history",
+      "session.follow returned invalid event ordering",
+    );
+  }
+  cursor.lastSeq = seq;
+  cursor.lastType = String(candidate.type);
+  if (
+    !CONSUMED_SESSION_EVENT_TYPES.has(
+      String(candidate.type),
+    )
+  ) {
+    return;
+  }
+  consumeOperationEvent(
+    candidate as unknown as SessionEventRecord,
+    input,
+    cursor,
+  );
+}
+
+interface FollowSnapshotRecord {
+  readonly firstSeq: number;
+  readonly lastSeq: number;
+  readonly event?: unknown;
+}
+
+function followSnapshotRecord(
+  value: unknown,
+): FollowSnapshotRecord {
+  const record = object(value);
+  const event = object(record?.event);
+  if (record?.type === "event") {
+    const parsed = sessionEvent(event);
+    if (parsed === undefined) {
+      invalidControlState(
+        "invalid-history",
+        "session.follow returned an invalid history event",
+      );
+    }
+    const seq = Number(parsed.seq);
+    return { firstSeq: seq, lastSeq: seq, event };
+  }
+  if (record?.type !== "chunks" || event === undefined) {
+    invalidControlState(
+      "invalid-history",
+      "session.follow returned an invalid history record",
+    );
+  }
+  const data = object(event.data);
+  const payload = event.type === "chunkrow/tool-call-chunks"
+    ? data?.args
+    : (
+        event.type === "chunkrow/text-chunks" ||
+        event.type === "chunkrow/reasoning-chunks"
+      )
+    ? data?.texts
+    : undefined;
+  if (
+    !Number.isSafeInteger(event.seq) ||
+    Number(event.seq) < 0 ||
+    !Array.isArray(payload) ||
+    payload.length === 0 ||
+    payload.some((entry) => typeof entry !== "string")
+  ) {
+    invalidControlState(
+      "invalid-history",
+      "session.follow returned an invalid chunk history record",
+    );
+  }
+  const firstSeq = Number(event.seq);
+  const lastSeq = firstSeq + payload.length - 1;
+  if (!Number.isSafeInteger(lastSeq)) {
+    invalidControlState(
+      "invalid-history",
+      "session.follow returned an invalid chunk history range",
+    );
+  }
+  return { firstSeq, lastSeq };
+}
+
+interface FollowSnapshotInspection {
+  readonly cursor: number;
+  readonly gap: boolean;
+  readonly inspected: OperationInspection;
+}
+
+function consumeFollowSnapshot(
+  value: unknown,
+  input: AgentTurnInput,
+  cursor: OperationInspectionCursor,
+): FollowSnapshotInspection {
+  const frame = object(value);
+  if (
+    frame?.type !== "snapshot" ||
+    !Array.isArray(frame.records) ||
+    !Number.isSafeInteger(frame.cursor) ||
+    Number(frame.cursor) < -1
+  ) {
+    invalidControlState(
+      "invalid-history",
+      "session.follow returned an invalid opening snapshot",
+    );
+  }
+  const openingCursor = Number(frame.cursor);
+  const initialLastSeq = cursor.lastSeq;
+  if (openingCursor < initialLastSeq) {
+    invalidControlState(
+      "invalid-history",
+      "session.follow opening cursor regressed behind session.inspect",
+    );
+  }
+  let expectedSeq = initialLastSeq + 1;
+  let previousLastSeq = -1;
+  const records = frame.records.map(followSnapshotRecord);
+  for (const record of records) {
+    if (
+      record.firstSeq <= previousLastSeq ||
+      record.lastSeq > openingCursor
+    ) {
+      invalidControlState(
+        "invalid-history",
+        "session.follow returned invalid snapshot ordering",
+      );
+    }
+    previousLastSeq = record.lastSeq;
+    if (record.lastSeq < expectedSeq) continue;
+    if (record.firstSeq > expectedSeq) {
+      return {
+        cursor: openingCursor,
+        gap: true,
+        inspected: inspectionFromCursor(input, cursor),
+      };
+    }
+    expectedSeq = record.lastSeq + 1;
+  }
+  if (expectedSeq <= openingCursor) {
+    return {
+      cursor: openingCursor,
+      gap: true,
+      inspected: inspectionFromCursor(input, cursor),
+    };
+  }
+  for (const record of records) {
+    if (record.event !== undefined) {
+      appendFollowEvent(
+        record.event,
+        input,
+        cursor,
+        initialLastSeq,
+      );
+    }
+  }
+  cursor.lastSeq = Math.max(cursor.lastSeq, openingCursor);
+  return {
+    cursor: openingCursor,
+    gap: false,
+    inspected: inspectionFromCursor(input, cursor),
+  };
+}
+
+function consumeFollowEvent(
+  value: unknown,
+  input: AgentTurnInput,
+  cursor: OperationInspectionCursor,
+  allowOverlapThroughSeq: number,
+): OperationInspection {
+  const frame = object(value);
+  if (frame?.type !== "event") {
+    invalidControlState(
+      "invalid-history",
+      "session.follow returned an invalid event frame",
+    );
+  }
+  appendFollowEvent(
+    frame.event,
+    input,
+    cursor,
+    allowOverlapThroughSeq,
+  );
+  return inspectionFromCursor(input, cursor);
 }
 
 function throwIfAborted(signal: AbortSignal): void {
@@ -675,60 +955,61 @@ async function waitForPoll(
 }
 
 async function inspectPersistedOperation(
-  sessions: AgentTurnSessionsPort,
+  controller: AgentTurnSessionControllerPort,
   input: AgentTurnInput,
+  signal: AbortSignal,
+  cursor: OperationInspectionCursor,
 ): Promise<OperationInspection> {
-  const entries: HistoryEntryRecord[] = [];
-  let beforeSeq: number | undefined;
-  let pageNumber = 0;
-  while (true) {
-    pageNumber += 1;
-    const response = await sessions.history({
-      rpcId: `${input.operationId}:history:${String(pageNumber)}`,
-      payload: {
-        sessionId: input.sessionId,
-        ...(beforeSeq === undefined ? {} : { beforeSeq }),
-        maxMessages: HISTORY_PAGE_MESSAGES,
-      },
-    });
-    const page = validatedHistoryPage(unwrap(
-      "session.history",
-      response,
-    ));
-    const pageEntries = page.entries;
-    entries.push(...pageEntries);
-    const inspected = inspectOperation(
-      entries,
-      input,
+  const inspection = object(
+    await controllerCall(
+      "session.inspect",
+      () => controller.inspect(input.sessionId, signal),
+    ),
+  );
+  if (
+    inspection === undefined ||
+    !Array.isArray(inspection.events)
+  ) {
+    invalidControlState(
+      "invalid-history",
+      "session.inspect returned invalid events",
     );
-    if (inspected.state === "terminal") return inspected;
-    if (inspected.state === "pending") {
-      return inspected;
-    }
-    if (page.hasMore !== true) {
-      if (inspected.state === "needs-older-history") {
-        invalidControlState(
-          "invalid-history",
-          "session.history could not correlate the operation to a turn",
-        );
-      }
-      return inspected;
-    }
-    const seqs = pageEntries.map(({ event }) => event.seq);
-    const oldestSeq = seqs.length === 0
-      ? undefined
-      : Math.min(...seqs);
-    if (
-      oldestSeq === undefined ||
-      oldestSeq === 0 ||
-      oldestSeq === beforeSeq
-    ) {
-      invalidControlState(
-        "invalid-history",
-        "session.history pagination did not advance",
-      );
-    }
-    beforeSeq = oldestSeq;
+  }
+  const inspected = inspectOperation(
+    inspection.events,
+    input,
+    cursor,
+  );
+  if (inspected.state === "needs-older-history") {
+    invalidControlState(
+      "invalid-history",
+      "session.inspect could not correlate the operation to a turn",
+    );
+  }
+  return inspected;
+}
+
+async function promptAgentTurn(
+  controller: AgentTurnSessionControllerPort,
+  input: AgentTurnInput,
+  signal: AbortSignal,
+): Promise<void> {
+  throwIfAborted(signal);
+  const prompted = await controllerCall(
+    "session.prompt",
+    () =>
+      controller.prompt({
+        requestId: input.operationId,
+        sessionId: input.sessionId,
+        mode: "queue",
+        content: externalPromptContent(input.text),
+      }, signal),
+  );
+  if (prompted.accepted !== true) {
+    invalidControlState(
+      "invalid-prompt-result",
+      "session.prompt did not acknowledge the Agent turn",
+    );
   }
 }
 
@@ -761,15 +1042,130 @@ async function materializeTerminalResult(
       };
 }
 
+async function followAgentTurn(
+  controller: AgentTurnSessionControllerPort,
+  input: AgentTurnInput,
+  signal: AbortSignal,
+  cursor: OperationInspectionCursor,
+  options: AgentTurnExecutionOptions,
+): Promise<AgentTurnResult> {
+  const follow = controller.follow;
+  if (follow === undefined) {
+    invalidControlState(
+      "invalid-controller",
+      "session.follow is unavailable",
+    );
+  }
+  const iterator = await controllerCall(
+    "session.follow",
+    async () =>
+      follow.call(controller, {
+        address: {
+          kind: "session",
+          sessionId: input.sessionId,
+        },
+      }, signal)[Symbol.asyncIterator](),
+  );
+  try {
+    const opening = await controllerCall(
+      "session.follow",
+      () => iterator.next(),
+    );
+    if (opening.done) {
+      invalidControlState(
+        "invalid-history",
+        "session.follow ended before its opening snapshot",
+      );
+    }
+    const snapshot = consumeFollowSnapshot(
+      opening.value,
+      input,
+      cursor,
+    );
+    let inspected = snapshot.inspected;
+    let allowOverlapThroughSeq = -1;
+    if (snapshot.gap) {
+      inspected = await inspectPersistedOperation(
+        controller,
+        input,
+        signal,
+        cursor,
+      );
+      if (cursor.lastSeq < snapshot.cursor) {
+        invalidControlState(
+          "invalid-history",
+          "session.inspect did not close the session.follow opening gap",
+        );
+      }
+      allowOverlapThroughSeq = cursor.lastSeq;
+    }
+    if (inspected.state === "needs-older-history") {
+      invalidControlState(
+        "invalid-history",
+        "session.follow could not correlate the operation to a turn",
+      );
+    }
+    if (inspected.state === "terminal") {
+      return await materializeTerminalResult(
+        inspected,
+        input,
+        options,
+      );
+    }
+    if (inspected.state === "absent") {
+      await promptAgentTurn(controller, input, signal);
+    }
+
+    while (true) {
+      const next = await controllerCall(
+        "session.follow",
+        () => iterator.next(),
+      );
+      if (next.done) {
+        invalidControlState(
+          "invalid-history",
+          "session.follow ended before the Agent turn completed",
+        );
+      }
+      inspected = consumeFollowEvent(
+        next.value,
+        input,
+        cursor,
+        allowOverlapThroughSeq,
+      );
+      if (inspected.state === "needs-older-history") {
+        invalidControlState(
+          "invalid-history",
+          "session.follow could not correlate the operation to a turn",
+        );
+      }
+      if (inspected.state === "terminal") {
+        return await materializeTerminalResult(
+          inspected,
+          input,
+          options,
+        );
+      }
+    }
+  } finally {
+    try {
+      await iterator.return?.();
+    } catch {
+      // The operation result or primary stream error owns this boundary.
+    }
+  }
+}
+
 /**
  * Run or recover one durable Agent turn.
  *
- * The operation id is the prompt rpcId recorded on `user/message`. History is
- * therefore consulted before prompting: retrying the same operation either
- * recovers its terminal result or waits for its already-admitted turn.
+ * The operation id is the prompt requestId recorded as `user/message` rpcId.
+ * The durable Session log is therefore inspected before prompting: retrying
+ * the same operation either recovers its terminal result or waits for its
+ * already-admitted turn.
  */
 export async function runAgentTurnInHarness(
-  sessions: AgentTurnSessionsPort,
+  controller: AgentTurnSessionControllerPort,
   input: AgentTurnInput,
   signal: AbortSignal,
   options: AgentTurnExecutionOptions = {},
@@ -785,12 +1181,9 @@ export async function runAgentTurnInHarness(
     );
   }
   throwIfAborted(signal);
-  const created = unwrap(
+  const created = await controllerCall(
     "session.create",
-    await sessions.create({
-      rpcId: `${input.operationId}:create`,
-      payload: { sessionId: input.sessionId },
-    }),
+    () => controller.create({ sessionId: input.sessionId }),
   );
   if (created.sessionId !== input.sessionId) {
     invalidControlState(
@@ -800,9 +1193,12 @@ export async function runAgentTurnInHarness(
   }
 
   throwIfAborted(signal);
+  const cursor = createInspectionCursor();
   let inspected = await inspectPersistedOperation(
-    sessions,
+    controller,
     input,
+    signal,
+    cursor,
   );
   if (inspected.state === "terminal") {
     return await materializeTerminalResult(
@@ -812,38 +1208,27 @@ export async function runAgentTurnInHarness(
     );
   }
 
-  if (inspected.state === "absent") {
-    throwIfAborted(signal);
-    const prompted = unwrap(
-      "session.prompt",
-      await sessions.prompt({
-        rpcId: input.operationId,
-        payload: {
-          sessionId: input.sessionId,
-          mode: "queue",
-          content: externalPromptContent(input.text),
-        },
-      }),
+  if (controller.follow !== undefined) {
+    return await followAgentTurn(
+      controller,
+      input,
+      signal,
+      cursor,
+      options,
     );
-    if (prompted.accepted !== true) {
-      invalidControlState(
-        "invalid-prompt-result",
-        "session.prompt did not acknowledge the Agent turn",
-      );
-    }
-    if (prompted.command !== undefined) {
-      invalidControlState(
-        "invalid-prompt-result",
-        "external Agent turn unexpectedly dispatched a command",
-      );
-    }
+  }
+
+  if (inspected.state === "absent") {
+    await promptAgentTurn(controller, input, signal);
   }
 
   while (true) {
     await waitForPoll(pollIntervalMs, signal);
     inspected = await inspectPersistedOperation(
-      sessions,
+      controller,
       input,
+      signal,
+      cursor,
     );
     if (inspected.state === "terminal") {
       return await materializeTerminalResult(
@@ -979,7 +1364,7 @@ export function installAgentTurnControl(
     operations.set(input.operationId, operation);
     attach(requestId, operation);
     void runAgentTurnInHarness(
-      ctx.apiProxy.sessions,
+      ctx.sessionController,
       input,
       operation.controller.signal,
       options,

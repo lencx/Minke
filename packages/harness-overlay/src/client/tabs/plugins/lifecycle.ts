@@ -3,14 +3,11 @@ import type {
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import type {
   HarnessClientContext,
-  HarnessRpcResult,
 } from "../../core/context.ts";
 import type {
   PluginInstallerPort,
 } from "../../desktop/contracts.ts";
 
-const PLUGIN_INVENTORY_CHANNEL = "/api";
-const PLUGIN_INVENTORY_ENDPOINT = "pluginInventory/list";
 const MAX_PLUGIN_INVENTORY_ENTRIES = 4_096;
 const MAX_PLUGIN_INVENTORY_TEXT_LENGTH = 1_024;
 const MAX_PLUGIN_RUNTIME_ERROR_LENGTH = 1_000;
@@ -73,7 +70,8 @@ export interface PluginLifecyclePort {
   read(): Promise<PluginLifecycleSnapshot>;
 }
 
-type Connection = HarnessClientContext["connection"];
+type PluginInventoryRemote =
+  HarnessClientContext["remote"]["pluginInventory"];
 
 function isRecord(
   value: unknown,
@@ -142,7 +140,10 @@ export function parsePluginRuntimeInventorySnapshot(
 ): PluginRuntimeInventorySnapshot {
   if (
     !isRecord(value) ||
-    Object.keys(value).length !== 1 ||
+    !Object.hasOwn(value, "entries") ||
+    Object.keys(value).some(
+      (key) => key !== "entries" && key !== "agentPresets",
+    ) ||
     !Array.isArray(value.entries) ||
     value.entries.length > MAX_PLUGIN_INVENTORY_ENTRIES
   ) {
@@ -153,30 +154,16 @@ export function parsePluginRuntimeInventorySnapshot(
   });
 }
 
-function rpcValue(
-  result: HarnessRpcResult,
-): unknown {
-  if (result.ok) return result.value;
-  throw new Error(
-    `pluginInventory.list failed: ${result.error.code}: ` +
-      result.error.message,
-  );
-}
-
 /** Adapt dsh's authoritative Loader inventory Remote. */
 export function createHarnessPluginInventoryPort(
-  connection: Connection,
+  remote: PluginInventoryRemote,
 ): PluginRuntimeInventoryPort {
   return Object.freeze({
     async read(): Promise<PluginRuntimeInventorySnapshot> {
+      const result = await remote.list();
+      if (!result.ok) throw result.error;
       return parsePluginRuntimeInventorySnapshot(
-        rpcValue(
-          await connection.rpc.call(
-            PLUGIN_INVENTORY_CHANNEL,
-            PLUGIN_INVENTORY_ENDPOINT,
-            { args: {} },
-          ),
-        ),
+        result.value,
       );
     },
   });

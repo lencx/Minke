@@ -14,7 +14,6 @@ const DESKTOP_MARKERS = [
   "data-dsh-desktop-composer-primary",
   "data-dsh-desktop-base-surface",
   "data-dsh-desktop-sidebar-fade",
-  "data-dsh-desktop-hero-glow",
   "data-dsh-desktop-resize-handle",
 ] as const;
 
@@ -111,14 +110,6 @@ function markShell(root: Document, view: DesktopSurfaceView): void {
         candidate.setAttribute("data-dsh-desktop-sidebar-fade", "");
       }
     }
-  }
-}
-
-function markHeroGlow(root: Document): void {
-  for (const candidate of root.querySelectorAll(
-    'svg[viewBox="0 0 1051 468"][aria-hidden="true"]',
-  )) {
-    candidate.setAttribute("data-dsh-desktop-hero-glow", "");
   }
 }
 
@@ -365,7 +356,6 @@ export function installDesktopSurface(
     frame = undefined;
     if (disposed) return;
     markShell(root, view);
-    markHeroGlow(root);
     markComposerActions(root, view);
     syncDragTargetResizeObservation();
     reconcileDesktopDrag(root, view);

@@ -15,21 +15,12 @@ import { join, parse, resolve, win32 } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { createElement } from "react";
-import * as react from "react";
-import * as reactJsxRuntime from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   SquareArrowOutUpRight,
 } from "@lucide/icons";
 import { EditorState } from "@codemirror/state";
 import ts from "../vendor/deepseek-harness/node_modules/typescript/lib/typescript.js";
-import {
-  evaluateHarnessClientModule,
-  stagePatchedHarnessClientModule,
-} from "./support/harness-client-module.mjs";
-import {
-  inspectJavaScriptContract,
-} from "./support/javascript-contract.mjs";
 import {
   normalizeWebTabUrl,
   parseTabsLayoutState,
@@ -91,27 +82,6 @@ import {
   MOBILE_TABS_MEDIA_QUERY,
   ResponsiveRightTabsHost,
 } from "@minke/harness-overlay/client/tabs/responsive-right-host.ts";
-import {
-  DetailsTabsController,
-} from "@minke/harness-overlay/client/tabs/details/controller.ts";
-import {
-  parseDshDetailsState,
-} from "@minke/harness-overlay/client/tabs/details/contract.ts";
-import {
-  DetailsPresentationRuntime,
-} from "@minke/harness-overlay/client/tabs/details/presentation-runtime.ts";
-import {
-  DetailsPresentationAdapter,
-} from "@minke/harness-overlay/client/tabs/details/presentation.tsx";
-import {
-  createDetailsTabRenderer,
-} from "@minke/harness-overlay/client/tabs/details/renderer.tsx";
-import {
-  installDetailsTabs,
-} from "@minke/harness-overlay/client/tabs/details/integration.ts";
-import {
-  DETAILS_TAB_STYLES,
-} from "@minke/harness-overlay/client/tabs/details/styles.ts";
 import {
   TABS_STYLES,
 } from "@minke/harness-overlay/client/tabs/styles.ts";
@@ -188,6 +158,9 @@ import {
 import {
   inspectCssContract,
 } from "./support/css-contract.mjs";
+import {
+  LayoutController as HarnessLayoutController,
+} from "../vendor/deepseek-harness/packages/client/ui-layout/src/client/service.ts";
 
 async function settleAsyncWork() {
   await new Promise((resolve) => setImmediate(resolve));
@@ -256,6 +229,61 @@ function authorizedTypeScriptFunctions(source, names) {
   };
   visit(sourceFile);
   return names.filter((name) => guarded.has(name));
+}
+
+function inspectTypeScriptInvocationContract(source) {
+  const sourceFile = ts.createSourceFile(
+    "contract.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const calls = [];
+  const strings = new Map();
+  const expressionPath = (node) => {
+    if (ts.isIdentifier(node)) return node.text;
+    if (!ts.isPropertyAccessExpression(node)) return undefined;
+    const parent = expressionPath(node.expression);
+    return parent === undefined
+      ? undefined
+      : `${parent}.${node.name.text}`;
+  };
+  const visit = (node) => {
+    if (ts.isStringLiteralLike(node)) {
+      strings.set(node.text, (strings.get(node.text) ?? 0) + 1);
+    }
+    if (ts.isCallExpression(node)) {
+      const name = expressionPath(node.expression);
+      if (name !== undefined) {
+        calls.push({
+          name,
+          arguments: node.arguments.map((argument) =>
+            ts.isStringLiteralLike(argument)
+              ? argument.text
+              : undefined
+          ),
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return Object.freeze({
+    callCount(name) {
+      return calls.filter((call) => call.name === name).length;
+    },
+    callWithStringArgumentCount(name, index, value) {
+      return calls.filter(
+        (call) =>
+          call.name === name &&
+          call.arguments[index] === value,
+      ).length;
+    },
+    stringCount(value) {
+      return strings.get(value) ?? 0;
+    },
+  });
 }
 
 test("Files view state contract keeps panel settings isolated", () => {
@@ -443,207 +471,70 @@ test("Tabs layout state hydrates both panels without overwriting interaction", a
   layout.dispose();
 });
 
-test("the patched Harness Layout exposes a behavioral Details Interface", async () => {
-  const projectRoot = realpathSync(
-    new URL("..", import.meta.url),
-  );
-  const staged = await stagePatchedHarnessClientModule({
-    projectRoot,
-    fixture:
-      "vendor/deepseek-harness/packages/client/ui-layout/lib/client.js",
-    packageName: "dsh-client-ui-layout",
-    patches: [
-      "patches/deepseek-harness/tabs-details-layout.patch",
+test("Harness Layout exposes only the alpha.2 public Details transitions", () => {
+  const layout = new HarnessLayoutController();
+  assert.deepEqual(
+    Object.getOwnPropertyNames(
+      Object.getPrototypeOf(layout),
+    ).sort(),
+    [
+      "attachPanels",
+      "closeDetails",
+      "constructor",
+      "openDetails",
+      "toggleSidebar",
     ],
+  );
+  assert.throws(
+    () => layout.openDetails(),
+    /panel actions not wired/u,
+  );
+
+  const transitions = [];
+  layout.attachPanels({
+    toggleSidebar: () => transitions.push("toggle-sidebar"),
+    openDetails: () => transitions.push("open-details"),
+    closeDetails: () => transitions.push("close-details"),
   });
-  try {
-    const harnessLayout = evaluateHarnessClientModule(
-      staged.source,
-      {
-        "@deepseek-ai/dsh-client-runtime/client": {
-          defineStore: (specification) => specification,
-        },
-        react,
-        "react/jsx-runtime": reactJsxRuntime,
-      },
-      { window: { innerWidth: 1_200 } },
-    );
-    const layout = new harnessLayout.LayoutController();
-    const physical = [];
-    layout.attachPanels({
-      closeDetails: () => physical.push("close"),
-      openDetails: () => physical.push("open"),
-      setDetails: (width) => physical.push(`width:${String(width)}`),
-      toggleSidebar() {},
-    });
-
-    const snapshots = [];
-    const unsubscribe = layout.details.subscribe(() => {
-      snapshots.push(layout.details.getSnapshot());
-    });
-    assert.equal(layout.details.getSnapshot(), false);
-    layout.details.open();
-    layout.details.open();
-    layout.setDetails(768);
-    const releaseHost = layout.details.registerHost();
-    releaseHost();
-    releaseHost();
-    layout.details.close();
-    assert.deepEqual(snapshots, [true, false]);
-    assert.deepEqual(physical, [
-      "close",
-      "open",
-      "width:768",
-      "close",
-      "open",
-      "close",
-    ]);
-
-    unsubscribe();
-    layout.details.open();
-    assert.deepEqual(snapshots, [true, false]);
-
-    let rootRegistration;
-    let providedLayout;
-    harnessLayout.apply({
-      effect(callback, label) {
-        if (label !== "ui-layout: service + root registration") {
-          return;
-        }
-        return callback();
-      },
-      reflect: {
-        provide(name, service) {
-          assert.equal(name, "layout");
-          providedLayout = service;
-          return () => {};
-        },
-      },
-      slots: {
-        register(options, component) {
-          rootRegistration = { component, options };
-          return () => {};
-        },
-      },
-    });
-    assert.ok(rootRegistration);
-    assert.ok(providedLayout);
-    const actions = {
-      closeDetails() {},
-      openDetails() {},
-      setDetails() {},
-      setNarrow() {},
-      setSidebar() {},
-      toggleSidebar() {},
-    };
-    assert.equal(
-      rootRegistration.options.inject(actions).detailsController,
-      providedLayout.details,
-    );
-    const store = rootRegistration.options.store();
-    const panelState = {
-      details: 0,
-      narrow: false,
-      narrowExpanded: false,
-      sidebar: 280,
-    };
-    store.actions.setDetails(panelState, 2_000);
-    assert.equal(panelState.details, 2_000);
-
-    const markup = renderToStaticMarkup(
-      createElement(rootRegistration.component, {
-        actions,
-        detailsController: providedLayout.details,
-        renderSlot: () => null,
-        useSessions: (select) =>
-          select({
-            byId: { session: { blank: false } },
-            current: "session",
-          }),
-        useStore: (select) => select(panelState),
-      }),
-    );
-    assert.equal(
-      markup.includes(
-        "grid-template-columns:280px minmax(0, 1fr) 613px",
-      ),
-      true,
-    );
-  } finally {
-    await staged.dispose();
-  }
+  layout.toggleSidebar();
+  layout.openDetails();
+  layout.closeDetails();
+  assert.deepEqual(transitions, [
+    "toggle-sidebar",
+    "open-details",
+    "close-details",
+  ]);
 });
 
-test("Harness Details exposes a presentation slot without replacing its plugin chain", async () => {
-  const projectRoot = realpathSync(
-    new URL("..", import.meta.url),
+test("Harness Chat owns the alpha.2 native Details slot", () => {
+  const chatApplySource = readFileSync(
+    new URL(
+      "../vendor/deepseek-harness/packages/client/ui-chat/src/client/apply.ts",
+      import.meta.url,
+    ),
+    "utf8",
   );
-  const fixture =
-    "vendor/deepseek-harness/packages/client/ui-conversation/lib/client.js";
-  const upstreamContract = inspectJavaScriptContract(
-    await readFile(join(projectRoot, fixture), "utf8"),
+  const contract = inspectTypeScriptInvocationContract(
+    chatApplySource,
   );
-  const staged = await stagePatchedHarnessClientModule({
-    projectRoot,
-    fixture,
-    packageName: "dsh-client-ui-conversation",
-    patches: [
-      "patches/deepseek-harness/details-presentation-slot.patch",
-    ],
-  });
-  try {
-    const contract = inspectJavaScriptContract(staged.source);
-    assert.equal(
-      contract.callWithStringArgumentCount(
-        "renderSlot",
-        0,
-        "conversation.details.presentation",
-      ),
-      1,
-    );
-    assert.equal(
-      contract.callWithStringArgumentCount(
-        "renderSlot",
-        0,
-        "conversation.details.tool",
-      ),
-      upstreamContract.callWithStringArgumentCount(
-        "renderSlot",
-        0,
-        "conversation.details.tool",
-      ),
-    );
-    assert.equal(
-      contract.callCount("react.useSyncExternalStore"),
-      upstreamContract.callCount("react.useSyncExternalStore") + 1,
-    );
-    assert.equal(
-      contract.callCount("layout.details.open"),
-      upstreamContract.callCount("layout.details.open") + 1,
-    );
-    assert.equal(
-      contract.callCount("details.close"),
-      upstreamContract.callCount("details.close") + 1,
-    );
-    assert.equal(
-      contract.stringCount("data-dsh-details-panel"),
-      upstreamContract.stringCount("data-dsh-details-panel") + 1,
-    );
-    assert.equal(
-      contract.stringCount("data-dsh-details-tool"),
-      upstreamContract.stringCount("data-dsh-details-tool") + 1,
-    );
-    assert.equal(
-      contract.stringCount("minke:dsh-details-state"),
+  assert.equal(
+    contract.callWithStringArgumentCount(
+      "ctx.slots.inject",
       0,
-    );
-    assert.equal(
-      contract.stringCount("minke:details-portal-change"),
-      0,
-    );
-  } finally {
-    await staged.dispose();
-  }
+      "details",
+    ),
+    1,
+  );
+  assert.equal(contract.callCount("ctx.layout.openDetails"), 1);
+  assert.equal(contract.callCount("ctx.layout.closeDetails"), 1);
+  assert.equal(
+    contract.stringCount("conversation.details.tool"),
+    1,
+  );
+  assert.equal(
+    contract.stringCount("conversation.details.presentation"),
+    0,
+  );
 });
 
 test("Web tab URLs accept only credential-free HTTP(S)", () => {
@@ -3557,7 +3448,7 @@ test("mobile drawer presentation stays isolated from bottom Tabs", () => {
   assert.match(panelSource, /event\.key === "Escape"/u);
   assert.match(
     installSource,
-    /presentation:\s*rightHost,[\s\S]*setRightTrackWidth/u,
+    /presentation:\s*rightHost/u,
   );
   assert.match(
     installSource,
@@ -3661,456 +3552,6 @@ test("mobile right Tabs use a right-edge drawer presentation", () => {
     TABS_STYLES,
     /data-presentation="drawer"\]\[data-open\]\s*\{[\s\S]*transform:\s*translateX\(0\);/u,
   );
-});
-
-test("Details state contract rejects incomplete plugin bridge payloads", () => {
-  assert.equal(parseDshDetailsState(null), undefined);
-  assert.equal(
-    parseDshDetailsState({
-      open: true,
-      sessionId: "session-1",
-      label: "Details",
-      title: "Read",
-    }),
-    undefined,
-  );
-  assert.deepEqual(
-    parseDshDetailsState({
-      open: true,
-      sessionId: " session-1 ",
-      callId: " call-1 ",
-      label: " Details ",
-      title: " Read ",
-      ownerId: "ignored-upstream-owner",
-    }),
-    {
-      open: true,
-      sessionId: "session-1",
-      callId: "call-1",
-      label: "Details",
-      title: "Read",
-    },
-  );
-});
-
-test("Details follows one managed tab across create, update, and close", () => {
-  const hostEvents = [];
-  const tasks = [];
-  const tabs = new TabsRuntime({
-    showPanel: () => hostEvents.push("show"),
-    hidePanel: () => hostEvents.push("hide"),
-  });
-  const controller = new DetailsTabsController(tabs, {
-    releaseHost: () => hostEvents.push("release"),
-    schedule: (task) => tasks.push(task),
-  });
-  const flush = () => {
-    const task = tasks.shift();
-    assert.ok(task);
-    task();
-  };
-
-  controller.accept({
-    open: true,
-    sessionId: "session-1",
-    callId: "call-1",
-    label: "Details",
-    title: "Read",
-  });
-  flush();
-  const first = tabs.getSnapshot();
-  assert.equal(first.tabs.length, 1);
-  assert.equal(first.visible, true);
-  assert.equal(first.tabs[0].kind, "details");
-  assert.equal(first.tabs[0].key, "dsh-details");
-  assert.equal(first.tabs[0].title, "Details · Read");
-  assert.deepEqual(first.tabs[0].payload, {
-    sessionId: "session-1",
-    callId: "call-1",
-    label: "Details",
-    title: "Read",
-  });
-
-  controller.accept({
-    open: false,
-    sessionId: "session-1",
-    callId: "call-1",
-    label: "Details",
-    title: "Read",
-  });
-  controller.accept({
-    open: true,
-    sessionId: "session-2",
-    callId: "call-2",
-    label: "Details",
-    title: "Terminal",
-  });
-  assert.equal(tasks.length, 1, "React cleanup/setup must coalesce");
-  flush();
-  const updated = tabs.getSnapshot();
-  assert.equal(updated.tabs.length, 1);
-  assert.equal(updated.tabs[0].id, first.tabs[0].id);
-  assert.equal(updated.tabs[0].title, "Details · Terminal");
-  assert.equal(updated.tabs[0].payload.sessionId, "session-2");
-  assert.equal(updated.tabs[0].payload.callId, "call-2");
-
-  controller.accept({
-    open: false,
-    sessionId: "session-2",
-    callId: "call-2",
-    label: "Details",
-    title: "Terminal",
-  });
-  flush();
-  assert.equal(tabs.getSnapshot().tabs.length, 0);
-  assert.equal(tabs.getSnapshot().visible, false);
-  assert.deepEqual(hostEvents, ["show", "show", "hide"]);
-  controller.dispose();
-  tabs.dispose();
-});
-
-test("Details invokes browser scheduler callbacks without a receiver", () => {
-  const tasks = [];
-  const receivers = [];
-  const tabs = new TabsRuntime({
-    showPanel() {},
-    hidePanel() {},
-  });
-  const controller = new DetailsTabsController(tabs, {
-    releaseHost() {},
-    schedule: function schedule(task) {
-      receivers.push(this);
-      tasks.push(task);
-    },
-  });
-
-  controller.accept({
-    open: true,
-    sessionId: "session-1",
-    callId: "call-1",
-    label: "Details",
-    title: "Read",
-  });
-
-  assert.deepEqual(
-    receivers,
-    [undefined],
-    "browser host schedulers reject an arbitrary class receiver",
-  );
-  tasks.shift()();
-  controller.dispose();
-  tabs.dispose();
-});
-
-test("Details presentation target is an in-memory observable", () => {
-  const presentation = new DetailsPresentationRuntime();
-  const notifications = [];
-  const unsubscribe = presentation.subscribe(() => {
-    notifications.push(presentation.getSnapshot());
-  });
-  const target = {};
-
-  presentation.setTarget(target);
-  presentation.setTarget(target);
-  presentation.setTarget(null);
-
-  assert.deepEqual(notifications, [target, null]);
-  assert.equal(presentation.getSnapshot(), null);
-  unsubscribe();
-});
-
-test("Details integration registers one semantic host and presentation Adapter", () => {
-  const events = [];
-  const registered = [];
-  const slotComponents = [];
-  const tabs = new TabsRuntime({
-    showPanel() {},
-    hidePanel() {},
-  });
-  const renderers = {
-    register(renderer) {
-      registered.push(renderer);
-      events.push("renderer:add");
-      return () => events.push("renderer:remove");
-    },
-  };
-  const slots = {
-    inject(name, callback) {
-      events.push(`inject:${name}`);
-      const unregister = callback();
-      return () => {
-        unregister();
-        events.push(`inject:remove:${name}`);
-      };
-    },
-    register(options, component) {
-      events.push(`slot:add:${options.name}`);
-      slotComponents.push(component);
-      return () => events.push(`slot:remove:${options.name}`);
-    },
-  };
-  const layout = {
-    details: {
-      open() {
-        events.push("details:open");
-      },
-      close() {
-        events.push("details:close");
-      },
-      getSnapshot() {
-        return false;
-      },
-      subscribe() {
-        return () => {};
-      },
-      registerHost() {
-        events.push("host:add");
-        return () => events.push("host:remove");
-      },
-    },
-  };
-
-  const dispose = installDetailsTabs({
-    runtime: tabs,
-    renderers,
-    slots,
-    layout,
-  });
-  assert.equal(registered.length, 1);
-  assert.equal(slotComponents.length, 1);
-  const panel = createElement("div", null, "tool output");
-  const adapter = slotComponents[0]({
-    panel,
-    state: {
-      callId: "call-1",
-      label: "Details",
-      open: true,
-      sessionId: "session-1",
-      title: "Read",
-    },
-  });
-  assert.equal(adapter.type, DetailsPresentationAdapter);
-  assert.equal(adapter.props.panel, panel);
-  assert.deepEqual(events.slice(0, 4), [
-    "renderer:add",
-    "inject:conversation.details.presentation",
-    "host:add",
-    "slot:add:conversation.details.presentation",
-  ]);
-  assert.equal(
-    registered[0].beforeClose({
-      id: "details-1",
-      kind: "details",
-      key: "dsh-details",
-      title: "Details",
-      payload: {
-        sessionId: "session-1",
-        callId: "call-1",
-        label: "Details",
-        title: "Read",
-      },
-    }),
-    true,
-  );
-  assert.equal(events.at(-1), "details:close");
-
-  dispose();
-  assert.deepEqual(events.slice(-4), [
-    "slot:remove:conversation.details.presentation",
-    "host:remove",
-    "inject:remove:conversation.details.presentation",
-    "renderer:remove",
-  ]);
-  tabs.dispose();
-});
-
-test("Details integration preserves the native fallback when slot registration fails", () => {
-  const events = [];
-  const tabs = new TabsRuntime({
-    showPanel() {},
-    hidePanel() {},
-  });
-  assert.throws(
-    () =>
-      installDetailsTabs({
-        runtime: tabs,
-        renderers: {
-          register() {
-            events.push("renderer:add");
-            return () => events.push("renderer:remove");
-          },
-        },
-        slots: {
-          inject(_name, callback) {
-            callback();
-            return () => {};
-          },
-          register() {
-            throw new Error("presentation slot unavailable");
-          },
-        },
-        layout: {
-          details: {
-            open() {},
-            close() {},
-            getSnapshot: () => false,
-            subscribe: () => () => {},
-            registerHost() {
-              events.push("host:add");
-              return () => events.push("host:remove");
-            },
-          },
-        },
-      }),
-    /presentation slot unavailable/u,
-  );
-  assert.deepEqual(events, [
-    "renderer:add",
-    "host:add",
-    "host:remove",
-    "renderer:remove",
-  ]);
-  tabs.dispose();
-});
-
-test("Closing Details preserves sibling tabs and a later call reopens it", () => {
-  const tasks = [];
-  const hostEvents = [];
-  const tabs = new TabsRuntime({
-    showPanel: () => hostEvents.push("show"),
-    hidePanel: () => hostEvents.push("hide"),
-  });
-  const controller = new DetailsTabsController(tabs, {
-    releaseHost: () => hostEvents.push("release"),
-    schedule: (task) => tasks.push(task),
-  });
-  tabs.open({
-    kind: "web",
-    key: "docs",
-    title: "Docs",
-    payload: { url: "https://example.com" },
-  });
-  controller.accept({
-    open: true,
-    sessionId: "session-1",
-    callId: "running-call",
-    label: "Details",
-    title: "Terminal",
-  });
-  tasks.shift()();
-  const opened = tabs.getSnapshot();
-  const details = opened.tabs.find((tab) => tab.kind === "details");
-  assert.ok(details);
-  assert.equal(opened.tabs.length, 2);
-  assert.equal(opened.activeId, details.id);
-
-  tabs.close(details.id);
-  const afterManualClose = tabs.getSnapshot();
-  assert.equal(afterManualClose.tabs.length, 1);
-  assert.equal(afterManualClose.tabs[0].kind, "web");
-  assert.equal(afterManualClose.visible, true);
-  assert.doesNotMatch(hostEvents.join(","), /hide|release/u);
-
-  controller.accept({
-    open: true,
-    sessionId: "session-1",
-    callId: "settled-call",
-    label: "Details",
-    title: "Read",
-  });
-  tasks.shift()();
-  const reopened = tabs.getSnapshot();
-  assert.equal(reopened.tabs.length, 2);
-  assert.equal(reopened.tabs.at(-1).kind, "details");
-  assert.notEqual(reopened.tabs.at(-1).id, details.id);
-  controller.dispose();
-  tabs.dispose();
-});
-
-test("Details state subscription resynchronizes an existing tab without duplication", () => {
-  const tasks = [];
-  const tabs = new TabsRuntime({
-    showPanel() {},
-    hidePanel() {},
-  });
-  const initialState = {
-    open: true,
-    sessionId: "session-1",
-    callId: "call-1",
-    label: "Details",
-    title: "Custom Plugin Tool",
-  };
-  const first = new DetailsTabsController(tabs, {
-    releaseHost() {},
-    schedule: (task) => tasks.push(task),
-  });
-  first.accept(initialState);
-  tasks.shift()();
-  const originalId = tabs.getSnapshot().tabs[0].id;
-  first.dispose();
-
-  const refreshed = new DetailsTabsController(tabs, {
-    releaseHost() {},
-    schedule: (task) => tasks.push(task),
-  });
-  refreshed.accept({
-    ...initialState,
-    callId: "call-2",
-    title: "Read",
-  });
-  tasks.shift()();
-  assert.equal(tabs.getSnapshot().tabs.length, 1);
-  assert.equal(tabs.getSnapshot().tabs[0].id, originalId);
-  assert.equal(
-    tabs.getSnapshot().tabs[0].title,
-    "Details · Read",
-  );
-  assert.equal(tabs.getSnapshot().tabs[0].payload.callId, "call-2");
-  refreshed.dispose();
-  tabs.dispose();
-});
-
-test("Details renderer exposes one local presentation target", () => {
-  const presentation = new DetailsPresentationRuntime();
-  let closed = 0;
-  const renderer = createDetailsTabRenderer(
-    presentation,
-    () => {
-      closed += 1;
-    },
-  );
-  const tab = {
-    id: "details-1",
-    key: "dsh-details",
-    kind: "details",
-    payload: {
-      callId: "call-1",
-      label: "Details",
-      sessionId: "session-1",
-      title: "Read",
-    },
-    title: "Details · Read",
-  };
-
-  assert.equal(renderer.kind, "details");
-  assert.equal(Object.hasOwn(renderer, "createOptions"), false);
-  assert.equal(renderer.beforeClose(tab), true);
-  assert.equal(closed, 1);
-  const markup = renderToStaticMarkup(
-    renderer.renderView(tab, true),
-  );
-  assert.equal(markup.includes('role="tabpanel"'), true);
-  assert.equal(
-    markup.includes('data-session-id="session-1"'),
-    true,
-  );
-  assert.equal(markup.includes('data-call-id="call-1"'), true);
-  assert.equal(
-    markup.includes('class="minke-details-tab__portal"'),
-    true,
-  );
-  assert.match(DETAILS_TAB_STYLES, /data-dsh-details-panel/u);
-  assert.match(DETAILS_TAB_STYLES, /data-dsh-details-header/u);
 });
 
 test("Session export and window layout actions stay semantically separate", () => {

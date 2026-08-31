@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import test from "node:test";
 import {
   aboutMetadata,
@@ -16,18 +17,8 @@ import {
   desktopAboutInfo,
 } from "@minke/harness-overlay/client/desktop/index.ts";
 import {
-  conversationOutlineItems,
-  markerWidthForPreview,
-  messagePreview,
-} from "@minke/harness-overlay/client/conversation-outline/model.ts";
-import {
-  conversationOutlineRailLayout,
-  conversationOutlineTooltipTop,
-} from "@minke/harness-overlay/client/conversation-outline/geometry.ts";
-import {
-  conversationOutlineEn,
-  conversationOutlineZh,
-} from "@minke/harness-overlay/client/conversation-outline/locales.ts";
+  createNewSessionShortcutAction,
+} from "@minke/harness-overlay/client/shortcuts/install.tsx";
 
 const manifest = JSON.parse(
   readFileSync(
@@ -35,6 +26,16 @@ const manifest = JSON.parse(
     "utf8",
   ),
 );
+const overlayRequire = createRequire(
+  new URL(
+    "../packages/harness-overlay/package.json",
+    import.meta.url,
+  ),
+);
+const installedCordisManifest =
+  overlayRequire("@deepseek-ai/cordis/package.json");
+const installedInvariantsManifest =
+  overlayRequire("@deepseek-ai/dsh-invariants/package.json");
 const remoteAccessManifest = JSON.parse(
   readFileSync(
     new URL("../packages/remote-access/package.json", import.meta.url),
@@ -44,6 +45,24 @@ const remoteAccessManifest = JSON.parse(
 const modelRuntimeManifest = JSON.parse(
   readFileSync(
     new URL("../packages/model-runtime/package.json", import.meta.url),
+    "utf8",
+  ),
+);
+const cordisManifest = JSON.parse(
+  readFileSync(
+    new URL(
+      "../vendor/deepseek-harness/vendor/cordis/package.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
+const invariantsManifest = JSON.parse(
+  readFileSync(
+    new URL(
+      "../vendor/deepseek-harness/packages/runtime-diagnostics/invariants/package.json",
+      import.meta.url,
+    ),
     "utf8",
   ),
 );
@@ -152,27 +171,6 @@ const dataHomeStylesSource = readFileSync(
   ),
   "utf8",
 );
-const conversationOutlineSource = readFileSync(
-  new URL(
-    "../packages/harness-overlay/src/client/conversation-outline/ConversationOutline.tsx",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const conversationOutlineInstallSource = readFileSync(
-  new URL(
-    "../packages/harness-overlay/src/client/conversation-outline/install.tsx",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const conversationOutlineStylesSource = readFileSync(
-  new URL(
-    "../packages/harness-overlay/src/client/conversation-outline/styles.css",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const productBuildSource = readFileSync(
   new URL(
     "../scripts/harness/build-product-packages.mjs",
@@ -198,7 +196,6 @@ const tabsCoreSource = [
 test("the client entry stays a composition root", () => {
   for (const installer of [
     "installDesktopClient",
-    "installConversationOutline",
     "installAbout",
     "installDataHome",
     "installWebBrand",
@@ -277,6 +274,26 @@ test("product capability packages follow the shared naming convention", () => {
       "@deepseek-ai/dsh-client-ui-sidebar",
     ),
   );
+  assert.ok(
+    manifest.dsh.client.inject.includes(
+      "@deepseek-ai/dsh-client-ui-workspace",
+    ),
+  );
+  assert.ok(
+    manifest.dsh.client.inject.includes(
+      "@deepseek-ai/dsh-api-session-controller",
+    ),
+  );
+  assert.ok(
+    manifest.dsh.client.inject.includes(
+      "@deepseek-ai/dsh-api-remotes",
+    ),
+  );
+  assert.ok(
+    !manifest.dsh.client.inject.includes(
+      "@deepseek-ai/dsh-client-runtime",
+    ),
+  );
   assert.equal(manifest.exports["./model-runtime"], undefined);
   assert.equal(
     modelRuntimeManifest.exports["./dsh"].default,
@@ -295,8 +312,33 @@ test("product capability packages follow the shared naming convention", () => {
     contract.packageVersion,
   );
   assert.equal(
+    manifest.peerDependencies[
+      "@deepseek-ai/dsh-typert-protocol"
+    ],
+    contract.packageVersion,
+  );
+  assert.equal(
     manifest.peerDependenciesMeta["@deepseek-ai/dsh-llm"].optional,
     true,
+  );
+  assert.equal(
+    manifest.peerDependenciesMeta[
+      "@deepseek-ai/dsh-typert-protocol"
+    ].optional,
+    true,
+  );
+  assert.equal(
+    manifest.devDependencies["@deepseek-ai/cordis"],
+    cordisManifest.version,
+  );
+  assert.equal(
+    manifest.devDependencies["@deepseek-ai/dsh-invariants"],
+    invariantsManifest.version,
+  );
+  assert.equal(installedCordisManifest.version, cordisManifest.version);
+  assert.equal(
+    installedInvariantsManifest.version,
+    invariantsManifest.version,
   );
   assert.deepEqual(
     contract.productBundle.workspaceRuntimePackages,
@@ -359,26 +401,26 @@ test("the product overlay leaves product subagents on demand and composes the mo
   );
 });
 
-test("Minke registers its host-plane web_search provider as a configurable fallback", () => {
+test("Minke registers minke_web_search without replacing native web tools", () => {
   assert.match(
     patch,
-    /- id: web\s+config:\s+\{\}[\s\S]*- id: web-search-deepseek\s+disabled: true[\s\S]*id: minke-web-search[\s\S]*disabled: !!js process\.env\.MINKE_WEB_SEARCH_FALLBACK_ENABLED === '0'/u,
-    "the product must clear the upstream fixed provider and gate only its fallback registration",
+    /id: minke-web-search[\s\S]*name: '@lencx\/minke-harness-overlay\/web-search'[\s\S]*disabled: !!js process\.env\.MINKE_WEB_SEARCH_FALLBACK_ENABLED === '0'/u,
+    "the product must gate its independent fallback tool",
   );
   assert.doesNotMatch(
     patch,
     /DEEPSEEK_API_KEY|apiKeyEnv:/u,
-    "Minke web_search must not depend on a model-provider credential",
+    "minke_web_search must not depend on a model-provider credential",
   );
   assert.doesNotMatch(
     patch,
-    /- id: tool-web/u,
-    "the model-facing tool belongs to each Agent Preset, not the disabled host row",
+    /- id: web-search-deepseek\s+disabled: true/u,
+    "Minke must preserve the native web_search provider",
   );
   assert.doesNotMatch(
     patch,
-    /@deepseek-ai\/dsh-web-fetch-|fetchProvider:/u,
-    "web_fetch must stay disabled until Minke owns an SSRF-safe provider",
+    /- id: web\s+config:\s+\{\}/u,
+    "Minke must not clear native web provider selection",
   );
 });
 
@@ -454,8 +496,11 @@ test("the built client half is a Harness module-loader bundle", () => {
   assert.match(bundle, /minkeDesktop\?\.sessionLogs/u);
   assert.match(bundle, /data-minke-session-log-action/u);
   assert.match(bundle, /conversation\.session\.header\.utilities/u);
-  assert.match(bundle, /minke-overlay: conversation outline styles/u);
-  assert.match(bundle, /data-minke-conversation-outline/u);
+  assert.doesNotMatch(
+    bundle,
+    /minke-overlay: conversation outline styles|data-minke-conversation-outline/u,
+    "alpha.2 TurnNavigator owns conversation navigation",
+  );
   assert.match(bundle, /minke-tabs-panel/u);
   assert.match(bundle, /sidebar\.footer\.action/u);
   assert.match(bundle, /data-minke-about-trigger/u);
@@ -492,257 +537,6 @@ test("the built Connections bundle exposes complete Remote access configuration"
       forbiddenPresent: [],
       requiredMissing: [],
     },
-  );
-});
-
-test("the conversation outline projects loaded user messages safely", () => {
-  const labels = {
-    image: "[Image]",
-    nonText: "[Non-text message]",
-  };
-  assert.equal(
-    messagePreview(
-      [
-        { type: "text", text: "  First line \r\n\r\n\r\n Second  line " },
-        { type: "image" },
-      ],
-      labels,
-    ),
-    "First line\n\nSecond line\n[Image]",
-  );
-  assert.equal(messagePreview([], labels), "[Non-text message]");
-  assert.equal(
-    Array.from(
-      messagePreview(
-        [{ type: "text", text: "x".repeat(500) }],
-        labels,
-      ),
-    ).length,
-    360,
-  );
-
-  const nodes = new Map([
-    [
-      "user-1",
-      {
-        key: "13:user-1",
-        kind: "user",
-        data: { content: [{ type: "text", text: "Start repair" }] },
-      },
-    ],
-    [
-      "assistant-1",
-      {
-        kind: "assistant-step",
-        data: { content: [{ type: "text", text: "Hidden" }] },
-      },
-    ],
-    [
-      "steering-1",
-      {
-        key: "13:steering-1",
-        kind: "steering",
-        data: { content: [{ type: "text", text: "Keep tests" }] },
-      },
-    ],
-  ]);
-  const items = conversationOutlineItems(
-    ["user-1", "assistant-1", "steering-1"],
-    {
-      get(key) {
-        return nodes.get(key);
-      },
-    },
-    labels,
-  );
-  assert.deepEqual(
-    items.map(({ key, preview }) => ({ key, preview })),
-    [
-      { key: "13:user-1", preview: "Start repair" },
-      { key: "13:steering-1", preview: "Keep tests" },
-    ],
-  );
-  const shortMarkerWidth = markerWidthForPreview("A");
-  const longMarkerWidth = markerWidthForPreview(
-    "A".repeat(500),
-  );
-  assert.equal(
-    shortMarkerWidth,
-    longMarkerWidth,
-    "stationary outline markers must have one visual length",
-  );
-  assert.ok(shortMarkerWidth >= 8);
-  assert.ok(shortMarkerWidth <= 14);
-  assert.match(
-    conversationOutlineZh.messagePosition,
-    /已加载消息/u,
-  );
-  assert.match(
-    conversationOutlineEn.messagePosition,
-    /Loaded message/u,
-  );
-});
-
-test("the conversation outline is left-centered, responsive, and keyboard reachable", () => {
-  const compactRail = conversationOutlineRailLayout(94, 530, 5);
-  assert.deepEqual(compactRail, {
-    top: 329,
-    height: 60,
-    overflowing: false,
-  });
-  assert.equal(
-    compactRail.top + compactRail.height / 2,
-    94 + 530 / 2,
-  );
-
-  const longRail = conversationOutlineRailLayout(94, 530, 30);
-  assert.deepEqual(longRail, {
-    top: 215,
-    height: 288,
-    overflowing: true,
-  });
-  const constrainedRail = conversationOutlineRailLayout(
-    10,
-    250,
-    30,
-  );
-  assert.deepEqual(constrainedRail, {
-    top: 15,
-    height: 240,
-    overflowing: true,
-  });
-  assert.equal(
-    conversationOutlineTooltipTop(120, 168, 0, 192),
-    16,
-  );
-
-  assert.match(
-    conversationOutlineInstallSource,
-    /name:\s*"conversation\.session\.header\.utilities"[\s\S]*id:\s*"minke-conversation-outline"[\s\S]*ConversationOutline as ComponentType<never>/u,
-  );
-  assert.match(
-    conversationOutlineInstallSource,
-    /installConversationOutlineStyles\(\)/u,
-  );
-  assert.match(conversationOutlineSource, /createPortal\(/u);
-  assert.match(
-    conversationOutlineSource,
-    /\[data-conversation-scroll\]/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /\[data-chat-anchor-key\]/u,
-  );
-  assert.match(conversationOutlineSource, /new ResizeObserver/u);
-  assert.match(
-    conversationOutlineSource,
-    /setChatFlow[\s\S]*resizeObserver\?\.observe\(chatFlow\)[\s\S]*\[chatFlow, items, scrollport\]/u,
-  );
-  assert.match(conversationOutlineSource, /new MutationObserver/u);
-  assert.match(conversationOutlineSource, /aria-current=/u);
-  assert.match(
-    conversationOutlineSource,
-    /event\.key === "Escape"[\s\S]*event\.key === "ArrowDown"[\s\S]*event\.key === "Home"[\s\S]*event\.key === "End"/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /data-minke-conversation-outline-hitbox[\s\S]*onPointerMove=\{[\s\S]*TRACK_HIT_SLOP[\s\S]*onPointerDown=\{[\s\S]*event\.button !== 0[\s\S]*suppressNextPointerClickRef\.current = true[\s\S]*jumpTo\(item\.key\)[\s\S]*onClick=\{[\s\S]*event\.detail === 0[\s\S]*suppressNextPointerClickRef\.current = false[\s\S]*jumpTo\(item\.key\)/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /scrollIntoView\(\{[\s\S]*behavior:\s*"auto"/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /\[data-minke-conversation-outline\]\[data-visible="false"\]\s*\{[\s\S]*display:\s*none/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /\[data-overflow="true"\][\s\S]*overflow-y:\s*auto/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /scrollRect\.left \+ RAIL_LEFT_CLEARANCE/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /conversationOutlineRailLayout\([\s\S]*availableTop[\s\S]*availableHeight[\s\S]*items\.length/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /data-minke-conversation-outline-track\][\s\S]*display:\s*flex[\s\S]*flex-direction:\s*column/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /data-minke-conversation-outline-hitbox\][\s\S]*top:\s*-12px[\s\S]*right:\s*-8px[\s\S]*bottom:\s*-12px[\s\S]*left:\s*-4px/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /collectMessageRows\(scrollport\)[\s\S]*rowMapRef\.current/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /cachedRow\?\.isConnected[\s\S]*findMessageRow\(scrollport,\s*key\)/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /buildMessageIndex\([\s\S]*while \(low <= high\)/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /if \(!visibleRef\.current\) return/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /setTabKey\(item\.key\)[\s\S]*\.focus\(\)/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /data-minke-conversation-outline-marker\][\s\S]*height:\s*24px[\s\S]*flex:\s*0 0 24px[\s\S]*margin-top:\s*-12px[\s\S]*pointer-events:\s*none/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /STAIRCASE_SCALES\s*=\s*\[0\.94,\s*0\.72,\s*0\.54,\s*0\.4\][\s\S]*Math\.abs\(index - highlightIndex\)/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /staircaseScale\s*\?\?[\s\S]*item\.markerWidth\s*\/\s*28/u,
-  );
-  assert.doesNotMatch(
-    conversationOutlineSource,
-    /current\s*\?\s*1\s*:/u,
-  );
-  assert.doesNotMatch(
-    conversationOutlineStylesSource,
-    /:has\(/u,
-  );
-  assert.doesNotMatch(
-    conversationOutlineStylesSource,
-    /transition:\s*[\s\S]{0,80}\bwidth\b/u,
-  );
-  assert.match(
-    conversationOutlineSource,
-    /data-preview=\{[\s\S]*previewKey === item\.key/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /data-minke-conversation-outline-tooltip\][\s\S]*pointer-events:\s*auto[\s\S]*user-select:\s*text/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /@container \(max-width:\s*899px\)/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /data-minke-conversation-outline-history\][\s\S]*pointer-events:\s*auto/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /@media \(hover:\s*none\) and \(pointer:\s*coarse\)/u,
-  );
-  assert.match(
-    conversationOutlineStylesSource,
-    /@media \(prefers-reduced-motion:\s*reduce\)/u,
   );
 });
 
@@ -916,15 +710,16 @@ test("About stays hidden when desktop metadata is unavailable", () => {
 test("Tabs stays generic while content types register as adapters", () => {
   assert.match(
     tabsInstallSource,
-    /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new FilesTabsController[\s\S]*new WebTabsController[\s\S]*new TerminalTabsController[\s\S]*installDetailsTabs/u,
+    /new TabsRuntime\([\s\S]*new TabRendererRegistry\(\)[\s\S]*new FilesTabsController[\s\S]*new WebTabsController[\s\S]*new TerminalTabsController/u,
   );
   assert.match(
     tabsInstallSource,
     /createFilesTabRenderer\(\s*filesTabs,\s*codeThemes,\s*filesT,\s*\)/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     tabsInstallSource,
-    /installConversationFileRouter\(\s*ctx\.workspaces,\s*rightFilesTabs,/u,
+    /installConversationFileRouter|ctx\.workspaces/u,
+    "alpha.2 owns tool-file link routing; Minke must not monkeypatch the removed workspaces service",
   );
   assert.match(
     tabsInstallSource,
@@ -936,13 +731,18 @@ test("Tabs stays generic while content types register as adapters", () => {
   );
   assert.match(
     tabsInstallSource,
-    /installDetailsTabs\(\{\s*runtime:\s*rightTabs,\s*renderers:\s*rightWorkspace\.renderers,\s*layout:\s*ctx\.layout,\s*slots:\s*ctx\.slots,\s*\}\)/u,
-    "the native Details adapter belongs only to the managed right workspace",
+    /ctx\.layout\.openDetails\.bind\(ctx\.layout\)/u,
+    "right Tabs must open the alpha.2 Details track through its public transition",
   );
-  assert.equal(
-    (tabsInstallSource.match(/installDetailsTabs\(\{/gu) ?? [])
-      .length,
-    1,
+  assert.match(
+    tabsInstallSource,
+    /ctx\.layout\.closeDetails\.bind\(ctx\.layout\)/u,
+    "right Tabs must close the alpha.2 Details track through its public transition",
+  );
+  assert.doesNotMatch(
+    tabsInstallSource,
+    /installDetailsTabs|installDetailsTabStyles|ctx\.layout\.setDetails|setRightTrackWidth/u,
+    "production Tabs must not depend on the removed private Details controller or presentation slot",
   );
   assert.match(
     tabsInstallSource,
@@ -961,7 +761,6 @@ test("Tabs stays generic while content types register as adapters", () => {
   assert.match(tabsInstallSource, /installTerminalTabStyles\(\)/u);
   assert.match(tabsInstallSource, /installFilesTabStyles\(\)/u);
   assert.match(tabsInstallSource, /installWebTabStyles\(\)/u);
-  assert.match(tabsInstallSource, /installDetailsTabStyles\(\)/u);
   assert.match(tabsInstallSource, /FILES_TABS_NAMESPACE/u);
   assert.match(tabsInstallSource, /TERMINAL_TABS_NAMESPACE/u);
   assert.match(tabsInstallSource, /WEB_TABS_NAMESPACE/u);
@@ -1009,6 +808,29 @@ test("Mod+S toggles the upstream sidebar through the public layout service", () 
   assert.match(bundle, /sidebar\.toggle/u);
   assert.match(bundle, /Mod\+S/u);
   assert.match(bundle, /layout\.toggleSidebar\(\)/u);
+});
+
+test("New Session uses alpha.2 uiWorkspace navigation", () => {
+  const starts = [];
+  const action = createNewSessionShortcutAction(
+    {
+      startSession(workspaceId) {
+        starts.push(workspaceId);
+      },
+    },
+    (key) => `shortcut:${key}`,
+    (key) => `palette:${key}`,
+  );
+  assert.equal(action.id, "session.new");
+  assert.equal(action.label(), "shortcut:action.newSession");
+  assert.equal(action.order, 10);
+  assert.equal(action.palette.group, "session");
+  assert.equal(action.palette.order, 10);
+  assert.deepEqual(action.palette.keywords(), [
+    "palette:keywords.newSession",
+  ]);
+  action.run();
+  assert.deepEqual(starts, [undefined]);
 });
 
 test("Mod+P toggles the resident right sidebar through Tabs runtime", () => {

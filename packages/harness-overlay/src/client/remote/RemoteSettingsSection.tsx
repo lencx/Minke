@@ -124,13 +124,16 @@ function LoadedRemoteSettings({
   const available = data.available[method];
   const enabled = settings.enabled;
   const presentation = presentRemoteStatus(snapshot);
-  const address = presentation.showAddress
+  const publicAddress = presentation.showAddress
     ? data.runtime.url
     : undefined;
+  const address = presentation.showAddress
+    ? data.runtime.bootstrapUrl ?? publicAddress
+    : undefined;
   const maskedAddress =
-    address === undefined
+    publicAddress === undefined
       ? undefined
-      : maskRemoteAddress(address);
+      : maskRemoteAddress(publicAddress);
   const providerLocked =
     !snapshot.editable ||
     enabled;

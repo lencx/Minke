@@ -2,7 +2,23 @@ import type { ComponentType } from "react";
 
 export type HarnessThemePreference = "light" | "dark" | "system";
 export type HarnessColorScheme = "light" | "dark";
-export type HarnessLocale = "zh" | "en";
+
+/** Open locale identifier accepted from alpha.2 language-pack plugins. */
+export type HarnessLocale = string;
+
+/** Match alpha.2's BCP 47-style LocaleId wire contract. */
+export const HARNESS_LOCALE_ID_PATTERN =
+  /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u;
+
+/** Validate locale snapshots before they cross the desktop bridge. */
+export function isHarnessLocale(
+  value: unknown,
+): value is HarnessLocale {
+  return (
+    typeof value === "string" &&
+    HARNESS_LOCALE_ID_PATTERN.test(value)
+  );
+}
 
 export interface HarnessLocaleSnapshot {
   active: HarnessLocale;
@@ -37,6 +53,7 @@ export interface LocaleService {
 export interface SlotRegistration {
   name: string;
   id?: string;
+  key?: string;
   order?: number;
   priority?: number;
   label?: () => string;
@@ -64,6 +81,21 @@ export type HarnessRpcResult =
       readonly message: string;
       readonly details: unknown;
     };
+  };
+
+export interface HarnessRemoteError extends Error {
+  readonly code: string;
+  readonly details: unknown;
+}
+
+export type HarnessRemoteResult =
+  | {
+    readonly ok: true;
+    readonly value: unknown;
+  }
+  | {
+    readonly ok: false;
+    readonly error: HarnessRemoteError;
   };
 
 export type HarnessPromptContentPart =
@@ -112,6 +144,11 @@ export interface HarnessClientContext {
       ): Promise<HarnessRpcResult>;
     };
   };
+  remote: {
+    pluginInventory: {
+      list(): Promise<HarnessRemoteResult>;
+    };
+  };
   effect(
     callback: () => void | (() => void),
     label: string,
@@ -120,15 +157,7 @@ export interface HarnessClientContext {
   layout: {
     openDetails(): void;
     closeDetails(): void;
-    setDetails(width: number): void;
     toggleSidebar(): void;
-    details: {
-      open(): void;
-      close(): void;
-      getSnapshot(): boolean;
-      subscribe(listener: () => void): () => void;
-      registerHost(): () => void;
-    };
   };
   slots: SlotService;
   theme: {
@@ -142,8 +171,7 @@ export interface HarnessClientContext {
     event: "locale/change",
     listener: (snapshot: HarnessLocaleSnapshot) => void,
   ): void;
-  workspaces: {
-    openPath(path: string): Promise<void>;
+  uiWorkspace: {
     startSession(workspaceId?: unknown): void;
   };
   sessions: {
@@ -168,7 +196,7 @@ export interface HarnessClientContext {
           content: HarnessPromptContentPart[],
           mode: "queue" | "steer",
           signal?: AbortSignal,
-        ): Promise<HarnessRpcResult>;
+        ): Promise<HarnessRemoteResult>;
       };
     } | undefined;
     /**

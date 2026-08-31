@@ -10,6 +10,13 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
+  act,
+  createElement,
+} from "react";
+import {
+  renderToStaticMarkup,
+} from "react-dom/server";
+import {
   JSDOM,
 } from "../vendor/deepseek-harness/node_modules/jsdom/lib/api.js";
 import {
@@ -31,11 +38,12 @@ import {
   installLocalModel,
 } from "@minke/harness-overlay/client/local-model/install.ts";
 import {
+  LOCAL_MODEL_SETTINGS_STYLES,
   LocalModelSettingsRuntime,
 } from "@minke/harness-overlay/client/local-model/index.ts";
 import {
   installLocalModelSettings,
-} from "@minke/harness-overlay/client/local-model/view.ts";
+} from "@minke/harness-overlay/client/local-model/view.tsx";
 import {
   localModelEn,
   localModelZh,
@@ -529,434 +537,7 @@ test("a rejected live switch rolls the optimistic setting back", async () => {
   runtime.dispose();
 });
 
-function localModelViewRuntime() {
-  return {
-    getSnapshot() {
-      return {
-        available: {
-          lmStudio: true,
-          ollama: true,
-        },
-        settings: DEFAULT_MODEL_RUNTIME_SETTINGS,
-        editable: true,
-        applying: false,
-        error: undefined,
-        revision: 1,
-      };
-    },
-    subscribe: () => () => {},
-    setEnabled() {},
-  };
-}
-
-async function settleLocalModelView(dom, frames = 2) {
-  for (let index = 0; index < frames; index += 1) {
-    await new Promise((resolve) => {
-      dom.window.requestAnimationFrame(resolve);
-    });
-  }
-}
-
-function appendCustomProviderDraft(
-  section,
-  providerId = "manual-provider",
-) {
-  const card = section.ownerDocument.createElement("div");
-  card.dataset.testCustomProviderCard = "";
-  card.innerHTML = `
-    <span>Custom provider</span>
-    <label>
-      <span>Provider ID</span>
-      <input aria-label="Provider ID">
-    </label>
-    <label>
-      <span>Display name</span>
-      <input aria-label="Display name">
-    </label>
-    <label>
-      <span>API type</span>
-      <select aria-label="API type">
-        <option value="openai-completions">OpenAI</option>
-      </select>
-    </label>
-    <label>
-      <span>Base URL</span>
-      <input aria-label="Base URL">
-    </label>
-    <label>
-      <span>API key</span>
-      <input type="password" aria-label="API key">
-    </label>
-  `;
-  const route = card.querySelector(
-    'input[aria-label="Provider ID"]',
-  );
-  assert.ok(route);
-  route.value = providerId;
-  section.append(card);
-  return { card, route };
-}
-
-test("synthetic Configure survives the real add-action DOM replacement", async () => {
-  const dom = new JSDOM(
-    `<!doctype html>
-      <div role="dialog">
-        <section>
-          <h2>Models</h2>
-          <ul></ul>
-          <div data-test-add-block>
-            <div data-test-add-actions>
-              <button type="button">Add a custom provider</button>
-            </div>
-          </div>
-        </section>
-      </div>`,
-    { pretendToBeVisual: true },
-  );
-
-  try {
-    const section = dom.window.document.querySelector("section");
-    const addProvider = section?.querySelector("button");
-    const addActions = section?.querySelector(
-      "[data-test-add-actions]",
-    );
-    const addBlock = section?.querySelector(
-      "[data-test-add-block]",
-    );
-    assert.ok(section);
-    assert.ok(addProvider);
-    assert.ok(addActions);
-    assert.ok(addBlock);
-    const existingDraft = appendCustomProviderDraft(
-      section,
-      "existing-draft",
-    );
-    let openedDraft;
-    addProvider.addEventListener("click", () => {
-      openedDraft = appendCustomProviderDraft(addBlock, "");
-      addActions.remove();
-    });
-    const dispose = installLocalModelSettings(
-      localModelViewRuntime(),
-      (key) => localModelEn[key],
-      dom.window.document,
-    );
-    await settleLocalModelView(dom);
-
-    const configure = section.querySelector(
-      '[data-minke-local-model-row="lmStudio"] ' +
-        ".minke-local-model-row__configure",
-    );
-    assert.ok(configure);
-    configure.click();
-    await settleLocalModelView(dom);
-
-    assert.equal(existingDraft.route.value, "existing-draft");
-    assert.equal(
-      existingDraft.card.hasAttribute(
-        "data-minke-local-model-configure-card",
-      ),
-      false,
-    );
-    assert.ok(openedDraft);
-    assert.equal(openedDraft.route.value, "lm-studio");
-    assert.equal(
-      openedDraft.card.getAttribute(
-        "data-minke-local-model-configure-card",
-      ),
-      "lmStudio",
-    );
-    dispose();
-  } finally {
-    dom.window.close();
-  }
-});
-
-test("pending Configure expires when its expected card disappears", async () => {
-  const dom = new JSDOM(
-    `<!doctype html>
-      <div role="dialog">
-        <section>
-          <h2>Models</h2>
-          <ul></ul>
-          <button type="button">Add a custom provider</button>
-        </section>
-      </div>`,
-    { pretendToBeVisual: true },
-  );
-
-  try {
-    const section = dom.window.document.querySelector("section");
-    const addProvider = section?.querySelector("button");
-    assert.ok(section);
-    assert.ok(addProvider);
-    let laterDraft;
-    addProvider.addEventListener("click", () => {
-      const expectedDraft = appendCustomProviderDraft(
-        section,
-        "",
-      );
-      expectedDraft.card.remove();
-      laterDraft = appendCustomProviderDraft(section);
-    });
-    const dispose = installLocalModelSettings(
-      localModelViewRuntime(),
-      (key) => localModelEn[key],
-      dom.window.document,
-    );
-    await settleLocalModelView(dom);
-
-    const configure = section.querySelector(
-      '[data-minke-local-model-row="lmStudio"] ' +
-        ".minke-local-model-row__configure",
-    );
-    assert.ok(configure);
-    configure.click();
-    await settleLocalModelView(dom);
-
-    assert.ok(laterDraft);
-    assert.equal(
-      laterDraft.route.value,
-      "manual-provider",
-      "a later card must not inherit a disappeared card's intent",
-    );
-    assert.equal(
-      laterDraft.card.hasAttribute(
-        "data-minke-local-model-configure-card",
-      ),
-      false,
-    );
-    dispose();
-  } finally {
-    dom.window.close();
-  }
-});
-
-test("pending Configure expires when the Models section is rebuilt", async () => {
-  const dom = new JSDOM(
-    `<!doctype html>
-      <div role="dialog">
-        <section>
-          <h2>Models</h2>
-          <ul></ul>
-          <button type="button">Add a custom provider</button>
-        </section>
-      </div>`,
-    { pretendToBeVisual: true },
-  );
-
-  try {
-    const dispose = installLocalModelSettings(
-      localModelViewRuntime(),
-      (key) => localModelEn[key],
-      dom.window.document,
-    );
-    await settleLocalModelView(dom);
-    const originalSection =
-      dom.window.document.querySelector("section");
-    const configure = originalSection?.querySelector(
-      '[data-minke-local-model-row="lmStudio"] ' +
-        ".minke-local-model-row__configure",
-    );
-    assert.ok(originalSection);
-    assert.ok(configure);
-    configure.click();
-
-    const replacement =
-      dom.window.document.createElement("section");
-    replacement.innerHTML = `
-      <h2>Models</h2>
-      <ul></ul>
-      <button type="button">Add a custom provider</button>
-    `;
-    const draft = appendCustomProviderDraft(replacement);
-    originalSection.replaceWith(replacement);
-    await settleLocalModelView(dom);
-
-    assert.equal(
-      draft.route.value,
-      "manual-provider",
-      "a card from a new section generation must keep its draft",
-    );
-    assert.equal(
-      draft.card.hasAttribute(
-        "data-minke-local-model-configure-card",
-      ),
-      false,
-    );
-    dispose();
-  } finally {
-    dom.window.close();
-  }
-});
-
-test("pending Configure expires when the dialog closes and reopens", async () => {
-  const dom = new JSDOM(
-    `<!doctype html>
-      <main>
-        <div role="dialog">
-          <section>
-            <h2>Models</h2>
-            <ul></ul>
-            <button type="button">Add a custom provider</button>
-          </section>
-        </div>
-      </main>`,
-    { pretendToBeVisual: true },
-  );
-
-  try {
-    const dispose = installLocalModelSettings(
-      localModelViewRuntime(),
-      (key) => localModelEn[key],
-      dom.window.document,
-    );
-    await settleLocalModelView(dom);
-    const originalDialog = dom.window.document.querySelector(
-      '[role="dialog"]',
-    );
-    const configure = originalDialog?.querySelector(
-      '[data-minke-local-model-row="lmStudio"] ' +
-        ".minke-local-model-row__configure",
-    );
-    assert.ok(originalDialog);
-    assert.ok(configure);
-    configure.click();
-
-    const reopenedDialog =
-      dom.window.document.createElement("div");
-    reopenedDialog.setAttribute("role", "dialog");
-    reopenedDialog.innerHTML = `
-      <section>
-        <h2>Models</h2>
-        <ul></ul>
-        <button type="button">Add a custom provider</button>
-      </section>
-    `;
-    const reopenedSection =
-      reopenedDialog.querySelector("section");
-    assert.ok(reopenedSection);
-    const draft = appendCustomProviderDraft(reopenedSection);
-    originalDialog.replaceWith(reopenedDialog);
-    await settleLocalModelView(dom);
-
-    assert.equal(
-      draft.route.value,
-      "manual-provider",
-      "a reopened dialog must not inherit a closed dialog's intent",
-    );
-    assert.equal(
-      draft.card.hasAttribute(
-        "data-minke-local-model-configure-card",
-      ),
-      false,
-    );
-    dispose();
-  } finally {
-    dom.window.close();
-  }
-});
-
-test("manual Add provider supersedes a pending synthetic Configure", async () => {
-  const dom = new JSDOM(
-    `<!doctype html>
-      <div role="dialog">
-        <section>
-          <h2>Models</h2>
-          <ul></ul>
-          <button type="button">Add a custom provider</button>
-        </section>
-      </div>`,
-    { pretendToBeVisual: true },
-  );
-
-  try {
-    const section = dom.window.document.querySelector("section");
-    const addProvider = section?.querySelector("button");
-    assert.ok(section);
-    assert.ok(addProvider);
-    let forwardedClicks = 0;
-    let manualDraft;
-    addProvider.addEventListener("click", () => {
-      forwardedClicks += 1;
-      if (forwardedClicks === 2) {
-        manualDraft = appendCustomProviderDraft(section);
-      }
-    });
-    const dispose = installLocalModelSettings(
-      localModelViewRuntime(),
-      (key) => localModelEn[key],
-      dom.window.document,
-    );
-    await settleLocalModelView(dom);
-
-    const configure = section.querySelector(
-      '[data-minke-local-model-row="lmStudio"] ' +
-        ".minke-local-model-row__configure",
-    );
-    assert.ok(configure);
-    configure.click();
-    addProvider.click();
-    await settleLocalModelView(dom);
-
-    assert.equal(forwardedClicks, 2);
-    assert.ok(manualDraft);
-    assert.equal(
-      manualDraft.route.value,
-      "manual-provider",
-      "a later manual draft must win over the stale Configure intent",
-    );
-    assert.equal(
-      manualDraft.card.hasAttribute(
-        "data-minke-local-model-configure-card",
-      ),
-      false,
-    );
-    dispose();
-  } finally {
-    dom.window.close();
-  }
-});
-
-test("auto-start switches live inside their provider row actions", async () => {
-  const dom = new JSDOM(
-    `<!doctype html>
-      <div role="dialog">
-        <section>
-          <h2>Models</h2>
-          <ul>
-            <li data-test-provider="lmStudio">
-              <div>
-                <span>LM Studio</span>
-                <span data-test-actions>
-                  <button
-                    type="button"
-                    aria-label="Edit LM Studio (lm-studio)"
-                  >Configure</button>
-                </span>
-              </div>
-            </li>
-            <li data-test-provider="ollama">
-              <div>
-                <span>Ollama</span>
-                <span data-test-actions>
-                  <button
-                    type="button"
-                    aria-label="Edit Ollama (ollama)"
-                  >Configure</button>
-                </span>
-              </div>
-            </li>
-          </ul>
-          <div>
-            <button type="button">Add a custom provider</button>
-          </div>
-        </section>
-      </div>`,
-    { pretendToBeVisual: true },
-  );
-  const changes = [];
-  let snapshotReads = 0;
+function localModelViewRuntime(overrides = {}) {
   const snapshot = {
     available: {
       lmStudio: true,
@@ -964,371 +545,254 @@ test("auto-start switches live inside their provider row actions", async () => {
     },
     settings: DEFAULT_MODEL_RUNTIME_SETTINGS,
     editable: true,
+    applying: false,
     error: undefined,
     revision: 1,
+    ...overrides.snapshot,
   };
-  const runtime = {
-    getSnapshot() {
-      snapshotReads += 1;
-      return snapshot;
-    },
+  return {
+    getSnapshot: () => snapshot,
     subscribe: () => () => {},
+    retry: async () => {},
+    setEnabled() {},
+    ...overrides,
+  };
+}
+
+function installLocalModelSlotHarness(runtime) {
+  const records = [];
+  const events = [];
+  const slots = {
+    inject(name, callback) {
+      events.push(`inject:${name}`);
+      const unregister = callback();
+      return () => {
+        unregister();
+        events.push(`inject:remove:${name}`);
+      };
+    },
+    register(options, component) {
+      records.push({ options, component });
+      events.push(`register:${options.name}`);
+      return () => events.push(`register:remove:${options.name}`);
+    },
+  };
+  const dispose = installLocalModelSettings(
+    slots,
+    runtime,
+    (key) => localModelEn[key],
+  );
+  return { dispose, events, records };
+}
+
+test("native Models slots render local provider controls and fallback rows", () => {
+  const runtime = localModelViewRuntime();
+  const harness = installLocalModelSlotHarness(runtime);
+  assert.deepEqual(
+    harness.records.map(({ options }) => options),
+    [
+      {
+        name: "settings.models.provider-card",
+        key: "llm-pi-ai",
+        inject: harness.records[0].options.inject,
+      },
+      {
+        name: "settings.models.footer",
+        id: "minke-local-model-runtimes",
+        order: 0,
+        inject: harness.records[1].options.inject,
+      },
+    ],
+  );
+
+  const provider = harness.records[0];
+  const providerProps = provider.options.inject();
+  const lmStudioMarkup = renderToStaticMarkup(
+    createElement(provider.component, {
+      ...providerProps,
+      configured: true,
+      keyConfigured: false,
+      provider: {
+        provider: "lm-studio",
+        displayName: "LM Studio",
+        settingsNs: "llm-pi-ai",
+        settingsPath: ["providers", "lm-studio"],
+        active: true,
+      },
+    }),
+  );
+  assert.match(
+    lmStudioMarkup,
+    /data-minke-local-model-provider-card="lmStudio"/u,
+  );
+  assert.match(lmStudioMarkup, /role="switch"/u);
+  assert.match(lmStudioMarkup, /aria-label="LM Studio: Auto-start"/u);
+  assert.equal(
+    renderToStaticMarkup(
+      createElement(provider.component, {
+        ...providerProps,
+        configured: true,
+        keyConfigured: true,
+        provider: {
+          provider: "openai",
+          displayName: "OpenAI",
+          settingsNs: "llm-pi-ai",
+          settingsPath: ["providers", "openai"],
+          active: true,
+        },
+      }),
+    ),
+    "",
+    "the keyed adapter family seat must ignore unrelated pi-ai routes",
+  );
+
+  const footer = harness.records[1];
+  const footerMarkup = renderToStaticMarkup(
+    createElement(
+      footer.component,
+      footer.options.inject(),
+    ),
+  );
+  assert.match(
+    footerMarkup,
+    /data-minke-local-model-runtime-settings=""/u,
+  );
+  assert.match(
+    footerMarkup,
+    /data-minke-local-model-footer-row="lmStudio"/u,
+  );
+  assert.match(
+    footerMarkup,
+    /data-minke-local-model-footer-row="ollama"/u,
+  );
+  assert.match(footerMarkup, /Ollama: Auto-start/u);
+  assert.match(
+    footerMarkup,
+    /Local command not found; configure a service URL manually/u,
+  );
+  assert.match(
+    LOCAL_MODEL_SETTINGS_STYLES,
+    /:root:has\([\s\S]*data-minke-local-model-provider-card="lmStudio"[\s\S]*data-minke-local-model-footer-row="lmStudio"/u,
+  );
+  assert.doesNotMatch(
+    LOCAL_MODEL_SETTINGS_STYLES,
+    /minke-local-model-(?:configure-card|hidden-field|token-hint)/u,
+  );
+
+  harness.dispose();
+  assert.deepEqual(harness.events.slice(-4), [
+    "register:remove:settings.models.footer",
+    "inject:remove:settings.models.footer",
+    "register:remove:settings.models.provider-card",
+    "inject:remove:settings.models.provider-card",
+  ]);
+});
+
+async function withBrowserGlobals(dom, callback) {
+  const values = {
+    document: dom.window.document,
+    Event: dom.window.Event,
+    HTMLElement: dom.window.HTMLElement,
+    HTMLInputElement: dom.window.HTMLInputElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    navigator: dom.window.navigator,
+    Node: dom.window.Node,
+    window: dom.window,
+  };
+  const descriptors = new Map(
+    Object.keys(values).map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(globalThis, key),
+    ]),
+  );
+  try {
+    for (const [key, value] of Object.entries(values)) {
+      Object.defineProperty(globalThis, key, {
+        configurable: true,
+        value,
+        writable: true,
+      });
+    }
+    return await callback();
+  } finally {
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor === undefined) {
+        Reflect.deleteProperty(globalThis, key);
+      } else {
+        Object.defineProperty(globalThis, key, descriptor);
+      }
+    }
+  }
+}
+
+test("native provider auto-start switches delegate through the settings runtime", async () => {
+  const changes = [];
+  const runtime = localModelViewRuntime({
     setEnabled(id, enabled) {
       changes.push({ id, enabled });
     },
-  };
-
-  try {
-    const dispose = installLocalModelSettings(
-      runtime,
-      (key) => localModelEn[key],
-      dom.window.document,
-    );
-    await new Promise((resolve) => {
-      dom.window.requestAnimationFrame(resolve);
-    });
-    await new Promise((resolve) => {
-      dom.window.requestAnimationFrame(resolve);
-    });
-    const settledSnapshotReads = snapshotReads;
-    await new Promise((resolve) => {
-      dom.window.requestAnimationFrame(resolve);
-    });
-    await new Promise((resolve) => {
-      dom.window.requestAnimationFrame(resolve);
-    });
-    assert.equal(
-      snapshotReads,
-      settledSnapshotReads,
-      "row reconciliation must settle instead of scheduling itself forever",
-    );
-
-    const providerRows = [
-      ...dom.window.document.querySelectorAll(
-        "[data-test-provider]",
-      ),
-    ];
-    assert.equal(providerRows.length, 2);
-    assert.equal(
-      dom.window.document.querySelector(
-        "[data-minke-local-model-runtime-settings]",
-      ),
-      null,
-    );
-    assert.equal(
-      dom.window.document.querySelector(
-        "[data-minke-local-model-row]",
-      ),
-      null,
-      "existing provider rows must not be duplicated",
-    );
-    for (const row of providerRows) {
-      const actions = row.querySelector(
-        "[data-test-actions]",
-      );
-      assert.ok(actions);
-      assert.ok(
-        actions.firstElementChild?.hasAttribute(
-          "data-minke-local-model-settings",
-        ),
-      );
-      assert.ok(
-        actions.lastElementChild?.matches("button"),
-      );
-    }
-
-    const inputs = [
-      ...dom.window.document.querySelectorAll(
-        'input[role="switch"]',
-      ),
-    ];
-    assert.equal(inputs.length, 2);
-    assert.equal(
-      inputs[0].getAttribute("aria-label"),
-      "LM Studio: Auto-start",
-    );
-    assert.equal(inputs[0].disabled, false);
-    assert.equal(
-      inputs[1].getAttribute("aria-label"),
-      "Ollama: Auto-start",
-    );
-    assert.equal(
-      inputs[1].disabled,
-      true,
-      "an unavailable command keeps its row-level switch visible but disabled",
-    );
-    const unavailableStatus = dom.window.document.getElementById(
-      inputs[1].getAttribute("aria-describedby"),
-    );
-    assert.equal(
-      unavailableStatus?.textContent,
-      localModelEn.commandNotFound,
-    );
-    inputs[0].checked = true;
-    inputs[0].dispatchEvent(
-      new dom.window.Event("change", { bubbles: true }),
-    );
-    assert.deepEqual(changes, [{
-      id: "lmStudio",
-      enabled: true,
-    }]);
-
-    dispose();
-    assert.equal(
-      dom.window.document.querySelector(
-        "[data-minke-local-model-settings]",
-      ),
-      null,
-    );
-    assert.equal(
-      dom.window.document.querySelectorAll(
-        "[data-test-provider]",
-      ).length,
-      2,
-      "disposing the adapter must preserve Harness-owned rows",
-    );
-  } finally {
-    dom.window.close();
-  }
-});
-
-test("auto-start switches share synthetic provider row actions", async () => {
-  const dom = new JSDOM(
-    `<!doctype html>
-      <div role="dialog">
-        <section>
-          <h2>Models</h2>
-          <ul></ul>
-          <button
-            id="custom-provider"
-            type="button"
-            disabled
-          >Add a custom provider</button>
-        </section>
-      </div>`,
-    { pretendToBeVisual: true },
-  );
-  let snapshotReads = 0;
-  let forwardedConfigureClicks = 0;
-  const customProvider = dom.window.document.querySelector(
-    "#custom-provider",
-  );
-  assert.ok(customProvider);
-  customProvider.addEventListener("click", () => {
-    forwardedConfigureClicks += 1;
   });
-  const runtime = {
-    getSnapshot() {
-      snapshotReads += 1;
-      return {
-        available: {
-          lmStudio: true,
-          ollama: true,
-        },
-        settings: DEFAULT_MODEL_RUNTIME_SETTINGS,
-        editable: true,
-        error: undefined,
-        revision: 1,
-      };
-    },
-    subscribe: () => () => {},
-    setEnabled() {},
-  };
-  const nextFrame = async () =>
-    await new Promise((resolve) => {
-      dom.window.requestAnimationFrame(resolve);
-    });
-
-  try {
-    const dispose = installLocalModelSettings(
-      runtime,
-      (key) => localModelEn[key],
-      dom.window.document,
-    );
-    await nextFrame();
-    await nextFrame();
-
-    const rows = [
-      ...dom.window.document.querySelectorAll(
-        "[data-minke-local-model-row]",
-      ),
-    ];
-    assert.equal(rows.length, 2);
-    for (const row of rows) {
-      const actions = row.querySelector(
-        ".minke-local-model-row__actions",
-      );
-      assert.ok(actions);
-      assert.ok(
-        actions.firstElementChild?.hasAttribute(
-          "data-minke-local-model-settings",
-        ),
-      );
-      assert.ok(
-        actions.lastElementChild?.matches(
-          ".minke-local-model-row__configure",
-        ),
-      );
-    }
-    assert.equal(
-      dom.window.document.querySelectorAll(
-        '[role="switch"]',
-      ).length,
-      2,
-    );
-    const configure = dom.window.document.querySelector(
-      '[data-minke-local-model-row="lmStudio"] ' +
-        ".minke-local-model-row__configure",
-    );
-    assert.ok(configure);
-    assert.equal(
-      configure.disabled,
-      true,
-      "the proxy starts disabled with the provider action",
-    );
-
-    const initiallySettledReads = snapshotReads;
-    await nextFrame();
-    await nextFrame();
-    assert.equal(
-      snapshotReads,
-      initiallySettledReads,
-      "initial synthetic-row reconciliation must settle",
-    );
-
-    customProvider.disabled = false;
-    await nextFrame();
-    await nextFrame();
-    assert.equal(
-      configure.disabled,
-      false,
-      "the proxy must follow the provider action becoming enabled",
-    );
-
-    const enabledSettledReads = snapshotReads;
-    await nextFrame();
-    await nextFrame();
-    assert.equal(
-      snapshotReads,
-      enabledSettledReads,
-      "enabled-state reconciliation must settle",
-    );
-    configure.click();
-    assert.equal(
-      forwardedConfigureClicks,
-      1,
-      "Configure must forward exactly one click to the provider editor",
-    );
-
-    dispose();
-    assert.equal(
-      dom.window.document.querySelector(
-        "[data-minke-local-model-row]",
-      ),
-      null,
-    );
-  } finally {
-    dom.window.close();
-  }
-});
-
-test("synthetic Configure follows a replaced Models section", async () => {
+  const harness = installLocalModelSlotHarness(runtime);
+  const provider = harness.records[0];
   const dom = new JSDOM(
-    `<!doctype html>
-      <div role="dialog">
-        <section>
-          <h2>Models</h2>
-          <ul></ul>
-          <button type="button">Add a custom provider</button>
-        </section>
-      </div>`,
+    '<!doctype html><div id="root"></div>',
     { pretendToBeVisual: true },
   );
-  const runtime = {
-    getSnapshot() {
-      return {
-        available: {
-          lmStudio: true,
-          ollama: true,
-        },
-        settings: DEFAULT_MODEL_RUNTIME_SETTINGS,
-        editable: true,
-        applying: false,
-        error: undefined,
-        revision: 1,
-      };
-    },
-    subscribe: () => () => {},
-    setEnabled() {},
-  };
-  const nextFrame = async () =>
-    await new Promise((resolve) => {
-      dom.window.requestAnimationFrame(resolve);
-    });
-
   try {
-    const dispose = installLocalModelSettings(
-      runtime,
-      (key) => localModelEn[key],
-      dom.window.document,
-    );
-    await nextFrame();
-    await nextFrame();
-
-    const originalConfigure = dom.window.document.querySelector(
-      '[data-minke-local-model-row="lmStudio"] ' +
-        ".minke-local-model-row__configure",
-    );
-    const originalSection = dom.window.document.querySelector(
-      '[role="dialog"] section',
-    );
-    assert.ok(originalConfigure);
-    assert.ok(originalSection);
-
-    const replacement = dom.window.document.createElement("section");
-    replacement.innerHTML = `
-      <h2>Models</h2>
-      <ul></ul>
-      <button type="button">Add a custom provider</button>
-    `;
-    let replacementClicks = 0;
-    replacement
-      .querySelector("button")
-      .addEventListener("click", () => {
-        replacementClicks += 1;
-      });
-    originalSection.replaceWith(replacement);
-    await nextFrame();
-    await nextFrame();
-
-    const currentConfigure = replacement.querySelector(
-      '[data-minke-local-model-row="lmStudio"] ' +
-        ".minke-local-model-row__configure",
-    );
-    assert.equal(
-      currentConfigure,
-      originalConfigure,
-      "the synthetic row should be reused in the current Models section",
-    );
-    currentConfigure.click();
-    assert.equal(
-      replacementClicks,
-      1,
-      "Configure must forward to the current section's provider action",
-    );
-
-    dispose();
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const container =
+        dom.window.document.getElementById("root");
+      assert.ok(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(
+            createElement(provider.component, {
+              ...provider.options.inject(),
+              configured: true,
+              keyConfigured: false,
+              provider: {
+                provider: "lm-studio",
+                displayName: "LM Studio",
+                settingsNs: "llm-pi-ai",
+                settingsPath: ["providers", "lm-studio"],
+                active: true,
+              },
+            }),
+          );
+        });
+        const input = container.querySelector(
+          'input[role="switch"]',
+        );
+        assert.ok(input instanceof dom.window.HTMLInputElement);
+        assert.equal(input.disabled, false);
+        await act(async () => {
+          input.click();
+        });
+        assert.deepEqual(changes, [{
+          id: "lmStudio",
+          enabled: true,
+        }]);
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+      }
+    });
   } finally {
     dom.window.close();
+    harness.dispose();
   }
 });
 
-test("local model installation does not register a separate settings surface", () => {
+test("local model installation targets only native Models extension slots", async () => {
   const originalWindow = Object.getOwnPropertyDescriptor(
     globalThis,
     "window",
   );
   const cleanups = [];
+  const slotNames = [];
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
@@ -1352,12 +816,7 @@ test("local model installation does not register a separate settings surface", (
   try {
     const ctx = {
       effect(callback, label) {
-        if (
-          label.endsWith(" styles") ||
-          label.endsWith(" runtime")
-        ) {
-          return;
-        }
+        if (label.endsWith(" styles")) return;
         const cleanup = callback();
         if (typeof cleanup === "function") cleanups.push(cleanup);
       },
@@ -1370,20 +829,26 @@ test("local model installation does not register a separate settings surface", (
         },
       },
       slots: {
-        inject() {
-          assert.fail(
-            "local models must not inject a separate settings slot",
-          );
+        inject(name, callback) {
+          slotNames.push(name);
+          const cleanup = callback();
+          return typeof cleanup === "function"
+            ? cleanup
+            : () => {};
         },
         register() {
-          assert.fail(
-            "local models must not register a separate settings section",
-          );
+          return () => {};
         },
       },
     };
 
     installLocalModel(ctx);
+    await Promise.resolve();
+    assert.deepEqual(slotNames, [
+      "settings.models.provider-card",
+      "settings.models.footer",
+    ]);
+    assert.equal(slotNames.includes("settings.section"), false);
   } finally {
     for (const cleanup of cleanups.reverse()) cleanup();
     if (originalWindow === undefined) {

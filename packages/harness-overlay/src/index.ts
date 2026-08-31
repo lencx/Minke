@@ -32,7 +32,7 @@ import {
 } from "./agent-browser-contract.ts";
 import {
   installAgentTurnControl,
-  type AgentTurnSessionsPort,
+  type AgentTurnSessionControllerPort,
 } from "./host/agent-turn-control.ts";
 import {
   RemotePreviewRuntime,
@@ -63,9 +63,9 @@ export const name = "minke-host";
 export const inject = [
   "agentPresets",
   "agents",
-  "apiProxy",
   "attachments",
   "connection",
+  "sessionController",
   "systemPrompt",
   "tools",
   "webServer",
@@ -145,9 +145,7 @@ interface MinkeHostContext {
       ): () => Promise<void>;
     };
   };
-  readonly apiProxy: {
-    readonly sessions: AgentTurnSessionsPort;
-  };
+  readonly sessionController: AgentTurnSessionControllerPort;
   readonly agents: {
     get(sessionId: string): MinkeHostAgent | undefined;
   };

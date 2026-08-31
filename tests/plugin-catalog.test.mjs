@@ -631,21 +631,34 @@ test("safe mode and per-plugin disablement override live inventory", async () =>
 test("the Harness inventory port validates the authoritative loader snapshot", async () => {
   const calls = [];
   const inventory = createHarnessPluginInventoryPort({
-    rpc: {
-      async call(channel, endpoint, payload) {
-        calls.push({ channel, endpoint, payload });
-        return {
-          ok: true,
-          value: {
-            entries: [{
-              entryId: "visual-workflow",
+    async list() {
+      calls.push("list");
+      return {
+        ok: true,
+        value: {
+          entries: [{
+            entryId: "visual-workflow",
+            moduleName: "dsh-visual-workflow",
+            enabled: true,
+            fiberPhase: "failed",
+          }],
+          // Alpha.2 owns preset grouping and cross-preset search. The
+          // lifecycle port intentionally ignores that unrelated payload.
+          agentPresets: [{
+            id: "standard",
+            trust: "system",
+            name: "Standard",
+            isDefault: true,
+            rows: [{
+              entryId: null,
               moduleName: "dsh-visual-workflow",
-              enabled: true,
-              fiberPhase: "failed",
+              enabled: "conditional",
+              condition: "env.ENABLE_VISUAL_WORKFLOW",
+              fiberPhase: null,
             }],
-          },
-        };
-      },
+          }],
+        },
+      };
     },
   });
 
@@ -657,32 +670,61 @@ test("the Harness inventory port validates the authoritative loader snapshot", a
       fiberPhase: "failed",
     }],
   });
-  assert.deepEqual(calls, [{
-    channel: "/api",
-    endpoint: "pluginInventory/list",
-    payload: { args: {} },
-  }]);
+  assert.deepEqual(calls, ["list"]);
 
   const invalidInventory = createHarnessPluginInventoryPort({
-    rpc: {
-      async call() {
-        return {
-          ok: true,
-          value: {
-            entries: [{
-              entryId: "invalid",
-              moduleName: "invalid-plugin",
-              enabled: true,
-              fiberPhase: "crashed",
-            }],
-          },
-        };
-      },
+    async list() {
+      return {
+        ok: true,
+        value: {
+          entries: [{
+            entryId: "invalid",
+            moduleName: "invalid-plugin",
+            enabled: true,
+            fiberPhase: "crashed",
+          }],
+        },
+      };
     },
   });
   await assert.rejects(
     invalidInventory.read(),
     /plugin inventory fiber phase/u,
+  );
+
+  const unrelatedPresetInventory = createHarnessPluginInventoryPort({
+    async list() {
+      return {
+        ok: true,
+        value: {
+          entries: [],
+          agentPresets: "owned by the native inventory UI",
+        },
+      };
+    },
+  });
+  assert.deepEqual(await unrelatedPresetInventory.read(), {
+    entries: [],
+  });
+
+  const remoteFailure = Object.assign(
+    new Error("inventory unavailable"),
+    {
+      code: "gateway/unavailable",
+      details: {},
+    },
+  );
+  const failingInventory = createHarnessPluginInventoryPort({
+    async list() {
+      return {
+        ok: false,
+        error: remoteFailure,
+      };
+    },
+  });
+  await assert.rejects(
+    failingInventory.read(),
+    (error) => error === remoteFailure,
   );
 });
 

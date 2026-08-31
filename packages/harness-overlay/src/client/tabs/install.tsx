@@ -43,16 +43,11 @@ import {
   type AgentBrowserTabsTranslate,
 } from "./agent-browser/index.ts";
 import {
-  installDetailsTabs,
-  installDetailsTabStyles,
-} from "./details/index.ts";
-import {
   CodeThemeSettingsRuntime,
   createFilesTabRenderer,
   filesTabsEn,
   filesTabsZh,
   FilesTabsController,
-  installConversationFileRouter,
   installFilesTabStyles,
   type FilesTabsLocaleKey,
   type FilesTabsTranslate,
@@ -139,7 +134,9 @@ export function installTabs(
   const pluginInstallerPort = desktopPluginInstallerPort();
   const pluginLifecyclePort = createPluginLifecyclePort(
     pluginInstallerPort,
-    createHarnessPluginInventoryPort(ctx.connection),
+    createHarnessPluginInventoryPort(
+      ctx.remote.pluginInventory,
+    ),
   );
   const terminalSettingsStore = desktopTerminalSettingsStore();
   const appUpdateSettingsStore =
@@ -304,9 +301,6 @@ export function installTabs(
   if (!tabsPort.available) return undefined;
 
   const tabsLayoutState = new TabsLayoutStateRuntime(tabsPort);
-  const setRightTrackWidth = (width: number): void => {
-    ctx.layout.setDetails(width);
-  };
   ctx.effect(
     () => () => {
       tabsLayoutState.dispose();
@@ -366,10 +360,6 @@ export function installTabs(
       "minke-overlay: Web tab styles",
     );
   }
-  ctx.effect(
-    () => installDetailsTabStyles(),
-    "minke-overlay: Details tab styles",
-  );
   if (filesPort.available) {
     ctx.effect(
       () => installFilesTabStyles(),
@@ -385,6 +375,8 @@ export function installTabs(
 
   const openRightHost = ctx.layout.openDetails.bind(ctx.layout);
   const closeRightHost = ctx.layout.closeDetails.bind(ctx.layout);
+  // alpha.2 owns native Details in its top-level slot. Minke only uses the
+  // public layout transitions to reserve that track for its right Tabs.
   const rightHost = new ResponsiveRightTabsHost({
     openDetails: openRightHost,
     closeDetails: closeRightHost,
@@ -574,16 +566,6 @@ export function installTabs(
     );
     void agentBrowserTabs.initialize();
   }
-  ctx.effect(
-    () =>
-      installDetailsTabs({
-        runtime: rightTabs,
-        renderers: rightWorkspace.renderers,
-        layout: ctx.layout,
-        slots: ctx.slots,
-      }),
-    "minke-overlay: Details tabs integration",
-  );
   const bottomWorkspace = createTabsWorkspace(
     bottomTabs,
     "bottom",
@@ -600,18 +582,6 @@ export function installTabs(
       }),
     }),
   });
-  const rightFilesTabs = rightWorkspace.filesTabs;
-  if (rightFilesTabs !== undefined) {
-    ctx.effect(
-      () =>
-        installConversationFileRouter(
-          ctx.workspaces,
-          rightFilesTabs,
-          () => filesT("files.tab.new"),
-        ),
-      "minke-overlay: conversation Files reader",
-    );
-  }
   const rightWebTabs = rightWorkspace.webTabs;
   if (rightWebTabs !== undefined) {
     ctx.effect(
@@ -645,7 +615,6 @@ export function installTabs(
           renderers: rightWorkspace.renderers,
           layoutState: tabsLayoutState,
           presentation: rightHost,
-          setRightTrackWidth,
         }),
       },
       TabsPanel as ComponentType<never>,

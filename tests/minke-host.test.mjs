@@ -11,6 +11,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import {
+  RemoteError,
+} from "@deepseek-ai/dsh-typert-protocol";
+import {
   apply as applyMinkeHost,
 } from "@minke/harness-overlay/index.ts";
 import {
@@ -207,6 +210,12 @@ function agentTurnHistory(operationId, {
   ];
 }
 
+function inspectedAgentTurn(history) {
+  return {
+    events: history.map(({ event }) => event),
+  };
+}
+
 function agentTurnHistoryWithProducedFiles(operationId) {
   const turn = 3;
   const resultMessage = (callId, isError = false) => ({
@@ -250,7 +259,10 @@ function agentTurnHistoryWithProducedFiles(operationId) {
           step: 1,
           callId: "write-ok",
           name: "write",
-          arguments: "{}",
+          arguments: JSON.stringify({
+            file_path: "demo.html",
+            content: "<h1>Minke</h1>",
+          }),
         },
       },
       view: {
@@ -286,7 +298,9 @@ function agentTurnHistoryWithProducedFiles(operationId) {
           step: 2,
           callId: "read-only",
           name: "read",
-          arguments: "{}",
+          arguments: JSON.stringify({
+            file_path: "not-produced.html",
+          }),
         },
       },
       view: {
@@ -318,9 +332,43 @@ function agentTurnHistoryWithProducedFiles(operationId) {
         data: {
           turn,
           step: 3,
+          callId: "edit-ok",
+          name: "str_replace_editor",
+          arguments: JSON.stringify({
+            command: "insert",
+            path: "notes.txt",
+            insert_line: 0,
+            new_str: "Minke",
+          }),
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/result",
+        seq: 27,
+        time: 27,
+        data: {
+          turn,
+          step: 3,
+          message: resultMessage("edit-ok"),
+        },
+      },
+    },
+    {
+      event: {
+        type: "tool/call",
+        seq: 28,
+        time: 28,
+        data: {
+          turn,
+          step: 4,
           callId: "write-failed",
           name: "write",
-          arguments: "{}",
+          arguments: JSON.stringify({
+            file_path: "failed.html",
+            content: "failed",
+          }),
         },
       },
       view: {
@@ -335,11 +383,11 @@ function agentTurnHistoryWithProducedFiles(operationId) {
     {
       event: {
         type: "tool/result",
-        seq: 27,
-        time: 27,
+        seq: 29,
+        time: 29,
         data: {
           turn,
-          step: 3,
+          step: 4,
           message: resultMessage("write-failed", true),
         },
       },
@@ -347,11 +395,11 @@ function agentTurnHistoryWithProducedFiles(operationId) {
     {
       event: {
         type: "assistant/message",
-        seq: 28,
-        time: 28,
+        seq: 30,
+        time: 30,
         data: {
           turn,
-          step: 4,
+          step: 5,
           message: {
             role: "assistant",
             content: [{ type: "text", text: "Built the page." }],
@@ -362,14 +410,17 @@ function agentTurnHistoryWithProducedFiles(operationId) {
     {
       event: {
         type: "tool/call",
-        seq: 29,
-        time: 29,
+        seq: 31,
+        time: 31,
         data: {
           turn,
-          step: 5,
+          step: 6,
           callId: "after-closing",
           name: "write",
-          arguments: "{}",
+          arguments: JSON.stringify({
+            file_path: "after-closing.html",
+            content: "late",
+          }),
         },
       },
       view: {
@@ -383,11 +434,11 @@ function agentTurnHistoryWithProducedFiles(operationId) {
     {
       event: {
         type: "tool/result",
-        seq: 30,
-        time: 30,
+        seq: 32,
+        time: 32,
         data: {
           turn,
-          step: 5,
+          step: 6,
           message: resultMessage("after-closing"),
         },
       },
@@ -395,19 +446,12 @@ function agentTurnHistoryWithProducedFiles(operationId) {
     {
       event: {
         type: "turn/end",
-        seq: 31,
-        time: 31,
+        seq: 33,
+        time: 33,
         data: { turn, reason: { kind: "completed" } },
       },
     },
   ];
-}
-
-function okRpc(request, value) {
-  return {
-    rpcId: request.rpcId,
-    result: { ok: true, value },
-  };
 }
 
 async function nextAgentTurnResponse(responses) {
@@ -460,29 +504,22 @@ test("Minke Host recovers a completed Agent turn before prompting again", async 
     effect(callback) {
       dispose = callback();
     },
-    apiProxy: {
-      sessions: {
-        create(request) {
-          calls.push(["create", request]);
-          return Promise.resolve(okRpc(request, {
-            sessionId: request.payload.sessionId,
-          }));
-        },
-        history(request) {
-          calls.push(["history", request]);
-          return Promise.resolve(okRpc(request, {
-            events: agentTurnHistory(operationId),
-            hasMore: false,
-          }));
-        },
-        prompt(request) {
-          calls.push(["prompt", request]);
-          return Promise.resolve(okRpc(request, { accepted: true }));
-        },
-        cancel(request) {
-          calls.push(["cancel", request]);
-          return Promise.resolve(okRpc(request, { accepted: true }));
-        },
+    sessionController: {
+      create(request) {
+        calls.push(["create", request]);
+        return Promise.resolve({
+          sessionId: request.sessionId,
+        });
+      },
+      inspect(sessionId, signal) {
+        calls.push(["inspect", { sessionId, signal }]);
+        return Promise.resolve(inspectedAgentTurn(
+          agentTurnHistory(operationId),
+        ));
+      },
+      prompt(request, signal) {
+        calls.push(["prompt", { request, signal }]);
+        return Promise.resolve({ accepted: true });
       },
     },
   };
@@ -532,24 +569,368 @@ test("Minke Host recovers a completed Agent turn before prompting again", async 
     calls.map(([method]) => method),
     [
       "create",
-      "history",
+      "inspect",
       "create",
-      "history",
+      "inspect",
     ],
   );
   assert.equal(
-    calls[0][1].payload.sessionId,
+    calls[0][1].sessionId,
     "session-im-account-1-peer-2",
   );
-  assert.equal(calls[0][1].rpcId, `${operationId}:create`);
   assert.deepEqual(calls[2][1], calls[0][1]);
   dispose();
 });
 
-test("Minke Host writes operationId to prompt rpcId without exposing slash commands", async () => {
+test("Minke Host skips alpha.2 ignorable external Session events with non-object data", async () => {
+  const operationId = "weixin:account-1:message-ignorable";
+  const base = agentTurnHistory(operationId, {
+    answer: "compatible reply",
+    userText: "hello",
+  }).map(({ event }) => event);
+  const events = [
+    ...base.slice(0, 2),
+    {
+      type: "plugin/diagnostic-null",
+      time: 12,
+      data: null,
+      ignorable: true,
+    },
+    {
+      type: "plugin/diagnostic-number",
+      time: 13,
+      data: 7,
+      ignorable: true,
+    },
+    {
+      type: "plugin/diagnostic-string",
+      time: 14,
+      data: "informational",
+      ignorable: true,
+    },
+    ...base.slice(2),
+  ].map((event, seq) => ({ ...event, seq }));
+
+  const result = await runAgentTurnInHarness(
+    {
+      create(request) {
+        return Promise.resolve({
+          sessionId: request.sessionId,
+        });
+      },
+      inspect() {
+        return Promise.resolve({ events });
+      },
+      prompt() {
+        throw new Error("prompt must not run");
+      },
+    },
+    {
+      operationId,
+      sessionId: "session-im-account-1-peer-ignorable",
+      text: "hello",
+    },
+    new AbortController().signal,
+    { pollIntervalMs: 0 },
+  );
+
+  assert.deepEqual(result, {
+    outcome: "completed",
+    sessionId: "session-im-account-1-peer-ignorable",
+    text: "compatible reply",
+    turn: 2,
+    endReason: "completed",
+  });
+});
+
+test("Minke Host ignores unconsumed events validated by SessionController", async () => {
+  const operationId = "weixin:account-1:message-required";
+  const base = agentTurnHistory(operationId, {
+    answer: "forward-compatible reply",
+    userText: "hello",
+  }).map(({ event }) => event);
+  const events = [
+    ...base.slice(0, 3),
+    {
+      type: "plugin/required-state",
+      time: 13,
+      data: { changesReconstruction: true },
+    },
+    ...base.slice(3),
+  ].map((event, seq) => ({ ...event, seq }));
+
+  const result = await runAgentTurnInHarness(
+    {
+      create(request) {
+        return Promise.resolve({
+          sessionId: request.sessionId,
+        });
+      },
+      inspect() {
+        return Promise.resolve({ events });
+      },
+      prompt() {
+        throw new Error("prompt must not run");
+      },
+    },
+    {
+      operationId,
+      sessionId: "session-im-account-1-peer-required",
+      text: "hello",
+    },
+    new AbortController().signal,
+    { pollIntervalMs: 0 },
+  );
+
+  assert.deepEqual(result, {
+    outcome: "completed",
+    sessionId: "session-im-account-1-peer-required",
+    text: "forward-compatible reply",
+    turn: 2,
+    endReason: "completed",
+  });
+});
+
+test("Minke Host scans a long Session once and follows its event tail without polling", async () => {
+  const operationId = "weixin:account-1:message-long-history";
+  const prefixLength = 2_048;
+  const events = Array.from(
+    { length: prefixLength },
+    (_, seq) => ({
+      type: "step/start",
+      seq,
+      time: seq,
+      data: { turn: 0, step: seq },
+    }),
+  );
+  events.push(
+    {
+      type: "turn/start",
+      seq: events.length,
+      time: events.length,
+      data: { turn: 9 },
+    },
+    {
+      type: "user/message",
+      seq: events.length + 1,
+      time: events.length + 1,
+      data: {
+        role: "user",
+        content: [{ type: "text", text: "long history" }],
+        source: { kind: "user", rpcId: operationId },
+      },
+    },
+  );
+  let numericIndexReads = 0;
+  const observedEvents = new Proxy(events, {
+    get(target, property, receiver) {
+      if (
+        typeof property === "string" &&
+        /^(?:0|[1-9][0-9]*)$/u.test(property)
+      ) {
+        numericIndexReads += 1;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  let inspections = 0;
+  let follows = 0;
+
+  const result = await runAgentTurnInHarness(
+    {
+      create(request) {
+        return Promise.resolve({
+          sessionId: request.sessionId,
+        });
+      },
+      inspect() {
+        inspections += 1;
+        return Promise.resolve({ events: observedEvents });
+      },
+      follow(request) {
+        follows += 1;
+        assert.deepEqual(request, {
+          address: {
+            kind: "session",
+            sessionId:
+              "session-im-account-1-peer-long-history",
+          },
+        });
+        return (async function* () {
+          yield {
+            type: "snapshot",
+            cursor: events.at(-1).seq,
+            records: [],
+          };
+          events.push(
+            {
+              type: "assistant/message",
+              seq: events.length,
+              time: events.length,
+              data: {
+                turn: 9,
+                step: 1,
+                message: {
+                  role: "assistant",
+                  content: [{
+                    type: "text",
+                    text: "incremental reply",
+                  }],
+                },
+              },
+            },
+            {
+              type: "turn/end",
+              seq: events.length + 1,
+              time: events.length + 1,
+              data: {
+                turn: 9,
+                reason: { kind: "completed" },
+              },
+            },
+          );
+          yield { type: "event", event: events.at(-2) };
+          yield { type: "event", event: events.at(-1) };
+        })();
+      },
+      prompt() {
+        throw new Error("prompt must not run");
+      },
+    },
+    {
+      operationId,
+      sessionId: "session-im-account-1-peer-long-history",
+      text: "long history",
+    },
+    new AbortController().signal,
+    { pollIntervalMs: 0 },
+  );
+
+  assert.equal(inspections, 1);
+  assert.equal(follows, 1);
+  assert.equal(result.outcome, "completed");
+  assert.equal(result.text, "incremental reply");
+  assert.ok(
+    numericIndexReads < events.length * 2,
+    `expected one full scan, observed ${numericIndexReads} indexed reads`,
+  );
+});
+
+test("Minke Host reconciles a truncated follow opening before deciding to prompt", async () => {
+  const operationId = "weixin:account-1:message-follow-gap";
+  const input = {
+    operationId,
+    sessionId: "session-im-account-1-peer-follow-gap",
+    text: "already admitted",
+  };
+  const reconciledEvents = [
+    {
+      type: "turn/start",
+      seq: 0,
+      time: 0,
+      data: { turn: 12 },
+    },
+    {
+      type: "user/message",
+      seq: 1,
+      time: 1,
+      data: {
+        role: "user",
+        content: [{ type: "text", text: input.text }],
+        source: { kind: "user", rpcId: operationId },
+      },
+    },
+    ...Array.from({ length: 4 }, (_, index) => ({
+      type: "step/start",
+      seq: index + 2,
+      time: index + 2,
+      data: { turn: 12, step: index + 1 },
+    })),
+    {
+      type: "assistant/message",
+      seq: 6,
+      time: 6,
+      data: {
+        turn: 12,
+        step: 4,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "race-safe reply" }],
+        },
+      },
+    },
+  ];
+  const turnEnd = {
+    type: "turn/end",
+    seq: 7,
+    time: 7,
+    data: {
+      turn: 12,
+      reason: { kind: "completed" },
+    },
+  };
+  let inspections = 0;
+  let promptCalls = 0;
+
+  const result = await runAgentTurnInHarness(
+    {
+      create(request) {
+        return Promise.resolve({
+          sessionId: request.sessionId,
+        });
+      },
+      inspect() {
+        inspections += 1;
+        return Promise.resolve({
+          events: inspections === 1 ? [] : reconciledEvents,
+        });
+      },
+      follow() {
+        return (async function* () {
+          yield {
+            type: "snapshot",
+            cursor: 5,
+            // The default message window cut omitted turn/start and the
+            // operation's user/message even though its cursor advanced.
+            records: [{
+              type: "event",
+              event: reconciledEvents[5],
+            }],
+          };
+          // The slow-path inspect raced one event beyond the opening cursor;
+          // follow remains gap-free and therefore repeats it before turn/end.
+          yield {
+            type: "event",
+            event: reconciledEvents[6],
+          };
+          yield { type: "event", event: turnEnd };
+        })();
+      },
+      prompt() {
+        promptCalls += 1;
+        return Promise.resolve({ accepted: true });
+      },
+    },
+    input,
+    new AbortController().signal,
+    { pollIntervalMs: 0 },
+  );
+
+  assert.equal(inspections, 2);
+  assert.equal(promptCalls, 0);
+  assert.deepEqual(result, {
+    outcome: "completed",
+    sessionId: input.sessionId,
+    text: "race-safe reply",
+    turn: 12,
+    endReason: "completed",
+  });
+});
+
+test("Minke Host writes operationId to prompt requestId without exposing slash commands", async () => {
   const operationId = "telegram:account-1:update-9";
   const calls = [];
-  let historyReads = 0;
+  let inspectionReads = 0;
   const port = new EventEmitter();
   port.connected = true;
   const responses = [];
@@ -563,36 +944,65 @@ test("Minke Host writes operationId to prompt rpcId without exposing slash comma
     effect(callback) {
       dispose = callback();
     },
-    apiProxy: {
-      sessions: {
-        create(request) {
-          calls.push(["create", request]);
-          return Promise.resolve(okRpc(request, {
-            sessionId: request.payload.sessionId,
-          }));
-        },
-        history(request) {
-          calls.push(["history", request]);
-          historyReads += 1;
-          return Promise.resolve(okRpc(request, {
-            events: historyReads === 1
-              ? []
-              : agentTurnHistory(operationId, {
-                answer: "Telegram reply",
-                turn: 0,
-                userText: "/status",
-              }),
-            hasMore: false,
-          }));
-        },
-        prompt(request) {
-          calls.push(["prompt", request]);
-          return Promise.resolve(okRpc(request, { accepted: true }));
-        },
-        cancel(request) {
-          calls.push(["cancel", request]);
-          return Promise.resolve(okRpc(request, { accepted: true }));
-        },
+    sessionController: {
+      create(request) {
+        calls.push(["create", request]);
+        return Promise.resolve({
+          sessionId: request.sessionId,
+        });
+      },
+      inspect(sessionId, signal) {
+        calls.push(["inspect", { sessionId, signal }]);
+        inspectionReads += 1;
+        return Promise.resolve({ events: [] });
+      },
+      follow(request, signal) {
+        calls.push(["follow", { request, signal }]);
+        return (async function* () {
+          yield {
+            type: "snapshot",
+            cursor: 3,
+            records: [
+              {
+                type: "chunks",
+                event: {
+                  type: "chunkrow/text-chunks",
+                  seq: 0,
+                  time: 0,
+                  data: {
+                    turn: 0,
+                    step: 0,
+                    index: 0,
+                    dt: [0, 0],
+                    texts: ["a", "b", "c"],
+                  },
+                },
+              },
+              {
+                type: "event",
+                event: {
+                  type: "step/end",
+                  seq: 3,
+                  time: 3,
+                  data: { turn: 0, step: 0 },
+                },
+              },
+            ],
+          };
+          for (
+            const { event } of agentTurnHistory(operationId, {
+              answer: "Telegram reply",
+              turn: 0,
+              userText: "/status",
+            })
+          ) {
+            yield { type: "event", event };
+          }
+        })();
+      },
+      prompt(request, signal) {
+        calls.push(["prompt", { request, signal }]);
+        return Promise.resolve({ accepted: true });
       },
     },
   };
@@ -608,10 +1018,11 @@ test("Minke Host writes operationId to prompt rpcId without exposing slash comma
   const response = parseAgentTurnProcessResponse(
     await nextAgentTurnResponse(responses),
   );
-  const prompt = calls.find(([method]) => method === "prompt")[1];
+  const prompt = calls.find(([method]) => method === "prompt")[1]
+    .request;
 
-  assert.equal(prompt.rpcId, operationId);
-  assert.deepEqual(prompt.payload, {
+  assert.deepEqual(prompt, {
+    requestId: operationId,
     sessionId: "session-im-account-1-peer-9",
     mode: "queue",
     content: [
@@ -620,9 +1031,10 @@ test("Minke Host writes operationId to prompt rpcId without exposing slash comma
     ],
   });
   assert.equal(
-    prompt.payload.content.map(({ text }) => text).join(""),
+    prompt.content.map(({ text }) => text).join(""),
     "/status",
   );
+  assert.equal(inspectionReads, 1);
   assert.deepEqual(response.result, {
     outcome: "completed",
     sessionId: "session-im-account-1-peer-9",
@@ -639,15 +1051,14 @@ test("Minke Host publishes previews only for successful produced files", async (
   const result = await runAgentTurnInHarness(
     {
       create(request) {
-        return Promise.resolve(okRpc(request, {
-          sessionId: request.payload.sessionId,
-        }));
+        return Promise.resolve({
+          sessionId: request.sessionId,
+        });
       },
-      history(request) {
-        return Promise.resolve(okRpc(request, {
-          events: agentTurnHistoryWithProducedFiles(operationId),
-          hasMore: false,
-        }));
+      inspect() {
+        return Promise.resolve(inspectedAgentTurn(
+          agentTurnHistoryWithProducedFiles(operationId),
+        ));
       },
       prompt() {
         throw new Error("prompt must not run");
@@ -694,10 +1105,9 @@ test("Minke Host publishes previews only for successful produced files", async (
 
 test("Minke Host cancellation detaches while an operation remains single-flight", async () => {
   const operationId = "discord:account-1:event-1";
-  const delayedHistory = Promise.withResolvers();
-  let historyReads = 0;
+  const delayedInspection = Promise.withResolvers();
+  let inspectionReads = 0;
   let promptCalls = 0;
-  let cancelCalls = 0;
   const port = new EventEmitter();
   port.connected = true;
   const responses = [];
@@ -711,36 +1121,29 @@ test("Minke Host cancellation detaches while an operation remains single-flight"
     effect(callback) {
       dispose = callback();
     },
-    apiProxy: {
-      sessions: {
-        create(request) {
-          return Promise.resolve(okRpc(request, {
-            sessionId: request.payload.sessionId,
-          }));
-        },
-        history(request) {
-          historyReads += 1;
-          if (historyReads === 2) {
-            return delayedHistory.promise;
-          }
-          return Promise.resolve(okRpc(request, {
-            events: historyReads >= 4
-              ? agentTurnHistory(operationId, {
+    sessionController: {
+      create(request) {
+        return Promise.resolve({
+          sessionId: request.sessionId,
+        });
+      },
+      inspect() {
+        inspectionReads += 1;
+        if (inspectionReads === 2) {
+          return delayedInspection.promise;
+        }
+        return Promise.resolve(
+          inspectionReads >= 4
+            ? inspectedAgentTurn(agentTurnHistory(operationId, {
                 answer: "one reply",
                 userText: "cancel me",
-              })
-              : [],
-            hasMore: false,
-          }));
-        },
-        prompt(request) {
-          promptCalls += 1;
-          return Promise.resolve(okRpc(request, { accepted: true }));
-        },
-        cancel(request) {
-          cancelCalls += 1;
-          return Promise.resolve(okRpc(request, { accepted: true }));
-        },
+              }))
+            : { events: [] },
+        );
+      },
+      prompt() {
+        promptCalls += 1;
+        return Promise.resolve({ accepted: true });
       },
     },
   };
@@ -753,7 +1156,7 @@ test("Minke Host cancellation detaches while an operation remains single-flight"
     text: "cancel me",
   }));
   await waitUntil(
-    () => promptCalls === 1 && historyReads === 2,
+    () => promptCalls === 1 && inspectionReads === 2,
   );
   port.emit("message", createAgentTurnCancelRequest(5));
   port.emit("message", createAgentTurnRunRequest(7, {
@@ -772,16 +1175,12 @@ test("Minke Host cancellation detaches while an operation remains single-flight"
     sessionId: "session-im-account-1-peer-1",
     text: "cancel me",
   }));
-  delayedHistory.resolve(okRpc(
-    { rpcId: `${operationId}:history:1` },
-    {
-      events: agentTurnHistory(operationId, {
+  delayedInspection.resolve(
+    inspectedAgentTurn(agentTurnHistory(operationId, {
         answer: "one reply",
         userText: "cancel me",
-      }),
-      hasMore: false,
-    },
-  ));
+      })),
+  );
   const response = parseAgentTurnProcessResponse(
     await agentTurnResponseFor(responses, 6),
   );
@@ -789,7 +1188,6 @@ test("Minke Host cancellation detaches while an operation remains single-flight"
   assert.equal(response.result.outcome, "completed");
   assert.equal(response.result.text, "one reply");
   assert.equal(promptCalls, 1);
-  assert.equal(cancelCalls, 0);
   assert.equal(
     responses.some((candidate) => candidate.requestId === 5),
     false,
@@ -803,34 +1201,23 @@ test("Agent turn control-plane failures reject instead of becoming terminal resu
     sessionId: "session-im-account-2-peer-4",
     text: "hello",
   };
-  const create = (request) => Promise.resolve(okRpc(request, {
-    sessionId: request.payload.sessionId,
-  }));
-  const emptyHistory = (request) =>
-    Promise.resolve(okRpc(request, {
-      events: [],
-      hasMore: false,
-    }));
+  const create = (request) => Promise.resolve({
+    sessionId: request.sessionId,
+  });
+  const emptyInspection = () =>
+    Promise.resolve({ events: [] });
 
   await assert.rejects(
     runAgentTurnInHarness(
       {
         create,
-        history: emptyHistory,
-        prompt(request) {
-          return Promise.resolve({
-            rpcId: request.rpcId,
-            result: {
-              ok: false,
-              error: {
-                code: "agent-busy",
-                message: "provider is restarting",
-              },
-            },
-          });
-        },
-        cancel() {
-          throw new Error("session.cancel must not be called");
+        inspect: emptyInspection,
+        prompt() {
+          throw new RemoteError(
+            "agent-busy",
+            "provider is restarting",
+            {},
+          );
         },
       },
       input,
@@ -844,32 +1231,28 @@ test("Agent turn control-plane failures reject instead of becoming terminal resu
     runAgentTurnInHarness(
       {
         create,
-        history() {
-          throw new Error("history store is temporarily busy");
+        inspect() {
+          throw new Error("inspection store is temporarily busy");
         },
         prompt() {
           throw new Error("prompt must not run");
-        },
-        cancel() {
-          throw new Error("session.cancel must not be called");
         },
       },
       input,
       new AbortController().signal,
       { pollIntervalMs: 0 },
     ),
-    /history store is temporarily busy/u,
+    /inspection store is temporarily busy/u,
   );
 
   await assert.rejects(
     runAgentTurnInHarness(
       {
         create,
-        history(request) {
-          return Promise.resolve(okRpc(request, {
+        inspect() {
+          return Promise.resolve({
             events: [{}],
-            hasMore: false,
-          }));
+          });
         },
         prompt() {
           throw new Error("prompt must not run");
@@ -879,19 +1262,19 @@ test("Agent turn control-plane failures reject instead of becoming terminal resu
       new AbortController().signal,
       { pollIntervalMs: 0 },
     ),
-    /session\.history returned invalid event ordering/u,
+    /session\.inspect returned invalid event ordering/u,
   );
 
   await assert.rejects(
     runAgentTurnInHarness(
       {
-        create(request) {
-          return Promise.resolve(okRpc(request, {
+        create() {
+          return Promise.resolve({
             sessionId: "session-other",
-          }));
+          });
         },
-        history() {
-          throw new Error("history must not run");
+        inspect() {
+          throw new Error("inspect must not run");
         },
         prompt() {
           throw new Error("prompt must not run");
@@ -908,9 +1291,9 @@ test("Agent turn control-plane failures reject instead of becoming terminal resu
     await runAgentTurnInHarness(
       {
         create,
-        history(request) {
-          return Promise.resolve(okRpc(request, {
-            events: agentTurnHistory(input.operationId, {
+        inspect() {
+          return Promise.resolve(inspectedAgentTurn(
+            agentTurnHistory(input.operationId, {
               endReason: {
                 kind: "error",
                 error: {
@@ -920,8 +1303,7 @@ test("Agent turn control-plane failures reject instead of becoming terminal resu
               },
               userText: input.text,
             }),
-            hasMore: false,
-          }));
+          ));
         },
         prompt() {
           throw new Error("prompt must not run");

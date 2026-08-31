@@ -48,9 +48,34 @@ import {
 import {
   installShortcutStyles,
 } from "./styles.ts";
+import type {
+  ShortcutAction,
+} from "./runtime.ts";
 
 const SHORTCUTS_NAMESPACE = "minke.shortcuts";
 const PALETTE_NAMESPACE = "minke.palette";
+
+/** Build the New Session action against alpha.2's public navigation face. */
+export function createNewSessionShortcutAction(
+  uiWorkspace: HarnessClientContext["uiWorkspace"],
+  t: ShortcutTranslate,
+  paletteT: PaletteTranslate,
+): ShortcutAction {
+  return {
+    id: "session.new",
+    label: () => t("action.newSession"),
+    defaultBinding: DEFAULT_SHORTCUT_BINDINGS["session.new"],
+    order: 10,
+    palette: {
+      group: "session",
+      order: 10,
+      keywords: () => [paletteT("keywords.newSession")],
+    },
+    run: () => {
+      uiWorkspace.startSession();
+    },
+  };
+}
 
 /** Install native and browser shortcut actions plus their Settings surface. */
 export function installShortcuts(
@@ -196,20 +221,13 @@ export function installShortcuts(
   );
   ctx.effect(
     () =>
-      runtime.register({
-        id: "session.new",
-        label: () => t("action.newSession"),
-        defaultBinding: DEFAULT_SHORTCUT_BINDINGS["session.new"],
-        order: 10,
-        palette: {
-          group: "session",
-          order: 10,
-          keywords: () => [paletteT("keywords.newSession")],
-        },
-        run: () => {
-          ctx.workspaces.startSession();
-        },
-      }),
+      runtime.register(
+        createNewSessionShortcutAction(
+          ctx.uiWorkspace,
+          t,
+          paletteT,
+        ),
+      ),
     "minke-overlay: New Session shortcut",
   );
   ctx.effect(

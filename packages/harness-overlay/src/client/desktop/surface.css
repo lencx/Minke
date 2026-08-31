@@ -4,8 +4,7 @@
   background-color: transparent !important;
 }
 
-[data-dsh-desktop-sidebar-fade],
-[data-dsh-desktop-hero-glow] {
+[data-dsh-desktop-sidebar-fade] {
   display: none !important;
 }
 
@@ -42,6 +41,34 @@
 [data-minke-tabs-window-drag][data-dsh-desktop-drag-enabled] {
   -webkit-app-region: drag;
   app-region: drag;
+}
+
+[data-dsh-desktop-top-drag-region]
+  :is(
+    a[href],
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [contenteditable="true"],
+    [role="button"],
+    [role="checkbox"],
+    [role="combobox"],
+    [role="link"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="option"],
+    [role="radio"],
+    [role="slider"],
+    [role="spinbutton"],
+    [role="switch"],
+    [role="tab"],
+    [tabindex]:not([tabindex="-1"])
+  ) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 [data-dsh-desktop-titlebar-anchor]

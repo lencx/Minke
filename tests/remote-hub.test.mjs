@@ -6180,6 +6180,106 @@ test("Remote entry keeps connection presence green through settings work and wri
   remote.dispose();
 });
 
+test("remote address actions use the bootstrap capability without displaying it", async () => {
+  const publicAddress =
+    "https://minke.example-tailnet.ts.net";
+  const launchToken = "a".repeat(43);
+  const bootstrapUrl =
+    `${publicAddress}/?token=${launchToken}`;
+  const copied = [];
+  const remote = new RemoteSettingsRuntime({
+    available: true,
+    async read() {
+      return {
+        available: { tailscale: true, cloudflare: false },
+        settings: {
+          enabled: true,
+          method: "tailscale",
+          tailscale: {
+            transport: "serve",
+            ipAddress: "",
+          },
+          cloudflare: {
+            hostnameMode: "generated",
+            domain: "",
+            generatedLabel: "m-0123456789abcdef",
+            customHostname: "",
+            teamName: "",
+            audience: "",
+            tunnel: "",
+            configPath: "",
+            originPort: 49_321,
+          },
+        },
+        runtime: {
+          method: "tailscale",
+          transport: "serve",
+          state: "active",
+          url: publicAddress,
+          bootstrapUrl,
+        },
+      };
+    },
+    async write() {},
+  });
+  await remote.initialize();
+  const dom = new JSDOM(
+    '<!doctype html><div id="root"></div>',
+    { pretendToBeVisual: true },
+  );
+  try {
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const container =
+        dom.window.document.getElementById("root");
+      assert.ok(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(
+            createElement(RemoteSettingsSection, {
+              runtime: remote,
+              t: (key) => remoteEn[key],
+              async copyAddress(value) {
+                copied.push(value);
+                return true;
+              },
+            }),
+          );
+        });
+        const link = container.querySelector(
+          ".minke-remote__address-link",
+        );
+        assert.ok(link instanceof dom.window.HTMLAnchorElement);
+        assert.equal(link.getAttribute("href"), bootstrapUrl);
+        assert.doesNotMatch(link.textContent, /token=/u);
+        assert.equal(link.textContent.includes(launchToken), false);
+
+        const copy = container.querySelector(
+          ".minke-remote__copy",
+        );
+        assert.ok(copy instanceof dom.window.HTMLButtonElement);
+        await act(async () => {
+          copy.dispatchEvent(
+            new dom.window.MouseEvent("click", {
+              bubbles: true,
+            }),
+          );
+          await Promise.resolve();
+        });
+        assert.deepEqual(copied, [bootstrapUrl]);
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+      }
+    });
+  } finally {
+    dom.window.close();
+    remote.dispose();
+  }
+});
+
 test("a manually edited Cloudflare label can remain empty", async () => {
   const writes = [];
   const remote = new RemoteSettingsRuntime({

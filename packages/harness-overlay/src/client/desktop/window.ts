@@ -1,7 +1,8 @@
-import type {
-  HarnessColorScheme,
-  HarnessLocale,
-  HarnessThemePreference,
+import {
+  isHarnessLocale,
+  type HarnessColorScheme,
+  type HarnessLocale,
+  type HarnessThemePreference,
 } from "../core/context.ts";
 import type {
   DesktopAboutInfo,
@@ -90,6 +91,7 @@ export function desktopWindowLocalePort(
   return {
     available: true,
     publish(locale: HarnessLocale) {
+      if (!isHarnessLocale(locale)) return;
       bridge.publish(locale);
     },
   };

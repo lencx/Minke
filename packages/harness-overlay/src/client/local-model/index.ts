@@ -14,4 +14,4 @@ export {
 } from "./styles.ts";
 export {
   installLocalModelSettings,
-} from "./view.ts";
+} from "./view.tsx";

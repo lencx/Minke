@@ -4,6 +4,9 @@ import test from "node:test";
 import {
   hasMacOSDesktopSurface,
 } from "@minke/harness-overlay/client/desktop/index.ts";
+import {
+  inspectCssContract,
+} from "./support/css-contract.mjs";
 
 const macOSWindowSource = readFileSync(
   new URL("../desktop/main/macos-window.ts", import.meta.url),
@@ -129,9 +132,9 @@ const harnessSidebarSource = readFileSync(
   "utf8",
 );
 const harnessDesktopSurfaceSources = [
-  "packages/client/ui-conversation/src/client/skeleton/DetailsPanel.tsx",
+  "packages/client/ui-chat/src/client/details/DetailsPanel.tsx",
   "packages/client/ui-conversation/src/client/skeleton/EmptyHero.tsx",
-  "packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx",
+  "packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx",
 ].map((path) =>
   readFileSync(
     new URL(`../vendor/deepseek-harness/${path}`, import.meta.url),
@@ -313,7 +316,6 @@ test("the product overlay owns post-boot desktop adaptation", () => {
   assert.match(desktopSurfaceSource, /\[data-shell-overlay\]/);
   assert.match(desktopSurfaceSource, /children\.item\(2\)/);
   assert.match(desktopSurfaceSource, /linear-gradient/);
-  assert.match(desktopSurfaceSource, /1051 468/);
   assert.match(
     desktopSurfaceSource,
     /setAttribute\("data-dsh-desktop-sidebar-toggle"/,
@@ -592,6 +594,13 @@ test("the stable top drag region owns its responsive boundary without claiming c
   const topDragTarget = desktopSurfaceCss.match(
     /\[data-dsh-desktop-top-drag-region\]\s*\{([\s\S]*?)\}/,
   )?.[1];
+  const desktopSurfaceContract = inspectCssContract(desktopSurfaceCss);
+  const topDragInteractiveSelectors =
+    desktopSurfaceContract.selectors().filter((selector) =>
+      selector.startsWith(
+        "[data-dsh-desktop-top-drag-region] :is(",
+      )
+    );
   const gatedDragRule = desktopSurfaceCss.match(
     /\[data-dsh-desktop-titlebar-anchor\]\[data-dsh-desktop-drag-enabled\],\s*\n\[data-dsh-desktop-top-drag-region\]\[data-dsh-desktop-drag-enabled\],\s*\n\[data-minke-tabs-window-drag\]\[data-dsh-desktop-drag-enabled\]\s*\{([\s\S]*?)\}/,
   )?.[1];
@@ -618,6 +627,31 @@ test("the stable top drag region owns its responsive boundary without claiming c
     "the managed top region must fail safe before drag is enabled",
   );
   assert.match(topDragTarget, /-webkit-app-region:\s*no-drag/);
+  assert.equal(
+    topDragInteractiveSelectors.length,
+    1,
+    "session-header controls must opt out after the runtime enables dragging",
+  );
+  const [topDragInteractiveSelector] = topDragInteractiveSelectors;
+  assert.equal(topDragInteractiveSelector.includes("button"), true);
+  assert.equal(
+    topDragInteractiveSelector.includes('[role="button"]'),
+    true,
+  );
+  assert.equal(
+    desktopSurfaceContract.declaration(
+      topDragInteractiveSelector,
+      "-webkit-app-region",
+    ),
+    "no-drag",
+  );
+  assert.equal(
+    desktopSurfaceContract.declaration(
+      topDragInteractiveSelector,
+      "app-region",
+    ),
+    "no-drag",
+  );
   assert.ok(
     tabsWindowDragTarget,
     "the right Tabs spacer must fail safe before drag is enabled",
@@ -743,10 +777,6 @@ test("the active composer restores its upstream theme surfaces", () => {
   assert.match(
     desktopSurfaceCss,
     /\[data-dsh-desktop-sidebar-fade\]/,
-  );
-  assert.match(
-    desktopSurfaceCss,
-    /\[data-dsh-desktop-hero-glow\]/,
   );
   assert.doesNotMatch(
     earlyCss,
