@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import {
+  Context,
+  Service,
+} from "@deepseek-ai/cordis";
+import {
   aboutMetadata,
   aboutTagline,
   DEEPSEEK_HARNESS_URL,
@@ -31,6 +35,9 @@ const overlayRequire = createRequire(
     "../packages/harness-overlay/package.json",
     import.meta.url,
   ),
+);
+const typescript = createRequire(import.meta.url)(
+  "../vendor/deepseek-harness/node_modules/typescript",
 );
 const installedCordisManifest =
   overlayRequire("@deepseek-ai/cordis/package.json");
@@ -94,6 +101,27 @@ const clientSource = readFileSync(
   ),
   "utf8",
 );
+const clientSourceFile = typescript.createSourceFile(
+  "client/index.tsx",
+  clientSource,
+  typescript.ScriptTarget.Latest,
+  true,
+  typescript.ScriptKind.TSX,
+);
+const clientInjectDeclaration = clientSourceFile.statements
+  .filter(typescript.isVariableStatement)
+  .flatMap((statement) => [...statement.declarationList.declarations])
+  .find((declaration) => declaration.name.text === "inject");
+assert.ok(
+  typescript.isArrayLiteralExpression(
+    clientInjectDeclaration?.initializer,
+  ),
+);
+const clientInject = clientInjectDeclaration.initializer.elements
+  .map((element) => {
+    assert.ok(typescript.isStringLiteral(element));
+    return element.text;
+  });
 const aboutInstallSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/about/install.tsx",
@@ -212,6 +240,47 @@ test("the client entry stays a composition root", () => {
     clientSource,
     /ctx\.slots\.(?:inject|register)|new (?:ShortcutRuntime|TabsRuntime)|runtime\.register/u,
   );
+});
+
+test("the client inject grants access to the nested plugin inventory Remote", async () => {
+  const ctx = new Context();
+  class RemoteService extends Service {
+    constructor(serviceCtx) {
+      super(serviceCtx, "remote");
+    }
+  }
+  class PluginInventoryRemoteService extends Service {
+    constructor(serviceCtx) {
+      super(serviceCtx, "remote.pluginInventory");
+    }
+
+    list() {
+      return Promise.resolve({ ok: true, value: { entries: [] } });
+    }
+  }
+  await ctx.plugin({
+    apply(serviceCtx) {
+      new RemoteService(serviceCtx);
+    },
+  }).await();
+  await ctx.plugin({
+    apply(serviceCtx) {
+      new PluginInventoryRemoteService(serviceCtx);
+    },
+  }).await();
+
+  await ctx.plugin({
+    inject: clientInject.filter((name) =>
+      name === "remote" || name.startsWith("remote.")
+    ),
+    apply(pluginCtx) {
+      assert.equal(
+        typeof pluginCtx.remote.pluginInventory.list,
+        "function",
+      );
+    },
+  }).await();
+  await ctx.fiber.dispose();
 });
 
 test("the Web projection shadows official DSH brand slots with Minke", () => {

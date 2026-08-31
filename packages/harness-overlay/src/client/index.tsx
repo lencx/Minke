@@ -22,6 +22,7 @@ import { installTabs } from "./tabs/install.tsx";
 export const inject = [
   "connection",
   "remote",
+  "remote.pluginInventory",
   "slots",
   "locale",
   "theme",
