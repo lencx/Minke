@@ -168,7 +168,10 @@ export interface RemoteRuntimeSnapshot {
   method: RemoteMethodId;
   transport: RemoteTransport;
   state: RemoteRuntimeState;
+  /** Stable, clean public origin used by status and Remote Hub links. */
   url?: string;
+  /** Ephemeral browser bootstrap capability; never persisted or proxied. */
+  bootstrapUrl?: string;
   error?: RemoteRuntimeError;
 }
 
@@ -424,6 +427,52 @@ function parseRemoteUrl(
   }
 }
 
+const DSH_LAUNCH_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+
+/** Validate the process-scoped DSH browser launch capability. */
+export function parseRemoteBootstrapToken(
+  value: unknown,
+): string {
+  if (
+    typeof value !== "string" ||
+    !DSH_LAUNCH_TOKEN_PATTERN.test(value)
+  ) {
+    throw new TypeError("invalid remote bootstrap token");
+  }
+  return value;
+}
+
+function parseRemoteBootstrapUrl(
+  value: unknown,
+  publicUrl: string,
+): string {
+  if (typeof value !== "string") {
+    throw new TypeError("invalid remote runtime snapshot");
+  }
+  try {
+    const url = new URL(value);
+    const entries = [...url.searchParams];
+    const token = entries[0]?.[1];
+    if (
+      url.origin !== publicUrl ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.pathname !== "/" ||
+      url.hash !== "" ||
+      entries.length !== 1 ||
+      entries[0]?.[0] !== "token" ||
+      token === undefined ||
+      parseRemoteBootstrapToken(token) !== token ||
+      value !== url.href
+    ) {
+      throw new TypeError("invalid remote runtime snapshot");
+    }
+    return url.href;
+  } catch {
+    throw new TypeError("invalid remote runtime snapshot");
+  }
+}
+
 function isRuntimePair(
   method: unknown,
   transport: unknown,
@@ -438,7 +487,7 @@ function isRuntimePair(
 }
 
 const REMOTE_RUNTIME_ERRORS:
-ReadonlySet<RemoteRuntimeError> = new Set([
+  ReadonlySet<RemoteRuntimeError> = new Set([
   "status",
   "serve",
   "serve-conflict",
@@ -452,7 +501,13 @@ ReadonlySet<RemoteRuntimeError> = new Set([
   "cloudflare-tunnel",
 ]);
 
-/** Validate the finite, secret-free runtime state exposed to the renderer. */
+/**
+ * Validate the finite runtime state exposed to the renderer.
+ *
+ * The optional bootstrap URL is an ephemeral capability tied exactly to the
+ * clean public origin. It is intentionally absent from durable settings and
+ * provider launch configuration.
+ */
 export function parseRemoteRuntimeSnapshot(
   value: unknown,
 ): RemoteRuntimeSnapshot {
@@ -465,6 +520,7 @@ export function parseRemoteRuntimeSnapshot(
         key !== "transport" &&
         key !== "state" &&
         key !== "url" &&
+        key !== "bootstrapUrl" &&
         key !== "error",
     ) ||
     !isRuntimePair(runtime.method, runtime.transport) ||
@@ -485,9 +541,11 @@ export function parseRemoteRuntimeSnapshot(
   const transport = runtime.transport as RemoteTransport;
   const state = runtime.state as RemoteRuntimeState;
   const hasUrl = runtime.url !== undefined;
+  const hasBootstrapUrl = runtime.bootstrapUrl !== undefined;
   const hasError = runtime.error !== undefined;
   if (
     ((state === "ready" || state === "active") !== hasUrl) ||
+    (hasBootstrapUrl && !hasUrl) ||
     (
       (
         state === "error" ||
@@ -503,16 +561,23 @@ export function parseRemoteRuntimeSnapshot(
   ) {
     throw new TypeError("invalid remote runtime snapshot");
   }
+  const url = hasUrl
+    ? parseRemoteUrl(
+        runtime.url,
+        method,
+        transport,
+      )
+    : undefined;
   return {
     method,
     transport,
     state,
-    ...(hasUrl
+    ...(url === undefined ? {} : { url }),
+    ...(hasBootstrapUrl && url !== undefined
       ? {
-          url: parseRemoteUrl(
-            runtime.url,
-            method,
-            transport,
+          bootstrapUrl: parseRemoteBootstrapUrl(
+            runtime.bootstrapUrl,
+            url,
           ),
         }
       : {}),

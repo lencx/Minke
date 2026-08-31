@@ -26,6 +26,7 @@ import {
   isRemoteHostnameLabel,
   isTailscaleIpv4,
   parseCloudflareAccessConfig,
+  parseRemoteBootstrapToken,
   parseRemoteRuntimeSnapshot,
   parseRemoteSettingsSnapshot,
   parseTailscaleStatusIpv4,
@@ -64,6 +65,12 @@ import {
 } from "@minke/harness-overlay/client/desktop/settings.ts";
 
 const roots = [];
+const HARNESS_ORIGIN = "http://127.0.0.1:43117";
+const HARNESS_LAUNCH_TOKEN = "a".repeat(43);
+const REMOTE_ORIGIN =
+  "https://minke.example-tailnet.ts.net";
+const REMOTE_BOOTSTRAP_URL =
+  `${REMOTE_ORIGIN}/?token=${HARNESS_LAUNCH_TOKEN}`;
 
 async function temporaryRoot() {
   const root = await mkdtemp(join(tmpdir(), "minke-remote-"));
@@ -275,6 +282,58 @@ test("remote contracts default closed and reject malformed snapshots", () => {
       }),
     /remote settings snapshot/u,
   );
+  assert.deepEqual(
+    parseRemoteRuntimeSnapshot({
+      method: "tailscale",
+      transport: "serve",
+      state: "active",
+      url: REMOTE_ORIGIN,
+      bootstrapUrl: REMOTE_BOOTSTRAP_URL,
+    }),
+    {
+      method: "tailscale",
+      transport: "serve",
+      state: "active",
+      url: REMOTE_ORIGIN,
+      bootstrapUrl: REMOTE_BOOTSTRAP_URL,
+    },
+  );
+  assert.equal(
+    parseRemoteBootstrapToken(HARNESS_LAUNCH_TOKEN),
+    HARNESS_LAUNCH_TOKEN,
+  );
+  for (const bootstrapUrl of [
+    `${REMOTE_ORIGIN}/?token=short`,
+    `${REMOTE_ORIGIN}/path?token=${HARNESS_LAUNCH_TOKEN}`,
+    `${REMOTE_ORIGIN}/?token=${HARNESS_LAUNCH_TOKEN}&debug=1`,
+    `${REMOTE_ORIGIN}/?token=${HARNESS_LAUNCH_TOKEN}#fragment`,
+    `https://other.example/?token=${HARNESS_LAUNCH_TOKEN}`,
+    `https://user@minke.example-tailnet.ts.net/?token=${HARNESS_LAUNCH_TOKEN}`,
+  ]) {
+    assert.throws(
+      () => parseRemoteRuntimeSnapshot({
+        method: "tailscale",
+        transport: "serve",
+        state: "active",
+        url: REMOTE_ORIGIN,
+        bootstrapUrl,
+      }),
+      /remote runtime snapshot/u,
+      bootstrapUrl,
+    );
+  }
+  for (const launchToken of [
+    "",
+    "short",
+    `${"a".repeat(42)}+`,
+    "a".repeat(44),
+  ]) {
+    assert.throws(
+      () => parseRemoteBootstrapToken(launchToken),
+      /remote bootstrap token/u,
+      launchToken,
+    );
+  }
   assert.deepEqual(
     parseRemoteRuntimeSnapshot({
       method: "tailscale",
@@ -1470,8 +1529,8 @@ test("remote runtime retries Tailscale in the background before exposing Harness
       }
       return { stdout: tailscaleStatus(), stderr: "" };
     },
-    spawn() {
-      events.push("serve");
+    spawn(_command, args) {
+      events.push(["serve", args]);
       setImmediate(() => {
         child.stdout.write(
           "Serve configured.\nPress Ctrl+C to exit.\n",
@@ -1484,7 +1543,7 @@ test("remote runtime retries Tailscale in the background before exposing Harness
     shutdownTimeoutMs: 250,
   });
 
-  await runtime.start("http://127.0.0.1:43117");
+  await runtime.start(HARNESS_ORIGIN, HARNESS_LAUNCH_TOKEN);
 
   assert.equal(attempts, 2);
   assert.deepEqual(events, [
@@ -1493,19 +1552,27 @@ test("remote runtime retries Tailscale in the background before exposing Harness
     "discover",
     ["status", 30_000],
     ["trust", ["minke.example-tailnet.ts.net"]],
-    "serve",
+    [
+      "serve",
+      ["serve", "--yes", "--bg=false", HARNESS_ORIGIN],
+    ],
   ]);
   assert.deepEqual(runtime.read(), {
     method: "tailscale",
     transport: "serve",
     state: "active",
-    url: "https://minke.example-tailnet.ts.net",
+    url: REMOTE_ORIGIN,
+    bootstrapUrl: REMOTE_BOOTSTRAP_URL,
   });
 
   const disabling = runtime.apply(
     remoteConfig({ enabled: false }),
   );
   assert.equal(runtime.read().state, "stopping");
+  assert.equal(
+    Object.hasOwn(runtime.read(), "bootstrapUrl"),
+    false,
+  );
   await disabling;
   assert.deepEqual(events.at(-1), ["trust", []]);
   assert.deepEqual(runtime.read(), {
@@ -1513,6 +1580,98 @@ test("remote runtime retries Tailscale in the background before exposing Harness
     transport: "serve",
     state: "disabled",
   });
+  await runtime.stop();
+});
+
+test("remote runtime keeps provider targets clean and drops detached bootstrap capabilities", async () => {
+  let providerTarget;
+  let providerStops = 0;
+  let providerSnapshot = {
+    method: "tailscale",
+    transport: "serve",
+    state: "starting",
+  };
+  const runtime = new RemoteAccessRuntime({
+    settings: remoteConfig({ enabled: true }),
+    async discoverCommands() {
+      return { tailscale: "/usr/bin/tailscale" };
+    },
+    async replaceTrustedHosts() {},
+    createService() {
+      return {
+        async prepare() {
+          return { trustedHosts: [] };
+        },
+        async start(target) {
+          providerTarget = target;
+          providerSnapshot = {
+            method: "tailscale",
+            transport: "serve",
+            state: "active",
+            url: REMOTE_ORIGIN,
+          };
+        },
+        read() {
+          return providerSnapshot;
+        },
+        async stop() {
+          providerStops += 1;
+        },
+      };
+    },
+  });
+
+  await runtime.start(HARNESS_ORIGIN, HARNESS_LAUNCH_TOKEN);
+  assert.equal(providerTarget, HARNESS_ORIGIN);
+  assert.equal(
+    String(providerTarget).includes(HARNESS_LAUNCH_TOKEN),
+    false,
+  );
+  assert.equal(
+    runtime.read().bootstrapUrl,
+    REMOTE_BOOTSTRAP_URL,
+  );
+
+  const detaching = runtime.detach();
+  assert.equal(
+    Object.hasOwn(runtime.read(), "bootstrapUrl"),
+    false,
+    "detaching must revoke the renderer capability synchronously",
+  );
+  await detaching;
+  assert.equal(runtime.read().state, "starting");
+  assert.equal(providerStops, 1);
+  await runtime.stop();
+});
+
+test("remote runtime validates both startup inputs before attaching either", async () => {
+  let discoveries = 0;
+  const runtime = new RemoteAccessRuntime({
+    settings: {
+      ...configuredCloudflare(),
+      enabled: true,
+    },
+    async discoverCommands() {
+      discoveries += 1;
+      return {};
+    },
+    async replaceTrustedHosts() {},
+  });
+
+  assert.throws(
+    () => runtime.start(HARNESS_ORIGIN, "invalid"),
+    /remote bootstrap token/u,
+  );
+  await runtime.apply({
+    ...configuredCloudflare(),
+    enabled: true,
+  });
+  assert.equal(
+    discoveries,
+    0,
+    "a rejected token must not leave a live Harness target behind",
+  );
+  assert.equal(runtime.read().state, "starting");
   await runtime.stop();
 });
 
@@ -1542,7 +1701,7 @@ test("remote runtime does not retry a rejected Tailscale IP override", async () 
     },
   });
 
-  await runtime.start("http://127.0.0.1:43117");
+  await runtime.start(HARNESS_ORIGIN, HARNESS_LAUNCH_TOKEN);
 
   assert.equal(attempts, 1);
   assert.equal(retryWaits, 0);
@@ -1585,7 +1744,7 @@ test("remote runtime retries a failed trusted-host revocation", async () => {
     shutdownTimeoutMs: 250,
   });
 
-  await runtime.start("http://127.0.0.1:43117");
+  await runtime.start(HARNESS_ORIGIN, HARNESS_LAUNCH_TOKEN);
   await assert.rejects(
     runtime.apply(remoteConfig({ enabled: false })),
     /control channel unavailable/u,

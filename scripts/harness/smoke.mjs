@@ -51,6 +51,9 @@ const ptyProbePath = join(
 );
 const startupTimeoutMs = 90_000;
 const hmrTimeoutMs = 15_000;
+const maxCapturedOutput = 64 * 1024;
+const launchTokenPattern = /^[A-Za-z0-9_-]{43}$/u;
+const tokenQueryValuePattern = /([?&]token=)[^&\s)]*/giu;
 const recursiveNodeChildSource = String.raw`
 const controls = new Set([
   "ELECTRON_RUN_AS_NODE",
@@ -112,35 +115,35 @@ for (const name of controls) {
 }
 process.stdout.write("recursive-node-ok");
 `;
-const mistralProbeSource = String.raw`
-const { createRequire } = require("node:module");
+const piAiMistralProbeSource = String.raw`
 const { join } = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 const runtimeRoot = process.argv[1];
-const piRequire = createRequire(
-  join(
-    runtimeRoot,
-    "node_modules",
-    "@earendil-works",
-    "pi-ai",
-    "package.json",
-  ),
+const entry = join(
+  runtimeRoot,
+  "node_modules",
+  "@earendil-works",
+  "pi-ai",
+  "dist",
+  "providers",
+  "mistral.js",
 );
-const entry = piRequire.resolve("@mistralai/mistralai");
-const expectedSuffix = join(
-  "@mistralai",
-  "mistralai",
-  "esm",
-  "index.js",
-);
-if (!entry.endsWith(expectedSuffix)) {
-  throw new Error("Mistral resolved outside compiled esm: " + entry);
-}
 import(pathToFileURL(entry).href)
-  .then((sdk) => {
-    if (typeof sdk.Mistral !== "function") {
-      throw new Error("Mistral SDK has no Mistral export");
+  .then(({ mistralProvider }) => {
+    if (typeof mistralProvider !== "function") {
+      throw new Error("pi-ai has no compiled Mistral provider");
+    }
+    const provider = mistralProvider();
+    if (
+      provider.id !== "mistral" ||
+      provider.name !== "Mistral" ||
+      provider.baseUrl !== "https://api.mistral.ai" ||
+      typeof provider.getModels !== "function" ||
+      provider.getModels().length === 0 ||
+      typeof provider.stream !== "function"
+    ) {
+      throw new Error("pi-ai Mistral provider contract is incomplete");
     }
   })
   .catch((error) => {
@@ -174,6 +177,102 @@ function executable(name) {
 
 function formatOutput(stdout, stderr) {
   return [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+}
+
+function redactLaunchTokens(value) {
+  return value.replace(
+    tokenQueryValuePattern,
+    "$1<redacted>",
+  );
+}
+
+function parseAuthenticatedReadyUrl(value) {
+  try {
+    const url = new URL(value);
+    const entries = [...url.searchParams];
+    const launchToken = entries[0]?.[1];
+    if (
+      url.protocol !== "http:" ||
+      url.hostname !== "127.0.0.1" ||
+      url.port === "" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.pathname !== "/" ||
+      url.hash !== "" ||
+      entries.length !== 1 ||
+      entries[0]?.[0] !== "token" ||
+      typeof launchToken !== "string" ||
+      !launchTokenPattern.test(launchToken) ||
+      value !== url.href
+    ) {
+      throw new TypeError("invalid endpoint");
+    }
+    return {
+      authenticatedUrl: url.href,
+      baseUrl: url.origin,
+      launchToken,
+    };
+  } catch {
+    throw new Error(
+      "Harness published an invalid authenticated readiness URL",
+    );
+  }
+}
+
+async function exchangeBrowserAuthentication(endpoint) {
+  const { baseUrl } = endpoint;
+  const unauthenticated = await fetch(`${baseUrl}/`, {
+    redirect: "manual",
+  });
+  if (unauthenticated.status !== 401) {
+    throw new Error(
+      `unauthenticated GET / returned HTTP ${String(unauthenticated.status)}, expected 401`,
+    );
+  }
+
+  const exchange = await fetch(endpoint.authenticatedUrl, {
+    redirect: "manual",
+  });
+  const setCookie = exchange.headers.get("set-cookie");
+  if (
+    exchange.status !== 303 ||
+    exchange.headers.get("location") !== "/" ||
+    setCookie === null
+  ) {
+    throw new Error(
+      `Harness browser authentication exchange returned HTTP ${String(exchange.status)} without the required redirect cookie`,
+    );
+  }
+  const cookie = setCookie.split(";", 1)[0];
+  if (!cookie.includes("=")) {
+    throw new Error(
+      "Harness browser authentication exchange returned an invalid cookie",
+    );
+  }
+
+  const authenticatedFetch = async (input, init = {}) => {
+    const url = new URL(input, baseUrl);
+    if (url.origin !== baseUrl) {
+      throw new Error(
+        `authenticated smoke request escaped Harness origin: ${url.origin}`,
+      );
+    }
+    const headers = new Headers(init.headers);
+    headers.set("cookie", cookie);
+    return await fetch(url, {
+      ...init,
+      headers,
+    });
+  };
+  const index = await authenticatedFetch(`${baseUrl}/`, {
+    redirect: "manual",
+  });
+  if (!index.ok) {
+    throw new Error(
+      `authenticated GET / failed with HTTP ${String(index.status)}`,
+    );
+  }
+  return authenticatedFetch;
 }
 
 async function run(command, args, options = {}) {
@@ -213,8 +312,10 @@ async function runSuccessful(command, args, options = {}) {
   return result;
 }
 
-async function fetchManifest(baseUrl) {
-  const response = await fetch(`${baseUrl}/?smoke=${Date.now()}`);
+async function fetchManifest(server) {
+  const response = await server.fetch(
+    `${server.baseUrl}/?smoke=${Date.now()}`,
+  );
   if (!response.ok) {
     throw new Error(`GET / failed with HTTP ${String(response.status)}`);
   }
@@ -223,19 +324,22 @@ async function fetchManifest(baseUrl) {
 
 let minkeHostRpcSequence = 0;
 
-async function callMinkeHost(baseUrl, endpoint, payload) {
+async function callMinkeHost(server, endpoint, payload) {
   const rpcId =
     `minke-host-smoke-${String(Date.now())}-${String(++minkeHostRpcSequence)}`;
-  const response = await fetch(`${baseUrl}/minke/${endpoint}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      type: "client-request",
-      rpcId,
-      method: endpoint,
-      payload,
-    }),
-  });
+  const response = await server.fetch(
+    `${server.baseUrl}/minke/${endpoint}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "client-request",
+        rpcId,
+        method: endpoint,
+        payload,
+      }),
+    },
+  );
   if (!response.ok) {
     throw new Error(
       `POST /minke/${endpoint} failed with HTTP ${String(response.status)}`,
@@ -258,9 +362,9 @@ async function callMinkeHost(baseUrl, endpoint, payload) {
   return envelope.result.value;
 }
 
-async function fetchMinkeHostCapabilities(baseUrl) {
+async function fetchMinkeHostCapabilities(server) {
   const capabilities = await callMinkeHost(
-    baseUrl,
+    server,
     "capabilities",
     {},
   );
@@ -281,13 +385,15 @@ async function fetchMinkeHostCapabilities(baseUrl) {
   return capabilities;
 }
 
-async function smokeMinkePwa(baseUrl) {
+async function smokeMinkePwa(server) {
   const [indexResponse, manifestResponse, workerResponse, iconResponse] =
     await Promise.all([
-      fetch(`${baseUrl}/`),
-      fetch(`${baseUrl}/manifest.webmanifest`),
-      fetch(`${baseUrl}/minke-sw.js`),
-      fetch(`${baseUrl}/minke-pwa/icon-fullbleed-192.png`),
+      server.fetch(`${server.baseUrl}/`),
+      server.fetch(`${server.baseUrl}/manifest.webmanifest`),
+      server.fetch(`${server.baseUrl}/minke-sw.js`),
+      server.fetch(
+        `${server.baseUrl}/minke-pwa/icon-fullbleed-192.png`,
+      ),
     ]);
   for (const [label, response] of [
     ["index", indexResponse],
@@ -325,10 +431,10 @@ async function smokeMinkePwa(baseUrl) {
   }
 }
 
-async function smokeMinkeHostTerminal(baseUrl) {
+async function smokeMinkeHostTerminal(server) {
   const marker = "minke-host-terminal-smoke";
   const created = await callMinkeHost(
-    baseUrl,
+    server,
     "terminal.create",
     {
       cwd: projectRoot,
@@ -346,12 +452,12 @@ async function smokeMinkeHostTerminal(baseUrl) {
   let output = "";
   let exited = false;
   try {
-    await callMinkeHost(baseUrl, "terminal.resize", {
+    await callMinkeHost(server, "terminal.resize", {
       sessionId,
       cols: 100,
       rows: 30,
     });
-    await callMinkeHost(baseUrl, "terminal.write", {
+    await callMinkeHost(server, "terminal.write", {
       sessionId,
       data:
         process.platform === "win32"
@@ -361,7 +467,7 @@ async function smokeMinkeHostTerminal(baseUrl) {
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline && !exited) {
       const result = await callMinkeHost(
-        baseUrl,
+        server,
         "terminal.read",
         {
           sessionId,
@@ -387,7 +493,7 @@ async function smokeMinkeHostTerminal(baseUrl) {
     }
   } finally {
     await callMinkeHost(
-      baseUrl,
+      server,
       "terminal.close",
       sessionId,
     ).catch(() => {});
@@ -399,10 +505,10 @@ async function smokeMinkeHostTerminal(baseUrl) {
   }
 }
 
-async function waitForChangedRevision(baseUrl, pluginId, initialRevision) {
+async function waitForChangedRevision(server, pluginId, initialRevision) {
   const deadline = Date.now() + hmrTimeoutMs;
   while (Date.now() < deadline) {
-    const manifest = await fetchManifest(baseUrl);
+    const manifest = await fetchManifest(server);
     const row = manifest.entries.find((entry) => entry.id === pluginId);
     if (row?.rev !== undefined && row.rev !== initialRevision) return row;
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 150));
@@ -431,12 +537,14 @@ async function startServer(
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
   let output = "";
+  let readinessOutput = "";
   let settled = false;
 
   const ready = new Promise((resolvePromise, reject) => {
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
+      readinessOutput = "";
       reject(
         new Error(
           `Harness did not become ready within ${String(startupTimeoutMs)} ms\n${output}`,
@@ -444,24 +552,46 @@ async function startServer(
       );
     }, startupTimeoutMs);
     const consume = (chunk) => {
-      output += chunk;
-      const match = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/u.exec(output);
+      if (settled) {
+        output = redactLaunchTokens(
+          `${output}${chunk}`,
+        ).slice(-maxCapturedOutput);
+        return;
+      }
+      readinessOutput =
+        `${readinessOutput}${chunk}`.slice(-maxCapturedOutput);
+      output = redactLaunchTokens(readinessOutput);
+      const match =
+        /dsh web: (http:\/\/[^\s)]+)(?=\s|\))/u.exec(
+          readinessOutput,
+        );
       if (match?.[1] === undefined || settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolvePromise(match[1]);
+      try {
+        const endpoint = parseAuthenticatedReadyUrl(match[1]);
+        settled = true;
+        readinessOutput = "";
+        clearTimeout(timeout);
+        resolvePromise(endpoint);
+      } catch (error) {
+        settled = true;
+        readinessOutput = "";
+        clearTimeout(timeout);
+        reject(error);
+      }
     };
     child.stdout.on("data", consume);
     child.stderr.on("data", consume);
     child.once("error", (error) => {
       if (settled) return;
       settled = true;
+      readinessOutput = "";
       clearTimeout(timeout);
       reject(error);
     });
     child.once("exit", (code, signal) => {
       if (settled) return;
       settled = true;
+      readinessOutput = "";
       clearTimeout(timeout);
       reject(
         new Error(
@@ -471,7 +601,25 @@ async function startServer(
     });
   });
 
-  return { baseUrl: await ready, child, output: () => output };
+  try {
+    const endpoint = await ready;
+    const authenticatedFetch =
+      await exchangeBrowserAuthentication(endpoint);
+    if (output.includes(endpoint.launchToken)) {
+      throw new Error(
+        "Harness launch token reached retained smoke output",
+      );
+    }
+    return {
+      baseUrl: endpoint.baseUrl,
+      child,
+      fetch: authenticatedFetch,
+      output: () => output,
+    };
+  } catch (error) {
+    await stopServer(child).catch(() => {});
+    throw error;
+  }
 }
 
 async function stopServer(child) {
@@ -647,7 +795,7 @@ async function main() {
     );
     await runSuccessful(
       electronExecutable,
-      ["--eval", mistralProbeSource, runtimeRoot],
+      ["--eval", piAiMistralProbeSource, runtimeRoot],
       {
         cwd: projectRoot,
         env,
@@ -763,7 +911,7 @@ async function main() {
         `failing profile plugin was not reported as isolated\n${server.output()}`,
       );
     }
-    const inventoryResponse = await fetch(
+    const inventoryResponse = await server.fetch(
       `${server.baseUrl}/smoke/plugin-inventory`,
     );
     const inventory = inventoryResponse.ok
@@ -781,10 +929,10 @@ async function main() {
         `isolated plugin failure is absent from plugin inventory: ${JSON.stringify(inventory)}`,
       );
     }
-    const manifest = await fetchManifest(server.baseUrl);
-    const minkeCapabilities = await fetchMinkeHostCapabilities(server.baseUrl);
-    await smokeMinkePwa(server.baseUrl);
-    await smokeMinkeHostTerminal(server.baseUrl);
+    const manifest = await fetchManifest(server);
+    const minkeCapabilities = await fetchMinkeHostCapabilities(server);
+    await smokeMinkePwa(server);
+    await smokeMinkeHostTerminal(server);
     const productRow = manifest.entries.find(
       (entry) => entry.id === productPackageName,
     );
@@ -793,7 +941,7 @@ async function main() {
         `${productPackageName} is absent from the patched Web boot manifest`,
       );
     }
-    const productClient = await fetch(
+    const productClient = await server.fetch(
       new URL(productRow.url, server.baseUrl),
     );
     const productSource = productClient.ok
@@ -815,7 +963,9 @@ async function main() {
       );
     }
 
-    const initialBundle = await fetch(new URL(initialRow.url, server.baseUrl));
+    const initialBundle = await server.fetch(
+      new URL(initialRow.url, server.baseUrl),
+    );
     if (!initialBundle.ok || !(await initialBundle.text()).includes('"active"')) {
       throw new Error("external Web plugin initial bundle was not served");
     }
@@ -824,11 +974,11 @@ async function main() {
     const initialSource = await readFile(clientPath, "utf8");
     await writeFile(clientPath, initialSource.replace('"active"', '"reloaded"'));
     const reloadedRow = await waitForChangedRevision(
-      server.baseUrl,
+      server,
       pluginId,
       initialRow.rev,
     );
-    const reloadedBundle = await fetch(
+    const reloadedBundle = await server.fetch(
       new URL(reloadedRow.url, server.baseUrl),
     );
     if (
@@ -846,7 +996,7 @@ async function main() {
         `  bundled pnpm:  ${pnpmVersion.stdout.trim()}`,
         "  recursive Electron Node/native child policy: functional",
         "  bundled node-pty: functional",
-        "  bundled Mistral SDK: esm",
+        "  bundled pi-ai Mistral provider: functional",
         `  bundled esbuild: ${esbuildVersion.stdout.trim()}`,
         `  Web plugins:   ${String(manifest.entries.length)}`,
         `  product overlay: ${productPackageName}`,

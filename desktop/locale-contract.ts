@@ -1,22 +1,32 @@
 /** Renderer-to-main channel carrying Harness's active locale. */
 export const WINDOW_LOCALE_CHANNEL = "minke:window-locale";
 
-/** Locale identifiers currently shipped by DeepSeek Harness. */
-export type DesktopLocale = "zh" | "en";
+/** Open BCP 47-style locale identifier projected from DeepSeek Harness. */
+export type DesktopLocale = string;
+
+/** The two native-copy dictionaries owned by Minke. */
+export type DesktopDictionaryLocale = "zh" | "en";
+
+/** Keep preload/main validation aligned with Harness alpha.2 LocaleId. */
+export const DESKTOP_LOCALE_ID_PATTERN =
+  /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u;
 
 /** Validate untrusted locale data crossing the preload boundary. */
 export function isDesktopLocale(value: unknown): value is DesktopLocale {
-  return value === "zh" || value === "en";
+  return (
+    typeof value === "string" &&
+    DESKTOP_LOCALE_ID_PATTERN.test(value)
+  );
 }
 
 /**
- * Resolve Electron's application locale to one of Harness's shipped locales.
+ * Resolve any system or Harness locale to one of Minke's native dictionaries.
  * Chinese variants stay Chinese; every other or absent value falls back to
- * English as the desktop bootstrap default.
+ * English.
  */
 export function resolveDesktopLocale(
   value: string | null | undefined,
-): DesktopLocale {
+): DesktopDictionaryLocale {
   const primary = value
     ?.trim()
     .toLowerCase()

@@ -846,12 +846,71 @@ test("every process.execPath production seam remains classified", async () => {
       upstreamOwners.push(projectRelative(path));
     }
   }
-  assert.deepEqual(upstreamOwners.sort(), [
-    "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
-    "vendor/deepseek-harness/packages/fs/tool-fs-search/src/search-core.ts",
-    "vendor/deepseek-harness/packages/host/directory-picker-native/src/win32-dialog-host.ts",
-    "vendor/deepseek-harness/packages/sandbox/sandbox-local/src/index.ts",
-    "vendor/deepseek-harness/packages/subagent/subagent-codex/src/run.ts",
+  const upstreamProcessExecPathSeams = {
+    buildTimeComposition: [
+      "vendor/deepseek-harness/packages/experimental/webworker-packer/src/repository.ts",
+    ],
+    executableSidecarResolution: [
+      "vendor/deepseek-harness/packages/fs/tool-fs-search/src/search-core.ts",
+    ],
+    managedHarnessRuntime: [
+      "vendor/deepseek-harness/packages/sdk/client/src/launch.ts",
+    ],
+    patchedDesktopHelpers: [
+      "vendor/deepseek-harness/packages/host/directory-picker-native/src/win32-dialog-host.ts",
+    ],
+    runtimeLaunchers: [
+      "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
+      "vendor/deepseek-harness/packages/sandbox/sandbox-local/src/index.ts",
+      "vendor/deepseek-harness/packages/subagent/subagent-codex/src/run.ts",
+    ],
+  };
+  assert.deepEqual(
+    upstreamOwners.sort(),
+    Object.values(upstreamProcessExecPathSeams).flat().sort(),
+  );
+
+  const packerManifest = JSON.parse(
+    await readFile(
+      resolve(
+        projectRoot,
+        "vendor/deepseek-harness/packages/experimental/webworker-packer/package.json",
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    packerManifest.name,
+    "@deepseek-ai/dsh-experimental-webworker-packer",
+  );
+  assert.equal(
+    packerManifest.private,
+    true,
+    "repository composition is a private build-time Node seam",
+  );
+
+  const { resolveDshLaunch } = await import(
+    new URL(
+      "../vendor/deepseek-harness/packages/sdk/client/src/launch.ts",
+      import.meta.url,
+    ).href
+  );
+  const harnessRoot = resolve(
+    projectRoot,
+    "vendor/deepseek-harness",
+  );
+  const sdkLaunch = resolveDshLaunch(
+    {
+      dshBin: "apps/cli/src/bin.ts",
+      env: {},
+    },
+    harnessRoot,
+  );
+  assert.equal(sdkLaunch.command, process.execPath);
+  assert.deepEqual(sdkLaunch.args, [
+    resolve(harnessRoot, "apps/cli/src/bin.ts"),
+    "--profile",
+    "sdk",
   ]);
 
   const sharedScrubOwners = [];
@@ -891,7 +950,7 @@ test("every process.execPath production seam remains classified", async () => {
   );
   assert.match(
     searchSource,
-    /const executableSidecar = `\$\{process\.execPath\}-rg`/u,
+    /const executable = parse\(process\.execPath\)[\s\S]*const executableSidecar = process\.platform === 'win32'[\s\S]*join\(executable\.dir, `\$\{executable\.name\}-rg\.exe`\)[\s\S]*: `\$\{process\.execPath\}-rg`/u,
   );
   assert.match(
     searchSource,

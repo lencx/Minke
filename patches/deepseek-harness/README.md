@@ -4,10 +4,11 @@ Minke keeps `vendor/deepseek-harness` pinned and pristine. Local fixes that cann
 
 The applicator accepts git unified diffs that modify existing text files below `node_modules/@deepseek-ai/`. It rejects path escapes, file creation/deletion, renames, binary patches, stale hunks, and skipped patches. Patch contents are part of the runtime fingerprint and metadata; validation also reverse-checks that every declared patch is present before publishing or fast refresh.
 
-`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.1-rc.2` (`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`). It:
+`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.2-alpha.2` (`0a53fb55bea101816fa226bb964ae2bed71c343b`). It:
 
 - routes the directory dialog worker and Windows ACL sandbox runner through `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the dialog worker;
-- copies the COM-owned UTF-16 folder path with Koffi's dedicated `decode.string16` API instead of creating an external `ArrayBuffer` with `koffi.view`.
+- keeps the dialog worker's IPC channel open through non-terminal `showing` progress and disconnects only after a terminal result;
+- leaves alpha.2's upstream bounded `koffi.view` UTF-16LE decoder intact, including its two-byte terminator scan for paths containing code points such as `U+5F00`.
 
 `windows-background-processes.patch` is pinned to the same Harness commit. It:
 
@@ -22,19 +23,6 @@ deliberately independent of generated `types-<hash>.js` names, which differ
 between platform-specific dependency closures. The staged-artifact AST audit
 then rejects any direct or restricted launch site that remains visible.
 
-`tabs-details-layout.patch` is pinned to the same Harness commit. It:
-
-- lets the details grid track reflow up to two thirds of the area remaining after the sidebar, so a wider Files reader compresses the conversation;
-- exposes the existing `setDetails` store action through `ctx.layout`, allowing Minke to restore a persisted width without simulating pointer input;
-- raises the stored-width guard for Minke's wider overlay continuation. Minke still owns the final viewport clamp and leaves a 20px conversation remainder.
-- exposes semantic Details open state through `ctx.layout.details`, with subscription and presentation-host registration while retaining the native layout as fallback.
-
-`details-presentation-slot.patch` is pinned to the same Harness commit. It:
-
-- publishes selected Details state and the native panel tree through the declared `conversation.details.presentation` slot;
-- keeps the upstream in-place panel as the slot fallback when no external presentation host is registered;
-- adds stable details-panel anchors used by Minke's structural adapter.
-
 `optional-plugin-isolation.patch` is pinned to the same Harness commit. It:
 
 - marks entries inserted by profile bundles listed in the profile's `dependencies` as isolated, while installation-owned bundles and launcher overlays remain fail-fast;
@@ -48,11 +36,16 @@ then rejects any direct or restricted launch site that remains visible.
 - validates every replacement before changing the live policy and retains the loopback-only fence for privileged methods;
 - lets Minke apply an exact authority through its private parent-child process channel without restarting Harness.
 
-`subagent-effective-model-route.patch` is pinned to the same Harness commit. It:
+`process-environment-boundaries.patch` is pinned to the same Harness commit. It:
 
-- makes an in-process child inherit each omitted provider/model field from the parent's latest effective `request/header`, with the creation-time route as the pre-request fallback;
-- preserves explicit child `agentOptions` as the highest-priority route and leaves provider-owned out-of-process subagents unchanged;
-- snapshots one resolved route before asynchronous one-shot or continuable child creation, and persists the same route in continuable descriptors.
+- strips Electron/Node bootstrap controls from ordinary subprocesses, native integrations, and browser handoff children so ambient desktop runtime state cannot leak across execution boundaries;
+- restores Minke's managed Node executable and bootstrap only for an explicitly recognized embedded-Node launch, including terminal and Windows ACL paths.
+
+The former Details layout/presentation patches were removed at this pin:
+alpha.2 owns adaptive conversation width and the native top-level `details`
+slot, while Minke Tabs now uses only `ILayout.openDetails/closeDetails`. The
+former subagent route patch was also removed because alpha.2 natively resolves
+the effective parent provider, model, and reasoning effort.
 
 After changing the upstream pin or a patch, run:
 

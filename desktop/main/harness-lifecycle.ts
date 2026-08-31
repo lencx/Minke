@@ -1,10 +1,15 @@
+import type { HarnessRuntimeEndpoint } from "./harness-runtime.ts";
+
 export interface HarnessLifecycleRuntime {
-  start(): Promise<string>;
+  start(): Promise<HarnessRuntimeEndpoint>;
 }
 
 export interface HarnessLifecycleRemote {
   detach(): Promise<unknown>;
-  start(harnessUrl: string): Promise<unknown>;
+  start(
+    harnessOrigin: string,
+    launchToken: string,
+  ): Promise<unknown>;
 }
 
 export interface HarnessLifecycleWindow {
@@ -50,6 +55,8 @@ export class HarnessLifecycle {
   readonly #reportError: (message: string, error: unknown) => void;
   readonly #navigationTimeoutMs: number;
   #url: string | undefined;
+  #authenticatedUrl: string | undefined;
+  #launchToken: string | undefined;
 
   constructor(options: HarnessLifecycleOptions) {
     this.#runtime = options.runtime;
@@ -76,6 +83,8 @@ export class HarnessLifecycle {
 
   clear(): void {
     this.#url = undefined;
+    this.#authenticatedUrl = undefined;
+    this.#launchToken = undefined;
   }
 
   async attach(
@@ -83,7 +92,21 @@ export class HarnessLifecycle {
   ): Promise<void> {
     const url = this.#url;
     if (url === undefined || !isUsableWindow(window)) return;
-    await this.#loadWindow(window, url);
+    const authenticatedUrl = this.#authenticatedUrl;
+    const launchToken = this.#launchToken;
+    await this.#loadWindow(
+      window,
+      authenticatedUrl ?? url,
+      url,
+      launchToken,
+    );
+    if (
+      authenticatedUrl !== undefined &&
+      this.#authenticatedUrl === authenticatedUrl
+    ) {
+      this.#authenticatedUrl = undefined;
+      this.#launchToken = undefined;
+    }
   }
 
   async start(
@@ -100,33 +123,58 @@ export class HarnessLifecycle {
       }
     }
 
-    const url = await this.#runtime.start();
-    this.#url = url;
+    const endpoint = await this.#runtime.start();
+    const {
+      authenticatedUrl,
+      launchToken,
+      origin,
+    } = endpoint;
+    this.#url = origin;
+    this.#authenticatedUrl = authenticatedUrl;
+    this.#launchToken = launchToken;
     if (isUsableWindow(window)) {
-      await this.#loadWindow(window, url);
+      await this.#loadWindow(
+        window,
+        authenticatedUrl,
+        origin,
+        launchToken,
+      );
+      if (this.#authenticatedUrl === authenticatedUrl) {
+        this.#authenticatedUrl = undefined;
+        this.#launchToken = undefined;
+      }
     }
     if (this.#remote !== undefined) {
-      void this.#remote.start(url).catch((error: unknown) => {
-        this.#reportError(
-          "Remote access failed to start:",
-          error,
-        );
-      });
+      void this.#remote
+        .start(origin, launchToken)
+        .catch((error: unknown) => {
+          this.#reportError(
+            "Remote access failed to start:",
+            error,
+          );
+        });
     }
-    return url;
+    return origin;
   }
 
   async #loadWindow(
     window: HarnessLifecycleWindow,
-    url: string,
+    navigationUrl: string,
+    origin: string,
+    launchToken: string | undefined,
   ): Promise<void> {
     let navigation: Promise<unknown>;
     try {
-      navigation = window.loadURL(url);
+      navigation = window.loadURL(navigationUrl);
     } catch (error) {
       throw new HarnessNavigationError(
-        `Harness window could not start loading ${url}`,
-        { cause: error },
+        `Harness window could not start loading ${origin}`,
+        {
+          cause: sanitizedNavigationCause(
+            error,
+            launchToken,
+          ),
+        },
       );
     }
 
@@ -163,12 +211,39 @@ export class HarnessLifecycle {
           clearTimeout(timeout);
           reject(
             new HarnessNavigationError(
-              `Harness window failed to load ${url}`,
-              { cause: error },
+              `Harness window failed to load ${origin}`,
+              {
+                cause: sanitizedNavigationCause(
+                  error,
+                  launchToken,
+                ),
+              },
             ),
           );
         },
       );
     });
   }
+}
+
+function sanitizedNavigationCause(
+  error: unknown,
+  launchToken: string | undefined,
+): Error {
+  const source =
+    error instanceof Error
+      ? error.message
+      : String(error);
+  const withoutToken =
+    launchToken === undefined
+      ? source
+      : source.replaceAll(launchToken, "<redacted>");
+  const cause = new Error(
+    withoutToken.replace(
+      /([?&]token=)[^&\s)]*/giu,
+      "$1<redacted>",
+    ),
+  );
+  if (error instanceof Error) cause.name = error.name;
+  return cause;
 }

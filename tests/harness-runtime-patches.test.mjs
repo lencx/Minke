@@ -61,65 +61,6 @@ function normalizeLineEndings(source) {
   return source.replaceAll("\r\n", "\n");
 }
 
-function inspectSubagentModelRoutePatch(source) {
-  const additionsByTarget = new Map();
-  let target;
-  for (
-    const line of normalizeLineEndings(source).split("\n")
-  ) {
-    if (line.startsWith("+++ b/")) {
-      target = line.slice("+++ b/".length);
-      additionsByTarget.set(target, []);
-      continue;
-    }
-    if (
-      target === undefined ||
-      !line.startsWith("+") ||
-      line.startsWith("+++")
-    ) {
-      continue;
-    }
-    additionsByTarget.get(target)?.push(line.slice(1).trim());
-  }
-  const additions = [...additionsByTarget.values()].flat();
-  const count = (statement) =>
-    additions.filter((line) => line === statement).length;
-  const targets = [...additionsByTarget.keys()];
-  return {
-    childModelReads: count(
-      "const agentModel = childAgentOptions.model;",
-    ),
-    childOptionsDeclarations: count(
-      "const childAgentOptions = resolveChildAgentOptions(" +
-        "parent, request.agentOptions, childDepth);",
-    ),
-    childOptionsUses: count(
-      "agentOptions: childAgentOptions,",
-    ),
-    childProviderReads: count(
-      "const agentProvider = childAgentOptions.provider;",
-    ),
-    outOfProcessTargets: targets.filter((candidate) =>
-      /dsh-subagent-(?:codex|claude-code|dsh-sdk)/u.test(
-        candidate,
-      )
-    ),
-    parentModelFallbacks: count(
-      "const parentModel = parentRequest?.model ?? " +
-        "parent.options.model;",
-    ),
-    parentProviderFallbacks: count(
-      "const parentProvider = parentRequest?.provider ?? " +
-        "parent.options.provider;",
-    ),
-    parentRequestConfigReads: count(
-      "const parentRequest = " +
-        "parent.session.requestHeader()?.config;",
-    ),
-    targets,
-  };
-}
-
 async function withFixture(callback, parent = tmpdir()) {
   await mkdir(parent, { recursive: true });
   const projectRoot = await mkdtemp(
@@ -279,38 +220,6 @@ test("the background-process patch leaves generated ACL bundles to the runtime t
   );
 });
 
-test("the subagent model-route patch stays within in-process routing bundles", async () => {
-  const [patch] = await resolveHarnessRuntimePatches(
-    repositoryRoot,
-    [
-      "patches/deepseek-harness/subagent-effective-model-route.patch",
-    ],
-  );
-  assert.deepEqual(patch.targets, [
-    "node_modules/@deepseek-ai/dsh-subagent/lib/index.js",
-    "node_modules/@deepseek-ai/dsh-subagent-in-process-driver/lib/index.js",
-  ]);
-
-  const source = await readFile(patch.absolutePath, "utf8");
-  assert.deepEqual(
-    inspectSubagentModelRoutePatch(source),
-    {
-      childModelReads: 1,
-      childOptionsDeclarations: 2,
-      childOptionsUses: 2,
-      childProviderReads: 1,
-      outOfProcessTargets: [],
-      parentModelFallbacks: 1,
-      parentProviderFallbacks: 1,
-      parentRequestConfigReads: 1,
-      targets: [
-        "node_modules/@deepseek-ai/dsh-subagent/lib/index.js",
-        "node_modules/@deepseek-ai/dsh-subagent-in-process-driver/lib/index.js",
-      ],
-    },
-  );
-});
-
 test("the Windows picker worker keeps IPC open until its terminal result", async () => {
   await withPatchedWin32PickerRuntime(async (runtimeRoot) => {
     const workerPath = resolve(
@@ -341,7 +250,6 @@ function decode(value, offsetOrType, maybeType) {
   }
   throw new Error("unexpected fake koffi decode");
 }
-decode.string16 = () => "C:\\\\picked";
 module.exports = {
   call(fn, _prototype, _self, ...args) {
     if (fn.slot === 20) args[0][0] = item;
@@ -365,6 +273,9 @@ module.exports = {
   },
   sizeof() {
     return 8;
+  },
+  view() {
+    return Buffer.from("C:\\\\picked\\0", "utf16le");
   },
 };
 `,
@@ -599,6 +510,141 @@ spawn("probe.exe", [], { stdio: "ignore", windowsHide: true });
       },
     );
   }
+});
+
+test("restricted launch hardening follows the alpha.2 delegated process owner", async () => {
+  await withProcessPolicyFixture(
+    {
+      aclBundles: [],
+      launchSource: `import { spawn } from "node:child_process";
+spawn("probe.exe", [], { stdio: "ignore", windowsHide: true });
+`,
+    },
+    async (runtimeRoot) => {
+      const processRoot = join(
+        runtimeRoot,
+        "node_modules",
+        "@deepseek-ai",
+        "dsh-win32-process",
+        "lib",
+      );
+      const processPath = join(processRoot, "index.js");
+      await mkdir(processRoot, { recursive: true });
+      await writeFile(
+        processPath,
+        `function createRestrictedProcess(api, options, commandLine, creationFlags, startupInfo, processInfo) {
+  return api.createProcessAsUserW(
+    options.token, null, commandLine, null, null, 1, creationFlags, null,
+    options.cwd, startupInfo, processInfo
+  );
+}
+function spawnPipedProcess(api, options) {
+  const startupInfo = {};
+  encodeStartupInfo(startupInfo, {
+    dwFlags: 0x100,
+    hStdInput: null,
+    hStdOutput: null,
+    hStdError: null,
+  });
+  return createRestrictedProcess(
+    api, options, "piped.exe", 0, startupInfo, {}
+  );
+}
+function spawnInheritedJobProcess(api, options) {
+  const startupInfo = {};
+  encodeStartupInfo(startupInfo, {
+    dwFlags: 0x100,
+    hStdInput: null,
+    hStdOutput: null,
+    hStdError: null,
+  });
+  return createRestrictedProcess(
+    api, options, "job.exe", 4, startupInfo, {}
+  );
+}
+`,
+      );
+
+      const first =
+        await hardenHarnessWindowsRestrictedLaunches(runtimeRoot);
+      assert.deepEqual(first, {
+        changedLaunches: 2,
+        files: 1,
+        launches: 2,
+      });
+      const hardened = await readFile(processPath, "utf8");
+      assert.equal(
+        hardened.match(/dwFlags:\s*257/gu)?.length,
+        2,
+      );
+      assert.equal(
+        hardened.match(/wShowWindow:\s*0/gu)?.length,
+        2,
+      );
+
+      const inspection =
+        await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+      assert.equal(inspection.restrictedLaunches.length, 2);
+      assert.deepEqual(inspection.violations, []);
+
+      const second =
+        await hardenHarnessWindowsRestrictedLaunches(runtimeRoot);
+      assert.equal(second.changedLaunches, 0);
+    },
+  );
+});
+
+test("delegated restricted launch hardening rejects an unconfigured launch", async () => {
+  await withProcessPolicyFixture(
+    {
+      aclBundles: [],
+      launchSource: `import { spawn } from "node:child_process";
+spawn("probe.exe", [], { stdio: "ignore", windowsHide: true });
+`,
+    },
+    async (runtimeRoot) => {
+      const processRoot = join(
+        runtimeRoot,
+        "node_modules",
+        "@deepseek-ai",
+        "dsh-win32-process",
+        "lib",
+      );
+      await mkdir(processRoot, { recursive: true });
+      await writeFile(
+        join(processRoot, "index.js"),
+        `function createRestrictedProcess(api, options, commandLine, creationFlags, startupInfo, processInfo) {
+  return api.createProcessAsUserW(
+    options.token, null, commandLine, null, null, 1, creationFlags, null,
+    options.cwd, startupInfo, processInfo
+  );
+}
+function spawnConfigured(api, options) {
+  const startupInfo = {};
+  encodeStartupInfo(startupInfo, {
+    dwFlags: 0x100,
+    hStdInput: null,
+    hStdOutput: null,
+    hStdError: null,
+  });
+  return createRestrictedProcess(
+    api, options, "configured.exe", 0, startupInfo, {}
+  );
+}
+function spawnUnconfigured(api, options) {
+  return createRestrictedProcess(
+    api, options, "unconfigured.exe", 0, {}, {}
+  );
+}
+`,
+      );
+
+      await assert.rejects(
+        hardenHarnessWindowsRestrictedLaunches(runtimeRoot),
+        /2 createRestrictedProcess call\(s\) but 1 STARTUPINFOW configuration/u,
+      );
+    },
+  );
 });
 
 test("restricted launch hardening rejects drift before changing any bundle", async () => {

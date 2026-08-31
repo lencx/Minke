@@ -59,6 +59,27 @@ function writeContract(projectRoot, commit, additions = {}) {
   );
 }
 
+function productPatch(additionalRows = []) {
+  return [
+    "- insert:",
+    "    - id: time-context",
+    "      name: '@deepseek-ai/dsh-time-context'",
+    "    - id: schedule",
+    "      name: '@deepseek-ai/dsh-schedule'",
+    "    - id: minke-web-search",
+    "      name: '@lencx/minke-harness-overlay/web-search'",
+    "      disabled: !!js process.env.MINKE_WEB_SEARCH_FALLBACK_ENABLED === '0'",
+    "      config:",
+    "        baseURL: !!js process.env.MINKE_WEB_SEARCH_BASE_URL",
+    ...additionalRows,
+    "    - id: minke-overlay",
+    "      name: '@lencx/minke-harness-overlay'",
+    "- id: ui-schedule",
+    "  disabled: false",
+    "",
+  ].join("\n");
+}
+
 function fixture(options = {}) {
   const projectRoot = mkdtempSync(
     join(tmpdir(), "minke-harness-contract-"),
@@ -115,7 +136,7 @@ function fixture(options = {}) {
   );
   write(
     harnessRoot,
-    "packages/host/apiproxy/src/api-proxy.ts",
+    "packages/api/settings-controller/src/index.ts",
     [
       ...(options.settingsNotExposed === true
         ? ["settings-not-exposed"]
@@ -186,13 +207,19 @@ function fixture(options = {}) {
   write(
     harnessRoot,
     "packages/client/ui-sidebar/src/client/index.ts",
-    "ctx.workspaces.startSession(workspaceId)\n",
+    options.newSessionNavigation === false
+      ? "ctx.workspaces.startSession(workspaceId)\n"
+      : "workspaceNavigation.startSession(workspaceId)\n",
   );
   write(
     harnessRoot,
     "packages/client/locale/src/client/index.ts",
     [
-      "register<N extends keyof LocaleNamespaceMap",
+      ...(options.bilingualDictionaryRegistration === false
+        ? ["register<N extends keyof LocaleNamespaceMap"]
+        : [
+            "register<N extends Extract<keyof LocaleNamespaceMap, string>>(ns: N, dicts: Record<BuiltInLocaleId, LocaleDictOf<N>>): () => void",
+          ]),
       "ctx.slots.installLocale(locale)",
       "getSnapshot(): LocaleSnapshot",
       ...(options.localeChange === false
@@ -298,14 +325,52 @@ function fixture(options = {}) {
       "- insert:",
       "    - id: web",
       "      name: '@deepseek-ai/dsh-web'",
+      "      config:",
+      `        fetchProvider: ${
+        options.webFetchProviderSelection === false ? "other" : "http"
+      }`,
       "    - id: web-search-deepseek",
       "      name: '@deepseek-ai/dsh-web-search-deepseek'",
+      ...(options.webFetchTopology === false
+        ? []
+        : [
+            "    - id: web-fetch-http",
+            "      name: '@deepseek-ai/dsh-web-fetch-http'",
+          ]),
       ...(options.webSearchTopology === false
         ? []
         : [
             "    - id: tool-web",
             "      name: '@deepseek-ai/dsh-tool-web'",
           ]),
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/web/web-fetch-http/src/network.ts",
+    [
+      ...(options.webFetchPublicAddress === false
+        ? []
+        : ["if (!isPublicIpAddress(entry.address)) {"]),
+      ...(options.webFetchNat64Address === false
+        ? []
+        : [
+            "if (translatedIpv4 !== undefined && !isPublicIpAddress(translatedIpv4)) {",
+          ]),
+      ...(options.webFetchConnectionPinning === false
+        ? []
+        : ["connect: { lookup: createPinnedLookup(addresses) }"]),
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/web/web-fetch-http/src/provider.ts",
+    [
+      ...(options.webFetchSameOriginRedirect === false
+        ? []
+        : ["if (!isSameOrigin(validatedTarget, currentUrl)) {"]),
       "",
     ].join("\n"),
   );
@@ -329,7 +394,13 @@ function fixture(options = {}) {
       "fetch: z.boolean().default(true)",
       "searchMaxResults: z.number().default(WEB_SEARCH_MAX_RESULTS)",
       "searchMaxQueries: z.number().default(WEB_SEARCH_MAX_QUERIES)",
+      "fetchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS)",
       "searchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS)",
+      ...(options.webFetchOutputBound === false
+        ? []
+        : [
+            "fetchMaxOutputChars: z.number().default(DEFAULT_FETCH_MAX_OUTPUT_CHARS)",
+          ]),
       "",
     ].join("\n"),
   );
@@ -346,15 +417,19 @@ function fixture(options = {}) {
       "",
     ].join("\n"),
   );
-  for (const preset of ["standard", "code", "cordis"]) {
+  for (const preset of ["standard", "ptc", "cordis"]) {
     write(
       harnessRoot,
-      `apps/cli/config/agent-presets/${preset}/agent.cordis.yml`,
+      `packages/preset/agent-presets/presets/${preset}/agent.cordis.yml`,
       [
         "- id: tool-web",
         "  name: '@deepseek-ai/dsh-tool-web'",
         "  config:",
-        "    fetch: false",
+        `    fetch: ${
+          options.webFetchPreset === false && preset === "standard"
+            ? "false"
+            : "true"
+        }`,
         `    searchTimeoutMs: ${
           options.webSearchPreset === false && preset === "standard"
             ? "30000"
@@ -406,7 +481,7 @@ function fixture(options = {}) {
   write(
     projectRoot,
     "packages/harness-overlay/cordis.patch.yml",
-    "- insert:\n    - id: minke-overlay\n      name: '@lencx/minke-harness-overlay'\n",
+    productPatch(),
   );
   writeContract(projectRoot, commit);
   return { commit, harnessRoot, projectRoot };
@@ -452,14 +527,10 @@ test("the product bundle composes declared Minke runtime packages", async () => 
   write(
     projectRoot,
     "packages/harness-overlay/cordis.patch.yml",
-    [
-      "- insert:",
+    productPatch([
       "    - id: model-runtime",
       "      name: '@lencx/minke-model-runtime/dsh'",
-      "    - id: minke-overlay",
-      "      name: '@lencx/minke-harness-overlay'",
-      "",
-    ].join("\n"),
+    ]),
   );
   write(
     projectRoot,
@@ -547,6 +618,28 @@ test("the Harness contract rejects a missing locale change seam", async () => {
   await assert.rejects(
     verifyHarnessContract(projectRoot),
     /locale change event changed/u,
+  );
+});
+
+test("the Harness contract requires typed bilingual dictionary registration", async () => {
+  const { projectRoot } = fixture({
+    bilingualDictionaryRegistration: false,
+  });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /bilingual dictionary registration changed/u,
+  );
+});
+
+test("the Harness contract requires shared New Session navigation", async () => {
+  const { projectRoot } = fixture({
+    newSessionNavigation: false,
+  });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /New Session service seam changed/u,
   );
 });
 
@@ -673,6 +766,61 @@ test("the Harness contract requires the web_search plugin topology", async () =>
   );
 });
 
+test("the Harness contract requires the SSRF-safe web_fetch topology", async () => {
+  for (const [options, expected] of [
+    [
+      { webFetchTopology: false },
+      /SSRF-safe provider required by Minke web_fetch/u,
+    ],
+    [
+      { webFetchProviderSelection: false },
+      /web_fetch provider selection changed/u,
+    ],
+  ]) {
+    const { projectRoot } = fixture(options);
+    await assert.rejects(
+      verifyHarnessContract(projectRoot),
+      expected,
+    );
+  }
+});
+
+test("the Harness contract requires the SSRF-safe web_fetch transport", async () => {
+  for (const [options, expected] of [
+    [
+      { webFetchPublicAddress: false },
+      /web_fetch public-address rejection seam changed/u,
+    ],
+    [
+      { webFetchConnectionPinning: false },
+      /web_fetch connection-pinning seam changed/u,
+    ],
+    [
+      { webFetchNat64Address: false },
+      /web_fetch NAT64 rejection seam changed/u,
+    ],
+    [
+      { webFetchSameOriginRedirect: false },
+      /web_fetch same-origin redirect seam changed/u,
+    ],
+  ]) {
+    const { projectRoot } = fixture(options);
+    await assert.rejects(
+      verifyHarnessContract(projectRoot),
+      expected,
+    );
+  }
+});
+
+test("the Harness contract requires bounded web_fetch output", async () => {
+  const { projectRoot } = fixture({ webFetchOutputBound: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /tool-web configuration changed/u,
+  );
+});
+
 test("the Harness contract requires the model-facing web_search name", async () => {
   const { projectRoot } = fixture({ webSearchToolName: false });
 
@@ -682,12 +830,20 @@ test("the Harness contract requires the model-facing web_search name", async () 
   );
 });
 
-test("the Harness contract requires web_search in shipped Agent Presets", async () => {
+test("the Harness contract requires bounded web tools in shipped Agent Presets", async () => {
   const { projectRoot } = fixture({ webSearchPreset: false });
 
   await assert.rejects(
     verifyHarnessContract(projectRoot),
-    /standard Agent Preset no longer exposes Minke's bounded web_search tool/u,
+    /standard Agent Preset no longer exposes Minke's bounded web_search and SSRF-safe web_fetch tools/u,
+  );
+
+  const { projectRoot: disabledFetchRoot } = fixture({
+    webFetchPreset: false,
+  });
+  await assert.rejects(
+    verifyHarnessContract(disabledFetchRoot),
+    /standard Agent Preset no longer exposes Minke's bounded web_search and SSRF-safe web_fetch tools/u,
   );
 });
 

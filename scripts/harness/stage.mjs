@@ -971,6 +971,12 @@ async function main() {
   if (stagePlan.skipBuild) {
     console.log("Skipping Harness source build (--skip-build)");
   } else {
+    // A submodule pin can remove or rename packages while their ignored lib/
+    // output survives in the working tree. The upstream bundler discovers
+    // those files, so stale output can make an otherwise clean pin fail with
+    // missing exports. Harness's repository-owned cleaner preserves installed
+    // dependencies and validates every deletion target before rebuilding.
+    await runPnpm(["run", "clean"], harnessRoot);
     await ensureReact18TypeIsolation(harnessRoot);
     await runPnpm(
       ["run", "build"],

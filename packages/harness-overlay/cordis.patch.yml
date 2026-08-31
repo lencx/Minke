@@ -3,17 +3,18 @@
   # nested instance keeps the same settings namespace and user-settings layer.
   disabled: true
 
-# Web search is a Minke product capability rather than an accidental upstream
-# default. Clear the upstream fixed provider so DSH keeps its native explicit
-# selection and sole-provider fallback rules. The model-facing tool stays in
-# each Agent Preset, where the pinned Harness owns per-session registration.
-- id: web
-  config: {}
-
-- id: web-search-deepseek
-  disabled: true
-
 - insert:
+    # Alpha.2 ships Schedule as an explicit Web opt-in. Minke enables the
+    # durable host runtime and read-only conversation-header catalog together.
+    - id: time-context
+      name: '@deepseek-ai/dsh-time-context'
+
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'
+
+    # This is an additional credential-free tool, not a provider override.
+    # Keep DSH's native web_search/web_fetch composition and provider selection
+    # intact, including its credentials, retry UI, and structured failures.
     - id: minke-web-search
       name: '@lencx/minke-harness-overlay/web-search'
       disabled: !!js process.env.MINKE_WEB_SEARCH_FALLBACK_ENABLED === '0'
@@ -40,3 +41,6 @@
       name: '@lencx/minke-harness-overlay'
       config:
         rootPath: !!js process.env.MINKE_HOST_ROOT
+
+- id: ui-schedule
+  disabled: false

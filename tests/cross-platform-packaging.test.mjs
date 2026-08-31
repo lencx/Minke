@@ -31,6 +31,9 @@ function assertHarnessStagingOrder(stageSource) {
   const completeInstall = stageSource.indexOf(
     '"install",\n        "--recursive",\n        "--frozen-lockfile"',
   );
+  const clean = stageSource.search(
+    /await runPnpm\(\["run", "clean"\], harnessRoot\);/u,
+  );
   const build = stageSource.search(
     /await runPnpm\(\s*\["run", "build"\],\s*harnessRoot,\s*minkeHarnessClientBuildEnvironment\(process\.env\),?\s*\);/u,
   );
@@ -39,7 +42,11 @@ function assertHarnessStagingOrder(stageSource) {
   );
 
   assert.ok(completeInstall >= 0, "staging must restore every workspace link");
-  assert.ok(build > completeInstall, "Harness must build after full install");
+  assert.ok(
+    clean > completeInstall,
+    "Harness must remove stale ignored outputs after full install",
+  );
+  assert.ok(build > clean, "Harness must build after a clean workspace");
   assert.ok(
     runtimeOnlyInstall > build,
     "runtime-only installation must not remove build dependencies before build",

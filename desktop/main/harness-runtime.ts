@@ -44,10 +44,22 @@ import type {
   AgentBrowserRuntime,
 } from "./agent-browser";
 
-const READY_PATTERN = /dsh web:\s+(http:\/\/127\.0\.0\.1:\d+)/u;
+const READY_PATTERN =
+  /dsh web:\s+(http:\/\/[^\s)]+)(?=\s|\))/u;
+const LAUNCH_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+const TOKEN_QUERY_VALUE_PATTERN = /([?&]token=)[^&\s)]*/giu;
 const MAX_CAPTURED_OUTPUT = 64 * 1024;
 const DEFAULT_STARTUP_TIMEOUT_MS = 90_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+export interface HarnessRuntimeEndpoint {
+  /** Clean loopback origin safe for persistence, diagnostics, and proxies. */
+  readonly origin: string;
+  /** Ephemeral startup capability used only for browser cookie bootstrap. */
+  readonly authenticatedUrl: string;
+  /** Process-local capability needed to bootstrap a different authority. */
+  readonly launchToken: string;
+}
 
 export interface HarnessRuntimeExit {
   code: number | null;
@@ -189,6 +201,8 @@ export class HarnessRuntime {
   #control: HarnessControlChannel | undefined;
   #agentBrowserBinding: AgentBrowserBinding | undefined;
   #output = "";
+  #readinessOutput = "";
+  #capturingReadiness = false;
   #stopping = false;
   #ready = false;
 
@@ -199,7 +213,7 @@ export class HarnessRuntime {
     );
   }
 
-  async start(): Promise<string> {
+  async start(): Promise<HarnessRuntimeEndpoint> {
     if (this.#child !== undefined) {
       throw new Error("Harness runtime is already running");
     }
@@ -214,6 +228,8 @@ export class HarnessRuntime {
     await mkdir(this.#options.dshHome, { recursive: true });
 
     this.#output = "";
+    this.#readinessOutput = "";
+    this.#capturingReadiness = true;
     this.#stopping = false;
     this.#ready = false;
 
@@ -262,9 +278,9 @@ export class HarnessRuntime {
       }
     });
 
-    const url = await this.#waitUntilReady(child);
+    const endpoint = await this.#waitUntilReady(child);
     this.#ready = true;
-    return url;
+    return endpoint;
   }
 
   /** Replace trusted remote authorities without restarting Harness. */
@@ -375,62 +391,85 @@ export class HarnessRuntime {
   }
 
   #capture(chunk: string): void {
-    this.#output = `${this.#output}${chunk}`.slice(-MAX_CAPTURED_OUTPUT);
+    if (this.#capturingReadiness) {
+      this.#readinessOutput =
+        `${this.#readinessOutput}${chunk}`.slice(-MAX_CAPTURED_OUTPUT);
+      this.#output = redactLaunchTokens(this.#readinessOutput);
+      return;
+    }
+    this.#output = redactLaunchTokens(
+      `${this.#output}${chunk}`,
+    ).slice(-MAX_CAPTURED_OUTPUT);
   }
 
-  async #waitUntilReady(child: ChildProcess): Promise<string> {
+  async #waitUntilReady(
+    child: ChildProcess,
+  ): Promise<HarnessRuntimeEndpoint> {
     const timeoutMs =
       this.#options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
 
-    return await new Promise<string>((resolvePromise, reject) => {
-      let settled = false;
+    return await new Promise<HarnessRuntimeEndpoint>(
+      (resolvePromise, reject) => {
+        let settled = false;
 
-      const finish = (error?: Error, url?: string) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        child.stdout?.off("data", inspect);
-        child.stderr?.off("data", inspect);
-        child.off("error", onError);
-        child.off("exit", onExit);
-        if (error !== undefined) reject(error);
-        else resolvePromise(url as string);
-      };
+        const finish = (
+          error?: Error,
+          endpoint?: HarnessRuntimeEndpoint,
+        ) => {
+          if (settled) return;
+          settled = true;
+          this.#capturingReadiness = false;
+          this.#readinessOutput = "";
+          clearTimeout(timeout);
+          child.stdout?.off("data", inspect);
+          child.stderr?.off("data", inspect);
+          child.off("error", onError);
+          child.off("exit", onExit);
+          if (error !== undefined) reject(error);
+          else resolvePromise(endpoint as HarnessRuntimeEndpoint);
+        };
 
-      const inspect = () => {
-        const match = READY_PATTERN.exec(this.#output);
-        if (match?.[1] === undefined) return;
-        try {
-          finish(undefined, validateReadyUrl(match[1]));
-        } catch (error) {
-          finish(
-            error instanceof Error ? error : new Error(String(error)),
-          );
-        }
-      };
-      const onError = (error: Error) => finish(error);
-      const onExit = (code: number | null, signal: NodeJS.Signals | null) =>
-        finish(
-          new Error(
-            `Harness exited before readiness (code ${String(code)}, signal ${String(signal)})\n${this.#output}`,
-          ),
-        );
-      const timeout = setTimeout(
-        () =>
+        const inspect = () => {
+          const match = READY_PATTERN.exec(this.#readinessOutput);
+          if (match?.[1] === undefined) return;
+          try {
+            finish(
+              undefined,
+              parseHarnessRuntimeEndpoint(match[1]),
+            );
+          } catch (error) {
+            finish(
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        };
+        const onError = (error: Error) => finish(error);
+        const onExit = (
+          code: number | null,
+          signal: NodeJS.Signals | null,
+        ) =>
           finish(
             new Error(
-              `Harness did not become ready within ${String(timeoutMs)} ms\n${this.#output}`,
+              `Harness exited before readiness (code ${String(code)}, signal ${String(signal)})\n${this.#output}`,
             ),
-          ),
-        timeoutMs,
-      );
+          );
+        const timeout = setTimeout(
+          () =>
+            finish(
+              new Error(
+                `Harness did not become ready within ${String(timeoutMs)} ms\n${this.#output}`,
+              ),
+            ),
+          timeoutMs,
+        );
 
-      child.stdout?.on("data", inspect);
-      child.stderr?.on("data", inspect);
-      child.once("error", onError);
-      child.once("exit", onExit);
-      inspect();
-    });
+        child.stdout?.on("data", inspect);
+        child.stderr?.on("data", inspect);
+        child.once("error", onError);
+        child.once("exit", onExit);
+        inspect();
+      },
+    );
   }
 
   #signalProcessTree(
@@ -497,16 +536,45 @@ function sameModelRuntimeSettings(
   );
 }
 
-function validateReadyUrl(value: string): string {
-  const url = new URL(value);
-  if (
-    url.protocol !== "http:" ||
-    url.hostname !== "127.0.0.1" ||
-    url.port === "" ||
-    url.username !== "" ||
-    url.password !== ""
-  ) {
-    throw new Error(`Harness published an unsafe readiness URL: ${value}`);
+/** Parse the exact tokenized readiness contract without exposing its secret. */
+export function parseHarnessRuntimeEndpoint(
+  value: string,
+): HarnessRuntimeEndpoint {
+  try {
+    const url = new URL(value);
+    const entries = [...url.searchParams];
+    const launchToken = entries[0]?.[1];
+    if (
+      url.protocol !== "http:" ||
+      url.hostname !== "127.0.0.1" ||
+      url.port === "" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.pathname !== "/" ||
+      url.hash !== "" ||
+      entries.length !== 1 ||
+      entries[0]?.[0] !== "token" ||
+      launchToken === undefined ||
+      !LAUNCH_TOKEN_PATTERN.test(launchToken) ||
+      value !== url.href
+    ) {
+      throw new TypeError("invalid endpoint");
+    }
+    return Object.freeze({
+      origin: url.origin,
+      authenticatedUrl: url.href,
+      launchToken,
+    });
+  } catch {
+    throw new Error(
+      "Harness published an invalid authenticated readiness URL",
+    );
   }
-  return url.origin;
+}
+
+function redactLaunchTokens(value: string): string {
+  return value.replace(
+    TOKEN_QUERY_VALUE_PATTERN,
+    "$1<redacted>",
+  );
 }

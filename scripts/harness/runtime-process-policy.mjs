@@ -15,7 +15,10 @@ const childProcessMethods = new Set([
 const startfUseShowWindow = 0x00000001;
 const startfUseStdHandles = 0x00000100;
 const swHide = 0;
-const windowsAclPackage = "dsh-sandbox-windows-acl";
+const restrictedWindowsPackages = new Set([
+  "dsh-sandbox-windows-acl",
+  "dsh-win32-process",
+]);
 
 function staticPropertyName(property) {
   if (property.computed) {
@@ -221,22 +224,39 @@ function parseRuntimeJavaScript(source, path) {
   }
 }
 
-function isWindowsAclPath(path) {
-  return path.includes(
-    `${sep}@deepseek-ai${sep}${windowsAclPackage}${sep}`,
+function isRestrictedWindowsProcessPath(path) {
+  return [...restrictedWindowsPackages].some((packageName) =>
+    path.includes(
+      `${sep}@deepseek-ai${sep}${packageName}${sep}`,
+    )
   );
 }
 
 function collectRestrictedLaunches(ast) {
-  let createProcessAsUserCount = 0;
+  const createProcessAsUserCalls = [];
+  const delegatedLaunchCalls = [];
+  const delegateDefinitions = [];
   const startupInfoCalls = [];
   walk(ast, (node) => {
+    if (
+      node.type === "FunctionDeclaration" &&
+      node.id?.name === "createRestrictedProcess"
+    ) {
+      delegateDefinitions.push(node);
+      return;
+    }
     if (node.type !== "CallExpression") return;
     if (
       node.callee.type === "MemberExpression" &&
       staticPropertyName(node.callee) === "createProcessAsUserW"
     ) {
-      createProcessAsUserCount += 1;
+      createProcessAsUserCalls.push(node);
+    }
+    if (
+      node.callee.type === "Identifier" &&
+      node.callee.name === "createRestrictedProcess"
+    ) {
+      delegatedLaunchCalls.push(node);
     }
     if (
       node.callee.type === "Identifier" &&
@@ -245,22 +265,93 @@ function collectRestrictedLaunches(ast) {
       startupInfoCalls.push(node);
     }
   });
-  return { createProcessAsUserCount, startupInfoCalls };
+  return {
+    createProcessAsUserCalls,
+    delegatedLaunchCalls,
+    delegateDefinitions,
+    startupInfoCalls,
+  };
+}
+
+function callArgumentIdentifier(call, index) {
+  const argument = call.arguments[index];
+  return argument?.type === "Identifier"
+    ? argument.name
+    : undefined;
+}
+
+function sameNames(left, right) {
+  return [...left].sort().join("\0") ===
+    [...right].sort().join("\0");
+}
+
+function restrictedLaunchShapeError(path, restricted) {
+  const directCount = restricted.createProcessAsUserCalls.length;
+  const delegatedCount = restricted.delegatedLaunchCalls.length;
+  const startupCount = restricted.startupInfoCalls.length;
+
+  if (delegatedCount === 0) {
+    if (restricted.delegateDefinitions.length !== 0) {
+      return `${path} declares createRestrictedProcess but has no delegated launch calls`;
+    }
+    return directCount === startupCount
+      ? undefined
+      : `${path} has ${String(
+        directCount,
+      )} CreateProcessAsUserW call(s) but ${String(
+        startupCount,
+      )} STARTUPINFOW configuration(s)`;
+  }
+
+  if (
+    restricted.delegateDefinitions.length !== 1 ||
+    directCount !== 1
+  ) {
+    return `${path} delegated restricted launches must have exactly one createRestrictedProcess definition and one CreateProcessAsUserW call`;
+  }
+  if (delegatedCount !== startupCount) {
+    return `${path} has ${String(
+      delegatedCount,
+    )} createRestrictedProcess call(s) but ${String(
+      startupCount,
+    )} STARTUPINFOW configuration(s)`;
+  }
+
+  const delegate = restricted.delegateDefinitions[0];
+  const directCall = restricted.createProcessAsUserCalls[0];
+  const startupParameter = delegate.params[4];
+  if (
+    startupParameter?.type !== "Identifier" ||
+    directCall.start < delegate.start ||
+    directCall.end > delegate.end ||
+    callArgumentIdentifier(directCall, 9) !==
+      startupParameter.name
+  ) {
+    return `${path} createRestrictedProcess must pass its STARTUPINFOW parameter directly to CreateProcessAsUserW`;
+  }
+
+  const configuredStartupInfos = restricted.startupInfoCalls.map(
+    (call) => callArgumentIdentifier(call, 0),
+  );
+  const delegatedStartupInfos = restricted.delegatedLaunchCalls.map(
+    (call) => callArgumentIdentifier(call, 4),
+  );
+  if (
+    configuredStartupInfos.some((name) => name === undefined) ||
+    delegatedStartupInfos.some((name) => name === undefined) ||
+    !sameNames(configuredStartupInfos, delegatedStartupInfos)
+  ) {
+    return `${path} must pass every statically encoded STARTUPINFOW directly to createRestrictedProcess`;
+  }
+  return undefined;
 }
 
 function assertRestrictedLaunchShape(path, restricted) {
-  if (
-    restricted.createProcessAsUserCount !==
-    restricted.startupInfoCalls.length
-  ) {
-    throw new Error(
-      `${path} has ${String(
-        restricted.createProcessAsUserCount,
-      )} CreateProcessAsUserW call(s) but ${String(
-        restricted.startupInfoCalls.length,
-      )} STARTUPINFOW configuration(s)`,
-    );
-  }
+  const error = restrictedLaunchShapeError(path, restricted);
+  if (error !== undefined) throw new Error(error);
+  return restricted.delegatedLaunchCalls.length === 0
+    ? restricted.createProcessAsUserCalls.length
+    : restricted.delegatedLaunchCalls.length;
 }
 
 function propertyLayoutAfter(source, property, nextProperty) {
@@ -370,33 +461,36 @@ function applySourceEdits(source, edits) {
  * pinning generated filenames in a static patch.
  */
 export async function hardenHarnessWindowsRestrictedLaunches(runtimeRoot) {
-  const aclRoot = join(
+  const firstPartyRoot = join(
     runtimeRoot,
     "node_modules",
     "@deepseek-ai",
-    windowsAclPackage,
   );
   const plannedFiles = [];
   let launches = 0;
   let changedLaunches = 0;
 
-  for (const path of await javascriptFiles(aclRoot)) {
+  for (const path of await javascriptFiles(firstPartyRoot)) {
+    if (!isRestrictedWindowsProcessPath(path)) continue;
     const source = await readFile(path, "utf8");
     const relativePath = runtimePath(runtimeRoot, path);
     const ast = parseRuntimeJavaScript(source, relativePath);
     const restricted = collectRestrictedLaunches(ast);
     if (
-      restricted.createProcessAsUserCount === 0 &&
+      restricted.createProcessAsUserCalls.length === 0 &&
+      restricted.delegatedLaunchCalls.length === 0 &&
+      restricted.delegateDefinitions.length === 0 &&
       restricted.startupInfoCalls.length === 0
     ) {
       continue;
     }
-    assertRestrictedLaunchShape(relativePath, restricted);
+    const fileLaunches =
+      assertRestrictedLaunchShape(relativePath, restricted);
     const launchEdits = restricted.startupInfoCalls.map((call) =>
       planRestrictedLaunchEdits(source, relativePath, call),
     );
     const edits = launchEdits.flat();
-    launches += restricted.createProcessAsUserCount;
+    launches += fileLaunches;
     changedLaunches += launchEdits.filter((launch) => launch.length > 0).length;
     plannedFiles.push({
       path,
@@ -439,9 +533,14 @@ export async function inspectHarnessRuntimeProcessPolicy(runtimeRoot) {
     const source = await readFile(path, "utf8");
     const ast = parseRuntimeJavaScript(source, runtimePath(runtimeRoot, path));
     const bindings = collectChildProcessBindings(ast);
-    const restricted = isWindowsAclPath(path)
+    const restricted = isRestrictedWindowsProcessPath(path)
       ? collectRestrictedLaunches(ast)
-      : { createProcessAsUserCount: 0, startupInfoCalls: [] };
+      : {
+          createProcessAsUserCalls: [],
+          delegatedLaunchCalls: [],
+          delegateDefinitions: [],
+          startupInfoCalls: [],
+        };
 
     walk(ast, (node) => {
       if (node.type !== "CallExpression") return;
@@ -462,23 +561,18 @@ export async function inspectHarnessRuntimeProcessPolicy(runtimeRoot) {
     });
 
     if (
-      restricted.createProcessAsUserCount === 0 &&
+      restricted.createProcessAsUserCalls.length === 0 &&
+      restricted.delegatedLaunchCalls.length === 0 &&
+      restricted.delegateDefinitions.length === 0 &&
       restricted.startupInfoCalls.length === 0
     ) {
       continue;
     }
-    if (
-      restricted.createProcessAsUserCount !==
-      restricted.startupInfoCalls.length
-    ) {
-      violations.push(
-        `${runtimePath(runtimeRoot, path)} has ${String(
-          restricted.createProcessAsUserCount,
-        )} CreateProcessAsUserW call(s) but ${String(
-          restricted.startupInfoCalls.length,
-        )} STARTUPINFOW configuration(s)`,
-      );
-    }
+    const shapeError = restrictedLaunchShapeError(
+      runtimePath(runtimeRoot, path),
+      restricted,
+    );
+    if (shapeError !== undefined) violations.push(shapeError);
     for (const call of restricted.startupInfoCalls) {
       const startup = call.arguments[1];
       const flags = literalPropertyValue(startup, "dwFlags");

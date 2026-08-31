@@ -1,9 +1,9 @@
 {
   "repository": "deepseek-ai/deepseek-harness",
   "submodulePath": "vendor/deepseek-harness",
-  "commit": "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+  "commit": "0a53fb55bea101816fa226bb964ae2bed71c343b",
   "packageName": "@deepseek-ai/dsh",
-  "packageVersion": "0.1.1-rc.2",
+  "packageVersion": "0.1.2-alpha.2",
   "frontendPackageName": "@deepseek-ai/dsh-web-frontend",
   "pnpmVersion": "11.7.0",
   "runtimeSizeBudgetBytes": {
@@ -15,12 +15,9 @@
   "patches": [
     "patches/deepseek-harness/win32-directory-picker.patch",
     "patches/deepseek-harness/windows-background-processes.patch",
-    "patches/deepseek-harness/tabs-details-layout.patch",
-    "patches/deepseek-harness/details-presentation-slot.patch",
     "patches/deepseek-harness/optional-plugin-isolation.patch",
     "patches/deepseek-harness/dynamic-trusted-hosts.patch",
-    "patches/deepseek-harness/process-environment-boundaries.patch",
-    "patches/deepseek-harness/subagent-effective-model-route.patch"
+    "patches/deepseek-harness/process-environment-boundaries.patch"
   ],
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",

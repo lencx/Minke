@@ -292,9 +292,7 @@ const shortcuts = Object.freeze({
 
 const locale = Object.freeze({
   publish(active: DesktopLocale): void {
-    if (!isDesktopLocale(active)) {
-      throw new TypeError("invalid Harness locale snapshot");
-    }
+    if (!isDesktopLocale(active)) return;
     ipcRenderer.send(WINDOW_LOCALE_CHANNEL, active);
   },
 });

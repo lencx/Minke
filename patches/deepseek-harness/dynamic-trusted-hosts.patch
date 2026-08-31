@@ -1,9 +1,9 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js b/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
-@@ -215,6 +215,13 @@ var HostConnectionService = class extends Service {
- 		super(ctx, "connection");
+@@ -513,6 +513,13 @@ var HostConnectionService = class extends Service {
  		this.trustedHosts = trustedHosts;
+ 		this.browserAuth = browserAuth;
  	}
 +	/** Atomically replace the deployment authorities used by live routes. */
 +	replaceTrustedHosts(trustedHosts) {
@@ -15,12 +15,12 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js b/node
  	/** Generic channel registry scoped to the Context reading this service. */
  	get rpc() {
  		const owner = this.ctx;
-@@ -528,7 +535,7 @@ const PRIVILEGED_METHODS = new Set([
+@@ -692,7 +699,7 @@ const Config = z.object({
  * @param config - resolved plugin config (schema defaults applied).
  */
- function apply(ctx, config) {
+ async function apply(ctx, config) {
 -	const trustedHosts = config?.trustedHosts ?? [];
 +	const trustedHosts = [...(config?.trustedHosts ?? [])];
+ 	const cookieMaxAgeDays = config?.cookieMaxAgeDays ?? 30;
  	const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? 314572800;
  	for (const entry of trustedHosts) assertTrustedAuthority(entry);
- 	if (ctx.get("apiProxy") !== void 0) assertImageBodyCapacity(ctx, maxRequestBodyBytes);

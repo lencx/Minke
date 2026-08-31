@@ -1,4 +1,8 @@
-import type { DesktopLocale } from "./locale-contract.ts";
+import {
+  isDesktopLocale,
+  resolveDesktopLocale,
+  type DesktopLocale,
+} from "./locale-contract.ts";
 
 const zh = {
   "bootstrap.loading": "正在启动 Minke",
@@ -133,7 +137,8 @@ export function translateDesktop(
   key: DesktopMessageKey,
   params?: DesktopTranslateParams,
 ): string {
-  const template = desktopDictionaries[locale][key];
+  const template =
+    desktopDictionaries[resolveDesktopLocale(locale)][key];
   return template.replace(/\{(\w+)\}/gu, (match, name: string) =>
     params !== undefined && Object.hasOwn(params, name)
       ? String(params[name])
@@ -153,7 +158,7 @@ export class DesktopLocaleRuntime {
 
   constructor(initial: DesktopLocale) {
     this.#snapshot = Object.freeze({
-      active: initial,
+      active: isDesktopLocale(initial) ? initial : "en",
       revision: 0,
     });
   }
@@ -163,6 +168,7 @@ export class DesktopLocaleRuntime {
   }
 
   setLocale(locale: DesktopLocale): void {
+    if (!isDesktopLocale(locale)) return;
     if (locale === this.#snapshot.active) return;
     this.#snapshot = Object.freeze({
       active: locale,

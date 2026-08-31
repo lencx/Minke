@@ -8,6 +8,19 @@ import {
   installHarnessPermissionPolicy,
 } from "@minke/desktop/main/harness-permission-policy.ts";
 
+const HARNESS_ORIGIN = "http://127.0.0.1:43117";
+const HARNESS_LAUNCH_TOKEN = "a".repeat(43);
+const HARNESS_AUTHENTICATED_URL =
+  `${HARNESS_ORIGIN}/?token=${HARNESS_LAUNCH_TOKEN}`;
+
+function harnessEndpoint() {
+  return {
+    origin: HARNESS_ORIGIN,
+    authenticatedUrl: HARNESS_AUTHENTICATED_URL,
+    launchToken: HARNESS_LAUNCH_TOKEN,
+  };
+}
+
 function harnessWindow(events) {
   return {
     isDestroyed: () => false,
@@ -122,15 +135,15 @@ test("Harness restarts without a window and a later window attaches to it", asyn
     runtime: {
       async start() {
         events.push("runtime:start");
-        return "http://127.0.0.1:43117";
+        return harnessEndpoint();
       },
     },
     remote: {
       async detach() {
         events.push("remote:detach");
       },
-      async start(url) {
-        events.push(`remote:start:${url}`);
+      async start(url, launchToken) {
+        events.push(`remote:start:${url}:${launchToken}`);
       },
     },
   });
@@ -138,25 +151,32 @@ test("Harness restarts without a window and a later window attaches to it", asyn
   await lifecycle.start();
   assert.equal(
     lifecycle.url,
-    "http://127.0.0.1:43117",
+    HARNESS_ORIGIN,
   );
   assert.deepEqual(events, [
     "remote:detach",
     "runtime:start",
-    "remote:start:http://127.0.0.1:43117",
+    `remote:start:${HARNESS_ORIGIN}:${HARNESS_LAUNCH_TOKEN}`,
   ]);
 
   await lifecycle.attach(harnessWindow(events));
   assert.equal(
     events.at(-1),
-    "window:http://127.0.0.1:43117",
+    `window:${HARNESS_AUTHENTICATED_URL}`,
+  );
+
+  await lifecycle.attach(harnessWindow(events));
+  assert.equal(
+    events.at(-1),
+    `window:${HARNESS_ORIGIN}`,
+    "the launch capability is discarded after a successful exchange",
   );
 
   lifecycle.clear();
   await lifecycle.attach(harnessWindow(events));
   assert.equal(
     events.filter((event) => event.startsWith("window:")).length,
-    1,
+    2,
   );
 });
 
@@ -166,7 +186,7 @@ test("Harness loads the local window before enabling remote access", async () =>
     runtime: {
       async start() {
         events.push("runtime:start");
-        return "http://127.0.0.1:43117";
+        return harnessEndpoint();
       },
     },
     remote: {
@@ -183,7 +203,7 @@ test("Harness loads the local window before enabling remote access", async () =>
   assert.deepEqual(events, [
     "remote:detach",
     "runtime:start",
-    "window:http://127.0.0.1:43117",
+    `window:${HARNESS_AUTHENTICATED_URL}`,
     "remote:start",
   ]);
 });

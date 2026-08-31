@@ -23,13 +23,17 @@
       "platform": "web",
       "inject": [
         "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-ui-settings-general",
+        "@deepseek-ai/dsh-client-ui-settings-models",
         "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-ui-theme"
+        "@deepseek-ai/dsh-client-ui-theme",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ]
     }
   },
@@ -45,10 +49,14 @@
     "qrcode": "1.5.4"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-llm": "0.1.1-rc.2"
+    "@deepseek-ai/dsh-llm": "0.1.2-alpha.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.2-alpha.2"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-typert-protocol": {
       "optional": true
     }
   },
@@ -57,6 +65,8 @@
     "@codemirror/merge": "6.12.2",
     "@codemirror/state": "6.7.1",
     "@codemirror/view": "6.43.9",
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-invariants": "0.1.2-alpha.2",
     "@iconify-json/vscode-icons": "1.2.73",
     "@lucide/icons": "1.31.0",
     "@types/qrcode": "1.5.6",

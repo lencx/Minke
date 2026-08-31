@@ -17,6 +17,7 @@ import {
 import {
   HarnessRuntime,
   harnessRuntimeEnvironment,
+  parseHarnessRuntimeEndpoint,
 } from "@minke/desktop/main/harness-runtime.ts";
 import {
   bindModelRuntimeSettingsIpc,
@@ -53,6 +54,19 @@ import {
   parseModelRuntimeControlResponse,
   parseReconfigureModelRuntimesRequest,
 } from "@lencx/minke-model-runtime/contract";
+
+const HARNESS_ORIGIN = "http://127.0.0.1:43117";
+const HARNESS_LAUNCH_TOKEN = "a".repeat(43);
+const HARNESS_AUTHENTICATED_URL =
+  `${HARNESS_ORIGIN}/?token=${HARNESS_LAUNCH_TOKEN}`;
+
+function harnessEndpoint() {
+  return {
+    origin: HARNESS_ORIGIN,
+    authenticatedUrl: HARNESS_AUTHENTICATED_URL,
+    launchToken: HARNESS_LAUNCH_TOKEN,
+  };
+}
 
 function hasEnvironmentName(environment, name) {
   const normalized = name.toUpperCase();
@@ -154,6 +168,35 @@ test("the staged layout contract rejects stale runtime metadata", async () => {
       );
     },
   );
+});
+
+test("Harness readiness requires the exact alpha.2 authenticated loopback URL", () => {
+  assert.deepEqual(
+    parseHarnessRuntimeEndpoint(HARNESS_AUTHENTICATED_URL),
+    harnessEndpoint(),
+  );
+
+  for (const candidate of [
+    HARNESS_ORIGIN,
+    `${HARNESS_ORIGIN}/?token=short`,
+    `${HARNESS_AUTHENTICATED_URL}&debug=1`,
+    `${HARNESS_AUTHENTICATED_URL}#fragment`,
+    `${HARNESS_ORIGIN}/session?token=${HARNESS_LAUNCH_TOKEN}`,
+    `${HARNESS_ORIGIN}/?token=${HARNESS_LAUNCH_TOKEN}&token=${HARNESS_LAUNCH_TOKEN}`,
+    `http://localhost:43117/?token=${HARNESS_LAUNCH_TOKEN}`,
+    `https://127.0.0.1:43117/?token=${HARNESS_LAUNCH_TOKEN}`,
+    `http://user@127.0.0.1:43117/?token=${HARNESS_LAUNCH_TOKEN}`,
+  ]) {
+    assert.throws(
+      () => parseHarnessRuntimeEndpoint(candidate),
+      (error) =>
+        error instanceof Error &&
+        error.message ===
+          "Harness published an invalid authenticated readiness URL" &&
+        !error.message.includes(HARNESS_LAUNCH_TOKEN),
+      candidate,
+    );
+  }
 });
 
 test("the desktop runtime passes both explicit local-model opt-ins", () => {
@@ -662,7 +705,8 @@ test("crash recovery keeps the persisted model settings when persistence and liv
           '  join(process.env.DSH_HOME, "launches.txt"),',
           '  `${process.env.MINKE_LM_STUDIO_ENABLED}\\n`,',
           ");",
-          'console.log("dsh web: http://127.0.0.1:43117");',
+          `process.stdout.write(${JSON.stringify(`dsh web: ${HARNESS_AUTHENTICATED_URL.slice(0, -12)}`)});`,
+          `setTimeout(() => process.stdout.write(${JSON.stringify(`${HARNESS_AUTHENTICATED_URL.slice(-12)}\n`)}), 5);`,
           'process.on("message", (message) => {',
           '  if (message?.type !== "model-runtimes/reconfigure") return;',
           '  const response = {',
@@ -751,6 +795,8 @@ test("crash recovery keeps the persisted model settings when persistence and liv
     );
     const exit = await crashed;
     assert.equal(exit.code, 17);
+    assert.match(exit.output, /token=<redacted>/u);
+    assert.doesNotMatch(exit.output, new RegExp(HARNESS_LAUNCH_TOKEN, "u"));
 
     await runtime.start();
     assert.equal(
@@ -790,13 +836,13 @@ test("model-runtime control messages reject non-exact payloads", () => {
 });
 
 test("Harness window navigation cannot leave the bootstrap pending forever", async () => {
-  const harnessUrl = "http://127.0.0.1:43117";
   let navigationStops = 0;
   let remoteStarts = 0;
+  let loadedUrl;
   const lifecycle = new HarnessLifecycle({
     runtime: {
       async start() {
-        return harnessUrl;
+        return harnessEndpoint();
       },
     },
     remote: {
@@ -811,7 +857,8 @@ test("Harness window navigation cannot leave the bootstrap pending forever", asy
     isDestroyed() {
       return false;
     },
-    async loadURL() {
+    async loadURL(url) {
+      loadedUrl = url;
       return await new Promise(() => {});
     },
     webContents: {
@@ -840,24 +887,24 @@ test("Harness window navigation cannot leave the bootstrap pending forever", asy
   );
   assert.equal(outcome?.name, "HarnessNavigationError");
   assert.match(outcome?.message, /did not finish within 10 ms/u);
-  assert.equal(lifecycle.url, harnessUrl);
+  assert.equal(lifecycle.url, HARNESS_ORIGIN);
+  assert.equal(loadedUrl, HARNESS_AUTHENTICATED_URL);
   assert.equal(navigationStops, 1);
   assert.equal(remoteStarts, 0);
 });
 
 test("remote exposure starts only after the Harness window has loaded", async () => {
   const events = [];
-  const harnessUrl = "http://127.0.0.1:43117";
   const lifecycle = new HarnessLifecycle({
     runtime: {
       async start() {
         events.push("runtime");
-        return harnessUrl;
+        return harnessEndpoint();
       },
     },
     remote: {
-      async start(url) {
-        events.push(["remote", url]);
+      async start(url, launchToken) {
+        events.push(["remote", url, launchToken]);
       },
       async detach() {
         events.push("remote-detach");
@@ -883,14 +930,57 @@ test("remote exposure starts only after the Harness window has loaded", async ()
         },
       },
     }),
-    harnessUrl,
+    HARNESS_ORIGIN,
   );
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(events, [
     "remote-detach",
     "runtime",
-    ["window", harnessUrl],
-    ["remote", harnessUrl],
+    ["window", HARNESS_AUTHENTICATED_URL],
+    ["remote", HARNESS_ORIGIN, HARNESS_LAUNCH_TOKEN],
   ]);
+});
+
+test("Harness navigation errors redact the launch capability", async () => {
+  let remoteStarts = 0;
+  const lifecycle = new HarnessLifecycle({
+    runtime: {
+      async start() {
+        return harnessEndpoint();
+      },
+    },
+    remote: {
+      async start() {
+        remoteStarts += 1;
+      },
+      async detach() {},
+    },
+  });
+
+  await assert.rejects(
+    lifecycle.start({
+      isDestroyed() {
+        return false;
+      },
+      async loadURL(url) {
+        throw new Error(`navigation failed for ${url}`);
+      },
+      webContents: {
+        isDestroyed() {
+          return false;
+        },
+        stop() {},
+      },
+    }),
+    (error) =>
+      error?.name === "HarnessNavigationError" &&
+      error.message.includes(HARNESS_ORIGIN) &&
+      !error.message.includes(HARNESS_LAUNCH_TOKEN) &&
+      error.cause instanceof Error &&
+      error.cause.message.includes("token=<redacted>") &&
+      !error.cause.message.includes(HARNESS_LAUNCH_TOKEN),
+  );
+  assert.equal(remoteStarts, 0);
+  assert.equal(lifecycle.url, HARNESS_ORIGIN);
 });

@@ -9,6 +9,7 @@ export {
   migrateLegacyRemoteSettings,
   NO_REMOTE_AVAILABILITY,
   parseRemoteAvailability,
+  parseRemoteBootstrapToken,
   parseRemoteRuntimeSnapshot,
   parseRemoteSettings,
   parseRemoteSettingsSnapshot,

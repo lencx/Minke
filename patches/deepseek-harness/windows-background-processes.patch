@@ -1,8 +1,7 @@
 diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
-@@ -106,8 +106,9 @@
- 		"--",
+@@ -107,7 +107,8 @@ function defaultProbeBwrap(timeoutMs) {
  		"true"
  	], {
  		timeout: timeoutMs,
@@ -12,8 +11,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_mod
  	}).status === 0;
  }
  /**
-@@ -128,8 +129,9 @@
- 		"--",
+@@ -129,7 +130,8 @@ function defaultProbeSeatbelt(seatbeltExec, timeoutMs) {
  		"true"
  	], {
  		timeout: timeoutMs,
@@ -23,7 +21,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_mod
  	}).status === 0;
  }
  /**
-@@ -144,6 +146,24 @@
+@@ -142,7 +144,25 @@ function defaultProbeSeatbelt(seatbeltExec, timeoutMs) {
  function defaultProbeWindowsAcl(runnerInvocation, timeoutMs) {
  	const program = runnerInvocation[0];
  	if (program === void 0) return false;
@@ -48,8 +46,8 @@ diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_mod
 +		...bootstrapArgs,
  		...runnerInvocation.slice(1),
  		"--workspace",
-@@ -156,8 +173,10 @@
- 		"exit",
+ 		tmpdir(),
+@@ -157,7 +177,9 @@ function defaultProbeWindowsAcl(runnerInvocation, timeoutMs) {
  		"0"
  	], {
  		timeout: timeoutMs,
@@ -63,9 +61,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_mod
 diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
-@@ -104,9 +104,9 @@
- 	spawnSync("taskkill", [
- 		"/PID",
+@@ -108,7 +108,7 @@ function taskkillTree(pid, force) {
  		String(pid),
  		"/T",
  		...force ? ["/F"] : []
@@ -74,8 +70,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
  }
  /**
  * True for NULL and INVALID_HANDLE_VALUE returns from Win32 handle APIs.
-@@ -266,8 +266,8 @@
- 	readDir: (path) => readdirSync(path),
+@@ -271,7 +271,7 @@ const DEFAULT_INTERNALS = {
  	open: (path) => openSync(path, "r"),
  	read: (fd, buffer, length, position) => readSync(fd, buffer, 0, length, position),
  	close: closeSync,
@@ -84,9 +79,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
  	kill: (pid, signal) => process.kill(pid, signal)
  };
  /**
-@@ -744,9 +744,9 @@
- 	spawnSync("taskkill", [
- 		"/PID",
+@@ -797,7 +797,7 @@ function taskkillProcessTree(pid) {
  		String(pid),
  		"/T",
  		"/F"
@@ -95,19 +88,20 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
  }
  /**
  * Signal a detached process tree with platform-correct semantics: POSIX
-@@ -800,7 +800,8 @@
- 		stdio: [
- 			stdinMode === "ignore" ? "ignore" : "pipe",
+@@ -853,6 +853,7 @@ function spawnSubprocess(spec, internals = {}) {
  			outMode === "inherit" ? "inherit" : "pipe",
  			errMode === "inherit" ? "inherit" : "pipe"
  		],
 +		windowsHide: true,
  		detached: platform !== "win32"
  	});
+ 	const collectStream = (mode, stream, label) => {
 diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
-@@ -124,10 +124,11 @@
+@@ -130,12 +130,13 @@ function spawnBrowserLauncher(url) {
+ 		"--",
+ 		url
  	], {
 -		env: scrubbedParentEnv(),
 +		env: browserWorkerEnvironment(),
@@ -121,10 +115,10 @@ diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@
  	});
  }
  /** Hand one URL to the operating system's default browser. */
-diff --git a/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js b/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js
---- a/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js
-+++ b/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js
-@@ -108,7 +108,8 @@
+diff --git a/node_modules/@deepseek-ai/dsh/lib/plugin-F7ZVfRyo.js b/node_modules/@deepseek-ai/dsh/lib/plugin-F7ZVfRyo.js
+--- a/node_modules/@deepseek-ai/dsh/lib/plugin-F7ZVfRyo.js
++++ b/node_modules/@deepseek-ai/dsh/lib/plugin-F7ZVfRyo.js
+@@ -108,7 +108,8 @@ function runPlugin(profile, args) {
  	const result = spawnSync("pnpm", args.map((argument) => anchorPathSpec(argument, process.cwd())), {
  		cwd: dir,
  		stdio: "inherit",
@@ -137,19 +131,22 @@ diff --git a/node_modules/@deepseek-ai/dsh/lib/plugin-9h8shc4d.js b/node_modules
 diff --git a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
 --- a/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
 +++ b/node_modules/@deepseek-ai/dsh/lib/types/plugin.js
-@@ -117,4 +117,5 @@
+@@ -118,6 +118,7 @@ export function runPlugin(profile, args) {
          cwd: dir,
          stdio: 'inherit',
          shell: process.platform === 'win32',
 +        windowsHide: true,
      });
+     if (result.error !== undefined) {
+         const code = result.error.code;
 diff --git a/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js b/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js
 --- a/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js
 +++ b/node_modules/@deepseek-ai/node-addon-landlock-run/lib/index.js
-@@ -90,5 +90,6 @@
-     const result = spawnSync(launcher, ['--probe'], {
+@@ -91,6 +91,7 @@ export function probe(launcher = launcherPath(), options = {}) {
          timeout: options.timeoutMs ?? 2000,
          encoding: 'utf8',
          stdio: ['ignore', 'pipe', 'ignore'],
 +        windowsHide: true,
      });
+     if (result.status !== 0)
+         return 'unusable';

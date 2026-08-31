@@ -1,6 +1,7 @@
 /** Live remote-access reconciliation over a running loopback Harness. */
 import {
   parseRemoteAvailability,
+  parseRemoteBootstrapToken,
   parseRemoteRuntimeSnapshot,
   parseRemoteSettings,
   type RemoteAvailability,
@@ -112,6 +113,23 @@ function errorSnapshot(
   });
 }
 
+function rendererSnapshot(
+  snapshot: RemoteRuntimeSnapshot,
+  launchToken: string | undefined,
+): RemoteRuntimeSnapshot {
+  const parsed = parseRemoteRuntimeSnapshot(snapshot);
+  if (parsed.url === undefined || launchToken === undefined) {
+    return parsed;
+  }
+  const bootstrap = new URL(parsed.url);
+  bootstrap.pathname = "/";
+  bootstrap.searchParams.set("token", launchToken);
+  return parseRemoteRuntimeSnapshot({
+    ...parsed,
+    bootstrapUrl: bootstrap.href,
+  });
+}
+
 function abortError(signal: AbortSignal): Error {
   return signal.reason instanceof Error
     ? signal.reason
@@ -206,6 +224,7 @@ export class RemoteAccessRuntime {
   #settings: RemoteSettings;
   #snapshot: RemoteRuntimeSnapshot;
   #target: string | undefined;
+  #launchToken: string | undefined;
   #active: RemoteAccessLifecycle | undefined;
   #trustedHosts: readonly string[] = [];
   #controller: AbortController | undefined;
@@ -281,9 +300,12 @@ export class RemoteAccessRuntime {
       active?.state === "error" &&
       this.#snapshot.state === "active"
     ) {
-      return active;
+      return rendererSnapshot(active, this.#launchToken);
     }
-    return parseRemoteRuntimeSnapshot(this.#snapshot);
+    return rendererSnapshot(
+      this.#snapshot,
+      this.#launchToken,
+    );
   }
 
   subscribe(listener: () => void): () => void {
@@ -303,9 +325,16 @@ export class RemoteAccessRuntime {
   }
 
   /** Attach the live loopback Harness target and reconcile current settings. */
-  start(target: string): Promise<void> {
+  start(
+    target: string,
+    launchToken: string,
+  ): Promise<void> {
     this.#assertRunning();
-    this.#target = parseLoopbackHarnessUrl(target);
+    const parsedTarget = parseLoopbackHarnessUrl(target);
+    const parsedLaunchToken =
+      parseRemoteBootstrapToken(launchToken);
+    this.#target = parsedTarget;
+    this.#launchToken = parsedLaunchToken;
     return this.#schedule();
   }
 
@@ -329,6 +358,7 @@ export class RemoteAccessRuntime {
   detach(): Promise<void> {
     this.#assertRunning();
     this.#target = undefined;
+    this.#launchToken = undefined;
     return this.#schedule();
   }
 
@@ -336,6 +366,8 @@ export class RemoteAccessRuntime {
   async stop(): Promise<void> {
     if (this.#stopped) return;
     this.#stopped = true;
+    this.#target = undefined;
+    this.#launchToken = undefined;
     this.#controller?.abort();
     const generation = ++this.#generation;
     const operation = this.#tail
