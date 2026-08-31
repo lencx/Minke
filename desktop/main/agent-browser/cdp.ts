@@ -535,6 +535,17 @@ export class AgentBrowserCdp {
     return this.#generation;
   }
 
+  interruptNavigationForHumanTakeover(): void {
+    // A human handoff ends lifecycle observation without disposing the live
+    // debugger target; ordinary timeouts still retain fail-closed behavior.
+    this.#failNavigationObservations(
+      new AgentBrowserError(
+        "session_paused",
+        "Agent Browser session is under human control",
+      ),
+    );
+  }
+
   async navigate(
     url: string,
     signal?: AbortSignal,

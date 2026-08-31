@@ -708,8 +708,18 @@ export class AgentBrowserRuntime {
               !sessionCrashed(state)
             ) {
               state.status =
-                state.owner === "human" ? "paused" : "ready";
-              state.error = browserError.message.slice(0, 2_048);
+                state.owner === "human" ||
+                  state.humanTakeoverPending
+                  ? "paused"
+                  : "ready";
+              if (
+                browserError.code === "session_paused" &&
+                state.humanTakeoverPending
+              ) {
+                delete state.error;
+              } else {
+                state.error = browserError.message.slice(0, 2_048);
+              }
               this.#publish();
             }
             throw browserError;
@@ -876,6 +886,7 @@ export class AgentBrowserRuntime {
       // Close the admission gate synchronously. The transition is projected
       // only after already-admitted work reaches a terminal result.
       state.humanTakeoverPending = true;
+      state.cdp?.interruptNavigationForHumanTakeover();
       if (this.#clearCursor(state)) this.#publish();
     }
     const transition = state.controlTail
@@ -1332,8 +1343,20 @@ export class AgentBrowserRuntime {
     try {
       return await initialize;
     } catch (error) {
+      const browserError = asAgentBrowserError(error);
+      if (
+        browserError.code === "session_paused" &&
+        !state.closing &&
+        this.#states.get(sessionId) === state &&
+        (
+          state.owner === "human" ||
+          state.humanTakeoverPending
+        )
+      ) {
+        throw browserError;
+      }
       await this.closeSession(sessionId);
-      throw asAgentBrowserError(error);
+      throw browserError;
     }
   }
 

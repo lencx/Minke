@@ -1215,6 +1215,72 @@ test("open remains loading until the matching CDP navigation lifecycle completes
   target.runtime.dispose();
 });
 
+test("human takeover preserves a tab whose initial navigation is pending", async () => {
+  const target = runtimeFixture({ cdpCommandTimeoutMs: 25 });
+  const opening = target.runtime.handleProcessRequest(
+    createAgentBrowserRequest(
+      1,
+      "conversation-1",
+      "open",
+      { url: "https://example.com/slow" },
+    ),
+    new AbortController().signal,
+  ).then(
+    (result) => ({ status: "fulfilled", result }),
+    (error) => ({ status: "rejected", error }),
+  );
+  const projection = target.runtime.projections()[0];
+  const session = target.sessions.get(projection.partition);
+  assert.equal(
+    target.runtime.secureWebview(
+      {},
+      {
+        partition: projection.partition,
+        src: "about:blank",
+      },
+    ),
+    "secured",
+  );
+  const guest = new FakeGuest(session, target.embedder);
+  guest.debugger.autoNavigation = false;
+  assert.equal(
+    target.runtime.attachGuest(target.embedder, guest),
+    true,
+  );
+
+  await settleAsyncWork();
+  assert.equal(
+    target.runtime.projections()[0].status,
+    "loading",
+  );
+
+  const takeover = target.runtime.setControl(
+    projection.sessionId,
+    "human",
+  ).then(
+    (result) => ({ status: "fulfilled", result }),
+    (error) => ({ status: "rejected", error }),
+  );
+  const [openOutcome, takeoverOutcome] = await Promise.all([
+    opening,
+    takeover,
+  ]);
+
+  assert.equal(openOutcome.status, "rejected");
+  assert.equal(openOutcome.error.code, "session_paused");
+  assert.equal(openOutcome.error.outcome, "unknown");
+  assert.equal(takeoverOutcome.status, "fulfilled");
+  assert.equal(takeoverOutcome.result.owner, "human");
+  assert.equal(takeoverOutcome.result.status, "paused");
+  assert.equal(takeoverOutcome.result.error, undefined);
+  assert.equal(guest.debugger.isAttached(), true);
+  assert.equal(guest.closed, false);
+
+  await target.runtime.closeOwner("conversation-1");
+  target.binding.dispose();
+  target.runtime.dispose();
+});
+
 test("failed navigation leaves an attached session inspectable", async () => {
   const target = runtimeFixture();
   const opened = await openAgentBrowser(target);
@@ -1440,6 +1506,62 @@ test("human takeover pauses every process-side operation and is projected", asyn
   );
   assert.equal(resumed.owner, "agent");
   assert.equal(resumed.status, "ready");
+  await target.runtime.closeOwner("conversation-1");
+  target.binding.dispose();
+  target.runtime.dispose();
+});
+
+test("human takeover interrupts a pending navigation without crashing the guest", async () => {
+  const target = runtimeFixture({ cdpCommandTimeoutMs: 25 });
+  const opened = await openAgentBrowser(target);
+  opened.guest.debugger.autoNavigation = false;
+  const navigation = target.runtime.handleProcessRequest(
+    createAgentBrowserRequest(
+      2,
+      "conversation-1",
+      "navigate",
+      {
+        sessionId: opened.result.sessionId,
+        url: "https://example.com/slow",
+      },
+    ),
+    new AbortController().signal,
+  ).then(
+    (result) => ({ status: "fulfilled", result }),
+    (error) => ({ status: "rejected", error }),
+  );
+
+  await settleAsyncWork();
+  assert.equal(
+    opened.guest.debugger.commands.filter(
+      ({ method }) => method === "Page.navigate",
+    ).length,
+    2,
+  );
+
+  const human = await target.runtime.setControl(
+    opened.result.sessionId,
+    "human",
+  );
+  const navigationOutcome = await navigation;
+
+  assert.notEqual(human.status, "crashed", human.error);
+  assert.equal(human.owner, "human");
+  assert.equal(human.status, "paused");
+  assert.equal(human.error, undefined);
+  assert.equal(navigationOutcome.status, "rejected");
+  assert.equal(navigationOutcome.error.code, "session_paused");
+  assert.equal(navigationOutcome.error.outcome, "unknown");
+  assert.equal(opened.guest.debugger.isAttached(), true);
+  assert.equal(opened.guest.closed, false);
+
+  const resumed = await target.runtime.setControl(
+    opened.result.sessionId,
+    "agent",
+  );
+  assert.equal(resumed.owner, "agent");
+  assert.equal(resumed.status, "ready");
+
   await target.runtime.closeOwner("conversation-1");
   target.binding.dispose();
   target.runtime.dispose();
