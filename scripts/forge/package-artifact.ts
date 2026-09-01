@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { embeddedNodeEnvironment } from "../../config/embedded-node-runtime.mts";
@@ -25,6 +26,9 @@ export interface PackageArtifactVerificationOptions {
   readonly productPackageName: string;
   readonly runtimeFileBudget: number;
   readonly runtimeSizeBudgetBytes: number;
+  readonly verifyDarwinCodeSignature?: (
+    appRoot: string,
+  ) => Promise<void>;
 }
 
 export interface ArtifactTreeStats {
@@ -74,6 +78,29 @@ async function requireMissing(path: string): Promise<void> {
     throw error;
   }
   throw new Error(`packaged application contains forbidden path ${path}`);
+}
+
+function verifyDarwinCodeSignature(
+  appRoot: string,
+): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    execFile(
+      "/usr/bin/codesign",
+      ["--verify", "--deep", "--strict", appRoot],
+      {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024,
+        timeout: 30_000,
+      },
+      (error) => {
+        if (error === null) {
+          resolvePromise();
+          return;
+        }
+        reject(error);
+      },
+    );
+  });
 }
 
 async function treeStats(root: string): Promise<ArtifactTreeStats> {
@@ -163,13 +190,6 @@ async function assertOnlyTargetNodePtyPrebuild(
   }
 }
 
-function hasSourceCondition(value: unknown): boolean {
-  if (value === null || typeof value !== "object") return false;
-  if (Array.isArray(value)) return value.some(hasSourceCondition);
-  if (Object.hasOwn(value, "source")) return true;
-  return Object.values(value).some(hasSourceCondition);
-}
-
 export function parsePackageArtifactPolicy(
   value: unknown,
 ): PackageArtifactPolicy {
@@ -229,11 +249,14 @@ export async function verifyPackagedApplication(
     "node_modules",
     ...options.productPackageName.split("/"),
   );
-  const mistralRoot = join(
+  const piAiRoot = join(
     hostRoot,
     "node_modules",
     "@earendil-works",
     "pi-ai",
+  );
+  const legacyMistralRoot = join(
+    piAiRoot,
     "node_modules",
     "@mistralai",
     "mistralai",
@@ -253,8 +276,8 @@ export async function verifyPackagedApplication(
     join(productRoot, "package.json"),
     join(productRoot, "lib", "index.js"),
     join(productRoot, "lib", "client.js"),
-    join(mistralRoot, "package.json"),
-    join(mistralRoot, "esm", "index.js"),
+    join(piAiRoot, "package.json"),
+    join(piAiRoot, "dist", "providers", "mistral.js"),
   ];
   if (options.platform === "darwin") {
     required.push(
@@ -347,7 +370,7 @@ export async function verifyPackagedApplication(
       "mistralai",
       "packages",
     ),
-    join(mistralRoot, "src"),
+    join(legacyMistralRoot, "src"),
     join(
       hostRoot,
       "node_modules",
@@ -382,19 +405,6 @@ export async function verifyPackagedApplication(
     );
   }
   await Promise.all(forbidden.map(requireMissing));
-
-  const mistralManifest = JSON.parse(
-    await readFile(join(mistralRoot, "package.json"), "utf8"),
-  );
-  if (
-    mistralManifest.name !== "@mistralai/mistralai" ||
-    mistralManifest.main !== "./esm/index.js" ||
-    hasSourceCondition(mistralManifest.exports)
-  ) {
-    throw new Error(
-      "packaged Mistral SDK must resolve only through compiled esm exports",
-    );
-  }
 
   const nodeAdapter = await readFile(
     join(hostRoot, "bin", runtimeAdapterName(options.platform, "node")),
@@ -471,6 +481,20 @@ export async function verifyPackagedApplication(
   }
   assertRuntimeSizeBudget(inspection.bytes, options.runtimeSizeBudgetBytes);
   assertRuntimeFileBudget(inspection.files, options.runtimeFileBudget);
+
+  if (options.platform === "darwin") {
+    try {
+      await (
+        options.verifyDarwinCodeSignature ??
+        verifyDarwinCodeSignature
+      )(appRoot);
+    } catch (error) {
+      throw new Error(
+        "packaged macOS application has an invalid code signature",
+        { cause: error },
+      );
+    }
+  }
 
   const app = await treeStats(appRoot);
   if (

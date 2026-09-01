@@ -45,6 +45,11 @@ function verificationOptions(platform) {
     productPackageName,
     runtimeFileBudget: 100,
     runtimeSizeBudgetBytes: 1024 * 1024,
+    ...(platform === "darwin"
+      ? {
+          verifyDarwinCodeSignature: async () => {},
+        }
+      : {}),
   };
 }
 
@@ -93,14 +98,17 @@ async function withPackagedApp(platform, callback) {
     "node_modules",
     ...productPackageName.split("/"),
   );
-  const mistralRoot = join(
+  const piAiRoot = join(
     hostRoot,
     "node_modules",
     "@earendil-works",
     "pi-ai",
-    "node_modules",
-    "@mistralai",
-    "mistralai",
+  );
+  const mistralProviderPath = join(
+    piAiRoot,
+    "dist",
+    "providers",
+    "mistral.js",
   );
   const executable =
     platform === "darwin"
@@ -136,18 +144,16 @@ async function withPackagedApp(platform, callback) {
       write(join(productRoot, "lib", "index.js")),
       write(join(productRoot, "lib", "client.js")),
       write(
-        join(mistralRoot, "package.json"),
+        join(piAiRoot, "package.json"),
         `${JSON.stringify({
-          name: "@mistralai/mistralai",
-          main: "./esm/index.js",
-          exports: {
-            ".": {
-              default: "./esm/index.js",
-            },
-          },
+          name: "@earendil-works/pi-ai",
+          main: "./dist/index.js",
         })}\n`,
       ),
-      write(join(mistralRoot, "esm", "index.js")),
+      write(
+        mistralProviderPath,
+        "export function mistralProvider() {}\n",
+      ),
       ...nativeAssets.map((path) => write(path)),
     ];
     if (platform === "darwin") {
@@ -167,7 +173,7 @@ async function withPackagedApp(platform, callback) {
     await callback({
       appRoot,
       hostRoot,
-      mistralRoot,
+      mistralProviderPath,
       nativeAssets,
       outputRoot,
     });
@@ -235,6 +241,32 @@ for (const platform of ["darwin", "win32", "linux"]) {
   });
 }
 
+test("the final package gate rejects an invalid macOS code signature", async () => {
+  await withPackagedApp(
+    "darwin",
+    async ({ appRoot, outputRoot }) => {
+      let verifiedPath;
+      await verifyPackagedApplication(outputRoot, {
+        ...verificationOptions("darwin"),
+        verifyDarwinCodeSignature: async (path) => {
+          verifiedPath = path;
+        },
+      });
+      assert.equal(verifiedPath, appRoot);
+
+      await assert.rejects(
+        verifyPackagedApplication(outputRoot, {
+          ...verificationOptions("darwin"),
+          verifyDarwinCodeSignature: async () => {
+            throw new Error("fixture signature failure");
+          },
+        }),
+        /invalid code signature/u,
+      );
+    },
+  );
+});
+
 test("the final package gate rejects a missing dsh adapter", async () => {
   await withPackagedApp("darwin", async ({ hostRoot, outputRoot }) => {
     await rm(join(hostRoot, "bin", "dsh"));
@@ -288,30 +320,18 @@ test("the final package gate rejects forbidden package baggage", async () => {
   });
 });
 
-test("the final package gate rejects dangling Mistral source exports", async () => {
+test("the final package gate rejects a missing compiled pi-ai Mistral provider", async () => {
   await withPackagedApp(
     "win32",
-    async ({ mistralRoot, outputRoot }) => {
-      await write(
-        join(mistralRoot, "package.json"),
-        `${JSON.stringify({
-          name: "@mistralai/mistralai",
-          main: "./esm/index.js",
-          exports: {
-            ".": {
-              source: "./src/index.ts",
-              default: "./esm/index.js",
-            },
-          },
-        })}\n`,
-      );
+    async ({ mistralProviderPath, outputRoot }) => {
+      await rm(mistralProviderPath);
 
       await assert.rejects(
         verifyPackagedApplication(
           outputRoot,
           verificationOptions("win32"),
         ),
-        /resolve only through compiled esm exports/u,
+        /missing required file.*mistral\.js/u,
       );
     },
   );

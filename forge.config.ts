@@ -14,11 +14,15 @@ import {
   parsePackageArtifactPolicy,
   verifyPackagedApplication,
 } from "./scripts/forge/package-artifact.ts";
+import {
+  resolveMacOSSigningConfig,
+} from "./scripts/forge/macos-signing.ts";
 
 const projectRoot = __dirname;
 const iconRoot = join(projectRoot, "resources", "icons");
 const appIcon = join(iconRoot, "icon.png");
 const sysPackageRoot = join(projectRoot, "packages", "sys");
+const macOSSigning = resolveMacOSSigningConfig(process.env);
 
 function logPackageStage(
   platform: string,
@@ -92,6 +96,18 @@ const config: ForgeConfig = {
     executableName: "Minke",
     appBundleId: "me.lencx.minke",
     appCategoryType: "public.app-category.developer-tools",
+    osxSign: {
+      // A stable certificate keeps the Keychain ACL valid across updates.
+      // Local machines without one retain the pre-release ad-hoc fallback.
+      identity: macOSSigning.identity,
+      identityValidation: macOSSigning.identityValidation,
+      ...(macOSSigning.keychain === undefined
+        ? {}
+        : { keychain: macOSSigning.keychain }),
+      optionsForFile: () => ({
+        hardenedRuntime: false,
+      }),
+    },
     asar: {
       unpack: "**/node_modules/sys/**/*.node",
     },
@@ -208,7 +224,6 @@ const config: ForgeConfig = {
     ],
     extraResource: [
       join(projectRoot, "runtime", "host"),
-      join(projectRoot, "resources", "desktop-style-extension"),
       join(projectRoot, "resources", "licenses"),
       appIcon,
       join(iconRoot, "trayTemplate.png"),

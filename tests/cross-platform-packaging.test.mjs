@@ -13,6 +13,9 @@ import {
   packagedApplicationLayout,
 } from "../scripts/forge/application-layout.mjs";
 import {
+  resolveMacOSSigningConfig,
+} from "../scripts/forge/macos-signing.ts";
+import {
   consumeForgeElectronWorkerEnvironment,
   forgeElectronWorkerEnvironment,
   forgeUsesElectronWorker,
@@ -328,6 +331,29 @@ test("Forge Vite packaging bypasses the redundant production-tree prune", async 
   assert.match(
     forgeConfig,
     /packagerConfig:\s*\{[\s\S]*?\n\s*prune:\s*false,/u,
+  );
+});
+
+test("macOS packaging prefers a stable configured signing identity", () => {
+  assert.deepEqual(
+    resolveMacOSSigningConfig({}),
+    {
+      identity: "-",
+      identityValidation: false,
+      keychain: undefined,
+    },
+  );
+  assert.deepEqual(
+    resolveMacOSSigningConfig({
+      CSC_NAME: "fallback identity",
+      MINKE_MACOS_SIGN_IDENTITY: " Developer ID Application: Minke ",
+      MINKE_MACOS_SIGN_KEYCHAIN: " /tmp/minke-signing.keychain-db ",
+    }),
+    {
+      identity: "Developer ID Application: Minke",
+      identityValidation: true,
+      keychain: "/tmp/minke-signing.keychain-db",
+    },
   );
 });
 
