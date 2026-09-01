@@ -151,6 +151,7 @@ class RemoteHubCommandBarrier {
 export interface RemoteHubCapabilityRuntimeOptions {
   readonly dataHome: string;
   readonly vault: RemoteHubCredentialVault;
+  readonly credentialAccessMode?: "automatic" | "explicit";
   readonly credentialClipboard?: {
     writeText(value: string): void | Promise<void>;
   };
@@ -609,6 +610,9 @@ export class RemoteHubCapabilityRuntime {
     writeText(value: string): void | Promise<void>;
   };
   readonly #credentialVault: RemoteHubCredentialVault;
+  readonly #credentialAccessMode:
+    | "automatic"
+    | "explicit";
   readonly #listeners = new Set<() => void>();
   readonly #recoverMailbox: GatewayMailboxRecovery;
   readonly #weixin: WeixinRuntimePort;
@@ -626,6 +630,8 @@ export class RemoteHubCapabilityRuntime {
 
   constructor(options: RemoteHubCapabilityRuntimeOptions) {
     this.#credentialVault = options.vault;
+    this.#credentialAccessMode =
+      options.credentialAccessMode ?? "explicit";
     this.#credentialClipboard =
       options.credentialClipboard ?? {
         writeText() {
@@ -731,19 +737,43 @@ export class RemoteHubCapabilityRuntime {
 
   initialize(): Promise<void> {
     this.#assertActive();
+    if (this.#credentialAccessMode === "explicit") {
+      return Promise.resolve();
+    }
+    return this.#initializeCapabilities(false);
+  }
+
+  #initializeCapabilities(
+    authorizeCredentialAccess: boolean,
+  ): Promise<void> {
+    this.#assertActive();
     if (this.#initializePromise === undefined) {
-      const telegramNetworkReady =
-        this.#telegramNetwork.initialize();
-      this.#initializePromise = Promise.allSettled([
-        this.#weixin.initialize(),
-        telegramNetworkReady.then(() =>
-          this.#telegram.initialize(),
-        ),
-        telegramNetworkReady
-          .catch(() => undefined)
-          .then(() => this.#discordNetwork.initialize())
-          .then(() => this.#discord.initialize()),
-      ]).then(() => this.#publish());
+      const initialization = (async () => {
+        if (authorizeCredentialAccess) {
+          await this.#credentialVault.authorize();
+        }
+        const telegramNetworkReady =
+          this.#telegramNetwork.initialize();
+        await Promise.allSettled([
+          this.#weixin.initialize(),
+          telegramNetworkReady.then(() =>
+            this.#telegram.initialize(),
+          ),
+          telegramNetworkReady
+            .catch(() => undefined)
+            .then(() =>
+              this.#discordNetwork.initialize(),
+            )
+            .then(() => this.#discord.initialize()),
+        ]);
+        this.#publish();
+      })();
+      this.#initializePromise = initialization;
+      void initialization.catch(() => {
+        if (this.#initializePromise === initialization) {
+          this.#initializePromise = undefined;
+        }
+      });
     }
     return this.#initializePromise;
   }
@@ -754,21 +784,14 @@ export class RemoteHubCapabilityRuntime {
     if (command.kind === "gateway/reset-local") {
       this.#assertGatewayResetAllowed();
     }
-    if (
-      command.kind !== "gateway/reset-local" &&
-      command.kind !== "telegram/connect" &&
-      command.kind !== "telegram/network/set" &&
-      command.kind !== "discord/connect" &&
-      command.kind !== "discord/network/set"
-    ) {
-      void this.initialize();
-    }
     const operation = this.#commandBarrier.run(
       command.kind === "gateway/reset-local",
       async (): Promise<RemoteHubSnapshot> => {
         if (this.#disposed) return this.#snapshot;
         await this.#dispatch(command);
-        this.#publish();
+        if (command.kind !== "credential-vault/authorize") {
+          this.#publish();
+        }
         return this.#snapshot;
       },
     );
@@ -796,6 +819,9 @@ export class RemoteHubCapabilityRuntime {
 
   async #dispatch(command: RemoteHubCommand): Promise<void> {
     switch (command.kind) {
+      case "credential-vault/authorize":
+        await this.#initializeCapabilities(true);
+        return;
       case "refresh":
         await Promise.all([
           this.#weixin.dispatch(command),
@@ -957,13 +983,21 @@ export class RemoteHubCapabilityRuntime {
   #publish(): void {
     if (this.#disposed) return;
     const weixin = this.#weixin.getSnapshot();
+    const credentialVault =
+      this.#credentialAccessMode === "automatic" &&
+        weixin.dependencies.credentialVault === "pending"
+        ? "initializing"
+        : weixin.dependencies.credentialVault;
     this.#snapshot = parseRemoteHubSnapshot({
       revision: this.#snapshot.revision + 1,
       telegramNetwork:
         this.#telegramNetwork.getSnapshot(),
       discordNetwork:
         this.#discordNetwork.getSnapshot(),
-      dependencies: weixin.dependencies,
+      dependencies: {
+        ...weixin.dependencies,
+        credentialVault,
+      },
       channels: {
         weixin: weixin.channels.weixin,
         telegram: this.#telegram.getSnapshot(),

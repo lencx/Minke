@@ -15,6 +15,7 @@ import type {
 
 export type RemoteHubClientOperation =
   | "idle"
+  | "authorizing-credentials"
   | "starting-link"
   | "connecting-channel"
   | "copying-token"
@@ -37,7 +38,11 @@ export interface RemoteHubClientSnapshot {
   readonly remote: RemoteSettingsSnapshot;
   readonly channels: RemoteHubSnapshot;
   readonly operation: RemoteHubClientOperation;
-  readonly error: "command" | "read" | undefined;
+  readonly error:
+    | "command"
+    | "credential-authorization"
+    | "read"
+    | undefined;
 }
 
 function initialChannels(
@@ -52,7 +57,9 @@ function initialChannels(
       ...DEFAULT_DISCORD_NETWORK_SNAPSHOT,
     },
     dependencies: {
-      credentialVault: available ? "pending" : "unavailable",
+      credentialVault: available
+        ? "initializing"
+        : "unavailable",
       agentRoute: "pending",
     },
     channels: {
@@ -82,6 +89,8 @@ function operationFor(
   command: RemoteHubCommand,
 ): RemoteHubClientOperation {
   switch (command.kind) {
+    case "credential-vault/authorize":
+      return "authorizing-credentials";
     case "refresh":
     case "telegram/network/set":
     case "discord/network/set":
@@ -241,7 +250,12 @@ export class RemoteHubRuntime {
           this.#publish({ channels });
         }
       } catch {
-        this.#publish({ error: "command" });
+        this.#publish({
+          error:
+            command.kind === "credential-vault/authorize"
+              ? "credential-authorization"
+              : "command",
+        });
       } finally {
         this.#publish({ operation: "idle" });
       }

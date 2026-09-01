@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import {
   mkdir,
   mkdtemp,
@@ -9,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
   act,
@@ -36,6 +38,14 @@ import {
 import {
   RemoteHubCredentialVault,
 } from "@minke/desktop/main/remote-hub/credential-vault.ts";
+import {
+  MacOSCredentialStorage,
+  CREDENTIAL_STORAGE_HELPER_RESPONSE_PREFIX,
+} from "@minke/desktop/main/remote-hub/macos-credential-storage.ts";
+import {
+  createCredentialStorage,
+  createMacOSCredentialStorageHelper,
+} from "@minke/desktop/main/credential-storage.ts";
 import {
   BotCapabilityRuntime,
 } from "@minke/desktop/main/remote-hub/bot-runtime.ts";
@@ -142,6 +152,55 @@ async function withBrowserGlobals(dom, callback) {
         Object.defineProperty(globalThis, key, descriptor);
       }
     }
+  }
+}
+
+async function withRemoteHubDialog(
+  { hub, macOS = false, remote },
+  callback,
+) {
+  const dom = new JSDOM(
+    '<!doctype html><div id="root"></div>',
+    { pretendToBeVisual: true },
+  );
+  if (macOS) {
+    Object.defineProperty(dom.window, "minkeDesktop", {
+      configurable: true,
+      value: {
+        surface: { kind: "macos" },
+      },
+    });
+  }
+  try {
+    await hub.initialize();
+    hub.open();
+    return await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const container =
+        dom.window.document.getElementById("root");
+      assert.ok(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(
+            createElement(RemoteHubDialogHost, {
+              runtime: hub,
+              t: (key) => remoteHubEn[key],
+              remoteT: (key) => remoteEn[key],
+            }),
+          );
+        });
+        return await callback({ container, dom });
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+      }
+    });
+  } finally {
+    dom.window.close();
+    await hub.dispose();
+    remote.dispose();
   }
 }
 
@@ -645,6 +704,13 @@ test("Remote Hub contract keeps QR payload transient and rejects secret fields",
       ),
     /QR content/u,
   );
+
+  const initializing = structuredClone(snapshot());
+  initializing.dependencies.credentialVault = "initializing";
+  assert.deepEqual(
+    parseRemoteHubSnapshot(initializing),
+    initializing,
+  );
 });
 
 test("Remote Hub connection activity exposes only bounded session metadata", () => {
@@ -679,6 +745,34 @@ test("Remote Hub connection activity exposes only bounded session metadata", () 
 });
 
 test("Remote Hub commands are finite and validate verification input", () => {
+  assert.deepEqual(
+    parseRemoteHubCommand({
+      kind: "credential-vault/authorize",
+    }),
+    { kind: "credential-vault/authorize" },
+  );
+  assert.throws(
+    () =>
+      parseRemoteHubCommand({
+        kind: "credential-vault/authorize",
+        automatic: true,
+      }),
+    /unexpected fields/u,
+  );
+  assert.throws(
+    () =>
+      parseRemoteHubCommand({
+        kind: "credential-vault/open-manager",
+      }),
+    /Remote Hub command kind is invalid/u,
+  );
+  assert.throws(
+    () =>
+      parseRemoteHubCommand({
+        kind: "credential-vault/reset",
+      }),
+    /Remote Hub command kind is invalid/u,
+  );
   assert.deepEqual(
     parseRemoteHubCommand({
       kind: "gateway/reset-local",
@@ -3322,6 +3416,282 @@ function weixinRuntimeStub(initial) {
   };
 }
 
+test("Remote Hub initializes protected credentials only after explicit authorization", async () => {
+  const telegram = botRuntimeStub({ state: "unlinked" });
+  const discord = botRuntimeStub({ state: "unlinked" });
+  const weixin = weixinRuntimeStub({ state: "unlinked" });
+  let authorizationAttempts = 0;
+  const runtime = new RemoteHubCapabilityRuntime({
+    dataHome: "/tmp/minke-explicit-credential-authorization-test",
+    vault: {
+      async authorize() {
+        authorizationAttempts += 1;
+        if (authorizationAttempts === 1) {
+          throw new Error("authorization cancelled");
+        }
+      },
+    },
+    weixin,
+    telegram,
+    discord,
+  });
+
+  assert.equal(authorizationAttempts, 0);
+  assert.equal(weixin.calls.includes("initialize"), false);
+  assert.equal(telegram.calls.includes("initialize"), false);
+  assert.equal(discord.calls.includes("initialize"), false);
+
+  await assert.rejects(
+    runtime.dispatch({
+      kind: "credential-vault/authorize",
+    }),
+    /authorization cancelled/u,
+  );
+  assert.equal(weixin.calls.includes("initialize"), false);
+  assert.equal(telegram.calls.includes("initialize"), false);
+  assert.equal(discord.calls.includes("initialize"), false);
+
+  await runtime.dispatch({
+    kind: "credential-vault/authorize",
+  });
+  assert.equal(authorizationAttempts, 2);
+  assert.equal(weixin.calls.includes("initialize"), true);
+  assert.equal(telegram.calls.includes("initialize"), true);
+  assert.equal(discord.calls.includes("initialize"), true);
+
+  await runtime.dispose();
+});
+
+test("macOS credential storage retries through a fresh helper without deleting state", async () => {
+  const requests = [];
+  let attempts = 0;
+  const storage = new MacOSCredentialStorage({
+    async run(request) {
+      requests.push(request);
+      attempts += 1;
+      if (attempts === 1) {
+        return {
+          error: "authorization denied",
+          ok: false,
+        };
+      }
+      if (request.operation === "encrypt") {
+        return {
+          ok: true,
+          value: Buffer.from(
+            `wrapped:${request.value}`,
+          ).toString("base64"),
+        };
+      }
+      return {
+        ok: true,
+        shouldReEncrypt: true,
+        value: "gateway key",
+      };
+    },
+  });
+
+  await assert.rejects(
+    storage.encryptStringAsync("gateway key"),
+    /authorization denied/u,
+  );
+  const encrypted = await storage.encryptStringAsync(
+    "gateway key",
+  );
+  assert.equal(
+    encrypted.toString("utf8"),
+    "wrapped:gateway key",
+  );
+  assert.deepEqual(
+    await storage.decryptStringAsync(encrypted),
+    {
+      result: "gateway key",
+      shouldReEncrypt: true,
+    },
+  );
+  assert.deepEqual(requests, [
+    { operation: "encrypt", value: "gateway key" },
+    { operation: "encrypt", value: "gateway key" },
+    {
+      operation: "decrypt",
+      value: encrypted.toString("base64"),
+    },
+  ]);
+  assert.throws(
+    () => storage.encryptString("gateway key"),
+    /asynchronous helper/u,
+  );
+});
+
+test("macOS credential authorization launches one clean helper process per attempt", async () => {
+  const launches = [];
+  const requests = [];
+  const helper = createMacOSCredentialStorageHelper({
+    appPath: "/Applications/Minke.app",
+    defaultApp: false,
+    environment: {
+      ELECTRON_RUN_AS_NODE: "1",
+      MINKE_TEST_MARKER: "preserved",
+    },
+    executablePath:
+      "/Applications/Minke.app/Contents/MacOS/Minke",
+    spawnProcess(command, args, options) {
+      launches.push({ args, command, options });
+      const child = new EventEmitter();
+      child.stdin = new PassThrough();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = () => true;
+      let request = "";
+      child.stdin.setEncoding("utf8");
+      child.stdin.on("data", (chunk) => {
+        request += chunk;
+      });
+      child.stdin.once("finish", () => {
+        requests.push(JSON.parse(request));
+        const response =
+          launches.length === 1
+            ? {
+                error: "authorization denied",
+                ok: false,
+              }
+            : {
+                ok: true,
+                value: Buffer.from("wrapped").toString(
+                  "base64",
+                ),
+              };
+        child.stdout.end(
+          `${CREDENTIAL_STORAGE_HELPER_RESPONSE_PREFIX}${JSON.stringify(response)}\n`,
+        );
+        child.stderr.end();
+        setImmediate(() => child.emit("close", 0, null));
+      });
+      return child;
+    },
+  });
+
+  assert.deepEqual(
+    await helper.run({
+      operation: "encrypt",
+      value: "first",
+    }),
+    { error: "authorization denied", ok: false },
+  );
+  assert.deepEqual(
+    await helper.run({
+      operation: "encrypt",
+      value: "second",
+    }),
+    {
+      ok: true,
+      value: Buffer.from("wrapped").toString("base64"),
+    },
+  );
+  assert.equal(launches.length, 2);
+  assert.deepEqual(requests, [
+    { operation: "encrypt", value: "first" },
+    { operation: "encrypt", value: "second" },
+  ]);
+  for (const launch of launches) {
+    assert.deepEqual(launch.args, [
+      "--minke-credential-storage-helper",
+    ]);
+    assert.equal(
+      launch.options.env.ELECTRON_RUN_AS_NODE,
+      undefined,
+    );
+    assert.equal(
+      launch.options.env.MINKE_TEST_MARKER,
+      "preserved",
+    );
+  }
+});
+
+test("credential storage stays lazy and selects the helper only on macOS", async () => {
+  let legacyResolutions = 0;
+  let helperCalls = 0;
+  const legacy = () => {
+    legacyResolutions += 1;
+    return {
+      decryptString(value) {
+        return value.toString("utf8");
+      },
+      encryptString(value) {
+        return Buffer.from(value);
+      },
+      isEncryptionAvailable() {
+        return true;
+      },
+    };
+  };
+  const macOSSource = createCredentialStorage(legacy, {
+    macOSHelper: {
+      async run(request) {
+        helperCalls += 1;
+        return {
+          ok: true,
+          value:
+            request.operation === "encrypt"
+              ? Buffer.from(request.value).toString("base64")
+              : "decrypted",
+        };
+      },
+    },
+    platform: "darwin",
+  });
+  assert.equal(legacyResolutions, 0);
+  await macOSSource().encryptStringAsync?.("secret");
+  assert.equal(helperCalls, 1);
+  assert.equal(legacyResolutions, 0);
+
+  const linuxSource = createCredentialStorage(legacy, {
+    platform: "linux",
+  });
+  assert.equal(legacyResolutions, 0);
+  linuxSource().isEncryptionAvailable();
+  assert.equal(legacyResolutions, 1);
+});
+
+test("Remote Hub initializes credentials automatically when OS access needs no prompt", async () => {
+  const telegram = botRuntimeStub({ state: "unlinked" });
+  const discord = botRuntimeStub({ state: "unlinked" });
+  const weixin = weixinRuntimeStub({ state: "loading" });
+  const pending = weixin.getSnapshot();
+  weixin.getSnapshot = () => ({
+    ...pending,
+    dependencies: {
+      ...pending.dependencies,
+      credentialVault: "pending",
+    },
+  });
+  let authorizationAttempts = 0;
+  const runtime = new RemoteHubCapabilityRuntime({
+    dataHome: "/tmp/minke-automatic-credential-access-test",
+    credentialAccessMode: "automatic",
+    vault: {
+      async authorize() {
+        authorizationAttempts += 1;
+      },
+    },
+    weixin,
+    telegram,
+    discord,
+  });
+
+  assert.equal(
+    runtime.getSnapshot().dependencies.credentialVault,
+    "initializing",
+  );
+  await runtime.initialize();
+  assert.equal(authorizationAttempts, 0);
+  assert.equal(weixin.calls.includes("initialize"), true);
+  assert.equal(telegram.calls.includes("initialize"), true);
+  assert.equal(discord.calls.includes("initialize"), true);
+
+  await runtime.dispose();
+});
+
 test("Remote Hub composes bot lifecycles and gates whole-Gateway recovery", async () => {
   const telegram = botRuntimeStub({ state: "unlinked" });
   const discord = botRuntimeStub({
@@ -3633,13 +4003,17 @@ test("one stalled bot cannot block another channel or its own unlink", async () 
   };
   const runtime = new RemoteHubCapabilityRuntime({
     dataHome: "/tmp/minke-independent-remote-hub-test",
-    vault: {},
+    vault: {
+      async authorize() {},
+    },
     weixin,
     telegram,
     discord,
   });
 
-  const initialization = runtime.initialize();
+  const initialization = runtime.dispatch({
+    kind: "credential-vault/authorize",
+  });
   const token = "discord-private-token-value-123456789";
   const connecting = runtime.dispatch({
     kind: "discord/connect",
@@ -5723,6 +6097,7 @@ test("Weixin disposal waits for a delayed vault read without starting later work
 test("Remote Hub vault encrypts IM tokens with one OS-wrapped AEAD key", async () => {
   const root = await mkdtemp(join(tmpdir(), "minke-remote-hub-vault-"));
   const protectedValues = [];
+  let decryptions = 0;
   const safeStorage = {
     isEncryptionAvailable() {
       return true;
@@ -5735,6 +6110,7 @@ test("Remote Hub vault encrypts IM tokens with one OS-wrapped AEAD key", async (
       return Buffer.from([...Buffer.from(value)].reverse());
     },
     decryptString(value) {
+      decryptions += 1;
       return Buffer.from([...value].reverse()).toString("utf8");
     },
   };
@@ -5841,6 +6217,8 @@ test("Remote Hub vault encrypts IM tokens with one OS-wrapped AEAD key", async (
       root,
       safeStorage,
     );
+    await reopenedVault.authorize();
+    assert.equal(decryptions, 1);
     assert.deepEqual(
       await reopenedVault.read(),
       expectedGrant,
@@ -5849,6 +6227,7 @@ test("Remote Hub vault encrypts IM tokens with one OS-wrapped AEAD key", async (
       await reopenedVault.readBot("telegram"),
       telegramCredential,
     );
+    assert.equal(decryptions, 1);
 
     await writeFile(
       join(root, "secrets", "telegram.bot.json"),
@@ -5917,6 +6296,118 @@ test("Remote Hub vault encrypts IM tokens with one OS-wrapped AEAD key", async (
         telegramCredential,
       ),
       /OS credential protection is unavailable/u,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Remote Hub resolves Electron safeStorage only during explicit authorization", async () => {
+  const root = await mkdtemp(
+    join(tmpdir(), "minke-remote-hub-lazy-storage-"),
+  );
+  let resolutions = 0;
+  const safeStorage = {
+    isEncryptionAvailable() {
+      return true;
+    },
+    getSelectedStorageBackend() {
+      return "keychain";
+    },
+    encryptString(value) {
+      return Buffer.from(value);
+    },
+    decryptString(value) {
+      return value.toString("utf8");
+    },
+  };
+  try {
+    const vault = new RemoteHubCredentialVault(root, () => {
+      resolutions += 1;
+      return safeStorage;
+    });
+    assert.equal(resolutions, 0);
+
+    await vault.authorize();
+    assert.equal(resolutions, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Remote Hub migrates a legacy wrapped key through non-blocking safeStorage", async () => {
+  const root = await mkdtemp(
+    join(tmpdir(), "minke-remote-hub-async-storage-"),
+  );
+  const legacyStorage = {
+    isEncryptionAvailable() {
+      return true;
+    },
+    getSelectedStorageBackend() {
+      return "keychain";
+    },
+    encryptString(value) {
+      return Buffer.from([...Buffer.from(value)].reverse());
+    },
+    decryptString(value) {
+      return Buffer.from([...value].reverse()).toString("utf8");
+    },
+  };
+  let asyncAvailabilityChecks = 0;
+  let asyncDecryptions = 0;
+  let asyncEncryptions = 0;
+  try {
+    await new RemoteHubCredentialVault(
+      root,
+      legacyStorage,
+    ).authorize();
+
+    const storage = {
+      ...legacyStorage,
+      async isAsyncEncryptionAvailable() {
+        asyncAvailabilityChecks += 1;
+        return true;
+      },
+      decryptString() {
+        throw new Error(
+          "the synchronous safeStorage path must not run",
+        );
+      },
+      encryptString() {
+        throw new Error(
+          "the synchronous safeStorage path must not run",
+        );
+      },
+      async decryptStringAsync(value) {
+        asyncDecryptions += 1;
+        return {
+          result: Buffer.from([...value].reverse()).toString(
+            "utf8",
+          ),
+          shouldReEncrypt: true,
+        };
+      },
+      async encryptStringAsync(value) {
+        asyncEncryptions += 1;
+        return Buffer.from(`rotated:${value}`, "utf8");
+      },
+    };
+    await new RemoteHubCredentialVault(root, storage).authorize();
+
+    assert.equal(asyncAvailabilityChecks, 1);
+    assert.equal(asyncDecryptions, 1);
+    assert.equal(asyncEncryptions, 1);
+    const wrapped = JSON.parse(
+      await readFile(
+        join(root, "secrets", "im-gateway.key.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(
+      Buffer.from(wrapped.wrappedKey, "base64")
+        .toString("utf8")
+        .startsWith("rotated:"),
+      true,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -5996,6 +6487,261 @@ test("an absent Remote bridge does not mark a healthy IM-only Hub as failed", as
   remote.dispose();
 });
 
+test("Connections promotes explicit credential authorization into the primary content path", async () => {
+  const remote = new RemoteSettingsRuntime({
+    available: false,
+    async read() {
+      throw new Error("remote access unavailable");
+    },
+    async write() {},
+  });
+  const locked = {
+    ...snapshot({ state: "loading" }),
+    dependencies: {
+      credentialVault: "pending",
+      agentRoute: "pending",
+    },
+    channels: {
+      weixin: { state: "loading" },
+      telegram: { state: "loading" },
+      discord: { state: "loading" },
+    },
+  };
+  const ready = {
+    ...snapshot({ state: "unlinked" }),
+    revision: locked.revision + 1,
+  };
+  const commands = [];
+  const hub = new RemoteHubRuntime(remote, {
+    available: true,
+    async read() {
+      return locked;
+    },
+    async dispatch(command) {
+      commands.push(command);
+      return ready;
+    },
+    subscribe() {
+      return () => {};
+    },
+  });
+  await withRemoteHubDialog(
+    { hub, remote },
+    async ({ container, dom }) => {
+      const authorize = container.querySelector(
+        "[data-minke-remote-hub-authorize-credentials]",
+      );
+      const authorizationCard = container.querySelector(
+        "[data-minke-remote-hub-credential-authorization]",
+      );
+      assert.ok(
+        authorize instanceof dom.window.HTMLButtonElement,
+      );
+      assert.ok(
+        authorizationCard instanceof dom.window.HTMLElement,
+      );
+      assert.equal(
+        authorize.textContent,
+        "Authorize credential access",
+      );
+      assert.equal(authorize.querySelector("svg"), null);
+      assert.match(
+        authorizationCard.textContent,
+        /Authorize secure credential storage/u,
+      );
+      assert.match(
+        authorizationCard.textContent,
+        /Authorization starts only when you choose the button/u,
+      );
+      assert.equal(
+        container.querySelector(
+          ".minke-remote-hub__detail",
+        )?.firstElementChild,
+        authorizationCard,
+      );
+      assert.equal(
+        container.querySelector(
+          ".minke-remote-hub__dependencies [data-minke-remote-hub-authorize-credentials]",
+        ),
+        null,
+      );
+      assert.doesNotMatch(
+        container.querySelector(
+          ".minke-remote-hub__dependencies",
+        )?.textContent ?? "",
+        /Credential access requires authorization/u,
+      );
+      assert.match(
+        container.querySelector(
+          ".minke-remote-hub__navigation-item[data-kind='access']",
+        )?.textContent ?? "",
+        /Authorization required/u,
+      );
+
+      await act(async () => {
+        authorize.dispatchEvent(
+          new dom.window.MouseEvent("click", {
+            bubbles: true,
+          }),
+        );
+        await Promise.resolve();
+      });
+      assert.deepEqual(commands, [
+        { kind: "credential-vault/authorize" },
+      ]);
+      assert.equal(
+        container.querySelector(
+          "[data-minke-remote-hub-authorize-credentials]",
+        ),
+        null,
+      );
+    },
+  );
+});
+
+test("Connections keeps macOS credential authorization retryable after denial", async () => {
+  const remote = new RemoteSettingsRuntime({
+    available: false,
+    async read() {
+      throw new Error("remote access unavailable");
+    },
+    async write() {},
+  });
+  const locked = {
+    ...snapshot({ state: "loading" }),
+    dependencies: {
+      credentialVault: "pending",
+      agentRoute: "pending",
+    },
+    channels: {
+      weixin: { state: "loading" },
+      telegram: { state: "loading" },
+      discord: { state: "loading" },
+    },
+  };
+  let authorizationAttempts = 0;
+  const hub = new RemoteHubRuntime(remote, {
+    available: true,
+    async read() {
+      return locked;
+    },
+    async dispatch(command) {
+      assert.deepEqual(command, {
+        kind: "credential-vault/authorize",
+      });
+      authorizationAttempts += 1;
+      throw new Error("authorization denied");
+    },
+    subscribe() {
+      return () => {};
+    },
+  });
+  await withRemoteHubDialog(
+    { hub, macOS: true, remote },
+    async ({ container, dom }) => {
+      const clickAuthorize = async () => {
+        const authorize = container.querySelector(
+          "[data-minke-remote-hub-authorize-credentials]",
+        );
+        assert.ok(
+          authorize instanceof dom.window.HTMLButtonElement,
+        );
+        assert.equal(authorize.disabled, false);
+        await act(async () => {
+          authorize.dispatchEvent(
+            new dom.window.MouseEvent("click", {
+              bubbles: true,
+            }),
+          );
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+      };
+
+      await clickAuthorize();
+      assert.equal(authorizationAttempts, 1);
+      assert.match(
+        container.textContent ?? "",
+        /Always Allow/u,
+      );
+      assert.match(
+        container.textContent ?? "",
+        /macOS did not grant access/u,
+      );
+      assert.match(
+        container.textContent ?? "",
+        /fresh authorization request/u,
+      );
+      assert.equal(
+        container.querySelector(
+          "[data-minke-remote-hub-open-credential-manager]",
+        ),
+        null,
+      );
+      assert.equal(
+        container.querySelector(
+          "[data-minke-remote-hub-reset-credentials]",
+        ),
+        null,
+      );
+
+      await clickAuthorize();
+      assert.equal(authorizationAttempts, 2);
+    },
+  );
+});
+
+test("Connections omits the authorization card while credential storage initializes automatically", async () => {
+  const remote = new RemoteSettingsRuntime({
+    available: false,
+    async read() {
+      throw new Error("remote access unavailable");
+    },
+    async write() {},
+  });
+  const initializing = {
+    ...snapshot({ state: "loading" }),
+    dependencies: {
+      credentialVault: "initializing",
+      agentRoute: "pending",
+    },
+    channels: {
+      weixin: { state: "loading" },
+      telegram: { state: "loading" },
+      discord: { state: "loading" },
+    },
+  };
+  const hub = new RemoteHubRuntime(remote, {
+    available: true,
+    async read() {
+      return initializing;
+    },
+    async dispatch() {
+      return initializing;
+    },
+    subscribe() {
+      return () => {};
+    },
+  });
+  await withRemoteHubDialog(
+    { hub, remote },
+    async ({ container }) => {
+      assert.equal(
+        container.querySelector(
+          "[data-minke-remote-hub-credential-authorization]",
+        ),
+        null,
+      );
+      assert.match(
+        container.querySelector(
+          ".minke-remote-hub__dependencies",
+        )?.textContent ?? "",
+        /Preparing credential protection/u,
+      );
+    },
+  );
+});
+
 test("Remote Hub trigger maps transitional and failed states to semantic colors", async () => {
   const contract = inspectCssContract(
     await readFile(
@@ -6029,6 +6775,54 @@ test("Remote Hub trigger maps transitional and failed states to semantic colors"
         "var(--dsw-alias-state-error-primary)",
       working:
         "var(--dsw-alias-state-warning-primary)",
+    },
+  );
+});
+
+test("credential authorization gives copy a full row and centers its action below it", async () => {
+  const contract = inspectCssContract(
+    await readFile(
+      join(
+        process.cwd(),
+        "packages",
+        "harness-overlay",
+        "src",
+        "client",
+        "remote-hub",
+        "styles.css",
+      ),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(
+    {
+      actionColumn: contract.declaration(
+        ".minke-remote-hub__authorization-action",
+        "grid-column",
+      ),
+      actionPosition: contract.declaration(
+        ".minke-remote-hub__authorization-action",
+        "justify-self",
+      ),
+      copyColumn: contract.declaration(
+        ".minke-remote-hub__authorization-copy",
+        "grid-column",
+      ),
+      copyWidth: contract.declaration(
+        ".minke-remote-hub__authorization-copy p",
+        "max-width",
+      ),
+      columns: contract.declaration(
+        ".minke-remote-hub__authorization",
+        "grid-template-columns",
+      ),
+    },
+    {
+      actionColumn: "1 / -1",
+      actionPosition: "center",
+      copyColumn: "2",
+      copyWidth: "none",
+      columns: "42px minmax(0, 1fr)",
     },
   );
 });

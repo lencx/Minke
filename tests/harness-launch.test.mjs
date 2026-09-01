@@ -862,7 +862,13 @@ test("Harness window navigation cannot leave the bootstrap pending forever", asy
       return await new Promise(() => {});
     },
     webContents: {
+      getURL() {
+        return "data:text/html,bootstrap";
+      },
       isDestroyed() {
+        return false;
+      },
+      isLoadingMainFrame() {
         return false;
       },
       stop() {
@@ -891,6 +897,55 @@ test("Harness window navigation cannot leave the bootstrap pending forever", asy
   assert.equal(loadedUrl, HARNESS_AUTHENTICATED_URL);
   assert.equal(navigationStops, 1);
   assert.equal(remoteStarts, 0);
+});
+
+test("Harness navigation accepts a loaded target when Electron loses its completion signal", async () => {
+  let navigationStops = 0;
+  let remoteStarts = 0;
+  const lifecycle = new HarnessLifecycle({
+    runtime: {
+      async start() {
+        return harnessEndpoint();
+      },
+    },
+    remote: {
+      async start() {
+        remoteStarts += 1;
+      },
+      async detach() {},
+    },
+    navigationTimeoutMs: 10,
+  });
+
+  assert.equal(
+    await lifecycle.start({
+      isDestroyed() {
+        return false;
+      },
+      async loadURL() {
+        return await new Promise(() => {});
+      },
+      webContents: {
+        getURL() {
+          return HARNESS_ORIGIN;
+        },
+        isDestroyed() {
+          return false;
+        },
+        isLoadingMainFrame() {
+          return false;
+        },
+        stop() {
+          navigationStops += 1;
+        },
+      },
+    }),
+    HARNESS_ORIGIN,
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(navigationStops, 0);
+  assert.equal(remoteStarts, 1);
 });
 
 test("remote exposure starts only after the Harness window has loaded", async () => {

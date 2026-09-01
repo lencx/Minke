@@ -2,6 +2,9 @@ export type WindowButtonGeometry = Readonly<{
   buttonHeight: number;
   buttonWidth: number;
   centerPitches: readonly [number, number];
+  nativeButtonHeight: number;
+  nativeButtonWidth: number;
+  renderScale: number;
   status: 'attached' | 'observed';
 }>;
 

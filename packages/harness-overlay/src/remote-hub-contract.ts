@@ -58,6 +58,7 @@ export interface ImConnectionActivity {
 export type RemoteHubDependencyState =
   | "ready"
   | "unavailable"
+  | "initializing"
   | "pending";
 
 export type WeixinHubIssue =
@@ -218,6 +219,7 @@ export interface RemoteHubSnapshot {
 
 export type RemoteHubCommand =
   | { readonly kind: "refresh" }
+  | { readonly kind: "credential-vault/authorize" }
   | { readonly kind: "gateway/reset-local" }
   | {
       readonly kind: "telegram/connect";
@@ -903,6 +905,7 @@ export function parseRemoteHubSnapshot(
   if (
     dependencies.credentialVault !== "ready" &&
     dependencies.credentialVault !== "unavailable" &&
+    dependencies.credentialVault !== "initializing" &&
     dependencies.credentialVault !== "pending"
   ) {
     throw new TypeError("Remote Hub vault state is invalid");
@@ -965,6 +968,7 @@ export function parseRemoteHubCommand(
   const candidate = record(value, "Remote Hub command");
   switch (candidate.kind) {
     case "refresh":
+    case "credential-vault/authorize":
     case "gateway/reset-local":
     case "telegram/reconnect":
     case "telegram/token/copy":

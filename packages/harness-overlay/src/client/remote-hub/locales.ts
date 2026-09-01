@@ -167,7 +167,22 @@ export const remoteHubZh = {
   busy: "处理中…",
   dependencyTitle: "运行依赖",
   vaultReady: "系统凭据保护",
-  vaultChecking: "正在检查凭据保护",
+  vaultChecking: "正在准备凭据保护",
+  authorizationRequiredShort: "需要授权",
+  credentialAuthorizationTitle: "授权安全凭据存储",
+  credentialAuthorizationDescription:
+    "Minke 需要访问系统的受保护凭据存储，才能加密保存连接凭据。只有点击按钮后，系统才可能请求解锁钥匙串或密钥环。",
+  credentialAuthorizationMacInstruction:
+    "macOS：在系统弹窗中输入 Mac 登录密码，然后选择“始终允许”（Always Allow）；不要选择“拒绝”。",
+  credentialAuthorizationPending:
+    "暂不授权也可继续使用 Minke；消息连接和远程访问会保持关闭。",
+  credentialAuthorizationFailed:
+    "系统未授予凭据访问权限，请重试。",
+  credentialAuthorizationMacFailed:
+    "macOS 未授予访问权限。请再次点击按钮；Minke 会在当前会话中发起全新的授权请求，无需重启或删除凭据。",
+  authorizeCredentialVault: "授权凭据访问",
+  authorizingCredentialVault: "正在请求授权…",
+  retryCredentialVault: "重新请求授权",
   vaultMissing: "凭据保护不可用",
   agentRoutePendingShort: "Agent 路由待接入 · 消息入口关闭",
   agentRouteReadyShort: "Agent 路由已接通",
@@ -352,7 +367,23 @@ export const remoteHubEn: Record<RemoteHubLocaleKey, string> = {
   busy: "Working…",
   dependencyTitle: "Runtime dependencies",
   vaultReady: "System credential protection",
-  vaultChecking: "Checking credential protection",
+  vaultChecking: "Preparing credential protection",
+  authorizationRequiredShort: "Authorization required",
+  credentialAuthorizationTitle:
+    "Authorize secure credential storage",
+  credentialAuthorizationDescription:
+    "Minke needs access to your system's protected credential store before it can encrypt and save connection credentials. Authorization starts only when you choose the button.",
+  credentialAuthorizationMacInstruction:
+    "macOS: Enter your Mac login password in the system dialog, then choose Always Allow. Do not choose Deny.",
+  credentialAuthorizationPending:
+    "You can keep using Minke without authorizing; messaging and remote access remain off.",
+  credentialAuthorizationFailed:
+    "Credential access was not granted. Try again.",
+  credentialAuthorizationMacFailed:
+    "macOS did not grant access. Choose the button again; Minke starts a fresh authorization request in the current session without restarting or deleting credentials.",
+  authorizeCredentialVault: "Authorize credential access",
+  authorizingCredentialVault: "Requesting authorization…",
+  retryCredentialVault: "Request authorization again",
   vaultMissing: "Credential protection unavailable",
   agentRoutePendingShort: "Agent route pending · ingress disabled",
   agentRouteReadyShort: "Agent route connected",

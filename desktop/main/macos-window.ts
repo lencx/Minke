@@ -10,7 +10,7 @@ export function macOSWindowOptions():
   if (process.platform !== "darwin") return undefined;
   return {
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 9, y: 10 },
+    trafficLightPosition: { x: 8, y: 8 },
     transparent: true,
     backgroundColor: "#00000000",
     vibrancy: "under-window",

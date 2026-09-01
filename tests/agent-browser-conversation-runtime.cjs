@@ -730,6 +730,7 @@ async function run() {
         minkeConfigPath: join(temporaryRoot, 'minke-config.json'),
         environment: { ...process.env },
         agentBrowser,
+        prepareWebSession() {},
       },
     );
     await window.loadURL(harnessUrl);

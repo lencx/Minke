@@ -193,6 +193,7 @@ test("desktop main implementation modules stay behind their facades", () => {
 test("the desktop entry remains a composition root", () => {
   const expectedImports = [
     "./application",
+    "./credential-storage-helper",
     "electron",
     "electron-squirrel-startup",
   ];

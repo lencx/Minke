@@ -16,7 +16,9 @@ export interface HarnessLifecycleWindow {
   isDestroyed(): boolean;
   loadURL(url: string): Promise<unknown>;
   webContents: {
+    getURL(): string;
     isDestroyed(): boolean;
+    isLoadingMainFrame(): boolean;
     stop(): void;
   };
 }
@@ -43,6 +45,22 @@ function isUsableWindow(
   return window !== undefined &&
     !window.isDestroyed() &&
     !window.webContents.isDestroyed();
+}
+
+function hasCompletedHarnessNavigation(
+  window: HarnessLifecycleWindow,
+  origin: string,
+): boolean {
+  if (!isUsableWindow(window)) return false;
+  try {
+    return (
+      !window.webContents.isLoadingMainFrame() &&
+      new URL(window.webContents.getURL()).href ===
+        new URL(origin).href
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -183,6 +201,10 @@ export class HarnessLifecycle {
       const timeout = setTimeout(() => {
         if (settled) return;
         settled = true;
+        if (hasCompletedHarnessNavigation(window, origin)) {
+          resolvePromise();
+          return;
+        }
         if (isUsableWindow(window)) {
           try {
             window.webContents.stop();

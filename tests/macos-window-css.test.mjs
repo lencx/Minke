@@ -141,47 +141,20 @@ const harnessDesktopSurfaceSources = [
     "utf8",
   ),
 );
-const extensionManifest = JSON.parse(
-  readFileSync(
-    new URL(
-      "../resources/desktop-style-extension/manifest.json",
-      import.meta.url,
-    ),
-    "utf8",
-  ),
-);
-
-test("Electron loads only the native surface bootstrap at document start", () => {
+test("Electron keeps the native bootstrap off the persistent default Session", () => {
   assert.doesNotMatch(
     `${macOSWindowSource}\n${desktopMainSource}`,
     /insertCSS|did-finish-load|MACOS_GLASS_CSS/,
   );
+  assert.doesNotMatch(
+    desktopMainSource,
+    /session\.defaultSession|extensions\.loadExtension/,
+    "startup must not create Chromium's persistent default Session",
+  );
   assert.match(
     desktopMainSource,
-    /session\.defaultSession\.extensions\.loadExtension/,
-  );
-  assert.ok(
-    applicationSource.indexOf(
-      "await windows.installSurfaceBootstrap();",
-    ) <
-      applicationSource.indexOf(
-        "windows.installPermissionPolicy();",
-      ),
-    "the native bootstrap must load before the first Harness document",
-  );
-  assert.match(forgeSource, /resources", "desktop-style-extension"/);
-  assert.equal(extensionManifest.manifest_version, 3);
-  assert.deepEqual(extensionManifest.content_scripts, [
-    {
-      matches: ["http://127.0.0.1/*", "http://localhost/*"],
-      css: ["early.css"],
-      run_at: "document_start",
-    },
-  ]);
-  assert.equal(
-    extensionManifest.permissions,
-    undefined,
-    "the bootstrap extension must not request browser capabilities",
+    /session:\s*this\.#surfaceSession/,
+    "the Harness window must use the in-memory surface Session",
   );
   assert.doesNotMatch(
     earlyCss,
@@ -404,7 +377,7 @@ test("only macOS New Session makes the content background transparent", () => {
   );
 });
 
-test("the smaller traffic lights are centered in the default rail", () => {
+test("the smaller traffic lights use the tuned default-rail position", () => {
   const trafficLightPosition = macOSWindowSource.match(
     /trafficLightPosition:\s*\{\s*x:\s*(\d+),\s*y:\s*(\d+)\s*\}/,
   );
@@ -413,12 +386,12 @@ test("the smaller traffic lights are centered in the default rail", () => {
   );
   assert.ok(trafficLightPosition, "traffic-light position must remain explicit");
   assert.ok(sidebarWidth, "collapsed sidebar width must remain explicit");
-  assert.equal(Number(trafficLightPosition[2]), 10);
+  assert.equal(Number(trafficLightPosition[2]), 8);
   const fixedNativeClusterWidth = 10 + 14 * 2;
   assert.equal(
     Number(trafficLightPosition[1]),
-    (Number(sidebarWidth[1]) - fixedNativeClusterWidth) / 2,
-    "the traffic-light frames must be centered in the collapsed sidebar",
+    (Number(sidebarWidth[1]) - fixedNativeClusterWidth) / 2 - 1,
+    "the traffic-light frames must sit one pixel toward the window edge",
   );
 });
 

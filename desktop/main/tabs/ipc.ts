@@ -90,6 +90,7 @@ interface TabsBindingOptions {
   readonly minkeConfigPath: string;
   readonly environment: NodeJS.ProcessEnv;
   readonly agentBrowser: AgentBrowserRuntime;
+  readonly prepareWebSession: () => void;
 }
 
 async function resolveTerminalCwd(candidate: string): Promise<string> {
@@ -198,15 +199,16 @@ export function bindTabs(
       event.preventDefault();
       return;
     }
-    if (
-      !secureTabWebview(
-        webPreferences,
-        params,
-        join(__dirname, "tabs-web-preload.js"),
-      )
-    ) {
+    const secured = secureTabWebview(
+      webPreferences,
+      params,
+      join(__dirname, "tabs-web-preload.js"),
+    );
+    if (!secured) {
       event.preventDefault();
+      return;
     }
+    options.prepareWebSession();
   };
   const handleDidAttach = (
     _event: Electron.Event,

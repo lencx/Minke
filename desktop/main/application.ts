@@ -101,6 +101,10 @@ import {
   type RemoteSettingsBinding,
 } from "./remote-settings";
 import {
+  createCredentialStorage,
+  createMacOSCredentialStorageHelper,
+} from "./credential-storage";
+import {
   bindRemoteHubIpc,
   createDiscordNetworkWebSocketPort,
   DiscordNetworkRuntime,
@@ -196,7 +200,6 @@ class DesktopApplication {
         this.#shortcutMenuBinding?.refreshBaseMenu(),
     });
     this.#windows = windows;
-    await windows.installSurfaceBootstrap();
     windows.installPermissionPolicy();
 
     const minkeConfig = new MinkeConfigStore(
@@ -372,7 +375,7 @@ class DesktopApplication {
       );
     }
 
-    const sourceUserAgent = session.defaultSession.getUserAgent();
+    const sourceUserAgent = windows.getUserAgent();
     const applyBrowserSettings = (
       value: BrowserSettings,
     ): void => {
@@ -596,9 +599,23 @@ class DesktopApplication {
     });
     const remoteHub = new RemoteHubCapabilityRuntime({
       dataHome: activeDshHome,
+      credentialAccessMode:
+        process.platform === "win32"
+          ? "automatic"
+          : "explicit",
       vault: new RemoteHubCredentialVault(
         app.getPath("userData"),
-        safeStorage,
+        createCredentialStorage(() => safeStorage, {
+          macOSHelper:
+            process.platform === "darwin"
+              ? createMacOSCredentialStorageHelper({
+                  appPath: app.getAppPath(),
+                  defaultApp:
+                    process.defaultApp === true,
+                  executablePath: process.execPath,
+                })
+              : undefined,
+        }),
       ),
       credentialClipboard: {
         writeText: (value) => clipboard.writeText(value),
@@ -728,6 +745,7 @@ class DesktopApplication {
   }
 
   reportStartupFailure(error: unknown): void {
+    if (this.#quitting) return;
     console.error("Minke startup failed:", error);
     dialog.showErrorBox(
       this.#desktopText("runtime.startupFailedTitle"),

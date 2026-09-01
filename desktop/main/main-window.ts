@@ -9,6 +9,7 @@ import {
   shell,
   type IpcMainEvent,
   type SaveDialogOptions,
+  type Session,
 } from "electron";
 import { join, parse } from "node:path";
 import {
@@ -56,6 +57,7 @@ import { bindWindowTheme } from "./window-theme";
 
 const PRODUCT_NAME = "Minke";
 const BACKGROUND_COLOR = "#0b1220";
+const MAIN_WINDOW_PARTITION = "minke-main-window";
 
 export interface MainWindowRuntimeOptions {
   agentBrowser: AgentBrowserRuntime;
@@ -82,55 +84,40 @@ function canOpenExternally(value: string): boolean {
  */
 export class MainWindowRuntime {
   readonly #options: MainWindowRuntimeOptions;
+  readonly #surfaceSession: Session;
   #window: BrowserWindow | undefined;
   #sessionLogExportBinding: SessionLogExportBinding | undefined;
   #tabsBinding: TabsBinding | undefined;
+  #tabsWebSession: Session | undefined;
+  #tabsWebUserAgent: string | undefined;
 
   constructor(options: MainWindowRuntimeOptions) {
     this.#options = options;
+    this.#surfaceSession = session.fromPartition(
+      MAIN_WINDOW_PARTITION,
+    );
   }
 
   get current(): BrowserWindow | undefined {
     return this.#window;
   }
 
-  async installSurfaceBootstrap(): Promise<void> {
-    if (process.platform !== "darwin") return;
-    await session.defaultSession.extensions.loadExtension(
-      this.#macOSSurfaceBootstrapRoot(),
-    );
-  }
-
   installPermissionPolicy(): void {
-    installHarnessPermissionPolicy(session.defaultSession, {
+    installHarnessPermissionPolicy(this.#surfaceSession, {
       harnessUrl: this.#options.harnessUrl,
       activeWebContents: () => this.#window?.webContents,
     });
-
-    const tabsWebSession = session.fromPartition(
-      TABS_WEB_PARTITION,
-    );
-    tabsWebSession.setPermissionCheckHandler(
-      (_webContents, permission, requestingOrigin, details) =>
-        canGrantTabWebPermission(
-          permission,
-          details.requestingUrl ?? requestingOrigin,
-        ),
-    );
-    tabsWebSession.setPermissionRequestHandler(
-      (_webContents, permission, callback, details) =>
-        callback(
-          canGrantTabWebPermission(
-            permission,
-            details.requestingUrl,
-          ),
-        ),
-    );
   }
 
-  /** Apply the ordinary Web Tab identity to its persistent guest Session. */
+  /** The in-memory desktop surface never initializes Chromium's Keychain. */
+  getUserAgent(): string {
+    return this.#surfaceSession.getUserAgent();
+  }
+
+  /** Apply the ordinary Web Tab identity when its guest Session is needed. */
   setWebUserAgent(userAgent: string): void {
-    session.fromPartition(TABS_WEB_PARTITION).setUserAgent(userAgent);
+    this.#tabsWebUserAgent = userAgent;
+    this.#tabsWebSession?.setUserAgent(userAgent);
   }
 
   show(): void {
@@ -161,6 +148,7 @@ export class MainWindowRuntime {
           nodeIntegration: false,
           preload: join(__dirname, "desktop-preload.js"),
           sandbox: true,
+          session: this.#surfaceSession,
           webSecurity: true,
           webviewTag: true,
           transparent: process.platform === "darwin",
@@ -200,6 +188,7 @@ export class MainWindowRuntime {
         ),
         environment: this.#options.environment(),
         agentBrowser: this.#options.agentBrowser,
+        prepareWebSession: () => this.#prepareTabsWebSession(),
       },
     );
     this.#tabsBinding = tabsBinding;
@@ -326,18 +315,35 @@ export class MainWindowRuntime {
       : join(app.getAppPath(), "runtime", "host");
   }
 
-  #bootstrapUrl(): string | undefined {
-    return MAIN_WINDOW_VITE_DEV_SERVER_URL || undefined;
+  #prepareTabsWebSession(): void {
+    if (this.#tabsWebSession !== undefined) return;
+    const tabsWebSession = session.fromPartition(
+      TABS_WEB_PARTITION,
+    );
+    tabsWebSession.setPermissionCheckHandler(
+      (_webContents, permission, requestingOrigin, details) =>
+        canGrantTabWebPermission(
+          permission,
+          details.requestingUrl ?? requestingOrigin,
+        ),
+    );
+    tabsWebSession.setPermissionRequestHandler(
+      (_webContents, permission, callback, details) =>
+        callback(
+          canGrantTabWebPermission(
+            permission,
+            details.requestingUrl,
+          ),
+        ),
+    );
+    if (this.#tabsWebUserAgent !== undefined) {
+      tabsWebSession.setUserAgent(this.#tabsWebUserAgent);
+    }
+    this.#tabsWebSession = tabsWebSession;
   }
 
-  #macOSSurfaceBootstrapRoot(): string {
-    return app.isPackaged
-      ? join(process.resourcesPath, "desktop-style-extension")
-      : join(
-          app.getAppPath(),
-          "resources",
-          "desktop-style-extension",
-        );
+  #bootstrapUrl(): string | undefined {
+    return MAIN_WINDOW_VITE_DEV_SERVER_URL || undefined;
   }
 
   #appIconPath(): string {

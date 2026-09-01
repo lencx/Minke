@@ -22,10 +22,20 @@ import type {
 
 export interface ElectronSafeStoragePort {
   decryptString(encrypted: Buffer): string;
+  decryptStringAsync?(encrypted: Buffer): Promise<{
+    readonly result: string;
+    readonly shouldReEncrypt: boolean;
+  }>;
   encryptString(plainText: string): Buffer;
+  encryptStringAsync?(plainText: string): Promise<Buffer>;
   getSelectedStorageBackend?(): string;
+  isAsyncEncryptionAvailable?(): Promise<boolean>;
   isEncryptionAvailable(): boolean;
 }
+
+export type ElectronSafeStorageSource =
+  | ElectronSafeStoragePort
+  | (() => ElectronSafeStoragePort);
 
 export interface StoredWeixinGrant {
   readonly generation: number;
@@ -320,7 +330,7 @@ function protectedBackend(
 
 /**
  * Persist every Remote Hub credential with an authenticated data key wrapped
- * by Electron's OS-backed safeStorage.
+ * by the selected OS-backed credential storage.
  *
  * The file contains ciphertext only and is never folded into the ordinary
  * Minke configuration document.
@@ -328,13 +338,14 @@ function protectedBackend(
 export class RemoteHubCredentialVault {
   readonly #gatewayKeyPath: string;
   readonly #weixinGrantPath: string;
-  readonly #storage: ElectronSafeStoragePort;
+  readonly #storageFactory: () => ElectronSafeStoragePort;
+  #storage: ElectronSafeStoragePort | undefined;
   #gatewayKey: Buffer | undefined;
   #gatewayKeyPromise: Promise<Buffer> | undefined;
 
   constructor(
     userDataPath: string,
-    storage: ElectronSafeStoragePort,
+    storage: ElectronSafeStorageSource,
   ) {
     this.#weixinGrantPath = join(
       userDataPath,
@@ -346,11 +357,37 @@ export class RemoteHubCredentialVault {
       "secrets",
       "im-gateway.key.json",
     );
-    this.#storage = storage;
+    this.#storageFactory =
+      typeof storage === "function"
+        ? storage
+        : () => storage;
   }
 
   get available(): boolean {
-    return protectedBackend(this.#storage);
+    return protectedBackend(this.#safeStorage());
+  }
+
+  /**
+   * Unlock the shared Gateway data key only after an explicit user action.
+   *
+   * On macOS and Linux this is the single credential-store access that may ask
+   * to unlock Keychain or the desktop keyring. Subsequent credential reads
+   * reuse the in-memory key.
+   */
+  async authorize(): Promise<void> {
+    if (!this.available) {
+      throw new Error("OS credential protection is unavailable");
+    }
+    const storage = this.#safeStorage();
+    if (
+      storage.isAsyncEncryptionAvailable !== undefined &&
+      !(await storage.isAsyncEncryptionAvailable())
+    ) {
+      throw new Error(
+        "Asynchronous OS credential protection is unavailable",
+      );
+    }
+    await this.#ensureGatewayKey();
   }
 
   async read(): Promise<StoredWeixinGrant | undefined> {
@@ -567,23 +604,44 @@ export class RemoteHubCredentialVault {
   }
 
   async #loadOrCreateGatewayKey(): Promise<Buffer> {
+    const storage = this.#safeStorage();
     try {
       const source = await readFile(
         this.#gatewayKeyPath,
         "utf8",
       );
       const document = wrappedKeyDocument(JSON.parse(source));
-      const encodedKey = this.#storage.decryptString(
+      const unwrapped = await this.#decryptString(
+        storage,
         decodeBase64(
           document.wrappedKey,
           "wrapped Gateway key",
         ),
       );
-      return decodeBase64(
-        encodedKey,
+      const key = decodeBase64(
+        unwrapped.result,
         "unwrapped Gateway key",
         AES_KEY_BYTES,
       );
+      if (unwrapped.shouldReEncrypt) {
+        try {
+          const rewrapped = await this.#encryptString(
+            storage,
+            unwrapped.result,
+          );
+          await this.#writeProtectedDocument(
+            this.#gatewayKeyPath,
+            {
+              version: AEAD_VERSION,
+              wrappedKey: rewrapped.toString("base64"),
+            },
+          );
+        } catch (error) {
+          key.fill(0);
+          throw error;
+        }
+      }
+      return key;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         throw error;
@@ -591,7 +649,8 @@ export class RemoteHubCredentialVault {
     }
 
     const key = randomBytes(AES_KEY_BYTES);
-    const wrapped = this.#storage.encryptString(
+    const wrapped = await this.#encryptString(
+      storage,
       key.toString("base64"),
     );
     try {
@@ -607,6 +666,36 @@ export class RemoteHubCredentialVault {
       key.fill(0);
       throw error;
     }
+  }
+
+  async #decryptString(
+    storage: ElectronSafeStoragePort,
+    encrypted: Buffer,
+  ): Promise<{
+    readonly result: string;
+    readonly shouldReEncrypt: boolean;
+  }> {
+    if (storage.decryptStringAsync !== undefined) {
+      return await storage.decryptStringAsync(encrypted);
+    }
+    return {
+      result: storage.decryptString(encrypted),
+      shouldReEncrypt: false,
+    };
+  }
+
+  async #encryptString(
+    storage: ElectronSafeStoragePort,
+    value: string,
+  ): Promise<Buffer> {
+    return storage.encryptStringAsync === undefined
+      ? storage.encryptString(value)
+      : await storage.encryptStringAsync(value);
+  }
+
+  #safeStorage(): ElectronSafeStoragePort {
+    this.#storage ??= this.#storageFactory();
+    return this.#storage;
   }
 
   async #writeProtectedDocument(

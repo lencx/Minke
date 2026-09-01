@@ -30,6 +30,9 @@ import {
   RemoteSettingsSection,
 } from "../remote/RemoteSettingsSection.tsx";
 import {
+  hasMacOSDesktopSurface,
+} from "../desktop/window.ts";
+import {
   presentRemoteStatus,
 } from "../remote/presentation.ts";
 import type {
@@ -1687,6 +1690,7 @@ function RemoteHubDialog({
   );
   const titleId = useId();
   const descriptionId = useId();
+  const credentialAuthorizationTitleId = useId();
   const detailPanelId = useId();
   const weixinNavigationId = useId();
   const telegramNavigationId = useId();
@@ -1699,8 +1703,17 @@ function RemoteHubDialog({
   const discordNavigationRef = useRef<HTMLButtonElement>(null);
   const accessNavigationRef = useRef<HTMLButtonElement>(null);
   const remotePresentation = presentRemoteStatus(snapshot.remote);
+  const credentialVaultState =
+    snapshot.channels.dependencies.credentialVault;
+  const authorizingCredentials =
+    snapshot.operation === "authorizing-credentials";
+  const credentialAuthorizationFailed =
+    snapshot.error === "credential-authorization";
+  const macOSDesktop =
+    typeof window !== "undefined" &&
+    hasMacOSDesktopSurface();
   const dependenciesReady =
-    snapshot.channels.dependencies.credentialVault === "ready" &&
+    credentialVaultState === "ready" &&
     snapshot.channels.dependencies.agentRoute === "ready";
 
   const navigationIds: Record<RemoteHubView, string> = {
@@ -1970,10 +1983,14 @@ function RemoteHubDialog({
                   view: "access",
                   kind: "access",
                   label: t("accessTitle"),
-                  status: remoteT(
-                    remotePresentation.statusKey,
-                  ),
-                  state: remotePresentation.state,
+                  status:
+                    credentialVaultState === "pending"
+                      ? t("authorizationRequiredShort")
+                      : remoteT(remotePresentation.statusKey),
+                  state:
+                    credentialVaultState === "pending"
+                      ? "authorization-required"
+                      : remotePresentation.state,
                   icon: (
                     <LucideIcon icon={RadioTower} size={18} />
                   ),
@@ -1992,22 +2009,24 @@ function RemoteHubDialog({
                 </span>
               ) : (
                 <>
-                  {snapshot.channels.dependencies
-                      .credentialVault !== "ready" && (
+                  {credentialVaultState === "initializing" && (
+                    <span data-state={credentialVaultState}>
+                      <LucideIcon
+                        icon={ShieldCheck}
+                        size={14}
+                      />
+                      {t("vaultChecking")}
+                    </span>
+                  )}
+                  {credentialVaultState === "unavailable" && (
                     <span
-                      data-state={
-                        snapshot.channels.dependencies
-                            .credentialVault
-                      }
+                      data-state={credentialVaultState}
                     >
                       <LucideIcon
                         icon={ShieldCheck}
                         size={14}
                       />
-                      {snapshot.channels.dependencies
-                          .credentialVault === "pending"
-                        ? t("vaultChecking")
-                        : t("vaultMissing")}
+                      {t("vaultMissing")}
                     </span>
                   )}
                   {snapshot.channels.dependencies.agentRoute !==
@@ -2036,7 +2055,70 @@ function RemoteHubDialog({
             aria-labelledby={navigationIds[snapshot.view]}
             tabIndex={0}
           >
-            {snapshot.error !== undefined && (
+            {credentialVaultState === "pending" && (
+              <section
+                className="minke-remote-hub__authorization"
+                data-minke-remote-hub-credential-authorization
+                aria-labelledby={credentialAuthorizationTitleId}
+              >
+                <span
+                  className="minke-remote-hub__authorization-icon"
+                  aria-hidden="true"
+                >
+                  <LucideIcon icon={ShieldCheck} size={21} />
+                </span>
+                <div className="minke-remote-hub__authorization-copy">
+                  <h2 id={credentialAuthorizationTitleId}>
+                    {t("credentialAuthorizationTitle")}
+                  </h2>
+                  <p>{t("credentialAuthorizationDescription")}</p>
+                  {macOSDesktop && (
+                    <p className="minke-remote-hub__authorization-instruction">
+                      {t(
+                        "credentialAuthorizationMacInstruction",
+                      )}
+                    </p>
+                  )}
+                  {credentialAuthorizationFailed && (
+                    <p
+                      className="minke-remote-hub__authorization-failure"
+                      role="alert"
+                    >
+                      {t(
+                        macOSDesktop
+                          ? "credentialAuthorizationMacFailed"
+                          : "credentialAuthorizationFailed",
+                      )}
+                    </p>
+                  )}
+                  <small>
+                    {t("credentialAuthorizationPending")}
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  className="minke-remote-hub__authorization-action"
+                  data-minke-remote-hub-authorize-credentials
+                  disabled={snapshot.operation !== "idle"}
+                  aria-busy={authorizingCredentials}
+                  onClick={() => {
+                    void runtime.dispatch({
+                      kind: "credential-vault/authorize",
+                    });
+                  }}
+                >
+                  {authorizingCredentials
+                    ? t("authorizingCredentialVault")
+                    : t(
+                        credentialAuthorizationFailed
+                          ? "retryCredentialVault"
+                          : "authorizeCredentialVault",
+                      )}
+                </button>
+              </section>
+            )}
+            {snapshot.error !== undefined &&
+              snapshot.error !== "credential-authorization" && (
               <p
                 className="minke-remote-hub__global-issue"
                 role="alert"

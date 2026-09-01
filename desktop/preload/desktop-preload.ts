@@ -1,5 +1,10 @@
-import { contextBridge, ipcRenderer } from "electron";
+import {
+  contextBridge,
+  ipcRenderer,
+  webFrame,
+} from "electron";
 import appManifest from "../../package.json";
+import macOSSurfaceCss from "../../resources/desktop-style-extension/early.css?raw";
 import {
   PLUGIN_INSTALLED_READ_CHANNEL,
   PLUGIN_INSTALL_CHANNEL,
@@ -208,6 +213,10 @@ const remoteRuntimeUnsubscribers = new Set<() => void>();
 const agentBrowserUnsubscribers = new Set<() => void>();
 const remoteHubUnsubscribers = new Set<() => void>();
 let nextFileWatchId = 0;
+
+if (process.platform === "darwin") {
+  webFrame.insertCSS(macOSSurfaceCss);
+}
 
 function currentColorScheme(): WindowColorScheme | undefined {
   const colorScheme = document.documentElement.style.colorScheme;
