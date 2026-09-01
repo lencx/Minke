@@ -4,11 +4,11 @@ Minke keeps `vendor/deepseek-harness` pinned and pristine. Local fixes that cann
 
 The applicator accepts git unified diffs that modify existing text files below `node_modules/@deepseek-ai/`. It rejects path escapes, file creation/deletion, renames, binary patches, stale hunks, and skipped patches. Patch contents are part of the runtime fingerprint and metadata; validation also reverse-checks that every declared patch is present before publishing or fast refresh.
 
-`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.2-alpha.2` (`0a53fb55bea101816fa226bb964ae2bed71c343b`). It:
+`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.2-alpha.3` (`dd6322d604e00eec1ba5e0c8541159906a21094a`). It:
 
 - routes the directory dialog worker and Windows ACL sandbox runner through `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the dialog worker;
 - keeps the dialog worker's IPC channel open through non-terminal `showing` progress and disconnects only after a terminal result;
-- leaves alpha.2's upstream bounded `koffi.view` UTF-16LE decoder intact, including its two-byte terminator scan for paths containing code points such as `U+5F00`.
+- leaves the upstream bounded `koffi.view` UTF-16LE decoder intact, including its two-byte terminator scan for paths containing code points such as `U+5F00`.
 
 `windows-background-processes.patch` is pinned to the same Harness commit. It:
 
@@ -41,11 +41,16 @@ then rejects any direct or restricted launch site that remains visible.
 - strips Electron/Node bootstrap controls from ordinary subprocesses, native integrations, and browser handoff children so ambient desktop runtime state cannot leak across execution boundaries;
 - restores Minke's managed Node executable and bootstrap only for an explicitly recognized embedded-Node launch, including terminal and Windows ACL paths.
 
-The former Details layout/presentation patches were removed at this pin:
-alpha.2 owns adaptive conversation width and the native top-level `details`
-slot, while Minke Tabs now uses only `ILayout.openDetails/closeDetails`. The
-former subagent route patch was also removed because alpha.2 natively resolves
-the effective parent provider, model, and reasoning effort.
+The former Details layout/presentation patches remain removed at this pin.
+Harness owns adaptive conversation width, the native top-level `details` slot,
+and alpha.3's whole-session turn rail with deep-history load-and-jump; Minke
+Tabs uses only `ILayout.openDetails/closeDetails`. The former subagent route
+patch also stays removed because Harness natively resolves the effective parent
+provider, model, and reasoning effort.
+
+Alpha.3 removes only Harness's optional SQLite Session persistence backend.
+Minke's IM Gateway SQLite mailbox is a separate desktop transport store and is
+not part of that Session persistence contract.
 
 After changing the upstream pin or a patch, run:
 
