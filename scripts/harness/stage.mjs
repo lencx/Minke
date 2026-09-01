@@ -25,6 +25,9 @@ import {
 import {
   minkeHarnessClientBuildEnvironment,
 } from "./client-build-environment.mjs";
+import {
+  inspectHarnessClientCryptoBoundary,
+} from "./client-crypto-boundary.mjs";
 import { resolvePnpmInvocation } from "./pnpm-invocation.mjs";
 import {
   assertRuntimeFileBudget,
@@ -67,6 +70,7 @@ const runtimeFingerprintPaths = [
   "config/embedded-node-runtime.mts",
   "scripts/harness/build-product-packages.mjs",
   "scripts/harness/client-build-environment.mjs",
+  "scripts/harness/client-crypto-boundary.mjs",
   "scripts/harness/command-invocation.mjs",
   "scripts/harness/contract.mjs",
   "scripts/harness/pnpm-invocation.mjs",
@@ -696,6 +700,10 @@ async function validateRuntime(
   }
   await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
   await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+  await inspectHarnessClientCryptoBoundary(
+    runtimeRoot,
+    contract.frontendPackageName,
+  );
   const installedProductBundleFingerprint = await fingerprintProductBundle(
     installedProductBundle(runtimeRoot, productBundle),
   );
@@ -836,6 +844,10 @@ async function validateReusableRuntime(
   try {
     await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
     await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+    await inspectHarnessClientCryptoBoundary(
+      runtimeRoot,
+      contract.frontendPackageName,
+    );
     await inspectPrunedRuntime(runtimeRoot, contract);
   } catch (error) {
     if (error instanceof ReusableRuntimeUnavailableError) {

@@ -41,6 +41,7 @@ const taskFiles = Object.freeze({
     "agent-browser-contract.test.mjs",
     "agent-browser-tools.test.mjs",
     "harness-boot-manifest.test.mjs",
+    "harness-client-crypto-boundary.test.mjs",
     "harness-contract.test.mjs",
     "harness-launch.test.mjs",
     "harness-overlay.test.mjs",
