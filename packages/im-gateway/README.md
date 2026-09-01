@@ -12,7 +12,7 @@ Provider workers implement the small `GatewayProviderSession` port. `pollGateway
 
 The desktop SQLite adapter validates the batch's encrypted `fromCheckpoint`, inserts new native message IDs, projects the newest per-peer delivery context, reconciles BOT echoes, and advances `nextCheckpoint` in one transaction. A crash before commit replays the batch; a crash after commit resumes from the durable inbox.
 
-Payloads and delivery contexts are passed through the caller-provided cipher before SQLite sees them. The database stores no bearer credential or plaintext content digest. Minke's Electron Host uses a versioned AES-256-GCM envelope, binds the canonical row purpose as authenticated data, and keeps only a random data key wrapped by Electron `safeStorage`; an identity cipher is only appropriate in tests.
+Payloads and delivery contexts are passed through the caller-provided cipher before SQLite sees them. The database stores no bearer credential or plaintext content digest. Minke's Electron Host uses a versioned AES-256-GCM envelope, binds the canonical row purpose as authenticated data, and keeps only a random data key wrapped by operating-system credential protection; an identity cipher is only appropriate in tests.
 
 This pre-release package defines its complete mailbox layout directly as schema v1. It does not migrate earlier development databases; an incompatible local mailbox is rejected and should be recreated.
 

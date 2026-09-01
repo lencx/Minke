@@ -124,9 +124,10 @@ Minke 同一时间只启用一条远程链路，并只在应用运行期间持�
 
 #### 微信、Telegram 或 Discord 提示凭据存储不可用
 
-微信、Telegram 和 Discord 共用一个由 Electron `safeStorage` 与 macOS
-钥匙串保护的加密凭据保险库。未签名或签名不一致的 macOS 构建可能导致钥匙串
-无法识别 Minke，此时三个通道都会保持关闭，并提示系统无法提供受保护的凭据存储。
+微信、Telegram 和 Discord 共用一个由操作系统凭据保护的加密保险库。在 macOS
+上，每次显式授权都会交给一个短生命周期的 Minke 辅助进程，通过 Electron
+`safeStorage` 访问钥匙串。取消一次授权不会污染正在运行的桌面进程；再次点击
+按钮会启动全新的辅助进程，因此系统可以再次显示授权窗口。
 
 先检查已安装应用：
 
@@ -145,11 +146,17 @@ macOS 弹出钥匙串授权窗口后，输入 Mac 登录密码并选择**始终�
 `codesign` 提示权限不足，只在执行签名的命令（`/usr/bin/codesign --force ...`）
 前添加 `sudo`。
 
+Minke 不会在启动时访问钥匙串。应用打开后，进入**连接**并点击**授权凭据访问**，
+系统才可能显示授权窗口。若选择了**拒绝**，点击**重新请求授权**即可；即使旧版
+Electron 状态曾阻止系统再次弹窗，新请求也会从全新的辅助进程开始。Minke 不会
+重启，也不会删除凭据、收件箱或待投递记录。
+
 > [!WARNING]
 > 该命令会替换已安装应用的现有签名，仅适用于未签名或签名已经无效的预发布构建；
 > 不要对 Developer ID 签名且经过 Apple 公证的有效正式版本执行。重新安装或更新
-> Minke 后可能需要再次修复。不要删除 `~/.minke/secrets`，也不要删除“钥匙串访问”
-> 中的 Minke Safe Storage 项，因为已有消息通道凭据依赖其中的加密密钥。
+> Minke 后可能需要再次修复。签名只影响钥匙串是否把不同构建识别为同一个应用，
+> 与单次授权能否重试无关。不要手动删除 `~/.minke/secrets` 或“钥匙串访问”
+> 中的 Minke Safe Storage 项，因为已有通道凭据依赖对应的加密密钥。
 
 ### Windows
 
@@ -211,3 +218,14 @@ pnpm make
 ```
 
 `pnpm make` 会先重新执行一次完整的 runtime 准备流程，再将当前平台的安装包生成到 `out/make`。
+
+macOS 钥匙串按代码签名识别应用。默认的本地包使用临时 ad-hoc 签名，每次源码
+变化后都可能被视为新应用；跨版本稳定授权必须使用同一个有效签名证书。可先用
+`security find-identity -v -p codesigning` 查找身份，然后在打包进程中设置：
+
+```bash
+MINKE_MACOS_SIGN_IDENTITY="Developer ID Application: …" pnpm make
+```
+
+CI 使用独立钥匙串时还可设置 `MINKE_MACOS_SIGN_KEYCHAIN`。不要把证书私钥或
+钥匙串密码提交到仓库。

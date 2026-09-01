@@ -140,10 +140,11 @@ platform behavior.
 #### WeChat, Telegram, or Discord reports unavailable credential storage
 
 WeChat, Telegram, and Discord share one encrypted credential vault backed by
-Electron `safeStorage` and the macOS Keychain. An unsigned or inconsistently
-signed macOS build may prevent Keychain from recognizing Minke, so all three
-channels stay disabled and report that protected credential storage is
-unavailable.
+the operating system's credential protection. On macOS, Minke delegates each
+explicit authorization attempt to a short-lived Minke helper that uses
+Electron `safeStorage`. Cancelling one attempt does not poison the running
+desktop process: the next click starts a fresh helper and can show the system
+prompt again.
 
 Check the installed application first:
 
@@ -159,17 +160,26 @@ with this single command:
 /usr/bin/osascript -e 'tell application "Minke" to quit' 2>/dev/null || true; while /usr/bin/pgrep -f '^/Applications/Minke\.app/Contents/MacOS/Minke( |$)' >/dev/null; do /bin/sleep 0.2; done; /usr/bin/codesign --force --deep --sign - --timestamp=none "/Applications/Minke.app" && /usr/bin/codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app" && /usr/bin/open "/Applications/Minke.app"
 ```
 
-When macOS asks for Keychain access, enter the Mac login password and choose
-**Always Allow**. If `codesign` reports insufficient permissions, prefix only
-the signing invocation (`/usr/bin/codesign --force ...`) with `sudo`.
+Minke does not access Keychain during startup. After it opens, open
+**Connections** and click **Authorize credential access**. Only then may macOS
+ask for Keychain access; enter the Mac login password and choose **Always
+Allow**. If `codesign` reports insufficient permissions, prefix only the
+signing invocation (`/usr/bin/codesign --force ...`) with `sudo`.
+
+If you choose **Deny**, click **Request authorization again**. If legacy
+Electron state prevented another system dialog in an older build, the new
+attempt still starts from a fresh helper process. Minke does not restart and
+does not delete credentials, inboxes, or pending deliveries.
 
 > [!WARNING]
 > This command replaces the installed app's existing signature and is only a
 > local workaround for an unsigned or already-invalid pre-release build. Do
 > not run it on a valid Developer ID-signed and notarized release. The repair
-> may need to be repeated after reinstalling or updating Minke. Do not delete
-> `~/.minke/secrets` or the Minke Safe Storage item from Keychain Access,
-> because existing channel credentials depend on that encryption key.
+> may need to be repeated after reinstalling or updating Minke. Signing affects
+> whether Keychain recognizes separate builds as the same application; it is
+> not involved in retrying an authorization attempt. Do not delete
+> `~/.minke/secrets` or the Minke Safe Storage item manually because existing
+> channel credentials depend on that encryption key.
 
 ### Windows
 
@@ -231,6 +241,20 @@ pnpm make
 ```
 
 `pnpm make` performs a full runtime stage again before writing the platform package to `out/make`.
+
+macOS Keychain identifies an app by its code signature. The default local
+package uses an ad-hoc signature and may be treated as a new app whenever its
+contents change; stable authorization across versions requires the same valid
+signing certificate. Find an installed identity with
+`security find-identity -v -p codesigning`, then provide it to the packaging
+process:
+
+```bash
+MINKE_MACOS_SIGN_IDENTITY="Developer ID Application: …" pnpm make
+```
+
+Set `MINKE_MACOS_SIGN_KEYCHAIN` as well when CI uses a dedicated keychain.
+Never commit the certificate private key or keychain password.
 
 ## 中国用户
 
