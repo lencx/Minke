@@ -4,8 +4,8 @@
   disabled: true
 
 - insert:
-    # Alpha.2 ships Schedule as an explicit Web opt-in. Minke enables the
-    # durable host runtime and read-only conversation-header catalog together.
+    # DSH ships Schedule as an explicit Web opt-in. Minke enables the durable
+    # host runtime and read-only conversation-header catalog together.
     - id: time-context
       name: '@deepseek-ai/dsh-time-context'
 

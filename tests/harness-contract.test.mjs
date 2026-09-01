@@ -315,6 +315,32 @@ function fixture(options = {}) {
     [
       "- id: plugin-inventory",
       "  name: '@deepseek-ai/dsh-host-plugin-inventory'",
+      ...(options.turnOutlineComposition === false
+        ? []
+        : [
+            "    - id: session-turn-outline",
+            "      name: '@deepseek-ai/dsh-session-turn-outline'",
+          ]),
+      "",
+    ].join("\n"),
+  );
+  write(
+    harnessRoot,
+    "packages/api/session-controller/src/client/contract/session.ts",
+    options.turnLoadThrough === false
+      ? "export interface ISession {}\n"
+      : "export interface ISession { loadThrough(seq: number): Promise<void> }\n",
+  );
+  write(
+    harnessRoot,
+    "packages/client/ui-chat/src/client/chat/ChatView.tsx",
+    [
+      ...(options.turnOutlineConsumer === false
+        ? []
+        : ["const turnOutline = useProjection('turnOutline')"]),
+      ...(options.turnLoadThrough === false
+        ? []
+        : ["void loadThrough(item.anchor.seq)"]),
       "",
     ].join("\n"),
   );
@@ -723,6 +749,33 @@ test("the Harness contract requires durable batch-image attachments", async () =
   await assert.rejects(
     verifyHarnessContract(projectRoot),
     /batch image attachment API changed/u,
+  );
+});
+
+test("the Harness contract requires native whole-session turn navigation", async () => {
+  const { projectRoot } = fixture({ turnOutlineComposition: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /whole-session turn outline/u,
+  );
+});
+
+test("the Harness contract requires deep-history turn jumps", async () => {
+  const { projectRoot } = fixture({ turnLoadThrough: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /deep-history turn-jump loader/u,
+  );
+});
+
+test("the Harness contract requires Chat to consume the turn outline", async () => {
+  const { projectRoot } = fixture({ turnOutlineConsumer: false });
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /Chat no longer consumes the whole-session turn outline/u,
   );
 });
 

@@ -231,6 +231,72 @@ async function verifyWebAccessContract(harnessRoot) {
   }
 }
 
+async function verifyTurnNavigationContract(harnessRoot) {
+  const [
+    webAppBundlePatchSource,
+    sessionContractSource,
+    chatViewSource,
+  ] = await Promise.all([
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "bundle",
+        "web-app",
+        "cordis.patch.yml",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "api",
+        "session-controller",
+        "src",
+        "client",
+        "contract",
+        "session.ts",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "client",
+        "ui-chat",
+        "src",
+        "client",
+        "chat",
+        "ChatView.tsx",
+      ),
+      "utf8",
+    ),
+  ]);
+
+  requireSourceSeam(
+    webAppBundlePatchSource,
+    "- id: session-turn-outline\n      name: '@deepseek-ai/dsh-session-turn-outline'",
+    "Harness Web bundle no longer mounts the whole-session turn outline required by native conversation navigation.",
+  );
+  requireSourceSeam(
+    sessionContractSource,
+    "loadThrough(seq: number): Promise<void>",
+    "Harness Session client no longer exposes the deep-history turn-jump loader.",
+  );
+  requireSourceSeam(
+    chatViewSource,
+    "const turnOutline = useProjection('turnOutline')",
+    "Harness Chat no longer consumes the whole-session turn outline.",
+  );
+  requireSourceSeam(
+    chatViewSource,
+    "void loadThrough(item.anchor.seq)",
+    "Harness Chat no longer pages unloaded turns before jumping to them.",
+  );
+}
+
 export function runtimeSizeBudgetForPlatform(
   contract,
   platform = process.platform,
@@ -343,15 +409,15 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
   for (const [fragment, message] of [
     [
       "- id: time-context\n      name: '@deepseek-ai/dsh-time-context'",
-      `${bundle.patch} must compose alpha.2 time-context before Schedule.`,
+      `${bundle.patch} must compose native time-context before Schedule.`,
     ],
     [
       "- id: schedule\n      name: '@deepseek-ai/dsh-schedule'",
-      `${bundle.patch} must compose the alpha.2 durable Schedule runtime.`,
+      `${bundle.patch} must compose the native durable Schedule runtime.`,
     ],
     [
       "- id: ui-schedule\n  disabled: false",
-      `${bundle.patch} must enable the alpha.2 Schedule conversation-header catalog.`,
+      `${bundle.patch} must enable the native Schedule conversation-header catalog.`,
     ],
     [
       "- id: minke-web-search\n      name: '@lencx/minke-harness-overlay/web-search'",
@@ -1021,6 +1087,7 @@ export async function verifyHarnessContract(projectRoot) {
     "Harness Web bundle no longer mounts the Loader inventory required by Minke.",
   );
   await verifyWebAccessContract(harnessRoot);
+  await verifyTurnNavigationContract(harnessRoot);
 
   const productBundle = await verifyProductBundle(
     projectRoot,
