@@ -12,6 +12,7 @@ node_modules
 .pnpm-store
 .vite
 out
+work/
 runtime/host
 docs/research
 /packages/harness-overlay/lib/
