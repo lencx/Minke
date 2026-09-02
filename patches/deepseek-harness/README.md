@@ -4,7 +4,7 @@ Minke keeps `vendor/deepseek-harness` pinned and pristine. Local fixes that cann
 
 The applicator accepts git unified diffs that modify existing text files below `node_modules/@deepseek-ai/`. It rejects path escapes, file creation/deletion, renames, binary patches, stale hunks, and skipped patches. Patch contents are part of the runtime fingerprint and metadata; validation also reverse-checks that every declared patch is present before publishing or fast refresh.
 
-`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.2-alpha.4` (`4e84901e6471b79ec0338099867ebb4606d12bb5`). It:
+`win32-directory-picker.patch` is pinned to Harness `dsh-v0.1.2-alpha.5` (`db6bdc3576c2d4e7c965e8e3ed0c2a731eed87f5`). It:
 
 - routes the directory dialog worker and Windows ACL sandbox runner through `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the dialog worker;
 - keeps the dialog worker's IPC channel open through non-terminal `showing` progress and disconnects only after a terminal result;
@@ -12,7 +12,7 @@ The applicator accepts git unified diffs that modify existing text files below `
 
 `windows-background-processes.patch` is pinned to the same Harness commit. It:
 
-- makes every first-party non-terminal child process explicitly suppress native Windows console windows, including the unified subprocess runtime, its teardown helpers, sandbox probes, browser handoff, plugin management, and alpha.4's experimental Python runtime;
+- makes every first-party non-terminal child process explicitly suppress native Windows console windows, including the unified subprocess runtime, its teardown helpers, sandbox probes, browser handoff, plugin management, and the experimental Python runtime;
 - leaves PTY/ConPTY terminal sessions on their dedicated `spawnTerminal` lifecycle path.
 
 After applying that static source patch, staging enumerates every JavaScript

@@ -6,7 +6,7 @@ The host composition mounts the separate `@lencx/minke-model-runtime/dsh` adapte
 
 - `model-runtime` is a DSH plugin that owns local model discovery and optional service lifecycle for exactly two product runtimes: LM Studio and Ollama. LM Studio uses `lms server status --json` / `lms server start` and enriches its OpenAI-compatible catalog with LM Studio's v1 loaded-instance metadata. Before dispatch, it verifies that the selected instance has the configured context window. Selecting an unloaded model explicitly authorizes Minke to load that model with the configured context, even when LM Studio was started externally; Minke still never unloads or reconfigures an existing external instance. If Minke started the service itself, it may also reload an undersized default model instance while preserving its supported load parameters. Ollama uses its OpenAI-compatible `/v1/models` endpoint and starts through `ollama serve`. A generic `openAICompatible` adapter remains available for manually configured loopback servers; it does not gain command discovery or process management.
 
-Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.1.2-alpha.4` runtime and are not embedded in Minke's base runtime. Install one into the `web` Profile:
+Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.1.2-alpha.5` runtime and are not embedded in Minke's base runtime. Install one into the `web` Profile:
 
 - Codex: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-codex`
 - Claude Code: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-claude-code`
