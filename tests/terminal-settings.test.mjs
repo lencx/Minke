@@ -8,6 +8,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   bindTerminalSettingsIpc,
 } from "@minke/desktop/main/terminal-settings.ts";
@@ -28,6 +30,12 @@ import {
   preferencesEn,
   preferencesZh,
 } from "@minke/harness-overlay/client/preferences/locales.ts";
+import {
+  PreferencesSection,
+} from "@minke/harness-overlay/client/preferences/PreferencesSection.tsx";
+import {
+  WebSearchSettingsRuntime,
+} from "@minke/harness-overlay/client/preferences/web-search-runtime.ts";
 import {
   applyTerminalRenderingSettings,
 } from "@minke/harness-overlay/client/tabs/terminal/settings/rendering.ts";
@@ -182,10 +190,29 @@ test("Preferences groups workspace and application settings", () => {
     ),
     "utf8",
   );
+  const terminalSettings = new TerminalSettingsRuntime({
+    available: false,
+  });
+  const webSearchSettings = new WebSearchSettingsRuntime({
+    available: false,
+  });
+  const markup = renderToStaticMarkup(
+    createElement(PreferencesSection, {
+      terminalSettings,
+      webSearchSettings,
+      t: (key) => preferencesEn[key],
+    }),
+  );
 
   assert.match(source, /data-minke-preferences/u);
-  assert.match(source, /id="workspace"/u);
-  assert.match(source, /id="application"/u);
+  assert.equal(
+    markup.includes('data-preferences-category="workspace"'),
+    true,
+  );
+  assert.equal(
+    markup.includes('data-preferences-category="application"'),
+    true,
+  );
   assert.match(source, /data-minke-terminal-settings/u);
   assert.match(source, /data-appearance=\{colorScheme\}/u);
   assert.match(
@@ -204,6 +231,8 @@ test("Preferences groups workspace and application settings", () => {
   assert.match(source, /<optgroup/u);
   assert.match(source, /<CodeThemePreferences/u);
   assert.match(source, /<TerminalPreferences/u);
+  terminalSettings.dispose();
+  webSearchSettings.dispose();
 });
 
 test("Terminal reuses the selected editor theme including ANSI colors", async () => {
