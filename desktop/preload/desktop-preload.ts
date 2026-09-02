@@ -180,11 +180,14 @@ import {
 } from "@minke/harness-overlay/agent-browser-contract.ts";
 import {
   AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
+  AGENT_BROWSER_HISTORY_DELETE_CHANNEL,
   AGENT_BROWSER_HISTORY_READ_CHANNEL,
   parseAgentBrowserHistoryClearRequest,
+  parseAgentBrowserHistoryDeleteRequest,
   parseAgentBrowserHistoryReadRequest,
   parseAgentBrowserHistorySnapshot,
   type AgentBrowserHistoryClearRequest,
+  type AgentBrowserHistoryDeleteRequest,
   type AgentBrowserHistoryReadRequest,
 } from "@minke/harness-overlay/agent-browser-history-contract.ts";
 import {
@@ -412,6 +415,14 @@ const agentBrowser = Object.freeze({
         AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
         parseAgentBrowserHistoryClearRequest(request),
       ),
+    );
+  },
+  async deleteHistory(
+    request: AgentBrowserHistoryDeleteRequest,
+  ): Promise<void> {
+    await ipcRenderer.invoke(
+      AGENT_BROWSER_HISTORY_DELETE_CHANNEL,
+      parseAgentBrowserHistoryDeleteRequest(request),
     );
   },
   async startAnnotation(sessionId: string): Promise<unknown> {

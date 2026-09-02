@@ -14,6 +14,7 @@ import {
 } from "@minke/harness-overlay/agent-browser-contract.ts";
 import {
   AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
+  AGENT_BROWSER_HISTORY_DELETE_CHANNEL,
   AGENT_BROWSER_HISTORY_READ_CHANNEL,
 } from "@minke/harness-overlay/agent-browser-history-contract.ts";
 import {
@@ -716,6 +717,13 @@ test("runtime admits only its exact temporary blank partition", async () => {
   const result = await openPromise;
   assert.equal(result.status, "ready");
   assert.equal(result.url, "https://example.com/");
+  assert.deepEqual(target.runtime.projections()[0].cursor, {
+    sequence: 1,
+    phase: "idle",
+    point: { x: 430, y: 431.5 },
+    viewport: { width: 860, height: 863 },
+    durationMs: 160,
+  });
   assert.deepEqual(guest.windowOpenHandler({}), {
     action: "deny",
   });
@@ -827,13 +835,19 @@ test("CDP refs are generation-scoped and mutation ambiguity is explicit", async 
     ).length,
     3,
   );
-  assert.deepEqual(target.runtime.projections()[0].cursor, {
-    sequence: 2,
+  const clickedCursor = target.runtime.projections()[0].cursor;
+  assert.deepEqual({
+    ...clickedCursor,
+    durationMs: 0,
+  }, {
+    sequence: 3,
     phase: "clicking",
     point: { x: 20, y: 10 },
     viewport: { width: 860, height: 863 },
-    durationMs: 180,
+    durationMs: 0,
   });
+  assert.ok(clickedCursor.durationMs >= 300);
+  assert.ok(clickedCursor.durationMs <= 420);
   const clickingSequences = target.embedder.messages
     .filter(
       ({ channel }) =>
@@ -846,7 +860,7 @@ test("CDP refs are generation-scoped and mutation ambiguity is explicit", async 
         projection.cursor?.phase === "clicking",
     )
     .map((projection) => projection.cursor.sequence);
-  assert.deepEqual(clickingSequences, [2]);
+  assert.deepEqual(clickingSequences, [3]);
 
   // Negative control: a mutation requires re-observation before another
   // element action, even when the semantic page remains unchanged.
@@ -2764,13 +2778,19 @@ test("pointer targets use the visible box intersection in CDP viewport coordinat
     { type: "mousePressed", x: 30, y: 30 },
     { type: "mouseReleased", x: 30, y: 30 },
   ]);
-  assert.deepEqual(target.runtime.projections()[0].cursor, {
-    sequence: 2,
+  const partialCursor = target.runtime.projections()[0].cursor;
+  assert.deepEqual({
+    ...partialCursor,
+    durationMs: 0,
+  }, {
+    sequence: 3,
     phase: "clicking",
     point: { x: 30, y: 30 },
     viewport: { width: 100, height: 80 },
-    durationMs: 180,
+    durationMs: 0,
   });
+  assert.ok(partialCursor.durationMs > 160);
+  assert.ok(partialCursor.durationMs <= 420);
 
   opened.guest.debugger.boxModel = {
     content: [
@@ -3006,7 +3026,7 @@ test("virtual cursor types at refs and clears across navigation, takeover, and c
     "Input.dispatchKeyEvent",
     ({ type }) => {
       assert.equal(type, "keyDown");
-      assert.ok(Date.now() - pressStartedAt >= 150);
+      assert.ok(Date.now() - pressStartedAt >= 65);
       assert.equal(
         target.runtime.projections()[0].cursor?.phase,
         "typing",
@@ -3042,10 +3062,13 @@ test("virtual cursor types at refs and clears across navigation, takeover, and c
     ),
     new AbortController().signal,
   );
-  assert.equal(
-    target.runtime.projections()[0].cursor,
-    undefined,
-  );
+  assert.deepEqual(target.runtime.projections()[0].cursor, {
+    sequence: afterPress.sequence + 1,
+    phase: "idle",
+    point: { x: 430, y: 431.5 },
+    viewport: { width: 860, height: 863 },
+    durationMs: 160,
+  });
 
   const clickSnapshot = await snapshot();
   await target.runtime.handleProcessRequest(
@@ -3073,6 +3096,25 @@ test("virtual cursor types at refs and clears across navigation, takeover, and c
   await target.runtime.setControl(
     opened.result.sessionId,
     "agent",
+  );
+  await settleAsyncWork();
+  const resumedCursor =
+    target.runtime.projections()[0].cursor;
+  assert.ok(resumedCursor);
+  assert.ok(resumedCursor.sequence > afterPress.sequence);
+  assert.deepEqual(
+    {
+      phase: resumedCursor.phase,
+      point: resumedCursor.point,
+      viewport: resumedCursor.viewport,
+      durationMs: resumedCursor.durationMs,
+    },
+    {
+      phase: "idle",
+      point: { x: 430, y: 431.5 },
+      viewport: { width: 860, height: 863 },
+      durationMs: 160,
+    },
   );
 
   const crashSnapshot = await snapshot();
@@ -3791,8 +3833,9 @@ test("committed Agent Browser visits receive titles by stable visit id", async (
   target.runtime.dispose();
 });
 
-test("browsing-footprint IPC is authorized, validated, and clear-confirmed", async () => {
+test("browsing-footprint IPC is authorized, validated, and mutation-scoped", async () => {
   const reads = [];
+  const deletedVisitIds = [];
   let clearCalls = 0;
   let closed = false;
   const snapshot = {
@@ -3826,6 +3869,9 @@ test("browsing-footprint IPC is authorized, validated, and clear-confirmed", asy
     clear() {
       clearCalls += 1;
     },
+    deleteVisit(visitId) {
+      deletedVisitIds.push(visitId);
+    },
     close() {
       closed = true;
     },
@@ -3841,6 +3887,21 @@ test("browsing-footprint IPC is authorized, validated, and clear-confirmed", asy
     snapshot,
   );
   assert.deepEqual(reads, [{ limit: 25, actor: "agent" }]);
+  await target.ipc.invoke(
+    AGENT_BROWSER_HISTORY_DELETE_CHANNEL,
+    {},
+    { visitId: 1 },
+  );
+  assert.deepEqual(deletedVisitIds, [1]);
+  await assert.rejects(
+    target.ipc.invoke(
+      AGENT_BROWSER_HISTORY_DELETE_CHANNEL,
+      {},
+      { visitId: 0 },
+    ),
+    /delete/u,
+  );
+  assert.deepEqual(deletedVisitIds, [1]);
   await assert.rejects(
     target.ipc.invoke(
       AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
@@ -3886,6 +3947,15 @@ test("browsing-footprint IPC is authorized, validated, and clear-confirmed", asy
     ),
     /unauthorized Agent Browser request/u,
   );
+  await assert.rejects(
+    rejected.ipc.invoke(
+      AGENT_BROWSER_HISTORY_DELETE_CHANNEL,
+      {},
+      { visitId: 1 },
+    ),
+    /unauthorized Agent Browser request/u,
+  );
+  assert.deepEqual(deletedVisitIds, [1]);
   rejected.binding.dispose();
   rejected.runtime.dispose();
 
@@ -3895,6 +3965,14 @@ test("browsing-footprint IPC is authorized, validated, and clear-confirmed", asy
       AGENT_BROWSER_HISTORY_READ_CHANNEL,
       {},
       { limit: 25 },
+    ),
+    /browsing footprint is unavailable/u,
+  );
+  await assert.rejects(
+    unavailable.ipc.invoke(
+      AGENT_BROWSER_HISTORY_DELETE_CHANNEL,
+      {},
+      { visitId: 1 },
     ),
     /browsing footprint is unavailable/u,
   );

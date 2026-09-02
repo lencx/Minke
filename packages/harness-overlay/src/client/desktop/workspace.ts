@@ -10,6 +10,7 @@ import {
 } from "@minke/harness-overlay/agent-browser-contract.ts";
 import {
   parseAgentBrowserHistoryClearRequest,
+  parseAgentBrowserHistoryDeleteRequest,
   parseAgentBrowserHistoryReadRequest,
   parseAgentBrowserHistorySnapshot,
 } from "@minke/harness-overlay/agent-browser-history-contract.ts";
@@ -95,6 +96,11 @@ export function desktopAgentBrowserPort(
           "Minke desktop Agent Browser history bridge is unavailable",
         );
       },
+      async deleteHistory() {
+        throw new Error(
+          "Minke desktop Agent Browser history bridge is unavailable",
+        );
+      },
       async startAnnotation() {
         throw new Error(
           "Minke desktop Agent Browser bridge is unavailable",
@@ -155,6 +161,11 @@ export function desktopAgentBrowserPort(
         await bridge.clearHistory(
           parseAgentBrowserHistoryClearRequest(request),
         ),
+      );
+    },
+    async deleteHistory(request) {
+      await bridge.deleteHistory(
+        parseAgentBrowserHistoryDeleteRequest(request),
       );
     },
     async startAnnotation(sessionId) {

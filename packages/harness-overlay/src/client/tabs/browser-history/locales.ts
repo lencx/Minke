@@ -1,8 +1,6 @@
 export const browserHistoryZh = {
   "browserHistory.create.label": "浏览历史",
   "browserHistory.tab.title": "浏览历史",
-  "browserHistory.title": "浏览历史",
-  "browserHistory.privacy": "仅保存在本机。",
   "browserHistory.search.label": "搜索浏览历史",
   "browserHistory.search.placeholder": "搜索内容、标题或网址",
   "browserHistory.search.clear": "清除搜索",
@@ -34,7 +32,10 @@ export const browserHistoryZh = {
   "browserHistory.loadMore.action": "加载更多历史",
   "browserHistory.loadMore.error": "无法加载更多历史",
   "browserHistory.loadMore.retry": "重试",
-  "browserHistory.clear": "清空",
+  "browserHistory.delete.label": "删除“{title}”",
+  "browserHistory.delete.deleting": "正在删除“{title}”",
+  "browserHistory.delete.error":
+    "无法删除“{title}”，请重试。",
   "browserHistory.clear.label": "清空浏览历史",
   "browserHistory.clear.confirm": "清空所有浏览历史？此操作无法撤销。",
   "browserHistory.clear.error": "清空失败，请重试。",
@@ -57,8 +58,6 @@ export const browserHistoryEn: Record<
 > = {
   "browserHistory.create.label": "Browser History",
   "browserHistory.tab.title": "Browser History",
-  "browserHistory.title": "Browser History",
-  "browserHistory.privacy": "Saved only on this device.",
   "browserHistory.search.label": "Search browsing history",
   "browserHistory.search.placeholder": "Search content, titles, or URLs",
   "browserHistory.search.clear": "Clear search",
@@ -90,7 +89,10 @@ export const browserHistoryEn: Record<
   "browserHistory.loadMore.action": "Load more history",
   "browserHistory.loadMore.error": "Could not load more history",
   "browserHistory.loadMore.retry": "Try again",
-  "browserHistory.clear": "Clear",
+  "browserHistory.delete.label": "Delete “{title}”",
+  "browserHistory.delete.deleting": "Deleting “{title}”",
+  "browserHistory.delete.error":
+    "Could not delete “{title}”. Try again.",
   "browserHistory.clear.label": "Clear browsing history",
   "browserHistory.clear.confirm":
     "Clear all browsing history? This cannot be undone.",

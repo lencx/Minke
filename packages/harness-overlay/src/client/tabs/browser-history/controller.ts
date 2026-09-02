@@ -7,6 +7,7 @@ import type {
 import {
   AGENT_BROWSER_HISTORY_DEFAULT_LIMIT,
   parseAgentBrowserHistoryClearRequest,
+  parseAgentBrowserHistoryDeleteRequest,
   parseAgentBrowserHistoryReadRequest,
   parseAgentBrowserHistorySnapshot,
   type AgentBrowserHistoryCursor,
@@ -25,7 +26,7 @@ import {
 
 export type BrowserHistorySource = Pick<
   DesktopAgentBrowserPort,
-  "clearHistory" | "readHistory"
+  "clearHistory" | "deleteHistory" | "readHistory"
 >;
 
 export type BrowserHistoryWebTabs = Pick<
@@ -108,6 +109,12 @@ export class BrowserHistoryTabsController {
     });
     return parseAgentBrowserHistorySnapshot(
       await this.#history.clearHistory(request),
+    );
+  }
+
+  async deleteVisit(visitId: number): Promise<void> {
+    await this.#history.deleteHistory(
+      parseAgentBrowserHistoryDeleteRequest({ visitId }),
     );
   }
 }

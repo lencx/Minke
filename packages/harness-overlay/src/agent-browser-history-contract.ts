@@ -10,6 +10,8 @@ export const AGENT_BROWSER_HISTORY_READ_CHANNEL =
   "minke:agent-browser:history:read";
 export const AGENT_BROWSER_HISTORY_CLEAR_CHANNEL =
   "minke:agent-browser:history:clear";
+export const AGENT_BROWSER_HISTORY_DELETE_CHANNEL =
+  "minke:agent-browser:history:delete";
 
 export const AGENT_BROWSER_HISTORY_DEFAULT_LIMIT = 100;
 export const AGENT_BROWSER_HISTORY_LIMIT = 200;
@@ -37,6 +39,10 @@ export interface AgentBrowserHistoryReadRequest {
 
 export interface AgentBrowserHistoryClearRequest {
   readonly confirm: true;
+}
+
+export interface AgentBrowserHistoryDeleteRequest {
+  readonly visitId: number;
 }
 
 export interface AgentBrowserHistoryVisit {
@@ -67,8 +73,9 @@ export interface AgentBrowserHistorySnapshot {
 }
 
 /**
- * Persist only same-origin favicon URLs. The live Web Tab may display a CDN
- * icon, but History must not replay an arbitrary cross-origin request later.
+ * Persist same-origin favicon URLs. When a page advertises a CDN icon, use
+ * the origin's conventional favicon endpoint so History never replays an
+ * arbitrary cross-origin request later.
  */
 export function normalizeAgentBrowserHistoryFaviconUrl(
   candidate: string,
@@ -78,10 +85,10 @@ export function normalizeAgentBrowserHistoryFaviconUrl(
   if (faviconUrl === undefined) return undefined;
   try {
     const normalizedPageUrl = normalizeAgentBrowserUrl(pageUrl);
-    return new URL(faviconUrl).origin ===
-      new URL(normalizedPageUrl).origin
+    const page = new URL(normalizedPageUrl);
+    return new URL(faviconUrl).origin === page.origin
       ? faviconUrl
-      : undefined;
+      : new URL("/favicon.ico", page.origin).href;
   } catch {
     return undefined;
   }
@@ -263,6 +270,26 @@ export function parseAgentBrowserHistoryClearRequest(
     );
   }
   return { confirm: true };
+}
+
+export function parseAgentBrowserHistoryDeleteRequest(
+  value: unknown,
+): AgentBrowserHistoryDeleteRequest {
+  const request = record(
+    value,
+    "Agent Browser history delete request",
+  );
+  if (!exactKeys(request, ["visitId"])) {
+    throw new TypeError(
+      "invalid Agent Browser history delete request",
+    );
+  }
+  return {
+    visitId: positiveInteger(
+      request.visitId,
+      "Agent Browser history delete visit id",
+    ),
+  };
 }
 
 function parseVisit(value: unknown): AgentBrowserHistoryVisit {

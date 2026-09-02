@@ -104,6 +104,34 @@ async function createVersionTwoHistoryDatabase(path) {
   }
 }
 
+function readPathStats(path, pathKey) {
+  const database = new DatabaseSync(path);
+  try {
+    const stats = database.prepare(`
+      SELECT
+        visit_count,
+        agent_visit_count,
+        human_visit_count,
+        first_visited_at,
+        last_visited_at,
+        last_url
+      FROM path_stats
+      WHERE path_key = ?
+    `).get(pathKey);
+    if (stats === undefined) return undefined;
+    return {
+      agentVisitCount: Number(stats.agent_visit_count),
+      firstVisitedAt: Number(stats.first_visited_at),
+      humanVisitCount: Number(stats.human_visit_count),
+      lastUrl: stats.last_url,
+      lastVisitedAt: Number(stats.last_visited_at),
+      visitCount: Number(stats.visit_count),
+    };
+  } finally {
+    database.close();
+  }
+}
+
 test("Agent Browser history persists visits, aggregates paths, and keeps ids monotonic", async (t) => {
   const directory = await mkdtemp(
     join(tmpdir(), "minke-agent-browser-history-"),
@@ -597,7 +625,7 @@ test("Agent Browser history caches safe favicons per origin and clears them with
   );
   assert.equal(
     history.read({ limit: 1 }).visits[0]?.faviconUrl,
-    "https://example.com/example-icon.png",
+    "https://example.com/favicon.ico",
   );
   history.updateVisitFavicon(
     firstVisit,
@@ -606,7 +634,7 @@ test("Agent Browser history caches safe favicons per origin and clears them with
   );
   assert.equal(
     history.read({ limit: 1 }).visits[0]?.faviconUrl,
-    "https://example.com/example-icon.png",
+    "https://example.com/favicon.ico",
   );
 
   history.clear();
@@ -625,6 +653,243 @@ test("Agent Browser history caches safe favicons per origin and clears them with
   assert.equal(
     history.read({ limit: 1 }).visits[0]?.faviconUrl,
     undefined,
+  );
+  history.close();
+});
+
+test("Agent Browser history rebuilds raw path metadata after deleting boundary visits", async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "minke-agent-browser-history-delete-metadata-"),
+  );
+  t.after(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+  const path = agentBrowserHistoryFilePath(directory);
+  const pathKey = "https://example.com/items/42";
+  const history = new SqliteAgentBrowserHistory({ path });
+  const firstVisit = history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "history-delete-metadata",
+    url: `${pathKey}?view=summary#top`,
+    visitedAt: 1_000,
+  });
+  history.recordVisit({
+    actor: "agent",
+    navigationKind: "same-document",
+    sessionId: "history-delete-metadata",
+    url: `${pathKey}?view=comments#latest`,
+    visitedAt: 2_000,
+  });
+  const latestVisit = history.recordVisit({
+    actor: "human",
+    navigationKind: "same-document",
+    sessionId: "history-delete-metadata",
+    url: `${pathKey}?token=deleted-secret#private`,
+    visitedAt: 3_000,
+  });
+
+  history.deleteVisit(latestVisit);
+  assert.deepEqual(readPathStats(path, pathKey), {
+    agentVisitCount: 1,
+    firstVisitedAt: 1_000,
+    humanVisitCount: 1,
+    lastUrl: `${pathKey}?view=comments#latest`,
+    lastVisitedAt: 2_000,
+    visitCount: 2,
+  });
+
+  history.deleteVisit(firstVisit);
+  assert.deepEqual(readPathStats(path, pathKey), {
+    agentVisitCount: 1,
+    firstVisitedAt: 2_000,
+    humanVisitCount: 0,
+    lastUrl: `${pathKey}?view=comments#latest`,
+    lastVisitedAt: 2_000,
+    visitCount: 1,
+  });
+  history.close();
+});
+
+test("Agent Browser history deletes one visit and updates path aggregates atomically", async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "minke-agent-browser-history-delete-"),
+  );
+  t.after(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+  const history = new SqliteAgentBrowserHistory({
+    path: agentBrowserHistoryFilePath(directory),
+  });
+  const firstVisit = history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "history-delete",
+    url: "https://example.com/items/42?view=summary",
+    visitedAt: 1_000,
+  });
+  const secondVisit = history.recordVisit({
+    actor: "agent",
+    navigationKind: "same-document",
+    sessionId: "history-delete",
+    url: "https://example.com/items/42?view=comments",
+    visitedAt: 2_000,
+  });
+  const otherVisit = history.recordVisit({
+    actor: "agent",
+    navigationKind: "document",
+    sessionId: "history-delete",
+    url: "https://example.com/other",
+    visitedAt: 3_000,
+  });
+  history.updateVisitFavicon(
+    firstVisit,
+    "https://example.com/items/42?view=summary",
+    "https://example.com/icon.png",
+  );
+
+  history.deleteVisit(9_999);
+  assert.equal(history.read({ limit: 10 }).totalVisits, 3);
+
+  history.deleteVisit(secondVisit);
+  const afterSingleDelete = history.read({ limit: 10 });
+  assert.deepEqual(
+    {
+      agentVisits: afterSingleDelete.agentVisits,
+      humanVisits: afterSingleDelete.humanVisits,
+      retainedVisits: afterSingleDelete.retainedVisits,
+      totalVisits: afterSingleDelete.totalVisits,
+      uniquePaths: afterSingleDelete.uniquePaths,
+    },
+    {
+      agentVisits: 1,
+      humanVisits: 1,
+      retainedVisits: 2,
+      totalVisits: 2,
+      uniquePaths: 2,
+    },
+  );
+  assert.deepEqual(
+    afterSingleDelete.visits.map((visit) => ({
+      actor: visit.actor,
+      faviconUrl: visit.faviconUrl,
+      pathAgentVisits: visit.pathAgentVisits,
+      pathHumanVisits: visit.pathHumanVisits,
+      pathVisitCount: visit.pathVisitCount,
+      visitId: visit.visitId,
+    })),
+    [
+      {
+        actor: "agent",
+        faviconUrl: "https://example.com/icon.png",
+        pathAgentVisits: 1,
+        pathHumanVisits: 0,
+        pathVisitCount: 1,
+        visitId: otherVisit,
+      },
+      {
+        actor: "human",
+        faviconUrl: "https://example.com/icon.png",
+        pathAgentVisits: 0,
+        pathHumanVisits: 1,
+        pathVisitCount: 1,
+        visitId: firstVisit,
+      },
+    ],
+  );
+
+  history.deleteVisit(firstVisit);
+  const afterPathDelete = history.read({ limit: 10 });
+  assert.equal(afterPathDelete.uniquePaths, 1);
+  assert.equal(
+    afterPathDelete.visits[0]?.faviconUrl,
+    "https://example.com/icon.png",
+  );
+
+  history.deleteVisit(otherVisit);
+  history.deleteVisit(otherVisit);
+  assert.deepEqual(history.read({ limit: 10 }), {
+    agentVisits: 0,
+    humanVisits: 0,
+    retainedVisits: 0,
+    totalVisits: 0,
+    uniquePaths: 0,
+    visits: [],
+  });
+  history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "history-delete",
+    url: "https://example.com/fresh",
+    visitedAt: 4_000,
+  });
+  assert.equal(
+    history.read({ limit: 1 }).visits[0]?.faviconUrl,
+    undefined,
+  );
+  history.close();
+});
+
+test("Agent Browser history retains an origin icon while pruned lifetime history still uses it", async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "minke-agent-browser-history-delete-pruned-"),
+  );
+  t.after(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+  const path = agentBrowserHistoryFilePath(directory);
+  const pathKey = "https://example.com/items";
+  const history = new SqliteAgentBrowserHistory({
+    maxRetainedVisits: 1,
+    path,
+  });
+  const firstVisit = history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "history-delete-pruned",
+    url: `${pathKey}?archived=old`,
+    visitedAt: 1_000,
+  });
+  history.updateVisitFavicon(
+    firstVisit,
+    `${pathKey}?archived=old`,
+    "https://example.com/icon.png",
+  );
+  const retainedVisit = history.recordVisit({
+    actor: "agent",
+    navigationKind: "document",
+    sessionId: "history-delete-pruned",
+    url: `${pathKey}?token=deleted-secret#private`,
+    visitedAt: 2_000,
+  });
+
+  history.deleteVisit(retainedVisit);
+  assert.deepEqual(history.read({ limit: 10 }), {
+    agentVisits: 0,
+    humanVisits: 1,
+    retainedVisits: 0,
+    totalVisits: 1,
+    uniquePaths: 1,
+    visits: [],
+  });
+  assert.deepEqual(readPathStats(path, pathKey), {
+    agentVisitCount: 0,
+    firstVisitedAt: 1_000,
+    humanVisitCount: 1,
+    lastUrl: pathKey,
+    lastVisitedAt: 1_000,
+    visitCount: 1,
+  });
+  history.recordVisit({
+    actor: "agent",
+    navigationKind: "document",
+    sessionId: "history-delete-pruned",
+    url: "https://example.com/fresh",
+    visitedAt: 3_000,
+  });
+  assert.equal(
+    history.read({ limit: 1 }).visits[0]?.faviconUrl,
+    "https://example.com/icon.png",
   );
   history.close();
 });

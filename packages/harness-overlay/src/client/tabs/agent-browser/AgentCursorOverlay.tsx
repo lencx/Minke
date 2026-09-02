@@ -4,12 +4,17 @@ import type {
 } from "react";
 import {
   useEffect,
-  useId,
   useRef,
 } from "react";
+import {
+  MousePointer2,
+} from "@lucide/icons";
 import type {
   AgentBrowserCursorProjection,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
+import {
+  LucideIcon,
+} from "@minke/harness-overlay/client/tabs/components/LucideIcon.ts";
 
 type AgentCursorStyle = CSSProperties & {
   readonly "--minke-agent-cursor-duration": string;
@@ -17,24 +22,6 @@ type AgentCursorStyle = CSSProperties & {
   readonly "--minke-agent-cursor-x": string;
   readonly "--minke-agent-cursor-y": string;
 };
-
-const AGENT_CURSOR_BODY_PATH =
-  "M3 2.25 20.1 11.55c1.08.59.72 2.2-.51 2.26"
-  + "l-6.1.3 3.82 6.22a1.4 1.4 0 0 1-.47 1.93"
-  + "l-2.18 1.31a1.4 1.4 0 0 1-1.92-.48L9.13 16.8"
-  + "l-3.55 5.48c-.68 1.04-2.29.51-2.22-.73L4.1 3.45"
-  + "c.04-.9 1.08-1.63 1.9-1.2Z";
-
-const AGENT_CURSOR_PARTICLE_IDS = [
-  1,
-  2,
-  3,
-  4,
-  5,
-  6,
-  7,
-  8,
-] as const;
 
 function viewportPercentage(
   coordinate: number,
@@ -74,7 +61,10 @@ export function agentCursorFeedbackDelayMs(
   cursor: AgentBrowserCursorProjection,
 ): number {
   if (
-    cursor.phase !== "clicking" ||
+    (
+      cursor.phase !== "clicking" &&
+      cursor.phase !== "typing"
+    ) ||
     previous === undefined ||
     sameProjectedPoint(previous, cursor)
   ) {
@@ -95,8 +85,6 @@ export function AgentCursorOverlay({
 }: {
   readonly cursor: AgentBrowserCursorProjection;
 }): ReactNode {
-  const paintId =
-    `minke-agent-cursor-paint-${useId().replace(/:/gu, "")}`;
   const previousCursorRef =
     useRef<AgentBrowserCursorProjection | undefined>(undefined);
   const clicking = cursor.phase === "clicking";
@@ -137,81 +125,40 @@ export function AgentCursorOverlay({
     >
       <span className="minke-agent-browser__agent-cursor-track">
         <span
-          key={clicking
-            ? `pressed-${cursor.sequence}`
-            : "resting"}
+          key={`${cursor.phase}-${String(cursor.sequence)}`}
           className="minke-agent-browser__agent-cursor-beacon"
           data-pressed={clicking || undefined}
           data-typing={
             cursor.phase === "typing" || undefined
           }
         >
-          <svg
-            viewBox="0 0 24 28"
-            focusable="false"
-            aria-hidden="true"
-          >
-            <defs>
-              <linearGradient
-                id={paintId}
-                x1="3"
-                y1="2"
-                x2="18"
-                y2="24"
-                gradientUnits="userSpaceOnUse"
-              >
-                <stop offset="0" stopColor="#4cecff" />
-                <stop offset="0.42" stopColor="#6578ff" />
-                <stop offset="0.76" stopColor="#c956ff" />
-                <stop offset="1" stopColor="#ff6fc6" />
-              </linearGradient>
-            </defs>
-            <path
-              className="minke-agent-browser__agent-cursor-shadow"
-              d={AGENT_CURSOR_BODY_PATH}
-              transform="translate(.75 1.1)"
-            />
-            <path
-              className="minke-agent-browser__agent-cursor-body"
-              d={AGENT_CURSOR_BODY_PATH}
-              fill={`url(#${paintId})`}
-            />
-            <path
-              className="minke-agent-browser__agent-cursor-accent"
-              d="M5.9 5.15 14.45 10"
-            />
-            <path
-              className="minke-agent-browser__agent-cursor-energy"
-              d="m9.75 17.6 3.35 5.65"
-            />
-            <circle
-              className="minke-agent-browser__agent-cursor-spark"
-              cx="5.85"
-              cy="5.05"
-              r=".82"
-            />
-          </svg>
-        </span>
-        {clicking && (
-          <span
-            key={`ripple-${cursor.sequence}`}
-            className="minke-agent-browser__agent-cursor-ripple"
-            data-click-sequence={cursor.sequence}
-          >
+          <span className="minke-agent-browser__agent-cursor-glyph">
             <span
-              className="minke-agent-browser__agent-cursor-bloom"
-            />
-            {AGENT_CURSOR_PARTICLE_IDS.map((particleId) => (
-              <span
-                key={particleId}
-                className={
-                  "minke-agent-browser__agent-cursor-particle"
-                }
-                data-particle={particleId}
-              />
-            ))}
+              className={
+                "minke-agent-browser__agent-cursor-glyph-layer " +
+                "minke-agent-browser__agent-cursor-glyph-layer--halo"
+              }
+            >
+              <LucideIcon icon={MousePointer2} size={34} />
+            </span>
+            <span
+              className={
+                "minke-agent-browser__agent-cursor-glyph-layer " +
+                "minke-agent-browser__agent-cursor-glyph-layer--outline"
+              }
+            >
+              <LucideIcon icon={MousePointer2} size={34} />
+            </span>
+            <span
+              className={
+                "minke-agent-browser__agent-cursor-glyph-layer " +
+                "minke-agent-browser__agent-cursor-glyph-layer--body"
+              }
+            >
+              <LucideIcon icon={MousePointer2} size={34} />
+            </span>
           </span>
-        )}
+        </span>
       </span>
     </div>
   );

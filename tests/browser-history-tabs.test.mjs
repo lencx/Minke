@@ -45,6 +45,7 @@ function fixture() {
   const opened = [];
   const reads = [];
   const clears = [];
+  const deletes = [];
   const tabs = new TabsRuntime({
     showPanel() {},
     hidePanel() {},
@@ -85,6 +86,9 @@ function fixture() {
         visits: [],
       };
     },
+    async deleteHistory(request) {
+      deletes.push(request);
+    },
   };
   const webTabs = {
     open(url, title) {
@@ -99,6 +103,7 @@ function fixture() {
       webTabs,
     ),
     clears,
+    deletes,
     opened,
     reads,
     tabs,
@@ -200,10 +205,11 @@ test("Browser History is one reusable tab and opens visits in a Web tab", () => 
   }]);
 });
 
-test("Browser History reads the latest 100 visits and clears explicitly", async () => {
+test("Browser History reads, deletes one visit, and clears explicitly", async () => {
   const target = fixture();
 
   const recent = await target.controller.readRecent("agent");
+  await target.controller.deleteVisit(1);
   const cleared = await target.controller.clear();
 
   assert.equal(recent.visits[0].title, "Example documentation");
@@ -212,6 +218,7 @@ test("Browser History reads the latest 100 visits and clears explicitly", async 
     actor: "agent",
     limit: 100,
   }]);
+  assert.deepEqual(target.deletes, [{ visitId: 1 }]);
   assert.deepEqual(target.clears, [{ confirm: true }]);
 });
 
@@ -250,7 +257,7 @@ test("Browser History registers a first-class tab creation mode", () => {
   assert.match(markup, /role="tabpanel"/u);
   assert.match(markup, /id="minke-tab-view-tab-1"/u);
   assert.match(markup, /aria-label="Search browsing history"/u);
-  assert.match(markup, />Browser History</u);
+  assert.doesNotMatch(markup, /<h2/u);
 });
 
 test("Browser History searches content, filters actors, and opens a result", async () => {
@@ -358,6 +365,47 @@ test("Browser History searches content, filters actors, and opens a result", asy
           await Promise.resolve();
         });
 
+        assert.equal(
+          container.querySelector(
+            ".minke-browser-history__header",
+          ),
+          null,
+        );
+        assert.equal(
+          container.querySelector(
+            ".minke-browser-history__search-control",
+          )?.nextElementSibling,
+          container.querySelector(
+            ".minke-browser-history__clear",
+          ),
+        );
+        const clearButton = container.querySelector(
+          ".minke-browser-history__clear",
+        );
+        assert.ok(clearButton instanceof dom.window.HTMLButtonElement);
+        assert.equal(clearButton.textContent, "");
+        assert.equal(
+          clearButton.getAttribute("aria-label"),
+          "Clear browsing history",
+        );
+        const filterButtons = [
+          ...container.querySelectorAll(
+            ".minke-browser-history__filters button",
+          ),
+        ];
+        assert.deepEqual(
+          filterButtons.map(
+            (button) => button.getAttribute("aria-label"),
+          ),
+          ["All", "You", "Agent"],
+        );
+        assert.ok(
+          filterButtons.every(
+            (button) =>
+              button.textContent === "" &&
+              button.querySelector("svg") !== null,
+          ),
+        );
         assert.deepEqual(
           [...container.querySelectorAll(
             ".minke-browser-history__visit-primary",
@@ -375,6 +423,7 @@ test("Browser History searches content, filters actors, and opens a result", asy
           [
             "www.google.com/search?q=release+notes",
             "example.com/docs",
+            "fallback.example/path",
           ],
         );
         assert.equal(
@@ -407,7 +456,7 @@ test("Browser History searches content, filters actors, and opens a result", asy
         );
         const metadata = [
           ...container.querySelectorAll(
-            ".minke-browser-history__visit-metadata",
+            ".minke-browser-history__visit-details",
           ),
         ];
         assert.match(
@@ -422,6 +471,30 @@ test("Browser History searches content, filters actors, and opens a result", asy
           assert.match(
             time.textContent ?? "",
             /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u,
+          );
+        }
+        const actorIcons = [
+          ...container.querySelectorAll(
+            ".minke-browser-history__actor",
+          ),
+        ];
+        assert.deepEqual(
+          actorIcons.map((icon) => icon.getAttribute("aria-label")),
+          ["You", "Agent", "You"],
+        );
+        assert.deepEqual(
+          actorIcons.map((icon) => icon.getAttribute("title")),
+          ["You", "Agent", "You"],
+        );
+        for (const details of container.querySelectorAll(
+          ".minke-browser-history__visit-details",
+        )) {
+          assert.equal(
+            details.firstElementChild?.classList.contains(
+              "minke-browser-history__actor",
+            ),
+            true,
+            "the visitor icon precedes the URL",
           );
         }
 
@@ -469,7 +542,10 @@ test("Browser History searches content, filters actors, and opens a result", asy
         });
         await act(async () => {
           [...container.querySelectorAll("button")]
-            .find((button) => button.textContent === "Agent")
+            .find(
+              (button) =>
+                button.getAttribute("aria-label") === "Agent",
+            )
             ?.click();
           await Promise.resolve();
         });
@@ -528,6 +604,309 @@ test("Browser History searches content, filters actors, and opens a result", asy
       }
     });
   } finally {
+    dom.window.close();
+    tabs.dispose();
+  }
+});
+
+test("Browser History deletes one visit without opening it and restores nearby focus", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><div id="root"></div>',
+    { pretendToBeVisual: true },
+  );
+  const visits = [
+    historyVisit({
+      title: "Entry one",
+      url: "https://example.com/one",
+      visitId: 3,
+      visitedAt: 3_000,
+    }),
+    historyVisit({
+      title: "Entry two",
+      url: "https://example.com/two",
+      visitId: 2,
+      visitedAt: 2_000,
+    }),
+    historyVisit({
+      title: "Entry three",
+      url: "https://example.com/three",
+      visitId: 1,
+      visitedAt: 1_000,
+    }),
+  ];
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  let resolveDelete;
+  const deleteCalls = [];
+  const opened = [];
+  const controller = new BrowserHistoryTabsController(
+    tabs,
+    {
+      async readHistory() {
+        return {
+          agentVisits: 0,
+          humanVisits: visits.length,
+          retainedVisits: visits.length,
+          totalVisits: visits.length,
+          uniquePaths: visits.length,
+          visits,
+        };
+      },
+      async clearHistory() {
+        throw new Error("not used");
+      },
+    },
+    {
+      open(url) {
+        opened.push(url);
+        return undefined;
+      },
+    },
+  );
+  controller.deleteVisit = (visitId) => {
+    deleteCalls.push(visitId);
+    return new Promise((resolve) => {
+      resolveDelete = resolve;
+    });
+  };
+  const tabId = controller.create("Browser History");
+  const tab = tabs.tab(tabId);
+  assert.ok(tab);
+  const renderer = createBrowserHistoryTabRenderer(
+    controller,
+    translate,
+  );
+
+  try {
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const container = dom.window.document.getElementById("root");
+      assert.ok(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(renderer.renderView(tab, true));
+          await Promise.resolve();
+        });
+        const deleteButton = [...container.querySelectorAll(
+          ".minke-browser-history__visit-delete",
+        )].find(
+          (button) =>
+            button.getAttribute("aria-label") ===
+              "Delete “Entry two”",
+        );
+        assert.ok(
+          deleteButton instanceof dom.window.HTMLButtonElement,
+        );
+        assert.equal(
+          deleteButton.getAttribute("title"),
+          "Delete “Entry two”",
+        );
+        assert.equal(
+          deleteButton.closest("button.minke-browser-history__visit"),
+          null,
+          "the delete action must not nest inside the visit button",
+        );
+        await act(async () => {
+          deleteButton.focus();
+          deleteButton.click();
+          await Promise.resolve();
+        });
+
+        assert.deepEqual(deleteCalls, [2]);
+        assert.deepEqual(opened, []);
+        assert.equal(deleteButton.disabled, true);
+        assert.equal(deleteButton.getAttribute("data-state"), "loading");
+        assert.equal(
+          deleteButton.closest("li")?.getAttribute("aria-busy"),
+          "true",
+        );
+        assert.equal(
+          deleteButton.closest("li")?.querySelector(
+            ".minke-browser-history__visit",
+          )?.disabled,
+          true,
+        );
+        assert.equal(
+          deleteButton.getAttribute("aria-label"),
+          "Deleting “Entry two”",
+        );
+        assert.equal(
+          container.querySelector('input[type="search"]')?.disabled,
+          true,
+        );
+        assert.ok(
+          [...container.querySelectorAll(
+            ".minke-browser-history__filters button",
+          )].every((button) => button.disabled),
+          "filters stay fixed while an in-flight deletion resolves",
+        );
+
+        assert.ok(resolveDelete);
+        await act(async () => {
+          resolveDelete();
+          await Promise.resolve();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        });
+
+        assert.deepEqual(
+          [...container.querySelectorAll(
+            ".minke-browser-history__visit-primary",
+          )].map((node) => node.textContent),
+          ["Entry one", "Entry three"],
+        );
+        assert.match(
+          container.querySelector(
+            ".minke-browser-history__result-count",
+          )?.textContent ?? "",
+          /2 loaded/u,
+        );
+        assert.equal(
+          dom.window.document.activeElement?.getAttribute(
+            "data-history-index",
+          ),
+          "1",
+          "focus should move to the row that replaced the deletion",
+        );
+        assert.match(
+          dom.window.document.activeElement?.textContent ?? "",
+          /Entry three/u,
+        );
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+  } finally {
+    dom.window.close();
+    tabs.dispose();
+  }
+});
+
+test("Browser History keeps a failed single deletion visible and retryable", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><div id="root"></div>',
+    { pretendToBeVisual: true },
+  );
+  const visit = historyVisit({
+    title: "Do not lose me",
+    url: "https://example.com/keep",
+    visitId: 9,
+    visitedAt: 9_000,
+  });
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  let deleteAttempts = 0;
+  const controller = new BrowserHistoryTabsController(
+    tabs,
+    {
+      async readHistory() {
+        return {
+          agentVisits: 0,
+          humanVisits: 1,
+          retainedVisits: 1,
+          totalVisits: 1,
+          uniquePaths: 1,
+          visits: [visit],
+        };
+      },
+      async clearHistory() {
+        throw new Error("not used");
+      },
+    },
+    {
+      open() {
+        return undefined;
+      },
+    },
+  );
+  controller.deleteVisit = async () => {
+    deleteAttempts += 1;
+    if (deleteAttempts === 1) {
+      throw new Error("sqlite path /private/secret.db");
+    }
+  };
+  const tabId = controller.create("Browser History");
+  const tab = tabs.tab(tabId);
+  assert.ok(tab);
+  const renderer = createBrowserHistoryTabRenderer(
+    controller,
+    translate,
+  );
+  const warnings = [];
+  const previousWarn = console.warn;
+
+  try {
+    console.warn = (...args) => warnings.push(args);
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const container = dom.window.document.getElementById("root");
+      assert.ok(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(renderer.renderView(tab, true));
+          await Promise.resolve();
+        });
+        const deleteButton = container.querySelector(
+          ".minke-browser-history__visit-delete",
+        );
+        assert.ok(
+          deleteButton instanceof dom.window.HTMLButtonElement,
+        );
+
+        await act(async () => {
+          deleteButton.click();
+          await Promise.resolve();
+        });
+
+        assert.equal(deleteAttempts, 1);
+        assert.equal(
+          container.querySelectorAll(
+            ".minke-browser-history__visit",
+          ).length,
+          1,
+        );
+        assert.equal(deleteButton.getAttribute("data-state"), "error");
+        assert.equal(
+          deleteButton.closest("li")?.getAttribute(
+            "data-delete-state",
+          ),
+          "error",
+        );
+        assert.equal(
+          deleteButton.getAttribute("aria-label"),
+          "Could not delete “Do not lose me”. Try again.",
+        );
+        assert.match(
+          container.querySelector("[role='alert']")?.textContent ?? "",
+          /Could not delete “Do not lose me”/u,
+        );
+        assert.doesNotMatch(container.textContent, /secret\.db/u);
+
+        await act(async () => {
+          deleteButton.click();
+          await Promise.resolve();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        });
+
+        assert.equal(deleteAttempts, 2);
+        assert.equal(
+          container.querySelector(
+            ".minke-browser-history__visit",
+          ),
+          null,
+        );
+        assert.equal(warnings.length, 1);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+  } finally {
+    console.warn = previousWarn;
     dom.window.close();
     tabs.dispose();
   }
@@ -602,10 +981,14 @@ test("Browser History requires confirmation before clearing all visits", async (
         });
         const button = (label) =>
           [...container.querySelectorAll("button")]
-            .find((candidate) => candidate.textContent === label);
+            .find(
+              (candidate) =>
+                candidate.textContent === label ||
+                candidate.getAttribute("aria-label") === label,
+            );
 
         await act(async () => {
-          button("Clear")?.click();
+          button("Clear browsing history")?.click();
         });
         assert.equal(clears, 0);
         const confirmation = container.querySelector(
@@ -637,12 +1020,14 @@ test("Browser History requires confirmation before clearing all visits", async (
           null,
         );
         assert.equal(
-          dom.window.document.activeElement?.textContent,
-          "Clear",
+          dom.window.document.activeElement?.getAttribute(
+            "aria-label",
+          ),
+          "Clear browsing history",
         );
 
         await act(async () => {
-          button("Clear")?.click();
+          button("Clear browsing history")?.click();
         });
         await act(async () => {
           button("Clear history")?.click();
@@ -742,9 +1127,13 @@ test("Browser History keeps visits visible when clear fails and retries the clea
         });
         const button = (label) =>
           [...container.querySelectorAll("button")]
-            .find((candidate) => candidate.textContent === label);
+            .find(
+              (candidate) =>
+                candidate.textContent === label ||
+                candidate.getAttribute("aria-label") === label,
+            );
         await act(async () => {
-          button("Clear")?.click();
+          button("Clear browsing history")?.click();
         });
         await act(async () => {
           button("Clear history")?.click();
@@ -866,9 +1255,13 @@ test("Browser History clear completion survives panel visibility changes", async
         });
         const button = (label) =>
           [...container.querySelectorAll("button")]
-            .find((candidate) => candidate.textContent === label);
+            .find(
+              (candidate) =>
+                candidate.textContent === label ||
+                candidate.getAttribute("aria-label") === label,
+            );
         act(() => {
-          button("Clear")?.click();
+          button("Clear browsing history")?.click();
         });
         act(() => {
           button("Clear history")?.click();
@@ -1095,18 +1488,116 @@ test("Browser History layout remains usable in right and bottom tab panels", asy
   );
   assert.equal(
     contract.declaration(
+      ".minke-browser-history__visit-body",
+      "flex-direction",
+    ),
+    "column",
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-browser-history__filter-bar",
+      "grid-column",
+    ),
+    "1 / -1",
+  );
+  assert.equal(
+    contract.declaration(
       ".minke-browser-history__results",
       "overflow",
     ),
     "auto",
   );
-  assert.match(
-    BROWSER_HISTORY_STYLES,
-    /@container\s+minke-browser-history\s+\(max-width:\s*520px\)\s*\{[\s\S]*?\.minke-browser-history__controls\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/u,
+  assert.equal(
+    contract.declaration(
+      ".minke-browser-history__results",
+      "border-top",
+    ),
+    undefined,
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-browser-history__visits",
+      "border",
+    ),
+    undefined,
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-browser-history__visits > li",
+      "border-bottom",
+    ),
+    undefined,
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-browser-history__skeleton",
+      "border",
+    ),
+    undefined,
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-browser-history__skeleton-row + .minke-browser-history__skeleton-row",
+      "border-top",
+    ),
+    undefined,
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-browser-history__visit-delete",
+      "opacity",
+    ),
+    "0",
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-browser-history__visit-delete",
+      "pointer-events",
+    ),
+    "none",
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-browser-history__visit-delete",
+      "visibility",
+    ),
+    "hidden",
   );
   assert.match(
     BROWSER_HISTORY_STYLES,
-    /@container\s+minke-browser-history\s+\(max-width:\s*520px\)\s*\{[\s\S]*?\.minke-browser-history__visit-body\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;/u,
+    /\.minke-browser-history__visits\s*>\s*li:hover[\s\S]*?\.minke-browser-history__visit-delete,[\s\S]*?li:focus-within[\s\S]*?opacity:\s*1;[\s\S]*?pointer-events:\s*auto;/u,
+  );
+  assert.match(
+    BROWSER_HISTORY_STYLES,
+    /@media\s*\(hover:\s*none\),\s*\(pointer:\s*coarse\)\s*\{[\s\S]*?\.minke-browser-history__visit-delete\s*\{[\s\S]*?opacity:\s*1;[\s\S]*?visibility:\s*visible;/u,
+  );
+  assert.match(
+    BROWSER_HISTORY_STYLES,
+    /@container\s+minke-browser-history\s+\(max-width:\s*520px\)\s*\{[\s\S]*?\.minke-browser-history__controls\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;/u,
+  );
+  assert.equal(
+    contract.atRuleDeclaration(
+      "@container minke-browser-history (max-width: 520px)",
+      ".minke-browser-history__separator--count",
+      "display",
+    ),
+    "none",
+  );
+  assert.equal(
+    contract.atRuleDeclaration(
+      "@container minke-browser-history (max-width: 520px)",
+      ".minke-browser-history__visit-count",
+      "display",
+    ),
+    "none",
+  );
+  assert.equal(
+    contract.atRuleDeclaration(
+      "@container minke-browser-history (max-width: 520px)",
+      ".minke-browser-history__actor",
+      "display",
+    ),
+    undefined,
   );
   assert.match(
     BROWSER_HISTORY_STYLES,
@@ -1262,6 +1753,47 @@ test("Browser History appends cursor pages while keeping the DOM window bounded"
           )?.getAttribute("tabindex"),
           "-1",
         );
+        const results = container.querySelector(
+          ".minke-browser-history__results",
+        );
+        assert.ok(results instanceof dom.window.HTMLElement);
+        const tenthVisit = container.querySelector(
+          '[data-history-index="10"]',
+        );
+        const tenthVisitRow = tenthVisit?.closest("li");
+        assert.ok(tenthVisitRow instanceof dom.window.HTMLElement);
+        Object.defineProperties(results, {
+          clientHeight: {
+            configurable: true,
+            value: 112,
+          },
+          clientTop: {
+            configurable: true,
+            value: 1,
+          },
+        });
+        results.getBoundingClientRect = () => ({
+          bottom: 213,
+          height: 113,
+          left: 0,
+          right: 400,
+          top: 100,
+          width: 400,
+          x: 0,
+          y: 100,
+          toJSON() {},
+        });
+        tenthVisitRow.getBoundingClientRect = () => ({
+          bottom: 728,
+          height: 56,
+          left: 24,
+          right: 376,
+          top: 672,
+          width: 352,
+          x: 24,
+          y: 672,
+          toJSON() {},
+        });
         await act(async () => {
           firstVisit.focus();
           firstVisit.dispatchEvent(
@@ -1283,16 +1815,17 @@ test("Browser History appends cursor pages while keeping the DOM window bounded"
           "10",
         );
         assert.equal(
+          results.scrollTop,
+          515,
+          "keyboard scrolling uses the rendered row geometry",
+        );
+        assert.equal(
           container.querySelector(
             ".minke-browser-history__group",
           ),
           null,
         );
 
-        const results = container.querySelector(
-          ".minke-browser-history__results",
-        );
-        assert.ok(results instanceof dom.window.HTMLElement);
         await act(async () => {
           results.scrollTop = 56 * 90;
           results.dispatchEvent(
@@ -1301,6 +1834,13 @@ test("Browser History appends cursor pages while keeping the DOM window bounded"
           flushAnimationFrames();
           await Promise.resolve();
         });
+        assert.equal(
+          container.querySelector(
+            '[data-history-index="10"]',
+          ),
+          dom.window.document.activeElement,
+          "the focused row stays mounted outside the virtual window",
+        );
         assert.ok(resolveSecondPage);
         await act(async () => {
           resolveSecondPage();
@@ -1320,7 +1860,8 @@ test("Browser History appends cursor pages while keeping the DOM window bounded"
         assert.ok(
           container.querySelectorAll(
             ".minke-browser-history__visit",
-          ).length <= 26,
+          ).length <= 27,
+          "the virtual window adds at most one retained focus row",
         );
         assert.match(container.textContent, /150 loaded/u);
       } finally {

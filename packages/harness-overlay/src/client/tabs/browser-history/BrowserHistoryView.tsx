@@ -1,12 +1,16 @@
 import {
+  Bot,
   ChevronRight,
   CircleAlert,
   Globe,
   History,
+  ListFilter,
+  LoaderCircle,
   Search,
   SearchX,
   Trash2,
   TriangleAlert,
+  User,
   X,
 } from "@lucide/icons";
 import {
@@ -57,14 +61,17 @@ const HISTORY_FALLBACK_VIEWPORT_HEIGHT = 560;
 
 const actorFilters = [
   {
+    icon: ListFilter,
     label: "browserHistory.filter.all",
     value: "all",
   },
   {
+    icon: User,
     label: "browserHistory.filter.human",
     value: "human",
   },
   {
+    icon: Bot,
     label: "browserHistory.filter.agent",
     value: "agent",
   },
@@ -215,6 +222,36 @@ function visitsInRange(
   return result;
 }
 
+function withoutVisit(
+  pages: readonly (readonly AgentBrowserHistoryVisit[])[],
+  removed: AgentBrowserHistoryVisit,
+): readonly (readonly AgentBrowserHistoryVisit[])[] {
+  return pages
+    .map((page) =>
+      page.flatMap((visit) => {
+        if (visit.visitId === removed.visitId) return [];
+        if (visit.pathKey !== removed.pathKey) return [visit];
+        return [{
+          ...visit,
+          pathAgentVisits: Math.max(
+            0,
+            visit.pathAgentVisits -
+              (removed.actor === "agent" ? 1 : 0),
+          ),
+          pathHumanVisits: Math.max(
+            0,
+            visit.pathHumanVisits -
+              (removed.actor === "human" ? 1 : 0),
+          ),
+          pathVisitCount: Math.max(
+            1,
+            visit.pathVisitCount - 1,
+          ),
+        }];
+      }))
+    .filter((page) => page.length > 0);
+}
+
 export function BrowserHistoryView({
   active,
   controller,
@@ -244,8 +281,16 @@ export function BrowserHistoryView({
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState(false);
+  const [deletingVisitId, setDeletingVisitId] =
+    useState<number>();
+  const [deleteErrorVisitId, setDeleteErrorVisitId] =
+    useState<number>();
+  const [focusAfterDeleteIndex, setFocusAfterDeleteIndex] =
+    useState<number>();
   const [scrollTop, setScrollTop] = useState(0);
   const [keyboardIndex, setKeyboardIndex] = useState(0);
+  const [focusedVisitIndex, setFocusedVisitIndex] =
+    useState<number>();
   const [viewportHeight, setViewportHeight] = useState(
     HISTORY_FALLBACK_VIEWPORT_HEIGHT,
   );
@@ -253,9 +298,13 @@ export function BrowserHistoryView({
   const [failedFaviconUrls, setFailedFaviconUrls] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  const latestFilterRef = useRef({ actor, debouncedQuery });
+  latestFilterRef.current = { actor, debouncedQuery };
   const generationRef = useRef(0);
   const clearRequestId = useRef(0);
+  const deleteRequestId = useRef(0);
   const clearingRef = useRef(false);
+  const deletingVisitRef = useRef<number | undefined>(undefined);
   const appendPendingRef = useRef(false);
   const seenVisitIdsRef = useRef(new Set<number>());
   const mountedRef = useRef(true);
@@ -292,8 +341,10 @@ export function BrowserHistoryView({
     setNextCursor(undefined);
     setStatus("loading");
     setAppendStatus("idle");
+    setDeleteErrorVisitId(undefined);
     setScrollTop(0);
     setKeyboardIndex(0);
+    setFocusedVisitIndex(undefined);
     pendingScrollTopRef.current = 0;
     if (scrollFrameRef.current !== undefined) {
       window.cancelAnimationFrame(scrollFrameRef.current);
@@ -404,6 +455,7 @@ export function BrowserHistoryView({
       mountedRef.current = false;
       generationRef.current += 1;
       clearRequestId.current += 1;
+      deleteRequestId.current += 1;
       if (scrollFrameRef.current !== undefined) {
         window.cancelAnimationFrame(scrollFrameRef.current);
         scrollFrameRef.current = undefined;
@@ -493,14 +545,36 @@ export function BrowserHistoryView({
     }),
     [rowHeight, scrollTop, viewportHeight, visitCount],
   );
-  const virtualVisits = useMemo(
-    () => visitsInRange(
+  const virtualVisits = useMemo(() => {
+    const visibleVisits = visitsInRange(
       visitPages,
       virtualRange.start,
       virtualRange.end,
-    ),
-    [virtualRange.end, virtualRange.start, visitPages],
-  );
+    );
+    if (
+      focusedVisitIndex === undefined ||
+      (
+        focusedVisitIndex >= virtualRange.start &&
+        focusedVisitIndex < virtualRange.end
+      )
+    ) {
+      return visibleVisits;
+    }
+    const focusedVisit = visitsInRange(
+      visitPages,
+      focusedVisitIndex,
+      focusedVisitIndex + 1,
+    )[0];
+    if (focusedVisit === undefined) return visibleVisits;
+    return focusedVisitIndex < virtualRange.start
+      ? [focusedVisit, ...visibleVisits]
+      : [...visibleVisits, focusedVisit];
+  }, [
+    focusedVisitIndex,
+    virtualRange.end,
+    virtualRange.start,
+    visitPages,
+  ]);
 
   useEffect(() => {
     if (
@@ -527,7 +601,10 @@ export function BrowserHistoryView({
   };
 
   const clearHistory = async (): Promise<void> => {
-    if (clearingRef.current) return;
+    if (
+      clearingRef.current ||
+      deletingVisitRef.current !== undefined
+    ) return;
     clearingRef.current = true;
     const currentRequest = clearRequestId.current + 1;
     clearRequestId.current = currentRequest;
@@ -548,8 +625,11 @@ export function BrowserHistoryView({
       setNextCursor(undefined);
       setStatus("ready");
       setAppendStatus("idle");
+      setDeletingVisitId(undefined);
+      setDeleteErrorVisitId(undefined);
       setScrollTop(0);
       setKeyboardIndex(0);
+      setFocusedVisitIndex(undefined);
       pendingScrollTopRef.current = 0;
       if (scrollFrameRef.current !== undefined) {
         window.cancelAnimationFrame(scrollFrameRef.current);
@@ -580,6 +660,84 @@ export function BrowserHistoryView({
       ) {
         clearingRef.current = false;
         setClearing(false);
+      }
+    }
+  };
+
+  const deleteVisit = async (
+    visit: AgentBrowserHistoryVisit,
+    index: number,
+  ): Promise<void> => {
+    if (
+      clearingRef.current ||
+      deletingVisitRef.current !== undefined
+    ) return;
+    deletingVisitRef.current = visit.visitId;
+    const requestId = deleteRequestId.current + 1;
+    const requestGeneration = generationRef.current;
+    deleteRequestId.current = requestId;
+    setDeleteErrorVisitId(undefined);
+    setDeletingVisitId(visit.visitId);
+    try {
+      await controller.deleteVisit(visit.visitId);
+      if (
+        !mountedRef.current ||
+        deleteRequestId.current !== requestId
+      ) return;
+      if (generationRef.current !== requestGeneration) {
+        const latestFilter = latestFilterRef.current;
+        await resetAndLoad(
+          latestFilter.actor,
+          latestFilter.debouncedQuery,
+        );
+        return;
+      }
+      seenVisitIdsRef.current.delete(visit.visitId);
+      setVisitPages((current) => withoutVisit(current, visit));
+      setSnapshot((current) => current === undefined
+        ? current
+        : {
+          ...current,
+          agentVisits: Math.max(
+            0,
+            current.agentVisits -
+              (visit.actor === "agent" ? 1 : 0),
+          ),
+          humanVisits: Math.max(
+            0,
+            current.humanVisits -
+              (visit.actor === "human" ? 1 : 0),
+          ),
+          retainedVisits: Math.max(
+            0,
+            current.retainedVisits - 1,
+          ),
+          totalVisits: Math.max(0, current.totalVisits - 1),
+          uniquePaths: Math.max(
+            0,
+            current.uniquePaths -
+              (visit.pathVisitCount === 1 ? 1 : 0),
+          ),
+        });
+      setFocusedVisitIndex(index);
+      setFocusAfterDeleteIndex(index);
+    } catch (deleteError) {
+      if (
+        !mountedRef.current ||
+        deleteRequestId.current !== requestId
+      ) return;
+      console.warn(
+        "Minke Browser History could not delete a visit.",
+        deleteError,
+      );
+      setDeleteErrorVisitId(visit.visitId);
+    } finally {
+      if (
+        mountedRef.current &&
+        deleteRequestId.current === requestId
+      ) {
+        deletingVisitRef.current = undefined;
+        setDeletingVisitId(undefined);
       }
     }
   };
@@ -623,11 +781,47 @@ export function BrowserHistoryView({
     if (results !== null) {
       const visibleHeight =
         results.clientHeight || viewportHeight;
-      const rowTop = index * rowHeight;
-      const rowBottom = rowTop + rowHeight;
+      const resultsRect = results.getBoundingClientRect();
+      const viewportTop = resultsRect.top + results.clientTop;
+      const renderedRow = results
+        .querySelector<HTMLButtonElement>(
+          `[data-history-index="${String(index)}"]`,
+        )
+        ?.closest("li");
+      const renderedRowRect = renderedRow?.getBoundingClientRect();
+      const hasRenderedGeometry =
+        renderedRowRect !== undefined &&
+        renderedRowRect.bottom > renderedRowRect.top;
+      const visitsList = results.querySelector<HTMLOListElement>(
+        ".minke-browser-history__visits",
+      );
+      const listRect = visitsList?.getBoundingClientRect();
+      const listTop =
+        listRect === undefined
+          ? 0
+          : (
+            listRect.top -
+            viewportTop +
+            results.scrollTop +
+            (visitsList?.clientTop ?? 0)
+          );
+      const rowTop = hasRenderedGeometry
+        ? (
+          renderedRowRect.top -
+          viewportTop +
+          results.scrollTop
+        )
+        : listTop + index * rowHeight;
+      const rowBottom = hasRenderedGeometry
+        ? (
+          renderedRowRect.bottom -
+          viewportTop +
+          results.scrollTop
+        )
+        : rowTop + rowHeight;
       let nextScrollTop = results.scrollTop;
       if (rowTop < results.scrollTop) {
-        nextScrollTop = rowTop;
+        nextScrollTop = Math.max(0, rowTop);
       } else if (
         rowBottom > results.scrollTop + visibleHeight
       ) {
@@ -688,12 +882,44 @@ export function BrowserHistoryView({
     }
   };
 
+  useLayoutEffect(() => {
+    if (focusAfterDeleteIndex === undefined || !active) return;
+    setFocusAfterDeleteIndex(undefined);
+    if (visitCount === 0) {
+      setFocusedVisitIndex(undefined);
+      setKeyboardIndex(0);
+      searchRef.current?.focus({ preventScroll: true });
+      if (nextCursor !== undefined) void loadMore();
+      return;
+    }
+    const nextIndex = Math.min(
+      focusAfterDeleteIndex,
+      visitCount - 1,
+    );
+    moveVisitFocus(nextIndex);
+    resultsRef.current
+      ?.querySelector<HTMLButtonElement>(
+        `[data-history-index="${String(nextIndex)}"]`,
+      )
+      ?.focus({ preventScroll: true });
+  }, [
+    active,
+    focusAfterDeleteIndex,
+    loadMore,
+    moveVisitFocus,
+    nextCursor,
+    visitCount,
+  ]);
+
   const filtered = actor !== "all" || debouncedQuery !== "";
   const loadingInitial =
     status === "loading" && snapshot === undefined;
   const tabStopIndex =
-    keyboardIndex >= virtualRange.start &&
-    keyboardIndex < virtualRange.end
+    (
+      keyboardIndex >= virtualRange.start &&
+      keyboardIndex < virtualRange.end
+    ) ||
+    focusedVisitIndex === keyboardIndex
       ? keyboardIndex
       : virtualRange.start;
   const resultCountKey = nextCursor === undefined
@@ -709,38 +935,6 @@ export function BrowserHistoryView({
       hidden={!active}
     >
       <div className="minke-browser-history__page">
-        <header className="minke-browser-history__header">
-          <div className="minke-browser-history__heading">
-            <h2>{t("browserHistory.title")}</h2>
-            <p>{t("browserHistory.privacy")}</p>
-          </div>
-          <button
-            ref={clearButtonRef}
-            type="button"
-            className="minke-browser-history__clear"
-            aria-label={t("browserHistory.clear.label")}
-            title={t("browserHistory.clear.label")}
-            disabled={
-              confirmingClear ||
-              clearing ||
-              snapshot === undefined ||
-              snapshot.totalVisits === 0
-            }
-            onClick={() => {
-              setClearError(false);
-              setConfirmingClear(true);
-            }}
-          >
-            <LucideIcon icon={Trash2} size={13} />
-            <span>
-              {t(
-                clearing
-                  ? "browserHistory.clear.clearing"
-                  : "browserHistory.clear",
-              )}
-            </span>
-          </button>
-        </header>
         <div className="minke-browser-history__controls">
           <label className="minke-browser-history__search-control">
             <span className="minke-browser-history__search-icon">
@@ -751,7 +945,9 @@ export function BrowserHistoryView({
               className="minke-browser-history__search"
               type="search"
               value={query}
-              disabled={clearing}
+              disabled={
+                clearing || deletingVisitId !== undefined
+              }
               aria-label={t("browserHistory.search.label")}
               placeholder={t("browserHistory.search.placeholder")}
               onChange={(event) => {
@@ -762,7 +958,9 @@ export function BrowserHistoryView({
               <button
                 type="button"
                 className="minke-browser-history__search-clear"
-                disabled={clearing}
+                disabled={
+                  clearing || deletingVisitId !== undefined
+                }
                 aria-label={t("browserHistory.search.clear")}
                 title={t("browserHistory.search.clear")}
                 onClick={() => {
@@ -777,6 +975,26 @@ export function BrowserHistoryView({
               </button>
             )}
           </label>
+          <button
+            ref={clearButtonRef}
+            type="button"
+            className="minke-browser-history__clear"
+            aria-label={t("browserHistory.clear.label")}
+            title={t("browserHistory.clear.label")}
+            disabled={
+              confirmingClear ||
+              clearing ||
+              deletingVisitId !== undefined ||
+              snapshot === undefined ||
+              snapshot.totalVisits === 0
+            }
+            onClick={() => {
+              setClearError(false);
+              setConfirmingClear(true);
+            }}
+          >
+            <LucideIcon icon={Trash2} size={13} />
+          </button>
           <div className="minke-browser-history__filter-bar">
             <div
               className="minke-browser-history__filters"
@@ -789,13 +1007,17 @@ export function BrowserHistoryView({
                   type="button"
                   data-actor={filter.value}
                   aria-pressed={actor === filter.value}
-                  disabled={clearing}
+                  aria-label={t(filter.label)}
+                  title={t(filter.label)}
+                  disabled={
+                    clearing || deletingVisitId !== undefined
+                  }
                   onClick={() => {
                     setDebouncedQuery(query.trim());
                     setActor(filter.value);
                   }}
                 >
-                  {t(filter.label)}
+                  <LucideIcon icon={filter.icon} size={13} />
                 </button>
               ))}
             </div>
@@ -991,9 +1213,29 @@ export function BrowserHistoryView({
                     webHistoryDisplayAddress(visit.url);
                   const visitedAt =
                     formatLocalDateTime(visit.visitedAt);
+                  const deleting =
+                    deletingVisitId === visit.visitId;
+                  const deleteFailed =
+                    deleteErrorVisitId === visit.visitId;
+                  const deleteLabel = t(
+                    deleteFailed
+                      ? "browserHistory.delete.error"
+                      : deleting
+                        ? "browserHistory.delete.deleting"
+                        : "browserHistory.delete.label",
+                    { title: primary },
+                  );
                   return (
                     <li
                       key={visit.visitId}
+                      data-delete-state={
+                        deleteFailed
+                          ? "error"
+                          : deleting
+                            ? "loading"
+                            : undefined
+                      }
+                      aria-busy={deleting || undefined}
                       aria-posinset={index + 1}
                       aria-setsize={
                         nextCursor === undefined
@@ -1006,6 +1248,19 @@ export function BrowserHistoryView({
                           String(index * rowHeight)
                         }px)`,
                       }}
+                      onFocusCapture={() => {
+                        setKeyboardIndex(index);
+                        setFocusedVisitIndex(index);
+                      }}
+                      onBlurCapture={(event) => {
+                        if (
+                          event.currentTarget.contains(
+                            event.relatedTarget as Node | null,
+                          )
+                        ) return;
+                        setFocusedVisitIndex((current) =>
+                          current === index ? undefined : current);
+                      }}
                     >
                       <button
                         type="button"
@@ -1013,8 +1268,7 @@ export function BrowserHistoryView({
                         data-history-index={index}
                         tabIndex={index === tabStopIndex ? 0 : -1}
                         title={visit.url}
-                        disabled={clearing}
-                        onFocus={() => setKeyboardIndex(index)}
+                        disabled={clearing || deleting}
                         onKeyDown={(event) =>
                           handleVisitKeyDown(event, index)}
                         onClick={() => {
@@ -1040,36 +1294,60 @@ export function BrowserHistoryView({
                             "minke-browser-history__visit-body"
                           }
                         >
-                          <span
+                          <strong
                             className={
-                              "minke-browser-history__visit-content"
+                              "minke-browser-history__visit-primary"
                             }
                           >
-                            <strong
+                            {primary}
+                          </strong>
+                          <span
+                            className={
+                              "minke-browser-history__visit-details"
+                            }
+                          >
+                            <span
                               className={
-                                "minke-browser-history__visit-primary"
+                                "minke-browser-history__actor"
                               }
-                            >
-                              {primary}
-                            </strong>
-                            {primary === address
-                              ? null
-                              : (
-                                <span
-                                  className={
-                                    "minke-browser-history__visit-url"
-                                  }
-                                  dir="ltr"
-                                >
-                                  {address}
-                                </span>
+                              data-actor={visit.actor}
+                              aria-label={t(
+                                visit.actor === "agent"
+                                  ? "browserHistory.actor.agent"
+                                  : "browserHistory.actor.human",
                               )}
-                          </span>
-                          <span
-                            className={
-                              "minke-browser-history__visit-metadata"
-                            }
-                          >
+                              title={t(
+                                visit.actor === "agent"
+                                  ? "browserHistory.actor.agent"
+                                  : "browserHistory.actor.human",
+                              )}
+                            >
+                              <LucideIcon
+                                icon={
+                                  visit.actor === "agent"
+                                    ? Bot
+                                    : User
+                                }
+                                size={12}
+                              />
+                            </span>
+                            <span
+                              className={
+                                "minke-browser-history__visit-url"
+                              }
+                              dir="ltr"
+                            >
+                              {address}
+                            </span>
+                            <span
+                              className={
+                                "minke-browser-history__separator "
+                                + "minke-browser-history__separator--time"
+                              }
+                              aria-hidden="true"
+                            >
+                              ·
+                            </span>
                             <time
                               dateTime={
                                 new Date(
@@ -1082,6 +1360,7 @@ export function BrowserHistoryView({
                             <span
                               className={
                                 "minke-browser-history__separator"
+                                + " minke-browser-history__separator--count"
                               }
                               aria-hidden="true"
                             >
@@ -1089,26 +1368,9 @@ export function BrowserHistoryView({
                             </span>
                             <span
                               className={
-                                "minke-browser-history__actor"
+                                "minke-browser-history__visit-count"
                               }
-                              data-actor={visit.actor}
                             >
-                              <span aria-hidden="true" />
-                              {t(
-                                visit.actor === "agent"
-                                  ? "browserHistory.actor.agent"
-                                  : "browserHistory.actor.human",
-                              )}
-                            </span>
-                            <span
-                              className={
-                                "minke-browser-history__separator"
-                              }
-                              aria-hidden="true"
-                            >
-                              ·
-                            </span>
-                            <span>
                               {visitCountLabel(
                                 visit.pathVisitCount,
                                 t,
@@ -1127,6 +1389,53 @@ export function BrowserHistoryView({
                           />
                         </span>
                       </button>
+                      <button
+                        type="button"
+                        className={
+                          "minke-browser-history__visit-delete"
+                        }
+                        data-state={
+                          deleteFailed
+                            ? "error"
+                            : deleting
+                              ? "loading"
+                              : undefined
+                        }
+                        tabIndex={index === tabStopIndex ? 0 : -1}
+                        aria-label={deleteLabel}
+                        title={deleteLabel}
+                        disabled={
+                          clearing ||
+                          confirmingClear ||
+                          (
+                            deletingVisitId !== undefined &&
+                            !deleting
+                          ) ||
+                          deleting
+                        }
+                        onKeyDown={(event) =>
+                          handleVisitKeyDown(event, index)}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void deleteVisit(visit, index);
+                        }}
+                      >
+                        <LucideIcon
+                          icon={deleting ? LoaderCircle : Trash2}
+                          size={13}
+                        />
+                      </button>
+                      {deleteFailed && (
+                        <span
+                          className={
+                            "minke-browser-history__visually-hidden"
+                          }
+                          role="alert"
+                        >
+                          {deleteLabel}
+                        </span>
+                      )}
                     </li>
                   );
                 })}

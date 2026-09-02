@@ -155,9 +155,8 @@ function splitSelectorList(prelude) {
   return selectors;
 }
 
-export function inspectCssContract(source) {
-  const declarationsBySelector = new Map();
-  for (const block of rootBlocks(source)) {
+function appendStyleRules(blocks, declarationsBySelector) {
+  for (const block of blocks) {
     const prelude = block.prelude;
     if (prelude.startsWith("@")) continue;
     const declarations = parseDeclarations(block.body);
@@ -170,24 +169,69 @@ export function inspectCssContract(source) {
       declarationsBySelector.set(normalized, rules);
     }
   }
+}
 
-  const keyframes = new Set(
-    [...source.matchAll(
-      /@(?:-\w+-)?keyframes\s+([-\w]+)\s*\{/gu,
-    )].map((match) => match[1]),
+function declarationFrom(
+  declarationsBySelector,
+  selector,
+  property,
+) {
+  const rules = declarationsBySelector.get(
+    normalizeWhitespace(selector),
   );
+  if (rules === undefined) return undefined;
+  for (let index = rules.length - 1; index >= 0; index -= 1) {
+    const value = rules[index].get(property);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+export function inspectCssContract(source) {
+  const declarationsBySelector = new Map();
+  const declarationsByAtRule = new Map();
+  const keyframes = new Map();
+  const blocks = rootBlocks(source);
+  appendStyleRules(blocks, declarationsBySelector);
+
+  for (const block of blocks) {
+    const prelude = normalizeWhitespace(block.prelude);
+    if (!prelude.startsWith("@")) continue;
+
+    const keyframesMatch =
+      /^@(?:-\w+-)?keyframes\s+([-\w]+)$/u.exec(prelude);
+    if (keyframesMatch !== null) {
+      const frames = keyframes.get(keyframesMatch[1]) ?? new Map();
+      appendStyleRules(rootBlocks(block.body), frames);
+      keyframes.set(keyframesMatch[1], frames);
+      continue;
+    }
+
+    const rules =
+      declarationsByAtRule.get(prelude) ?? new Map();
+    appendStyleRules(rootBlocks(block.body), rules);
+    declarationsByAtRule.set(prelude, rules);
+  }
 
   return Object.freeze({
     declaration(selector, property) {
-      const rules = declarationsBySelector.get(
-        normalizeWhitespace(selector),
+      return declarationFrom(
+        declarationsBySelector,
+        selector,
+        property,
+      );
+    },
+    atRuleDeclaration(atRule, selector, property) {
+      const rules = declarationsByAtRule.get(
+        normalizeWhitespace(atRule),
       );
       if (rules === undefined) return undefined;
-      for (let index = rules.length - 1; index >= 0; index -= 1) {
-        const value = rules[index].get(property);
-        if (value !== undefined) return value;
-      }
-      return undefined;
+      return declarationFrom(rules, selector, property);
+    },
+    keyframeDeclaration(name, frame, property) {
+      const frames = keyframes.get(name);
+      if (frames === undefined) return undefined;
+      return declarationFrom(frames, frame, property);
     },
     hasKeyframes(name) {
       return keyframes.has(name);

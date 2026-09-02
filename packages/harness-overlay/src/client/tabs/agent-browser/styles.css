@@ -462,16 +462,11 @@
 }
 
 .minke-agent-browser__agent-cursor-layer {
-  --minke-agent-cursor-cyan: #4cecff;
-  --minke-agent-cursor-violet: #7370ff;
-  --minke-agent-cursor-magenta: #f25fd0;
-
   position: absolute;
   inset: 0;
   z-index: 3;
   overflow: hidden;
-  animation: minke-agent-browser-cursor-appear 120ms
-    cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: minke-agent-browser-cursor-appear 160ms ease-out both;
   container-type: size;
   pointer-events: none;
   user-select: none;
@@ -495,28 +490,21 @@
   );
   transition-duration: var(--minke-agent-cursor-duration);
   transition-property: transform;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-timing-function: cubic-bezier(0.22, 0.78, 0.2, 1);
   will-change: transform;
 }
 
 .minke-agent-browser__agent-cursor-beacon {
   position: absolute;
-  top: -2.25px;
-  left: -3px;
+  top: -6.64px;
+  left: -5.72px;
   z-index: 2;
-  width: 24px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   transform:
     scaleX(var(--minke-agent-cursor-direction-x, 1))
     scaleY(var(--minke-agent-cursor-direction-y, 1));
-  transform-origin: 3px 2.25px;
-}
-
-.minke-agent-browser__agent-cursor-layer[data-phase="moving"]
-  .minke-agent-browser__agent-cursor-beacon {
-  animation: minke-agent-browser-cursor-glide
-    var(--minke-agent-cursor-duration)
-    cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: 5.72px 6.64px;
 }
 
 .minke-agent-browser__agent-cursor-layer[data-flip-x] {
@@ -527,210 +515,88 @@
   --minke-agent-cursor-direction-y: -1;
 }
 
-.minke-agent-browser__agent-cursor-beacon svg {
-  position: relative;
+.minke-agent-browser__agent-cursor-glyph {
+  position: absolute;
+  inset: 0;
   display: block;
-  width: 24px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
+  transform-origin: 5.72px 6.64px;
+  will-change: transform;
+}
+
+.minke-agent-browser__agent-cursor-glyph-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 34px;
+  height: 34px;
+}
+
+.minke-agent-browser__agent-cursor-glyph-layer svg {
+  display: block;
+  width: 34px;
+  height: 34px;
   overflow: visible;
-}
-
-.minke-agent-browser__agent-cursor-shadow {
-  fill: rgb(8 10 24 / 74%);
-  stroke: rgb(8 10 24 / 58%);
   stroke-linejoin: round;
-  stroke-width: 2.8;
 }
 
-.minke-agent-browser__agent-cursor-body {
-  stroke: rgb(255 255 255 / 94%);
-  stroke-linejoin: round;
-  stroke-width: 1.35;
-}
-
-.minke-agent-browser__agent-cursor-accent {
+.minke-agent-browser__agent-cursor-glyph-layer--halo svg {
+  color: rgb(224 230 234 / 10%);
   fill: none;
-  stroke: rgb(255 255 255 / 88%);
-  stroke-linecap: round;
-  stroke-width: 1.3;
+  stroke-width: 3;
 }
 
-.minke-agent-browser__agent-cursor-energy {
-  fill: none;
-  stroke: #ffd677;
-  stroke-linecap: round;
-  stroke-width: 1.15;
+.minke-agent-browser__agent-cursor-glyph-layer--outline svg {
+  color: rgb(9 12 17 / 84%);
+  fill: rgb(13 17 23 / 96%);
+  stroke-width: 2.25;
 }
 
-.minke-agent-browser__agent-cursor-spark {
-  fill: #fff;
+.minke-agent-browser__agent-cursor-glyph-layer--body svg {
+  color: rgb(214 220 222 / 78%);
+  fill: rgb(24 30 38 / 94%);
+  stroke-width: 1.1;
 }
 
-.minke-agent-browser__agent-cursor-beacon[data-typing]
-  .minke-agent-browser__agent-cursor-accent {
-  stroke: #fff;
-  stroke-dasharray: 1.2 1.8;
+.minke-agent-browser__agent-cursor-layer[data-phase="idle"]
+  .minke-agent-browser__agent-cursor-glyph {
+  animation: minke-agent-browser-cursor-idle-sway 4.8s
+    cubic-bezier(0.45, 0, 0.55, 1) 900ms infinite;
 }
 
-.minke-agent-browser__agent-cursor-beacon[data-pressed] {
-  animation: minke-agent-browser-cursor-press 160ms
-    cubic-bezier(0.16, 1, 0.3, 1);
-  animation-delay: var(--minke-agent-cursor-feedback-delay);
+.minke-agent-browser__agent-cursor-layer[data-phase="moving"]
+  .minke-agent-browser__agent-cursor-glyph {
+  animation:
+    minke-agent-browser-cursor-glide
+      var(--minke-agent-cursor-duration)
+      cubic-bezier(0.22, 0.78, 0.2, 1) both,
+    minke-agent-browser-cursor-idle-sway 4.8s
+      cubic-bezier(0.45, 0, 0.55, 1)
+      calc(var(--minke-agent-cursor-duration) + 900ms) infinite;
 }
 
-.minke-agent-browser__agent-cursor-ripple {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 1;
-  width: 0;
-  height: 0;
+.minke-agent-browser__agent-cursor-layer[data-phase="clicking"]
+  .minke-agent-browser__agent-cursor-glyph {
+  animation:
+    minke-agent-browser-cursor-press 148ms
+      cubic-bezier(0.2, 0.72, 0.24, 1)
+      var(--minke-agent-cursor-feedback-delay) both,
+    minke-agent-browser-cursor-idle-sway 4.8s
+      cubic-bezier(0.45, 0, 0.55, 1)
+      calc(var(--minke-agent-cursor-feedback-delay) + 900ms)
+      infinite;
 }
 
-.minke-agent-browser__agent-cursor-bloom,
-.minke-agent-browser__agent-cursor-particle {
-  position: absolute;
-  top: 0;
-  left: 0;
-  opacity: 0;
-}
-
-.minke-agent-browser__agent-cursor-bloom {
-  width: 20px;
-  height: 17px;
-  border-radius: 46% 54% 58% 42% / 52% 44% 56% 48%;
-  background: linear-gradient(
-    135deg,
-    rgb(76 236 255 / 36%),
-    rgb(115 112 255 / 32%) 52%,
-    rgb(242 95 208 / 24%)
-  );
-  transform: translate(-50%, -50%) scale(0.24) rotate(-8deg);
-  animation: minke-agent-browser-cursor-bloom 340ms
-    cubic-bezier(0.16, 1, 0.3, 1);
-  animation-delay: var(--minke-agent-cursor-feedback-delay);
-}
-
-.minke-agent-browser__agent-cursor-particle {
-  width: var(--minke-agent-cursor-particle-width);
-  height: var(--minke-agent-cursor-particle-height);
-  border-radius: var(--minke-agent-cursor-particle-radius);
-  background: var(--minke-agent-cursor-particle-fill);
-  opacity: 0;
-  transform:
-    translate(-50%, -50%)
-    translate3d(0, 0, 0)
-    scale(0.22)
-    rotate(var(--minke-agent-cursor-particle-rotation));
-  animation: minke-agent-browser-cursor-scatter 430ms
-    cubic-bezier(0.16, 1, 0.3, 1);
-  animation-delay: calc(
-    var(--minke-agent-cursor-feedback-delay)
-    + var(--minke-agent-cursor-particle-delay)
-  );
-}
-
-.minke-agent-browser__agent-cursor-particle[data-particle="1"] {
-  --minke-agent-cursor-particle-width: 14px;
-  --minke-agent-cursor-particle-height: 11px;
-  --minke-agent-cursor-particle-radius:
-    58% 42% 48% 52% / 46% 58% 42% 54%;
-  --minke-agent-cursor-particle-fill: rgb(76 236 255 / 34%);
-  --minke-agent-cursor-particle-x: -26px;
-  --minke-agent-cursor-particle-y: -8px;
-  --minke-agent-cursor-particle-delay: 0ms;
-  --minke-agent-cursor-particle-rotation: -18deg;
-  --minke-agent-cursor-particle-end-rotation: 18deg;
-}
-
-.minke-agent-browser__agent-cursor-particle[data-particle="2"] {
-  --minke-agent-cursor-particle-width: 8px;
-  --minke-agent-cursor-particle-height: 7px;
-  --minke-agent-cursor-particle-radius:
-    44% 56% 63% 37% / 55% 45% 55% 45%;
-  --minke-agent-cursor-particle-fill: rgb(115 112 255 / 38%);
-  --minke-agent-cursor-particle-x: -17px;
-  --minke-agent-cursor-particle-y: -23px;
-  --minke-agent-cursor-particle-delay: 12ms;
-  --minke-agent-cursor-particle-rotation: 12deg;
-  --minke-agent-cursor-particle-end-rotation: -12deg;
-}
-
-.minke-agent-browser__agent-cursor-particle[data-particle="3"] {
-  --minke-agent-cursor-particle-width: 5px;
-  --minke-agent-cursor-particle-height: 5px;
-  --minke-agent-cursor-particle-radius: 55% 45% 50% 50%;
-  --minke-agent-cursor-particle-fill: rgb(242 95 208 / 44%);
-  --minke-agent-cursor-particle-x: 2px;
-  --minke-agent-cursor-particle-y: -29px;
-  --minke-agent-cursor-particle-delay: 20ms;
-  --minke-agent-cursor-particle-rotation: 25deg;
-  --minke-agent-cursor-particle-end-rotation: -25deg;
-}
-
-.minke-agent-browser__agent-cursor-particle[data-particle="4"] {
-  --minke-agent-cursor-particle-width: 12px;
-  --minke-agent-cursor-particle-height: 10px;
-  --minke-agent-cursor-particle-radius:
-    39% 61% 45% 55% / 61% 48% 52% 39%;
-  --minke-agent-cursor-particle-fill: rgb(115 112 255 / 30%);
-  --minke-agent-cursor-particle-x: 23px;
-  --minke-agent-cursor-particle-y: -18px;
-  --minke-agent-cursor-particle-delay: 4ms;
-  --minke-agent-cursor-particle-rotation: -7deg;
-  --minke-agent-cursor-particle-end-rotation: 7deg;
-}
-
-.minke-agent-browser__agent-cursor-particle[data-particle="5"] {
-  --minke-agent-cursor-particle-width: 7px;
-  --minke-agent-cursor-particle-height: 6px;
-  --minke-agent-cursor-particle-radius:
-    48% 52% 61% 39% / 42% 62% 38% 58%;
-  --minke-agent-cursor-particle-fill: rgb(76 236 255 / 38%);
-  --minke-agent-cursor-particle-x: 30px;
-  --minke-agent-cursor-particle-y: 2px;
-  --minke-agent-cursor-particle-delay: 18ms;
-  --minke-agent-cursor-particle-rotation: 18deg;
-  --minke-agent-cursor-particle-end-rotation: -18deg;
-}
-
-.minke-agent-browser__agent-cursor-particle[data-particle="6"] {
-  --minke-agent-cursor-particle-width: 15px;
-  --minke-agent-cursor-particle-height: 13px;
-  --minke-agent-cursor-particle-radius:
-    63% 37% 54% 46% / 44% 57% 43% 56%;
-  --minke-agent-cursor-particle-fill: rgb(242 95 208 / 28%);
-  --minke-agent-cursor-particle-x: 21px;
-  --minke-agent-cursor-particle-y: 20px;
-  --minke-agent-cursor-particle-delay: 10ms;
-  --minke-agent-cursor-particle-rotation: -14deg;
-  --minke-agent-cursor-particle-end-rotation: 14deg;
-}
-
-.minke-agent-browser__agent-cursor-particle[data-particle="7"] {
-  --minke-agent-cursor-particle-width: 9px;
-  --minke-agent-cursor-particle-height: 8px;
-  --minke-agent-cursor-particle-radius:
-    41% 59% 47% 53% / 58% 43% 57% 42%;
-  --minke-agent-cursor-particle-fill: rgb(76 236 255 / 31%);
-  --minke-agent-cursor-particle-x: -4px;
-  --minke-agent-cursor-particle-y: 27px;
-  --minke-agent-cursor-particle-delay: 8ms;
-  --minke-agent-cursor-particle-rotation: 8deg;
-  --minke-agent-cursor-particle-end-rotation: -8deg;
-}
-
-.minke-agent-browser__agent-cursor-particle[data-particle="8"] {
-  --minke-agent-cursor-particle-width: 6px;
-  --minke-agent-cursor-particle-height: 5px;
-  --minke-agent-cursor-particle-radius:
-    53% 47% 42% 58% / 38% 51% 49% 62%;
-  --minke-agent-cursor-particle-fill: rgb(242 95 208 / 40%);
-  --minke-agent-cursor-particle-x: -25px;
-  --minke-agent-cursor-particle-y: 18px;
-  --minke-agent-cursor-particle-delay: 24ms;
-  --minke-agent-cursor-particle-rotation: -26deg;
-  --minke-agent-cursor-particle-end-rotation: 26deg;
+.minke-agent-browser__agent-cursor-layer[data-phase="typing"]
+  .minke-agent-browser__agent-cursor-glyph {
+  animation:
+    minke-agent-browser-cursor-focus 300ms ease-out
+      var(--minke-agent-cursor-feedback-delay) both,
+    minke-agent-browser-cursor-idle-sway 4.8s
+      cubic-bezier(0.45, 0, 0.55, 1)
+      calc(var(--minke-agent-cursor-feedback-delay) + 900ms)
+      infinite;
 }
 
 .minke-agent-browser__shield {
@@ -1183,125 +1049,61 @@
 
 @keyframes minke-agent-browser-cursor-glide {
   0% {
-    transform:
-      scaleX(var(--minke-agent-cursor-direction-x, 1))
-      scaleY(var(--minke-agent-cursor-direction-y, 1))
-      rotate(-3.5deg)
-      scale(0.94);
+    transform: rotate(-0.65deg) scale(0.97);
   }
 
-  64% {
-    transform:
-      scaleX(var(--minke-agent-cursor-direction-x, 1))
-      scaleY(var(--minke-agent-cursor-direction-y, 1))
-      rotate(1.2deg)
-      scale(1.015);
+  72% {
+    transform: rotate(0.12deg) scale(0.995);
   }
 
   100% {
-    transform:
-      scaleX(var(--minke-agent-cursor-direction-x, 1))
-      scaleY(var(--minke-agent-cursor-direction-y, 1))
-      rotate(0)
-      scale(1);
+    transform: rotate(0) scale(1);
   }
 }
 
 @keyframes minke-agent-browser-cursor-press {
   0%,
   100% {
-    transform:
-      scaleX(var(--minke-agent-cursor-direction-x, 1))
-      scaleY(var(--minke-agent-cursor-direction-y, 1))
-      scale(1);
+    transform: scale(1);
   }
 
-  46% {
-    transform:
-      scaleX(var(--minke-agent-cursor-direction-x, 1))
-      scaleY(var(--minke-agent-cursor-direction-y, 1))
-      scale(0.8);
-  }
-
-  72% {
-    transform:
-      scaleX(var(--minke-agent-cursor-direction-x, 1))
-      scaleY(var(--minke-agent-cursor-direction-y, 1))
-      scale(1.045);
+  48% {
+    transform: scale(0.88);
   }
 }
 
-@keyframes minke-agent-browser-cursor-bloom {
-  0% {
-    opacity: 0;
-    transform:
-      translate(-50%, -50%)
-      scale(0.24)
-      rotate(-8deg);
-  }
-
-  22% {
-    opacity: 1;
-  }
-
-  64% {
-    opacity: 0.58;
-    transform:
-      translate(-50%, -50%)
-      scale(1.04)
-      rotate(6deg);
-  }
-
+@keyframes minke-agent-browser-cursor-focus {
+  0%,
   100% {
-    opacity: 0;
-    transform:
-      translate(-50%, -50%)
-      scale(1.32)
-      rotate(11deg);
+    transform: translateY(0) scale(1);
+  }
+
+  42% {
+    transform: translateY(0.5px) scale(0.95);
+  }
+
+  68% {
+    transform: translateY(0) scale(1);
   }
 }
 
-@keyframes minke-agent-browser-cursor-scatter {
-  0% {
-    opacity: 0;
-    transform:
-      translate(-50%, -50%)
-      translate3d(0, 0, 0)
-      scale(0.22)
-      rotate(var(--minke-agent-cursor-particle-rotation));
-  }
-
-  16% {
-    opacity: 1;
-  }
-
-  58% {
-    opacity: 0.72;
-  }
-
+@keyframes minke-agent-browser-cursor-idle-sway {
+  0%,
+  64%,
   100% {
-    opacity: 0;
-    transform:
-      translate(-50%, -50%)
-      translate3d(
-        var(--minke-agent-cursor-particle-x),
-        var(--minke-agent-cursor-particle-y),
-        0
-      )
-      scale(1)
-      rotate(var(--minke-agent-cursor-particle-end-rotation));
-  }
-}
-
-@keyframes minke-agent-browser-cursor-bloom-reduced {
-  0% {
-    opacity: 0.86;
-    transform: translate(-50%, -50%) scale(0.72);
+    transform: rotate(0deg);
   }
 
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(1);
+  74% {
+    transform: rotate(-2.25deg);
+  }
+
+  86% {
+    transform: rotate(1.75deg);
+  }
+
+  96% {
+    transform: rotate(0deg);
   }
 }
 
@@ -1317,26 +1119,17 @@
   }
 
   .minke-agent-browser__agent-cursor-layer,
-  .minke-agent-browser__agent-cursor-beacon {
+  .minke-agent-browser__agent-cursor-glyph {
     animation: none;
   }
 
-  .minke-agent-browser__agent-cursor-track,
-  .minke-agent-browser__agent-cursor-beacon {
-    transition: none;
-  }
-
   .minke-agent-browser__agent-cursor-track {
+    transition: none;
     will-change: auto;
   }
 
-  .minke-agent-browser__agent-cursor-bloom {
-    animation: minke-agent-browser-cursor-bloom-reduced 150ms
-      ease-out;
-    animation-delay: var(--minke-agent-cursor-feedback-delay);
-  }
-
-  .minke-agent-browser__agent-cursor-particle {
-    display: none;
+  .minke-agent-browser__agent-cursor-glyph {
+    transform: none;
+    will-change: auto;
   }
 }

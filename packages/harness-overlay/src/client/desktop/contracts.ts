@@ -61,6 +61,7 @@ import type {
 } from "@minke/harness-overlay/agent-browser-contract.ts";
 import type {
   AgentBrowserHistoryClearRequest,
+  AgentBrowserHistoryDeleteRequest,
   AgentBrowserHistoryReadRequest,
   AgentBrowserHistorySnapshot,
 } from "@minke/harness-overlay/agent-browser-history-contract.ts";
@@ -211,6 +212,9 @@ export interface DesktopAgentBrowserPort {
   clearHistory(
     request: AgentBrowserHistoryClearRequest,
   ): Promise<AgentBrowserHistorySnapshot>;
+  deleteHistory(
+    request: AgentBrowserHistoryDeleteRequest,
+  ): Promise<void>;
   startAnnotation(
     sessionId: string,
   ): Promise<AgentBrowserAnnotationSession>;
@@ -335,6 +339,9 @@ export interface DesktopAgentBrowserBridge {
   clearHistory(
     request: AgentBrowserHistoryClearRequest,
   ): Promise<unknown>;
+  deleteHistory(
+    request: AgentBrowserHistoryDeleteRequest,
+  ): Promise<void>;
   startAnnotation(sessionId: string): Promise<unknown>;
   stopAnnotation(
     request: AgentBrowserAnnotationStopRequest,

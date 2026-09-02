@@ -97,6 +97,7 @@ export interface AgentBrowserHistoryPort {
   read(
     request: AgentBrowserHistoryReadRequest,
   ): AgentBrowserHistorySnapshot;
+  deleteVisit(visitId: number): void;
   clear(): void;
   close(): void;
 }
@@ -762,6 +763,145 @@ export class SqliteAgentBrowserHistory
           }
         : {}),
     });
+  }
+
+  deleteVisit(value: number): void {
+    this.#ensureOpen();
+    const visitId = integer(
+      value,
+      "Agent Browser history delete visit id",
+      1,
+    );
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const candidate = this.#database.prepare(`
+        SELECT
+          visit.path_key,
+          visit.origin,
+          visit.actor,
+          path.visit_count,
+          path.first_visited_at
+        FROM visits AS visit
+        INNER JOIN path_stats AS path
+          ON path.path_key = visit.path_key
+        WHERE visit.visit_id = ?
+      `).get(visitId);
+      if (candidate === undefined) {
+        this.#database.exec("COMMIT");
+        return;
+      }
+      const visit = row(candidate);
+      const pathKey = string(
+        visit.path_key,
+        "Agent Browser history delete path key",
+      );
+      const origin = string(
+        visit.origin,
+        "Agent Browser history delete origin",
+      );
+      const visitActor = actor(visit.actor);
+      const visitCount = integer(
+        visit.visit_count,
+        "Agent Browser history delete path visit count",
+        1,
+      );
+      const firstVisitedAt = integer(
+        visit.first_visited_at,
+        "Agent Browser history delete first visit timestamp",
+      );
+
+      this.#database.prepare(`
+        DELETE FROM visits
+        WHERE visit_id = ?
+      `).run(visitId);
+      if (visitCount === 1) {
+        this.#database.prepare(`
+          DELETE FROM path_stats
+          WHERE path_key = ?
+        `).run(pathKey);
+      } else {
+        const remaining = row(this.#database.prepare(`
+          SELECT
+            COUNT(*) AS retained_count,
+            MIN(visited_at) AS first_visited_at
+          FROM visits
+          WHERE path_key = ?
+        `).get(pathKey));
+        const retainedCount = integer(
+          remaining.retained_count,
+          "Agent Browser history delete retained path visits",
+        );
+        const nextVisitCount = visitCount - 1;
+        const latestCandidate = this.#database.prepare(`
+          SELECT visited_at, url
+          FROM visits
+          WHERE path_key = ?
+          ORDER BY visited_at DESC, visit_id DESC
+          LIMIT 1
+        `).get(pathKey);
+        const latest =
+          latestCandidate === undefined
+            ? undefined
+            : row(latestCandidate);
+        // Retention removes the oldest exact events while lifetime counts
+        // remain. When none are retained, the stored first timestamp is the
+        // only safe bound and pathKey avoids preserving a deleted query.
+        const nextFirstVisitedAt =
+          retainedCount === nextVisitCount
+            ? integer(
+                remaining.first_visited_at,
+                "Agent Browser history delete remaining first visit timestamp",
+              )
+            : firstVisitedAt;
+        const nextLastVisitedAt =
+          latest === undefined
+            ? nextFirstVisitedAt
+            : integer(
+                latest.visited_at,
+                "Agent Browser history delete remaining last visit timestamp",
+              );
+        const nextLastUrl =
+          latest === undefined
+            ? pathKey
+            : string(
+                latest.url,
+                "Agent Browser history delete remaining last URL",
+              );
+        this.#database.prepare(`
+          UPDATE path_stats
+          SET
+            visit_count = visit_count - 1,
+            agent_visit_count = agent_visit_count - ?,
+            human_visit_count = human_visit_count - ?,
+            first_visited_at = ?,
+            last_visited_at = ?,
+            last_url = ?
+          WHERE path_key = ?
+        `).run(
+          visitActor === "agent" ? 1 : 0,
+          visitActor === "human" ? 1 : 0,
+          nextFirstVisitedAt,
+          nextLastVisitedAt,
+          nextLastUrl,
+          pathKey,
+        );
+      }
+      this.#database.prepare(`
+        DELETE FROM site_icons
+        WHERE
+          origin = ?
+          AND NOT EXISTS (
+            SELECT 1
+            FROM path_stats
+            WHERE path_stats.origin = site_icons.origin
+          )
+      `).run(origin);
+      this.#database.exec("COMMIT");
+      this.#summaryCache = undefined;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   clear(): void {

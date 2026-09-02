@@ -42,9 +42,11 @@ import {
 } from "@minke/harness-overlay/agent-browser-contract.ts";
 import {
   AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
+  AGENT_BROWSER_HISTORY_DELETE_CHANNEL,
   AGENT_BROWSER_HISTORY_READ_CHANNEL,
   normalizeAgentBrowserHistoryFaviconUrl,
   parseAgentBrowserHistoryClearRequest,
+  parseAgentBrowserHistoryDeleteRequest,
   parseAgentBrowserHistoryReadRequest,
   type AgentBrowserHistorySnapshot,
   type AgentBrowserNavigationKind,
@@ -87,7 +89,11 @@ const MAX_AGENT_BROWSER_SESSIONS = 32;
 const DEFAULT_GUEST_ATTACH_TIMEOUT_MS = 15_000;
 const AGENT_PARTITION_PREFIX = "minke-agent-";
 const INITIAL_GUEST_URL = "about:blank";
-const CURSOR_TRAVEL_DURATION_MS = 180;
+const CURSOR_INITIAL_DURATION_MS = 160;
+const CURSOR_SAME_POINT_DURATION_MS = 80;
+const CURSOR_MIN_TRAVEL_DURATION_MS = 160;
+const CURSOR_MAX_TRAVEL_DURATION_MS = 420;
+const CURSOR_FALLBACK_TRAVEL_DURATION_MS = 240;
 const CURSOR_CLICK_FEEDBACK_HOLD_MS = 54;
 
 export type AgentBrowserWebviewDecision =
@@ -251,6 +257,36 @@ function waitForCursorTravel(
       once: true,
     });
   });
+}
+
+function cursorTravelDurationMs(
+  cursor: AgentBrowserCursorProjection | undefined,
+  target: AgentBrowserCdpPointerTarget,
+): number {
+  if (cursor === undefined) {
+    return CURSOR_FALLBACK_TRAVEL_DURATION_MS;
+  }
+  const previousX =
+    cursor.point.x / cursor.viewport.width * target.viewport.width;
+  const previousY =
+    cursor.point.y / cursor.viewport.height * target.viewport.height;
+  const distance = Math.hypot(
+    target.point.x - previousX,
+    target.point.y - previousY,
+  );
+  if (distance <= 2) return CURSOR_SAME_POINT_DURATION_MS;
+  const diagonal = Math.hypot(
+    target.viewport.width,
+    target.viewport.height,
+  );
+  const normalizedDistance = Math.min(1, distance / diagonal);
+  return Math.round(
+    CURSOR_MIN_TRAVEL_DURATION_MS +
+      (
+        CURSOR_MAX_TRAVEL_DURATION_MS -
+        CURSOR_MIN_TRAVEL_DURATION_MS
+      ) * Math.sqrt(normalizedDistance),
+  );
 }
 
 function isSafeGuestUrl(value: string): boolean {
@@ -545,6 +581,22 @@ export class AgentBrowserRuntime {
         visits: [],
       };
     };
+    const handleHistoryDelete = (
+      event: IpcMainInvokeEvent,
+      value: unknown,
+    ): void => {
+      if (!authorize(event)) {
+        throw new Error("unauthorized Agent Browser request");
+      }
+      const request =
+        parseAgentBrowserHistoryDeleteRequest(value);
+      if (this.#history === undefined) {
+        throw new Error(
+          "Agent Browser browsing footprint is unavailable",
+        );
+      }
+      this.#history.deleteVisit(request.visitId);
+    };
     const handleAnnotationStart = async (
       event: IpcMainInvokeEvent,
       value: unknown,
@@ -620,6 +672,10 @@ export class AgentBrowserRuntime {
       handleHistoryClear,
     );
     ipc.handle(
+      AGENT_BROWSER_HISTORY_DELETE_CHANNEL,
+      handleHistoryDelete,
+    );
+    ipc.handle(
       AGENT_BROWSER_ANNOTATION_START_CHANNEL,
       handleAnnotationStart,
     );
@@ -649,6 +705,7 @@ export class AgentBrowserRuntime {
         ipc.removeHandler(AGENT_BROWSER_NAVIGATION_CHANNEL);
         ipc.removeHandler(AGENT_BROWSER_HISTORY_READ_CHANNEL);
         ipc.removeHandler(AGENT_BROWSER_HISTORY_CLEAR_CHANNEL);
+        ipc.removeHandler(AGENT_BROWSER_HISTORY_DELETE_CHANNEL);
         ipc.removeHandler(AGENT_BROWSER_ANNOTATION_START_CHANNEL);
         ipc.removeHandler(AGENT_BROWSER_ANNOTATION_STOP_CHANNEL);
         ipc.removeHandler(AGENT_BROWSER_ANNOTATION_REFRESH_CHANNEL);
@@ -825,7 +882,15 @@ export class AgentBrowserRuntime {
           try {
             await cdp.navigate(url, signal);
             state.status = "ready";
-            this.#publish();
+            if (
+              !await this.#publishCenteredCursor(
+                state,
+                cdp,
+                signal,
+              )
+            ) {
+              this.#publish();
+            }
             return this.#sessionResult(state);
           } catch (error) {
             const browserError = asAgentBrowserError(
@@ -998,17 +1063,21 @@ export class AgentBrowserRuntime {
               cdp,
               ref,
               signal,
-          );
+            );
           if (pointerTarget !== undefined) {
             const targetGeneration = cdp.generation;
+            const travelDurationMs = cursorTravelDurationMs(
+              state.cursor,
+              pointerTarget,
+            );
             this.#publishCursor(
               state,
               "moving",
               pointerTarget,
-              CURSOR_TRAVEL_DURATION_MS,
+              travelDurationMs,
             );
             await waitForCursorTravel(
-              CURSOR_TRAVEL_DURATION_MS,
+              travelDurationMs,
               signal,
             );
             if (cdp.generation === targetGeneration) {
@@ -1016,7 +1085,7 @@ export class AgentBrowserRuntime {
                 state,
                 "typing",
                 pointerTarget,
-                CURSOR_TRAVEL_DURATION_MS,
+                travelDurationMs,
               );
             }
           }
@@ -1269,6 +1338,12 @@ export class AgentBrowserRuntime {
             }
           }
           this.#publish();
+          if (
+            owner === "agent" &&
+            state.cdp !== undefined
+          ) {
+            void this.#publishCenteredCursor(state, state.cdp);
+          }
         }
         if (owner === "human") {
           state.humanTakeoverPending = false;
@@ -1754,7 +1829,15 @@ export class AgentBrowserRuntime {
       await cdp.navigate(url, signal);
       state.status = "ready";
       delete state.error;
-      this.#publish();
+      if (
+        !await this.#publishCenteredCursor(
+          state,
+          cdp,
+          signal,
+        )
+      ) {
+        this.#publish();
+      }
       return this.#sessionResult(state);
     })();
     state.operationTail = initialize.then(
@@ -2162,6 +2245,12 @@ export class AgentBrowserRuntime {
         state.status =
           state.owner === "human" ? "paused" : "ready";
         this.#publish();
+        if (
+          state.owner === "agent" &&
+          state.cdp !== undefined
+        ) {
+          void this.#publishCenteredCursor(state, state.cdp);
+        }
       }
     };
     const handleFailLoad = (
@@ -2180,6 +2269,12 @@ export class AgentBrowserRuntime {
       this.#syncNavigationState(state, false);
       if (state.owner === "agent") state.status = "ready";
       this.#publish();
+      if (
+        state.owner === "agent" &&
+        state.cdp !== undefined
+      ) {
+        void this.#publishCenteredCursor(state, state.cdp);
+      }
     };
     const handleDestroyed = (): void => {
       this.#crash(state, "Agent Browser guest was destroyed");
@@ -2498,19 +2593,24 @@ export class AgentBrowserRuntime {
     ref: string,
     signal: AbortSignal,
   ): Promise<void> {
+    let travelDurationMs = CURSOR_FALLBACK_TRAVEL_DURATION_MS;
     const cursorHooks = this.#canProjectCursor(state)
       ? {
         beforeDispatch: async (
           pointerTarget: AgentBrowserCdpPointerTarget,
         ): Promise<void> => {
+          travelDurationMs = cursorTravelDurationMs(
+            state.cursor,
+            pointerTarget,
+          );
           this.#publishCursor(
             state,
             "moving",
             pointerTarget,
-            CURSOR_TRAVEL_DURATION_MS,
+            travelDurationMs,
           );
           await waitForCursorTravel(
-            CURSOR_TRAVEL_DURATION_MS,
+            travelDurationMs,
             signal,
           );
         },
@@ -2521,7 +2621,7 @@ export class AgentBrowserRuntime {
             state,
             "clicking",
             pointerTarget,
-            CURSOR_TRAVEL_DURATION_MS,
+            travelDurationMs,
           );
           await waitForCursorTravel(
             CURSOR_CLICK_FEEDBACK_HOLD_MS,
@@ -2548,14 +2648,18 @@ export class AgentBrowserRuntime {
     );
     if (target !== undefined) {
       const targetGeneration = cdp.generation;
+      const travelDurationMs = cursorTravelDurationMs(
+        state.cursor,
+        target,
+      );
       this.#publishCursor(
         state,
         "moving",
         target,
-        CURSOR_TRAVEL_DURATION_MS,
+        travelDurationMs,
       );
       await waitForCursorTravel(
-        CURSOR_TRAVEL_DURATION_MS,
+        travelDurationMs,
         signal,
       );
       if (cdp.generation === targetGeneration) {
@@ -2563,7 +2667,7 @@ export class AgentBrowserRuntime {
           state,
           "typing",
           target,
-          CURSOR_TRAVEL_DURATION_MS,
+          travelDurationMs,
         );
       }
     }
@@ -2578,6 +2682,44 @@ export class AgentBrowserRuntime {
   ): Promise<AgentBrowserCdpPointerTarget | undefined> {
     if (!this.#canProjectCursor(state)) return undefined;
     return await cdp.pointerTarget(ref, signal);
+  }
+
+  async #publishCenteredCursor(
+    state: AgentBrowserSessionState,
+    cdp: AgentBrowserCdp,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (!this.#canProjectCursor(state)) return false;
+    const generation = state.generation;
+    const cursorSequence = state.cursorSequence;
+    let viewport: AgentBrowserCdpPointerTarget["viewport"];
+    try {
+      viewport = await cdp.annotationViewport(signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return false;
+    }
+    if (
+      state.cdp !== cdp ||
+      state.generation !== generation ||
+      state.cursorSequence !== cursorSequence ||
+      !this.#canProjectCursor(state)
+    ) {
+      return false;
+    }
+    this.#publishCursor(
+      state,
+      "idle",
+      {
+        point: {
+          x: viewport.width / 2,
+          y: viewport.height / 2,
+        },
+        viewport,
+      },
+      CURSOR_INITIAL_DURATION_MS,
+    );
+    return state.cursorSequence !== cursorSequence;
   }
 
   #canProjectCursor(state: AgentBrowserSessionState): boolean {

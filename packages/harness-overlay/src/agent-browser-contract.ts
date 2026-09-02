@@ -57,6 +57,7 @@ export type AgentBrowserSessionStatus =
   | "crashed";
 
 export type AgentBrowserCursorPhase =
+  | "idle"
   | "moving"
   | "clicking"
   | "typing";
@@ -72,7 +73,7 @@ export interface AgentBrowserCursorViewport {
 }
 
 /**
- * One transient, generation-bound visual cursor event.
+ * One generation-bound visual cursor state.
  *
  * Coordinates use the guest page's CSS viewport coordinate space. The
  * sequence is monotonically increasing within one Agent Browser session so a
@@ -488,6 +489,7 @@ function parseAgentBrowserCursorPhase(
   value: unknown,
 ): AgentBrowserCursorPhase {
   if (
+    value !== "idle" &&
     value !== "moving" &&
     value !== "clicking" &&
     value !== "typing"

@@ -4,7 +4,7 @@
   "tests/cross-platform-packaging.test.mjs": 7,
   "tests/data-home-settings.test.mjs": 3,
   "tests/embedded-node-permissions.test.mjs": 10,
-  "tests/agent-browser-tabs.test.mjs": 19,
+  "tests/agent-browser-tabs.test.mjs": 17,
   "tests/github-actions-package.test.mjs": 48,
   "tests/harness-overlay.test.mjs": 151,
   "tests/harness-runtime-prune.test.mjs": 1,

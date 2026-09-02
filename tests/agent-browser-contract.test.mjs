@@ -20,6 +20,7 @@ import {
   AGENT_BROWSER_HISTORY_DEFAULT_LIMIT,
   AGENT_BROWSER_HISTORY_LIMIT,
   parseAgentBrowserHistoryClearRequest,
+  parseAgentBrowserHistoryDeleteRequest,
   parseAgentBrowserHistoryReadRequest,
   parseAgentBrowserHistorySnapshot,
 } from "@minke/harness-overlay/agent-browser-history-contract.ts";
@@ -57,6 +58,10 @@ test("Agent Browser browsing-footprint contracts are strict and consistent", () 
     parseAgentBrowserHistoryClearRequest({ confirm: true }),
     { confirm: true },
   );
+  assert.deepEqual(
+    parseAgentBrowserHistoryDeleteRequest({ visitId: 42 }),
+    { visitId: 42 },
+  );
   assert.throws(
     () =>
       parseAgentBrowserHistoryReadRequest({
@@ -82,6 +87,16 @@ test("Agent Browser browsing-footprint contracts are strict and consistent", () 
       }),
     /clear request/u,
   );
+  for (const request of [
+    { visitId: 0 },
+    { visitId: 1.5 },
+    { visitId: 1, unexpected: true },
+  ]) {
+    assert.throws(
+      () => parseAgentBrowserHistoryDeleteRequest(request),
+      /delete/u,
+    );
+  }
 
   const snapshot = {
     totalVisits: 3,
@@ -153,16 +168,15 @@ test("Agent Browser browsing-footprint contracts are strict and consistent", () 
       }),
     /cursor must match/u,
   );
-  assert.throws(
-    () =>
-      parseAgentBrowserHistorySnapshot({
-        ...snapshot,
-        visits: [{
-          ...snapshot.visits[0],
-          faviconUrl: "https://cdn.example.com/site.png",
-        }],
-      }),
-    /favicon URL/u,
+  assert.equal(
+    parseAgentBrowserHistorySnapshot({
+      ...snapshot,
+      visits: [{
+        ...snapshot.visits[0],
+        faviconUrl: "https://cdn.example.com/site.png",
+      }],
+    }).visits[0]?.faviconUrl,
+    "https://example.com/favicon.ico",
   );
   assert.throws(
     () =>
@@ -596,7 +610,7 @@ test("Agent Browser renderer projections reject persistent identity", () => {
     url: "https://example.com/",
     cursor: {
       sequence: 1,
-      phase: "moving",
+      phase: "idle",
       point: { x: 320.5, y: 240.25 },
       viewport: { width: 860, height: 863 },
       durationMs: 180,
@@ -605,7 +619,7 @@ test("Agent Browser renderer projections reject persistent identity", () => {
   assert.equal(projection.partition, "minke-agent-4bb22c");
   assert.deepEqual(projection.cursor, {
     sequence: 1,
-    phase: "moving",
+    phase: "idle",
     point: { x: 320.5, y: 240.25 },
     viewport: { width: 860, height: 863 },
     durationMs: 180,
