@@ -342,7 +342,7 @@ export function installShortcuts(
             keywords: () => [paletteT("keywords.bottomPanel")],
           },
           run: () => {
-            tabsRuntimes.bottom.toggle();
+            tabsRuntimes.toggleBottom();
           },
         }),
       "minke-overlay: Toggle Bottom Panel shortcut",

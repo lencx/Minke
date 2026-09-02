@@ -13,9 +13,6 @@ import {
   PlusIcon,
 } from "./components/Icons.tsx";
 import {
-  ToolbarButton,
-} from "./components/ToolbarButton.tsx";
-import {
   tabsPanelId,
   type TabsPanelPlacement,
 } from "./constants.ts";
@@ -40,6 +37,9 @@ import {
 import {
   TabsEmptyState,
 } from "./TabsEmptyState.tsx";
+import {
+  TabsCreateMenu,
+} from "./TabsCreateMenu.tsx";
 import type {
   ManagedTab,
 } from "./types.ts";
@@ -142,6 +142,8 @@ export function TabsPanel({
       : state.byId[current]?.cwd;
   });
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const newTabButtonRef =
+    useRef<HTMLButtonElement | null>(null);
   const resizeRef = useRef<TabsPanelResizeController | null>(
     null,
   );
@@ -162,8 +164,10 @@ export function TabsPanel({
       ? undefined
       : renderers.get(activeTab.kind);
   const hasTabs = snapshot.tabs.length > 0;
-  const showCreateChooser = !hasTabs || choosingType;
-  const canCreateTabs = renderers.creators().length > 0;
+  const createMenuId = `${tabsPanelId(placement)}-create-menu`;
+  const showCreateChooser = !hasTabs;
+  const createOptions = renderers.creators();
+  const canCreateTabs = createOptions.length > 0;
   const hasToolbar =
     !showCreateChooser &&
     (activeRenderer?.renderLeadingActions !== undefined ||
@@ -227,25 +231,6 @@ export function TabsPanel({
     if (!snapshot.visible && choosingType) {
       setChoosingType(false);
     }
-  }, [choosingType, snapshot.visible]);
-
-  useEffect(() => {
-    if (!snapshot.visible || !choosingType) return;
-    const panel = panelRef.current;
-    const focusFirstOption = (): void => {
-      panel
-        ?.querySelector<HTMLButtonElement>(
-          ".minke-tabs-empty__option",
-        )
-        ?.focus({ preventScroll: true });
-    };
-    const view = panel?.ownerDocument.defaultView;
-    if (view === undefined || view === null) {
-      queueMicrotask(focusFirstOption);
-      return;
-    }
-    const frame = view.requestAnimationFrame(focusFirstOption);
-    return () => view.cancelAnimationFrame(frame);
   }, [choosingType, snapshot.visible]);
 
   useEffect(() => {
@@ -427,6 +412,9 @@ export function TabsPanel({
       }
       aria-label={t("panel.label")}
       aria-hidden={!snapshot.visible}
+      aria-owns={
+        drawer && choosingType ? createMenuId : undefined
+      }
       onKeyDown={(event) => {
         if (
           drawer &&
@@ -692,14 +680,23 @@ export function TabsPanel({
             />
           )}
           <div className="minke-tabs-tabbar__actions">
-            <ToolbarButton
-              label={t("tab.new")}
+            <button
+              ref={newTabButtonRef}
+              type="button"
+              className="minke-tabs-toolbar__button"
+              aria-label={t("tab.new")}
+              aria-haspopup="menu"
+              aria-expanded={choosingType}
+              aria-pressed={choosingType}
+              aria-controls={
+                choosingType ? createMenuId : undefined
+              }
+              title={t("tab.new")}
               disabled={!canCreateTabs}
-              pressed={choosingType}
               onClick={() => setChoosingType((open) => !open)}
             >
               <PlusIcon />
-            </ToolbarButton>
+            </button>
           </div>
         </div>
 
@@ -778,10 +775,27 @@ export function TabsPanel({
             : renderer.renderView(
               tab,
               active && !showCreateChooser,
+              snapshot.visible,
             );
         })}
       </div>
     </aside>
+    <TabsCreateMenu
+      anchor={newTabButtonRef.current}
+      context={{ cwd }}
+      focusBoundary={drawer ? panelRef.current : undefined}
+      id={createMenuId}
+      label={t("tab.new")}
+      onClose={() => setChoosingType(false)}
+      onCreated={focusActiveTab}
+      open={
+        snapshot.visible &&
+        hasTabs &&
+        choosingType
+      }
+      options={createOptions}
+      placement={placement}
+    />
     </>
   );
 }

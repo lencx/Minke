@@ -60,5 +60,6 @@ export interface TabRenderer {
   renderView(
     tab: ManagedTab,
     active: boolean,
+    visible?: boolean,
   ): ReactNode;
 }

@@ -72,7 +72,9 @@ export function SessionLogHeaderAction({
 export interface TabsHeaderActionProps {
   runtimes: Readonly<
     Record<TabsPanelPlacement, TabsRuntime>
-  >;
+  > & {
+    readonly toggleBottom?: () => void;
+  };
   presentation?: RightTabsPresentationPort;
   t: TabsTranslate;
 }
@@ -195,7 +197,16 @@ export function TabsHeaderAction({
           "aria-controls": tabsPanelId(placement),
           "aria-expanded": active,
           "aria-pressed": active,
-          onClick: () => runtime.toggle(),
+          onClick: () => {
+            if (
+              placement === "bottom" &&
+              runtimes.toggleBottom !== undefined
+            ) {
+              runtimes.toggleBottom();
+              return;
+            }
+            runtime.toggle();
+          },
         },
         createElement(PanelPlacementIcon, { placement }),
       );

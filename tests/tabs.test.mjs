@@ -4907,7 +4907,7 @@ test("Tabs chrome puts tabs above the URL row without a visible scrollbar", () =
   );
 });
 
-test("Tabs new button always opens the type chooser", () => {
+test("Tabs new button opens an anchored chooser without replacing the active view", () => {
   const panelSource = readFileSync(
     new URL(
       "../packages/harness-overlay/src/client/tabs/TabsPanel.tsx",
@@ -4936,13 +4936,16 @@ test("Tabs new button always opens the type chooser", () => {
   );
   assert.match(
     panelSource,
-    /const showCreateChooser = !hasTabs \|\| choosingType;/u,
+    /const showCreateChooser = !hasTabs;/u,
   );
   assert.match(
     panelSource,
     /onClick=\{\(\) => setChoosingType\(\(open\) => !open\)\}/u,
   );
-  assert.match(panelSource, /pressed=\{choosingType\}/u);
+  assert.match(
+    panelSource,
+    /aria-haspopup="menu"[\s\S]*?aria-expanded=\{choosingType\}/u,
+  );
   assert.match(
     panelSource,
     /onCreated=\{\(\) => setChoosingType\(false\)\}/u,
@@ -4953,6 +4956,10 @@ test("Tabs new button always opens the type chooser", () => {
   );
   assert.doesNotMatch(registrySource, /\bcreator\s*\(/u);
   assert.doesNotMatch(typesSource, /\bcreateTab\??\s*\(/u);
+  assert.match(
+    TABS_STYLES,
+    /\.minke-tabs-tabbar__actions[\s\S]*?\.minke-tabs-toolbar__button\[aria-expanded="true"\][\s\S]*?background:\s*var\(--dsw-alias-interactive-bg-hover\);/u,
+  );
 });
 
 test("bottom Tabs chooser uses a height-efficient grid", () => {

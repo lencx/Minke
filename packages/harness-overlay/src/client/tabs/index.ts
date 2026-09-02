@@ -1,5 +1,9 @@
 export { TabsPanel } from "./TabsPanel.tsx";
 export { TabsEmptyState } from "./TabsEmptyState.tsx";
+export { TabsCreateMenu } from "./TabsCreateMenu.tsx";
+export {
+  createBottomTabsToggle,
+} from "./bottom-toggle.ts";
 export {
   NewSessionTabsHeaderAction,
   SessionLogHeaderAction,

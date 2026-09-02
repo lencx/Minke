@@ -80,6 +80,9 @@ import {
   ResponsiveRightTabsHost,
 } from "./responsive-right-host.ts";
 import {
+  createBottomTabsToggle,
+} from "./bottom-toggle.ts";
+import {
   createTerminalTabRenderer,
   installTerminalTabStyles,
   terminalTabsEn,
@@ -112,6 +115,7 @@ const PREFERENCES_NAMESPACE = "minke.preferences";
 export type TabsRuntimes = Readonly<{
   bottom: TabsRuntime;
   right: TabsRuntime;
+  toggleBottom(): void;
   workspaces: Readonly<{
     bottom: Readonly<{ renderers: TabRendererRegistry }>;
     right: Readonly<{ renderers: TabRendererRegistry }>;
@@ -531,6 +535,7 @@ export function installTabs(
       filesTabs,
       pluginTabs,
       renderers,
+      terminalTabs,
       webTabs,
     });
   };
@@ -573,9 +578,24 @@ export function installTabs(
     bottomTabs,
     "bottom",
   );
+  const bottomTerminalTabs = bottomWorkspace.terminalTabs;
+  const toggleBottom = createBottomTabsToggle({
+    runtime: bottomTabs,
+    ...(bottomTerminalTabs === undefined
+      ? {}
+      : { terminal: bottomTerminalTabs }),
+    currentCwd: () => {
+      const sessions = ctx.sessions.list.getSnapshot();
+      return sessions.current === undefined
+        ? undefined
+        : sessions.byId[sessions.current]?.cwd;
+    },
+    defaultTitle: () => terminalT("terminal.tab.new"),
+  });
   const runtimes: TabsRuntimes = Object.freeze({
     bottom: bottomTabs,
     right: rightTabs,
+    toggleBottom,
     workspaces: Object.freeze({
       bottom: Object.freeze({
         renderers: bottomWorkspace.renderers,

@@ -582,7 +582,7 @@ test("empty Tabs offers Files, Terminal, Browser, and Plugins without chrome", (
   );
   assert.match(
     panelSource,
-    /const showCreateChooser = !hasTabs \|\| choosingType;/u,
+    /const showCreateChooser = !hasTabs;/u,
   );
   assert.match(panelSource, /<TabsEmptyState/u);
   assert.match(panelSource, /hasTabs\s*&&\s*\([\s\S]*minke-tabs-chrome/u);

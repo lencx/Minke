@@ -423,6 +423,92 @@ body:has(
   padding: 0 6px 0 3px;
 }
 
+.minke-tabs-create-menu {
+  position: fixed;
+  z-index: 1100;
+  display: flex;
+  width: min(224px, calc(100vw - 16px));
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  box-sizing: border-box;
+  background: var(--dsw-alias-bg-base);
+  box-shadow: 0 16px 42px rgb(0 0 0 / 28%);
+  color: var(--dsw-alias-label-primary);
+  overscroll-behavior: contain;
+  scrollbar-color:
+    var(--dsw-alias-border-l3)
+    transparent;
+  scrollbar-width: thin;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.minke-tabs-create-menu__item {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.minke-tabs-create-menu__item:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.minke-tabs-create-menu__item:focus-visible {
+  outline: none;
+  background: var(--dsw-alias-interactive-bg-hover);
+  box-shadow: inset 0 0 0 1px color-mix(
+    in srgb,
+    var(--dsw-alias-brand-primary) 72%,
+    transparent
+  );
+}
+
+.minke-tabs-create-menu__icon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  place-items: center;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.minke-tabs-create-menu__icon > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.minke-tabs-create-menu__label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (pointer: coarse) {
+  .minke-tabs-create-menu__item {
+    min-height: 44px;
+  }
+}
+
 .minke-tabs-panel[data-placement="right"]
   .minke-tabs-tabbar__actions {
   padding-right: 0;
@@ -434,6 +520,12 @@ body:has(
   width: 28px;
   height: 28px;
   border-radius: 8px;
+}
+
+.minke-tabs-tabbar__actions
+  .minke-tabs-toolbar__button[aria-expanded="true"] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
 }
 
 .minke-tabs-toolbar {
