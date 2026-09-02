@@ -37,6 +37,9 @@ function loadTabSources() {
           secureTabWebview,
         } from "./desktop/main/tabs/security.ts";
         export {
+          bindWebTabHistory,
+        } from "./desktop/main/tabs/history.ts";
+        export {
           TABS_WEB_EXTERNAL_LINK_CHANNEL,
           TABS_WEB_LOCAL_PATH_CHANNEL,
         } from "./packages/harness-overlay/src/tabs/web-link-contract.ts";
@@ -76,6 +79,7 @@ async function startFixtureServer(localFileUrl) {
         href="vscode://file/workspace/main.ts"
         target="_blank"
       >Editor</a>
+      <a id="same-document" href="#comments">Comments</a>
       <a id="same-frame" href="/same-frame">Same frame</a>`);
   });
   await new Promise((resolve, reject) => {
@@ -173,6 +177,7 @@ async function click(guest, selector) {
 async function run() {
   await app.whenReady();
   const {
+    bindWebTabHistory,
     openUserGestureTabLinkExternally,
     protectTabWebviewGuest,
     secureTabWebview,
@@ -195,6 +200,8 @@ async function run() {
   const externallyOpened = [];
   const guestExternalRequests = [];
   const allGuestExternalRequests = [];
+  const browsingVisits = [];
+  let disposeHistory = () => {};
   const window = new BrowserWindow({
     show: false,
     webPreferences: {
@@ -240,6 +247,15 @@ async function run() {
     'did-attach-webview',
     (_event, guest) => {
       attachedGuest = guest;
+      disposeHistory = bindWebTabHistory(guest, {
+        recordHumanNavigation(sourceId, url, navigationKind) {
+          browsingVisits.push({
+            sourceId,
+            url,
+            navigationKind,
+          });
+        },
+      });
       protectTabWebviewGuest(guest, {
         openExternal(url) {
           externallyOpened.push(url);
@@ -275,6 +291,17 @@ async function run() {
     );
     const guest = await guestPromise;
     await waitForLoad(guest);
+    await waitFor(
+      () =>
+        browsingVisits.some(
+          (visit) =>
+            visit.url === fixture.launcherUrl &&
+            visit.navigationKind === 'document',
+        )
+          ? true
+          : undefined,
+      'initial browsing history visit',
+    );
     await guest.debugger.attach('1.3');
 
     await guest.executeJavaScript(`
@@ -357,6 +384,19 @@ async function run() {
       'programmatic window.open handler',
     );
 
+    await click(guest, '#same-document');
+    await waitFor(
+      () =>
+        browsingVisits.some(
+          (visit) =>
+            visit.url === `${fixture.launcherUrl}#comments` &&
+            visit.navigationKind === 'same-document',
+        )
+          ? true
+          : undefined,
+      'same-document browsing history visit',
+    );
+
     await click(guest, '#same-frame');
     await waitFor(
       () =>
@@ -364,6 +404,23 @@ async function run() {
           ? true
           : undefined,
       'same-frame navigation',
+    );
+    await waitFor(
+      () =>
+        browsingVisits.some(
+          (visit) =>
+            visit.url === fixture.sameFrameUrl &&
+            visit.navigationKind === 'document',
+        )
+          ? true
+          : undefined,
+      'document browsing history visit',
+    );
+    assert.ok(
+      browsingVisits.every(
+        (visit) =>
+          visit.sourceId === `web:${String(guest.id)}`,
+      ),
     );
 
     assert.deepEqual(externallyOpened, [
@@ -375,6 +432,7 @@ async function run() {
       'Web Tab Electron link runtime passed\n',
     );
   } finally {
+    disposeHistory();
     ipcMain.removeListener(
       TABS_WEB_EXTERNAL_LINK_CHANNEL,
       handleGuestExternal,

@@ -47,6 +47,7 @@ test("duplicate and malformed active request ids preserve one authoritative term
         generation: 1,
         owner: "agent",
         status: "ready",
+        snapshotRequired: false,
         url: "https://example.com/",
       };
     },
@@ -150,6 +151,7 @@ test("failed owner release stays in the ledger for channel teardown retry", asyn
         generation: 1,
         owner: "agent",
         status: "ready",
+        snapshotRequired: false,
       };
     },
     async closeOwner(ownerSessionId) {

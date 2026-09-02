@@ -51,6 +51,8 @@ import {
 import { AppUpdateRuntime } from "./app-update-runtime";
 import {
   AgentBrowserRuntime,
+  SqliteAgentBrowserHistory,
+  agentBrowserHistoryFilePath,
 } from "./agent-browser";
 import {
   bindAppUpdateSettingsIpc,
@@ -182,10 +184,26 @@ class DesktopApplication {
     const locale = new DesktopLocaleRuntime(
       resolveDesktopLocale(app.getLocale()),
     );
+    let browserHistory:
+      | SqliteAgentBrowserHistory
+      | undefined;
+    try {
+      browserHistory = new SqliteAgentBrowserHistory({
+        path: agentBrowserHistoryFilePath(
+          app.getPath("userData"),
+        ),
+      });
+    } catch (error) {
+      console.warn(
+        "Minke Agent Browser history is unavailable:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     this.#desktopLocale = locale;
     const agentBrowser = new AgentBrowserRuntime({
       sessionFromPartition: (partition, options) =>
         session.fromPartition(partition, options),
+      history: browserHistory,
     });
     this.#agentBrowser = agentBrowser;
     const windows = new MainWindowRuntime({

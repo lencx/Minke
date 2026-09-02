@@ -1,9 +1,13 @@
 import {
   createAgentBrowserCancelRequest,
+  createAgentBrowserClaimControlRequest,
   createAgentBrowserReleaseOwnerRequest,
   createAgentBrowserRequest,
   isAgentBrowserProcessMessage,
+  parseAgentBrowserControlChangedEvent,
   parseAgentBrowserProcessResponse,
+  type AgentBrowserControlChangedEvent,
+  type AgentBrowserClaimControlResult,
   type AgentBrowserOperation,
   type AgentBrowserOperationResult,
   type AgentBrowserProcessRequest,
@@ -84,7 +88,7 @@ export function installAgentBrowserParentLifetime(
 }
 
 interface PendingRequest {
-  readonly operation: AgentBrowserOperation;
+  readonly operation: AgentBrowserOperation | "claim-control";
   readonly signal: AbortSignal;
   readonly onAbort: () => void;
   readonly resolve: (value: AgentBrowserOperationResult) => void;
@@ -146,6 +150,36 @@ function abortError(signal: AbortSignal): Error {
 export const AGENT_BROWSER_UNKNOWN_OUTCOME_CODE =
   "AGENT_BROWSER_OUTCOME_UNKNOWN";
 
+function knownRecoveryAdvice(code: string): string | undefined {
+  switch (code) {
+    case "session_paused":
+      return "Human takeover is a terminal control boundary: stop this turn. A later user turn can reclaim the focused tab automatically when it next needs a browser tool.";
+    case "control_superseded":
+      return "A newer human control intent won. Stop this browser turn; only a later user turn may attempt another automatic claim.";
+    case "stale_ref":
+    case "snapshot_required":
+      return "Do not retry the same ref. Take one fresh browser_snapshot and select a new target from it.";
+    case "ambiguous_target":
+      return "Do not repeat the call unchanged. Add scope or a more exact semantic constraint; use ordinal only when the user's ordinal clearly applies to that exact action-control match set.";
+    case "element_not_found":
+      return "Do not repeat the same target unchanged. Observe the current page and revise its scope or semantic constraints.";
+    case "element_not_actionable":
+    case "element_covered":
+    case "element_not_interactable":
+      return "Do not retry the same target unchanged. Observe the current page, choose the specific actionable control, and handle any covering element first.";
+    case "capability_mismatch":
+      return "Do not retry the same action on this ref. Use one of the actions exposed for the current ref, or observe the specific control that supports the requested action.";
+    case "index_truncated":
+      return "Do not guess the requested position or retry browser_find ordinal on this truncated index. Resolve one unique item without ordinal, or use browser_locate for a live structural position.";
+    case "navigation_unavailable":
+      return "Do not repeat the unavailable history action. Use the projected history state or choose another navigation action.";
+    case "unsupported_key":
+      return "Do not repeat the unsupported key. Choose one of the keys documented by browser_press.";
+    default:
+      return undefined;
+  }
+}
+
 /**
  * A structured failure returned by Electron's Agent Browser broker.
  *
@@ -161,10 +195,16 @@ export class AgentBrowserProcessError extends HarnessError {
     message: string,
     outcome: "known" | "unknown",
   ) {
+    const recovery = outcome !== "known"
+      ? undefined
+      : knownRecoveryAdvice(code);
+    const guidedMessage = recovery === undefined
+      ? message
+      : `${message}. ${recovery}`;
     super(
       outcome === "unknown"
-        ? `${message} (operation outcome is unknown; inspect the browser tab before retrying)`
-        : message,
+        ? `${guidedMessage} (operation outcome is unknown; inspect the browser tab before retrying)`
+        : guidedMessage,
       outcome === "unknown"
         ? AGENT_BROWSER_UNKNOWN_OUTCOME_CODE
         : code,
@@ -193,11 +233,33 @@ function unavailableError(message: string): AgentBrowserProcessError {
 export class AgentBrowserProcessClient {
   readonly #port: AgentBrowserProcessPort;
   readonly #pending = new Map<number, PendingRequest>();
+  readonly #controlListeners =
+    new Set<(event: AgentBrowserControlChangedEvent) => void>();
   #disposed = false;
   #listening = false;
 
   readonly #onMessage = (message: unknown): void => {
     if (!isAgentBrowserProcessMessage(message)) return;
+    if (
+      typeof message === "object" &&
+      message !== null &&
+      Reflect.get(message, "type") === "control-changed"
+    ) {
+      let event: AgentBrowserControlChangedEvent;
+      try {
+        event = parseAgentBrowserControlChangedEvent(message);
+      } catch {
+        return;
+      }
+      for (const listener of this.#controlListeners) {
+        try {
+          listener(event);
+        } catch {
+          // A lifecycle observer cannot corrupt request correlation.
+        }
+      }
+      return;
+    }
     const requestId = requestIdFrom(message);
     if (requestId === undefined) return;
     const pending = this.#pending.get(requestId);
@@ -261,6 +323,48 @@ export class AgentBrowserProcessClient {
     payload: unknown,
     signal: AbortSignal,
   ): Promise<AgentBrowserOperationResult> {
+    return this.#dispatch(
+      operation,
+      signal,
+      (requestId) =>
+        createAgentBrowserRequest(
+          requestId,
+          ownerSessionId,
+          operation,
+          payload,
+        ),
+      "Agent Browser IPC failed while sending an operation",
+    );
+  }
+
+  claimControl(
+    ownerSessionId: string,
+    sessionId: string,
+    expectedControlRevision: number,
+    signal: AbortSignal,
+  ): Promise<AgentBrowserClaimControlResult> {
+    return this.#dispatch(
+      "claim-control",
+      signal,
+      (requestId) =>
+        createAgentBrowserClaimControlRequest(
+          requestId,
+          ownerSessionId,
+          sessionId,
+          expectedControlRevision,
+        ),
+      "Agent Browser IPC failed while claiming control",
+    ).then((result) => result as AgentBrowserClaimControlResult);
+  }
+
+  #dispatch(
+    operation: AgentBrowserOperation | "claim-control",
+    signal: AbortSignal,
+    createRequest: (
+      requestId: number,
+    ) => AgentBrowserProcessRequest,
+    failureMessage: string,
+  ): Promise<AgentBrowserOperationResult> {
     if (this.#disposed) {
       return Promise.reject(
         unavailableError("Agent Browser process client is disposed"),
@@ -289,12 +393,7 @@ export class AgentBrowserProcessClient {
     }
     let request: AgentBrowserProcessRequest;
     try {
-      request = createAgentBrowserRequest(
-        requestId,
-        ownerSessionId,
-        operation,
-        payload,
-      );
+      request = createRequest(requestId);
     } catch (error) {
       releaseRequestId(requestId);
       return Promise.reject(error);
@@ -318,10 +417,20 @@ export class AgentBrowserProcessClient {
         this.#send(
           request,
           requestId,
-          "Agent Browser IPC failed while sending an operation",
+          failureMessage,
         );
       },
     );
+  }
+
+  onControlChanged(
+    listener: (event: AgentBrowserControlChangedEvent) => void,
+  ): () => void {
+    if (this.#disposed) return () => {};
+    this.#controlListeners.add(listener);
+    return () => {
+      this.#controlListeners.delete(listener);
+    };
   }
 
   /**
@@ -358,6 +467,7 @@ export class AgentBrowserProcessClient {
       this.#sendCancelBestEffort(requestId);
     }
     this.#stopListening();
+    this.#controlListeners.clear();
     this.#rejectAll(
       unavailableError("Agent Browser process client was disposed"),
     );

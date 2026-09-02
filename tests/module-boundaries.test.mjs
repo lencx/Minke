@@ -40,6 +40,7 @@ const sourceExtensions = new Set([
 const desktopOverlayContracts = new Set([
   "@minke/harness-overlay/agent-browser-annotation-contract",
   "@minke/harness-overlay/agent-browser-contract",
+  "@minke/harness-overlay/agent-browser-history-contract",
   "@minke/harness-overlay/agent-turn-contract",
   "@minke/harness-overlay/app-update-contract",
   "@minke/harness-overlay/browser-settings-contract",

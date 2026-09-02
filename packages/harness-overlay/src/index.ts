@@ -101,6 +101,8 @@ type HostRpcHandlers = {
 
 interface MinkeHostAgent {
   readonly id: string;
+  readonly status: "idle" | "running";
+  cancel(cause: { readonly kind: "user" }): void;
   readonly session: {
     readonly id: string;
     readonly header?: {
@@ -112,12 +114,17 @@ interface MinkeHostAgent {
       section(section: {
         readonly name: string;
         readonly order: number;
-        readonly text: string;
+        readonly text:
+          | string
+          | ((context: {
+              readonly scope?: MinkeHostAgent;
+            }) => string);
       }): () => void;
     };
     readonly tools: {
       restrict(filter: {
-        readonly deny: readonly string[];
+        readonly allow?: readonly string[];
+        readonly deny?: readonly string[];
       }): () => void;
     };
   };
@@ -232,6 +239,25 @@ interface MinkeHostContext {
       sessionId: string,
       agentPreset: string,
     ) => void,
+  ): unknown;
+  on(
+    event: "agent/status",
+    listener: (payload: {
+      readonly agent: MinkeHostAgent;
+      readonly status: "idle" | "running";
+    }) => void,
+  ): unknown;
+  on(
+    event: "agent/pre-step",
+    listener: (
+      payload: {
+        readonly agent: MinkeHostAgent;
+        readonly turn: number;
+        readonly step: number;
+        readonly signal: AbortSignal;
+      },
+      next: () => Promise<unknown>,
+    ) => Promise<unknown>,
   ): unknown;
   readonly webServer: PwaWebServer & RemotePreviewWebServer;
 }

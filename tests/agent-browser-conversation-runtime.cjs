@@ -60,6 +60,7 @@ function loadDesktopSource() {
   const source = `
     export {
       AgentBrowserRuntime,
+      SqliteAgentBrowserHistory,
     } from "./desktop/main/agent-browser/index.ts";
     export {
       HarnessRuntime,
@@ -201,15 +202,6 @@ function toolNames(body) {
     const name = entry?.function?.name;
     return typeof name === 'string' ? [name] : [];
   });
-}
-
-function sessionIdFrom(text) {
-  const match = /browser session ([a-zA-Z0-9][a-zA-Z0-9._:-]*)\./u
-    .exec(text);
-  if (match?.[1] === undefined) {
-    throw new Error(`model fixture could not recover browser session id:\n${text}`);
-  }
-  return match[1];
 }
 
 function continueRefFrom(text) {
@@ -359,9 +351,7 @@ async function startDynamicModelServer(browserUrl) {
           sendText(response, CLOSED_MARKER);
           return;
         }
-        call('browser_close', {
-          session_id: sessionIdFrom(toolHistory),
-        });
+        call('browser_close', {});
         return;
       }
 
@@ -375,7 +365,6 @@ async function startDynamicModelServer(browserUrl) {
         }
         if (latestTool.includes('Clicked in browser session')) {
           call('browser_wait', {
-            session_id: sessionIdFrom(toolHistory),
             text: 'Done',
             timeout_ms: 5_000,
           });
@@ -383,15 +372,14 @@ async function startDynamicModelServer(browserUrl) {
         }
         if (latestTool.includes('Captured snapshot')) {
           call('browser_click', {
-            session_id: sessionIdFrom(toolHistory),
-            ref: continueRefFrom(latestTool),
+            target: {
+              ref: continueRefFrom(latestTool),
+            },
           });
           return;
         }
         if (latestTool.includes('Opened browser session')) {
-          call('browser_snapshot', {
-            session_id: sessionIdFrom(toolHistory),
-          });
+          call('browser_snapshot', {});
           return;
         }
         call('browser_open', { url: browserUrl });
@@ -433,16 +421,26 @@ async function startDynamicModelServer(browserUrl) {
 }
 
 let nextRpcId = 0;
-async function rpc(baseUrl, method, payload) {
+async function rpc(
+  baseUrl,
+  method,
+  payload,
+  cookie,
+  parameterName = 'request',
+) {
   nextRpcId += 1;
+  const headers = {
+    'content-type': 'application/json',
+    ...(cookie === undefined ? {} : { cookie }),
+  };
   const response = await fetch(`${baseUrl}/api/${method}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({
       type: 'client-request',
       rpcId: `minke-agent-browser-${String(nextRpcId)}`,
       method,
-      payload,
+      payload: { args: { [parameterName]: payload } },
     }),
   });
   if (!response.ok) {
@@ -473,13 +471,33 @@ async function waitFor(read, description, timeoutMs = 30_000) {
   );
 }
 
-async function waitForAssistantMarker(baseUrl, sessionId, marker) {
+async function waitForAssistantMarker(
+  baseUrl,
+  sessionId,
+  marker,
+  cookie,
+) {
   return await waitFor(
     async () => {
-      const history = await rpc(baseUrl, 'session.history', {
-        sessionId,
+      const sessions = await rpc(
+        baseUrl,
+        'session/list',
+        {},
+        cookie,
+        '_request',
+      );
+      const summary = sessions.items.find(
+        (item) => item.sessionId === sessionId,
+      );
+      if (summary === undefined) return undefined;
+      const history = await rpc(baseUrl, 'session/page', {
+        address: {
+          kind: 'session',
+          sessionId,
+        },
+        throughSeq: summary.projections?.asOfSeq ?? -1,
         maxMessages: 50,
-      });
+      }, cookie);
       return JSON.stringify(history).includes(marker) ? history : undefined;
     },
     `assistant marker ${marker}`,
@@ -494,6 +512,129 @@ async function rendererValue(window, source) {
   );
 }
 
+async function readAgentBrowserLayout(window) {
+  return await rendererValue(
+    window,
+    `() => {
+      const selectors = {
+        panel: ".minke-tabs-panel:has(.minke-agent-browser__view)",
+        chrome:
+          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
+          ".minke-tabs-chrome",
+        tabbar:
+          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
+          ".minke-tabs-tabbar",
+        toolbar:
+          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
+          ".minke-tabs-toolbar",
+        content:
+          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
+          ".minke-tabs-content",
+        view: ".minke-agent-browser__view",
+        guest: ".minke-agent-browser__guest",
+        activeTab:
+          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
+          ".minke-tab[data-active]",
+        activeTabClose:
+          ".minke-tabs-panel:has(.minke-agent-browser__view) " +
+          ".minke-tab[data-active] .minke-tab__close",
+        layoutActions: "[data-minke-tabs-layout-actions]",
+      };
+      const rect = (selector) => {
+        const element = document.querySelector(selector);
+        if (!(element instanceof HTMLElement)) {
+          throw new Error("Missing layout element: " + selector);
+        }
+        const bounds = element.getBoundingClientRect();
+        return {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+          right: bounds.right,
+          bottom: bounds.bottom,
+        };
+      };
+      const view = document.querySelector(selectors.view);
+      if (!(view instanceof HTMLElement)) {
+        throw new Error("Agent Browser view is missing");
+      }
+      return {
+        rects: Object.fromEntries(
+          Object.entries(selectors).map(([name, selector]) => [
+            name,
+            rect(selector),
+          ])
+        ),
+        viewChildren: [...view.children].map((child) => ({
+          tag: child.tagName.toLowerCase(),
+          className:
+            child instanceof HTMLElement ? child.className : "",
+        })),
+      };
+    }`,
+  );
+}
+
+function assertAgentBrowserLayout(before, after) {
+  const stableNames = [
+    'panel',
+    'chrome',
+    'tabbar',
+    'toolbar',
+    'content',
+    'view',
+    'guest',
+    'activeTab',
+    'activeTabClose',
+    'layoutActions',
+  ];
+  for (const name of stableNames) {
+    const earlier = before.rects[name];
+    const later = after.rects[name];
+    for (const field of [
+      'x',
+      'y',
+      'width',
+      'height',
+      'right',
+      'bottom',
+    ]) {
+      assert.ok(
+        Math.abs(earlier[field] - later[field]) <= 1,
+        `${name}.${field} moved after browser takeover: ` +
+          `${String(earlier[field])} -> ${String(later[field])}`,
+      );
+    }
+  }
+  assert.ok(
+    before.rects.chrome.bottom <= before.rects.content.y + 1,
+    'Agent Browser content must begin below its chrome',
+  );
+  assert.ok(
+    after.rects.chrome.bottom <= after.rects.content.y + 1,
+    'human takeover must not move content over the chrome',
+  );
+  assert.ok(
+    before.rects.activeTab.right <=
+      before.rects.layoutActions.x + 1,
+    'the active tab must not overlap global placement controls',
+  );
+  assert.ok(
+    after.rects.activeTab.right <=
+      after.rects.layoutActions.x + 1,
+    'human takeover must not move the active tab under placement controls',
+  );
+  assert.equal(
+    before.viewChildren.some(({ tag }) => tag === 'webview'),
+    true,
+  );
+  assert.equal(
+    after.viewChildren.some(({ tag }) => tag === 'webview'),
+    true,
+  );
+}
+
 async function readAgentBrowserPreload(window) {
   return await rendererValue(
     window,
@@ -503,6 +644,19 @@ async function readAgentBrowserPreload(window) {
         throw new Error("Agent Browser preload bridge is missing");
       }
       return await bridge.read();
+    }`,
+  );
+}
+
+async function readAgentBrowserHistoryPreload(window) {
+  return await rendererValue(
+    window,
+    `async () => {
+      const bridge = window.minkeDesktop?.agentBrowser;
+      if (typeof bridge?.readHistory !== "function") {
+        throw new Error("Agent Browser history preload bridge is missing");
+      }
+      return await bridge.readHistory({ limit: 10 });
     }`,
   );
 }
@@ -526,11 +680,10 @@ async function selectConversation(window, title) {
     () => rendererValue(
       window,
       `() => {
-        const textarea = document.querySelector(
-          '[data-composer-card] textarea:not(:disabled)'
+        const input = document.querySelector(
+          '[data-composer-input][contenteditable="true"]'
         );
-        return textarea instanceof HTMLTextAreaElement &&
-            !textarea.readOnly
+        return input instanceof HTMLElement
           ? true
           : undefined;
       }`,
@@ -543,27 +696,36 @@ async function promptThroughComposer(window, prompt) {
   await rendererValue(
     window,
     `() => {
-      const textarea = document.querySelector(
-        '[data-composer-card] textarea:not(:disabled)'
+      const input = document.querySelector(
+        '[data-composer-input][contenteditable="true"]'
       );
-      if (!(textarea instanceof HTMLTextAreaElement) || textarea.readOnly) {
+      if (!(input instanceof HTMLElement)) {
         throw new Error("Editable Harness composer is missing");
       }
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value"
-      )?.set;
-      if (setter === undefined) {
-        throw new Error("Native textarea value setter is missing");
-      }
-      setter.call(textarea, ${JSON.stringify(prompt)});
-      textarea.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        data: ${JSON.stringify(prompt)},
-        inputType: "insertText",
-      }));
+      input.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(input);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
       return true;
     }`,
+  );
+  await window.webContents.insertText(prompt);
+  await waitFor(
+    () => rendererValue(
+      window,
+      `() => {
+        const input = document.querySelector(
+          '[data-composer-input][contenteditable="true"]'
+        );
+        return input instanceof HTMLElement &&
+            input.textContent === ${JSON.stringify(prompt)}
+          ? true
+          : undefined;
+      }`,
+    ),
+    `the composer draft ${prompt}`,
   );
   await waitFor(
     () => rendererValue(
@@ -600,11 +762,11 @@ async function promptThroughComposer(window, prompt) {
     () => rendererValue(
       window,
       `() => {
-        const textarea = document.querySelector(
-          '[data-composer-card] textarea:not(:disabled)'
+        const input = document.querySelector(
+          '[data-composer-input][contenteditable="true"]'
         );
-        return textarea instanceof HTMLTextAreaElement &&
-            textarea.value === ""
+        return input instanceof HTMLElement &&
+            input.textContent === ""
           ? true
           : undefined;
       }`,
@@ -657,14 +819,22 @@ async function run() {
     const {
       AgentBrowserRuntime,
       HarnessRuntime,
+      SqliteAgentBrowserHistory,
       bindTabs,
     } = loadDesktopSource();
+    const browserHistory = new SqliteAgentBrowserHistory({
+      path: join(
+        temporaryRoot,
+        'agent-browser-history.sqlite',
+      ),
+    });
     agentBrowser = new AgentBrowserRuntime({
       sessionFromPartition(partition, options) {
         return session.fromPartition(partition, options);
       },
       guestAttachTimeoutMs: 10_000,
       cdpCommandTimeoutMs: 10_000,
+      history: browserHistory,
     });
     harness = new HarnessRuntime({
       runtimeRoot,
@@ -685,7 +855,8 @@ async function run() {
         );
       },
     });
-    const harnessUrl = await harness.start();
+    const harnessEndpoint = await harness.start();
+    const harnessUrl = harnessEndpoint.origin;
     trace(`Harness ready at ${harnessUrl}`);
 
     window = new BrowserWindow({
@@ -702,7 +873,7 @@ async function run() {
         webviewTag: true,
       },
     });
-    const harnessOrigin = new URL(harnessUrl).origin;
+    const harnessOrigin = harnessEndpoint.origin;
     tabsBinding = bindTabs(
       ipcMain,
       window.webContents,
@@ -733,7 +904,7 @@ async function run() {
         prepareWebSession() {},
       },
     );
-    await window.loadURL(harnessUrl);
+    await window.loadURL(harnessEndpoint.authenticatedUrl);
     trace('production renderer loaded');
     await waitFor(
       () => rendererValue(
@@ -743,36 +914,47 @@ async function run() {
       'Harness React root',
     );
     trace('Harness React root mounted');
+    const harnessCookie = (
+      await window.webContents.session.cookies.get({
+        url: harnessOrigin,
+      })
+    )
+      .map(({ name, value }) => `${name}=${value}`)
+      .join('; ');
+    assert.notEqual(harnessCookie, '');
 
     const registeredWorkspace = await rpc(
       harnessUrl,
-      'workspace.create',
+      'workspace/create',
       { path: workspace },
+      harnessCookie,
     );
-    const created = await rpc(harnessUrl, 'session.create', {
+    const created = await rpc(harnessUrl, 'session/create', {
       workspaceId: registeredWorkspace.workspace.workspaceId,
       sessionId: 'minke-agent-browser-conversation-e2e',
       agentPreset: 'standard',
-    });
+    }, harnessCookie);
     assert.equal(
       created.sessionId,
       'minke-agent-browser-conversation-e2e',
     );
-    await rpc(harnessUrl, 'session.prompt', {
+    await rpc(harnessUrl, 'session/prompt', {
+      requestId: 'minke-agent-browser-bootstrap',
       sessionId: created.sessionId,
       mode: 'queue',
       content: [{ type: 'text', text: BOOTSTRAP_PROMPT }],
-    });
+    }, harnessCookie);
     await waitForAssistantMarker(
       harnessUrl,
       created.sessionId,
       BOOTSTRAP_MARKER,
+      harnessCookie,
     );
     const conversationTitle = 'Minke Agent Browser Conversation E2E';
-    await rpc(harnessUrl, 'session.rename', {
+    await rpc(harnessUrl, 'session/rename', {
       sessionId: created.sessionId,
       title: conversationTitle,
-    });
+    }, harnessCookie);
     await window.loadURL(harnessUrl);
     await waitFor(
       () => rendererValue(
@@ -811,10 +993,32 @@ async function run() {
       'the production preload bridge projection',
     );
     assert.equal(preloadProjection.status, 'ready');
+    const footprint =
+      await readAgentBrowserHistoryPreload(window);
+    assert.ok(footprint.totalVisits >= 1);
+    assert.ok(footprint.retainedVisits >= 1);
+    assert.equal(footprint.visits[0]?.actor, 'agent');
+    assert.equal(footprint.visits[0]?.url, fixture.url);
+    const guest = await waitFor(
+      () => webContents
+        .getAllWebContents()
+        .find((candidate) =>
+          candidate.getType() === 'webview' &&
+          candidate.getURL() === fixture.url
+        ),
+      'the embedded Agent Browser WebContents',
+    );
     await waitForAssistantMarker(
       harnessUrl,
       created.sessionId,
       OPENED_MARKER,
+      harnessCookie,
+    );
+    assert.equal(
+      await guest.executeJavaScript(
+        'document.querySelector("#state")?.textContent',
+      ),
+      'Done',
     );
     trace('model completed open/snapshot/click/wait loop');
     assert.deepEqual(
@@ -826,22 +1030,77 @@ async function run() {
         'browser_wait',
       ],
     );
-    const firstToolRequestIndex = model.requests.findIndex(
-      (request) => toolNames(request).includes('browser_open'),
+    const bootstrapRequestIndex = model.requests.findIndex(
+      (request) => {
+        const names = toolNames(request);
+        return names.includes('browser_open') &&
+          !names.includes('browser_click');
+      },
     );
-    assert.notEqual(firstToolRequestIndex, -1);
-    const firstToolSurface = toolNames(
-      model.requests[firstToolRequestIndex],
+    assert.notEqual(bootstrapRequestIndex, -1);
+    const bootstrapSurface = toolNames(
+      model.requests[bootstrapRequestIndex],
     );
-    assert.ok(firstToolSurface);
     assert.deepEqual(
-      firstToolSurface
+      bootstrapSurface
         .filter((name) => name.startsWith('browser_'))
         .sort(),
       [
         'browser_open',
         'browser_navigate',
+        'browser_history',
         'browser_snapshot',
+        'browser_find',
+        'browser_locate',
+        'browser_wait',
+        'browser_screenshot',
+        'browser_close',
+      ].sort(),
+    );
+    assert.match(
+      allMessageText(
+        model.requests[bootstrapRequestIndex],
+        'system',
+      ),
+      /capabilities are staged/iu,
+    );
+    const activeRequestIndex = model.requests.findIndex(
+      (request, index) =>
+        index > bootstrapRequestIndex &&
+        toolNames(request).includes('browser_click'),
+    );
+    assert.notEqual(activeRequestIndex, -1);
+    const activeSurface = toolNames(
+      model.requests[activeRequestIndex],
+    );
+    const browserClickTool =
+      model.requests[activeRequestIndex].tools.find(
+        (entry) => entry?.function?.name === 'browser_click',
+      );
+    const targetProperties =
+      browserClickTool?.function?.parameters?.properties
+        ?.target?.properties;
+    assert.notEqual(targetProperties, undefined);
+    assert.equal(Object.hasOwn(targetProperties, 'ordinal'), true);
+    assert.equal(Object.hasOwn(targetProperties, 'index'), false);
+    assert.match(
+      allMessageText(
+        model.requests[activeRequestIndex],
+        'system',
+      ),
+      /OBSERVE → RESOLVE → ACT → VERIFY/u,
+    );
+    assert.deepEqual(
+      activeSurface
+        .filter((name) => name.startsWith('browser_'))
+        .sort(),
+      [
+        'browser_open',
+        'browser_navigate',
+        'browser_history',
+        'browser_snapshot',
+        'browser_find',
+        'browser_locate',
         'browser_click',
         'browser_fill',
         'browser_press',
@@ -851,25 +1110,16 @@ async function run() {
       ].sort(),
     );
     assert.equal(
-      model.requestHeaders[firstToolRequestIndex]?.authorization,
+      model.requestHeaders[activeRequestIndex]?.authorization,
       'Bearer minke-agent-browser-e2e-key',
     );
     assert.equal(
-      model.requestHeaders[firstToolRequestIndex]?.[
+      model.requestHeaders[activeRequestIndex]?.[
         'x-deepseek-harness-session-id'
       ],
       created.sessionId,
     );
 
-    const guest = await waitFor(
-      () => webContents
-        .getAllWebContents()
-        .find((candidate) =>
-          candidate.getType() === 'webview' &&
-          candidate.getURL() === fixture.url
-        ),
-      'the embedded Agent Browser WebContents',
-    );
     assert.equal(
       await guest.executeJavaScript(
         'document.querySelector("#state")?.textContent',
@@ -931,6 +1181,7 @@ async function run() {
     assert.match(agentControlStyling.frameOffsetPath, /inset/u);
     assert.equal(agentControlStyling.framePointerEvents, 'none');
     assert.equal(agentControlStyling.frameZIndex, '1');
+    const agentLayout = await readAgentBrowserLayout(window);
 
     const screenshotPath = process.env[SCREENSHOT_ENV];
     if (screenshotPath !== undefined) {
@@ -1012,6 +1263,9 @@ async function run() {
       'an interactive human-owned webview',
     );
     assert.equal(humanUi, true);
+    const humanLayout = await readAgentBrowserLayout(window);
+    assertAgentBrowserLayout(agentLayout, humanLayout);
+    trace('human takeover preserved Agent Browser layout geometry');
     const humanControlStyling = await rendererValue(
       window,
       `() => {
@@ -1046,58 +1300,14 @@ async function run() {
     );
     trace('human input reached the embedded page');
 
-    await rendererValue(
-      window,
-      `() => {
-        const button = [...document.querySelectorAll("button")].find(
-          (candidate) =>
-            candidate.getAttribute("aria-label") === "Return control" ||
-            candidate.getAttribute("aria-label") === "交还给 Agent" ||
-            candidate.textContent?.trim() === "Return control" ||
-            candidate.textContent?.trim() === "交还给 Agent"
-        );
-        if (!(button instanceof HTMLButtonElement)) {
-          throw new Error("Return control button is missing");
-        }
-        button.click();
-        return true;
-      }`,
-    );
-    await waitFor(
-      () => {
-        const current = agentBrowser.projections()[0];
-        return current?.owner === 'agent' &&
-            current.status === 'ready'
-          ? current
-          : undefined;
-      },
-      'returned agent ownership',
-    );
-    assert.equal(
-      (await readAgentBrowserPreload(window))[0]?.owner,
-      'agent',
-    );
-    trace('ownership returned to agent');
-    await waitFor(
-      () => rendererValue(
-        window,
-        `() => {
-          const view = document.querySelector(".minke-agent-browser__guest");
-          return view?.hasAttribute("inert") === true &&
-              document.querySelector("[data-agent-input-shield]") !== null
-            ? true
-            : undefined;
-        }`,
-      ),
-      'the restored agent input shield',
-    );
-
+    trace('submitting the next browser turn without an explicit return-control click');
     await promptThroughComposer(window, CLOSE_PROMPT);
     trace('close prompt submitted through the composer');
     await waitForAssistantMarker(
       harnessUrl,
       created.sessionId,
       CLOSED_MARKER,
+      harnessCookie,
     );
     trace('model completed browser_close loop');
     await waitFor(

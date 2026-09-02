@@ -5,6 +5,11 @@ export {
   installWebLinkTabs,
 } from "./interceptor.ts";
 export {
+  recentWebHistorySuggestions,
+  webHistoryDisplayAddress,
+  WEB_HISTORY_SUGGESTION_LIMIT,
+} from "./history-suggestions.ts";
+export {
   webTabsEn,
   webTabsZh,
 } from "./locales.ts";

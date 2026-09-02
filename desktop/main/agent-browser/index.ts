@@ -15,3 +15,10 @@ export {
   type AgentBrowserRuntimeOptions,
   type AgentBrowserWebviewDecision,
 } from "./runtime.ts";
+export {
+  SqliteAgentBrowserHistory,
+  agentBrowserHistoryFilePath,
+  type AgentBrowserHistoryPort,
+  type AgentBrowserVisitRecord,
+  type SqliteAgentBrowserHistoryOptions,
+} from "./history.ts";

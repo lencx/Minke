@@ -1,6 +1,12 @@
 import type {
+  AgentBrowserNavigationCommand,
   AgentBrowserProjection,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
+import type {
+  AgentBrowserHistoryClearRequest,
+  AgentBrowserHistoryReadRequest,
+  AgentBrowserHistorySnapshot,
+} from "@minke/harness-overlay/agent-browser-history-contract.ts";
 import type {
   AgentBrowserAnnotationCommitResult,
   AgentBrowserAnnotationEvent,
@@ -31,6 +37,16 @@ export interface AgentBrowserTabsPort {
     sessionId: string,
     owner: AgentBrowserProjection["owner"],
   ): Promise<AgentBrowserProjection>;
+  navigate(
+    sessionId: string,
+    command: AgentBrowserNavigationCommand,
+  ): Promise<AgentBrowserProjection>;
+  readHistory(
+    request: AgentBrowserHistoryReadRequest,
+  ): Promise<AgentBrowserHistorySnapshot>;
+  clearHistory(
+    request: AgentBrowserHistoryClearRequest,
+  ): Promise<AgentBrowserHistorySnapshot>;
   startAnnotation(
     sessionId: string,
   ): Promise<AgentBrowserAnnotationSession>;
@@ -73,5 +89,18 @@ export function hasStableAgentControl(
       payload.status === "ready" ||
       payload.status === "loading"
     )
+  );
+}
+
+export function hasStableHumanControl(
+  payload: Pick<
+    AgentBrowserTabPayload,
+    "controlPending" | "owner" | "status"
+  >,
+): boolean {
+  return (
+    payload.owner === "human" &&
+    !payload.controlPending &&
+    payload.status === "paused"
   );
 }

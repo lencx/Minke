@@ -133,6 +133,92 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.minke-tabs-location-history {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 5px;
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 11px;
+  box-sizing: border-box;
+  background: var(--dsw-alias-bg-base);
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.minke-tabs-location-history__heading {
+  padding: 4px 7px 5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.minke-tabs-location-history__status {
+  padding: 12px 8px 14px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.minke-tabs-location-history__option {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: none;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 7px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.minke-tabs-location-history__option:hover,
+.minke-tabs-location-history__option[aria-selected="true"] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.minke-tabs-location-history__option:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -2px;
+}
+
+.minke-tabs-location-history__address {
+  overflow: hidden;
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-tabs-location-history__metadata {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .minke-tabs-blank {
   position: absolute;
   inset: 0;

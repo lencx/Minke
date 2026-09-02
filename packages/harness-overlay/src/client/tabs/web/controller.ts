@@ -2,10 +2,15 @@ import {
   normalizeWebTabUrl,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
+  AGENT_BROWSER_HISTORY_LIMIT,
+  type AgentBrowserHistoryVisit,
+} from "@minke/harness-overlay/agent-browser-history-contract.ts";
+import {
   normalizeAbsoluteLocalPath,
   type WebTabLocalPathRequest,
 } from "@minke/harness-overlay/tabs/web-link-contract.ts";
 import type {
+  DesktopAgentBrowserPort,
   DesktopTabsPort,
 } from "@minke/harness-overlay/client/desktop/index.ts";
 import type {
@@ -24,6 +29,10 @@ import {
 
 export interface WebTabsDependencies
   extends WebAnnotationDependencies {
+  readonly history?: Pick<
+    DesktopAgentBrowserPort,
+    "readHistory"
+  >;
   readonly openLocalPath?: (
     request: WebTabLocalPathRequest,
   ) => boolean;
@@ -93,6 +102,9 @@ export class WebTabsController {
   readonly #openLocalPath:
     | WebTabsDependencies["openLocalPath"]
     | undefined;
+  readonly #history:
+    | WebTabsDependencies["history"]
+    | undefined;
   #nextBlankId = 0;
 
   constructor(
@@ -107,6 +119,7 @@ export class WebTabsController {
       dependencies,
     );
     this.#openLocalPath = dependencies?.openLocalPath;
+    this.#history = dependencies?.history;
   }
 
   open(
@@ -329,6 +342,17 @@ export class WebTabsController {
 
   openLocalPath(request: WebTabLocalPathRequest): boolean {
     return this.#openLocalPath?.(request) ?? false;
+  }
+
+  async readRecentHistory(): Promise<
+    readonly AgentBrowserHistoryVisit[]
+  > {
+    const history = this.#history;
+    if (history === undefined) return [];
+    const snapshot = await history.readHistory({
+      limit: AGENT_BROWSER_HISTORY_LIMIT,
+    });
+    return snapshot.visits;
   }
 
   dispose(): void {

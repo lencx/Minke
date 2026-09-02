@@ -57,6 +57,9 @@ import {
   FilesViewStateStore,
 } from "./files-view-state.ts";
 import {
+  bindWebTabHistory,
+} from "./history.ts";
+import {
   TabsLayoutStateStore,
 } from "./layout-state.ts";
 import {
@@ -178,6 +181,8 @@ export function bindTabs(
     },
   });
   const attachedWebGuests = new Set<WebContents>();
+  const webGuestHistoryBindings =
+    new Map<WebContents, () => void>();
   const agentBrowserProjection =
     options.agentBrowser.bindWindowProjection(
       ipc,
@@ -218,9 +223,20 @@ export function bindTabs(
       return;
     }
     attachedWebGuests.add(guest);
-    guest.once("destroyed", () => {
+    const disposeHistory = bindWebTabHistory(
+      guest,
+      options.agentBrowser,
+    );
+    const handleDestroyed = (): void => {
       attachedWebGuests.delete(guest);
+      webGuestHistoryBindings.delete(guest);
+      disposeHistory();
+    };
+    webGuestHistoryBindings.set(guest, () => {
+      guest.removeListener("destroyed", handleDestroyed);
+      disposeHistory();
     });
+    guest.once("destroyed", handleDestroyed);
     protectTabWebviewGuest(guest, external);
   };
   const handleGuestExternalLink = (
@@ -445,6 +461,10 @@ export function bindTabs(
         TABS_WEB_EXTERNAL_LINK_CHANNEL,
         handleGuestExternalLink,
       );
+      for (const disposeHistory of webGuestHistoryBindings.values()) {
+        disposeHistory();
+      }
+      webGuestHistoryBindings.clear();
       attachedWebGuests.clear();
       ipc.removeHandler(TABS_LAYOUT_STATE_READ_CHANNEL);
       ipc.removeHandler(TABS_LAYOUT_STATE_WRITE_CHANNEL);

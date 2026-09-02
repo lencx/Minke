@@ -20,6 +20,9 @@ import type {
 import type {
   TabsRuntime,
 } from "./runtime.ts";
+import type {
+  RightTabsPresentationPort,
+} from "./responsive-right-host.ts";
 
 export interface SessionLogHeaderActionProps {
   sessionId: string;
@@ -70,6 +73,7 @@ export interface TabsHeaderActionProps {
   runtimes: Readonly<
     Record<TabsPanelPlacement, TabsRuntime>
   >;
+  presentation?: RightTabsPresentationPort;
   t: TabsTranslate;
 }
 
@@ -86,6 +90,25 @@ const PANEL_PLACEMENT_PATHS = {
   right:
     "M5.5 3.5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2m10 11v-8",
 } as const;
+const ignorePresentationChanges = () => () => {};
+const dockedPresentation = () => "docked" as const;
+
+function useRightDrawerOpen(
+  runtimes: TabsHeaderActionProps["runtimes"],
+  presentation: RightTabsPresentationPort | undefined,
+): boolean {
+  const rightSnapshot = useSyncExternalStore(
+    runtimes.right.subscribe,
+    runtimes.right.getSnapshot,
+    runtimes.right.getSnapshot,
+  );
+  const rightPresentation = useSyncExternalStore(
+    presentation?.subscribe ?? ignorePresentationChanges,
+    presentation?.getSnapshot ?? dockedPresentation,
+    presentation?.getSnapshot ?? dockedPresentation,
+  );
+  return rightSnapshot.visible && rightPresentation === "drawer";
+}
 
 function PanelPlacementIcon(props: {
   placement: TabsPanelPlacement;
@@ -124,6 +147,7 @@ interface NewSessionTabsHeaderActionProps
 /** Toggle the independent bottom and right Tabs docks. */
 export function TabsHeaderAction({
   runtimes,
+  presentation,
   t,
 }: TabsHeaderActionProps): ReactNode {
   const bottomSnapshot = useSyncExternalStore(
@@ -131,11 +155,12 @@ export function TabsHeaderAction({
     runtimes.bottom.getSnapshot,
     runtimes.bottom.getSnapshot,
   );
-  const rightSnapshot = useSyncExternalStore(
-    runtimes.right.subscribe,
-    runtimes.right.getSnapshot,
-    runtimes.right.getSnapshot,
+  const rightDrawerOpen = useRightDrawerOpen(
+    runtimes,
+    presentation,
   );
+  const rightSnapshot = runtimes.right.getSnapshot();
+  if (rightDrawerOpen) return null;
   return createElement(
     "div",
     {
@@ -181,6 +206,7 @@ export function TabsHeaderAction({
 /** Keep the Tabs toggles available while blank Session Header chrome is absent. */
 export function NewSessionTabsHeaderAction({
   runtimes,
+  presentation,
   t,
   useSessions,
 }: NewSessionTabsHeaderActionProps): ReactNode {
@@ -188,11 +214,19 @@ export function NewSessionTabsHeaderAction({
     if (state.current === undefined) return true;
     return state.byId[state.current]?.blank === true;
   });
-  if (!isNewSession) return null;
+  const rightDrawerOpen = useRightDrawerOpen(
+    runtimes,
+    presentation,
+  );
+  if (!isNewSession || rightDrawerOpen) return null;
 
   return createElement(
     "div",
     { "data-minke-new-session-tabs-action": "" },
-    createElement(TabsHeaderAction, { runtimes, t }),
+    createElement(TabsHeaderAction, {
+      runtimes,
+      presentation,
+      t,
+    }),
   );
 }

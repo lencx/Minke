@@ -2,11 +2,17 @@ import {
   parseInstalledPluginsSnapshot,
 } from "@minke/harness-overlay/plugin-install-contract.ts";
 import {
+  parseAgentBrowserNavigationRequest,
   parseAgentBrowserControlRequest,
   parseAgentBrowserProjection,
   parseAgentBrowserProjections,
   parseAgentBrowserSessionId,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
+import {
+  parseAgentBrowserHistoryClearRequest,
+  parseAgentBrowserHistoryReadRequest,
+  parseAgentBrowserHistorySnapshot,
+} from "@minke/harness-overlay/agent-browser-history-contract.ts";
 import {
   parseAgentBrowserAnnotationCommitRequest,
   parseAgentBrowserAnnotationCommitResult,
@@ -74,6 +80,21 @@ export function desktopAgentBrowserPort(
           "Minke desktop Agent Browser bridge is unavailable",
         );
       },
+      async navigate() {
+        throw new Error(
+          "Minke desktop Agent Browser bridge is unavailable",
+        );
+      },
+      async readHistory() {
+        throw new Error(
+          "Minke desktop Agent Browser history bridge is unavailable",
+        );
+      },
+      async clearHistory() {
+        throw new Error(
+          "Minke desktop Agent Browser history bridge is unavailable",
+        );
+      },
       async startAnnotation() {
         throw new Error(
           "Minke desktop Agent Browser bridge is unavailable",
@@ -111,6 +132,29 @@ export function desktopAgentBrowserPort(
       });
       return parseAgentBrowserProjection(
         await bridge.setControl(request.sessionId, request.owner),
+      );
+    },
+    async navigate(sessionId, command) {
+      const request = parseAgentBrowserNavigationRequest({
+        sessionId,
+        command,
+      });
+      return parseAgentBrowserProjection(
+        await bridge.navigate(request.sessionId, request.command),
+      );
+    },
+    async readHistory(request) {
+      return parseAgentBrowserHistorySnapshot(
+        await bridge.readHistory(
+          parseAgentBrowserHistoryReadRequest(request),
+        ),
+      );
+    },
+    async clearHistory(request) {
+      return parseAgentBrowserHistorySnapshot(
+        await bridge.clearHistory(
+          parseAgentBrowserHistoryClearRequest(request),
+        ),
       );
     },
     async startAnnotation(sessionId) {

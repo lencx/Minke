@@ -47,6 +47,11 @@ function projection(
     generation: 1,
     owner: "agent",
     status: "ready",
+    navigation: {
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+    },
     url: "https://example.com/",
     title: `Agent ${sessionId}`,
     ...patch,
@@ -148,6 +153,35 @@ function deferred() {
 const translations = {
   "agentBrowser.action.takeControl": "Take control",
   "agentBrowser.action.returnControl": "Return control",
+  "agentBrowser.nav.back": "Back",
+  "agentBrowser.nav.forward": "Forward",
+  "agentBrowser.nav.reload": "Reload",
+  "agentBrowser.nav.stop": "Stop",
+  "agentBrowser.history.action.open": "Browsing footprint",
+  "agentBrowser.history.action.close": "Close browsing footprint",
+  "agentBrowser.history.action.clear": "Clear browsing footprint",
+  "agentBrowser.history.title": "Browsing footprint",
+  "agentBrowser.history.privacy": "Stored locally.",
+  "agentBrowser.history.summary.label": "Summary",
+  "agentBrowser.history.summary.total": "{count} visits",
+  "agentBrowser.history.summary.paths": "{count} paths",
+  "agentBrowser.history.summary.actors":
+    "Agent {agent} · You {human}",
+  "agentBrowser.history.filter.all": "All",
+  "agentBrowser.history.filter.human": "You",
+  "agentBrowser.history.filter.agent": "Agent",
+  "agentBrowser.history.timeline":
+    "Showing {shown} · {retained} retained locally",
+  "agentBrowser.history.actor.human": "You",
+  "agentBrowser.history.actor.agent": "Agent",
+  "agentBrowser.history.visit.count": "{count} visits to this path",
+  "agentBrowser.history.loading": "Loading…",
+  "agentBrowser.history.empty": "No history",
+  "agentBrowser.history.error": "Could not load",
+  "agentBrowser.history.clear.confirm": "Clear all?",
+  "agentBrowser.history.clear.cancel": "Cancel",
+  "agentBrowser.history.clear.confirmAction": "Clear all",
+  "agentBrowser.history.clear.clearing": "Clearing…",
   "agentBrowser.annotation.action.start": "Annotate page",
   "agentBrowser.annotation.action.cancel": "Stop annotating",
   "agentBrowser.annotation.action.send": "Send",
@@ -181,11 +215,14 @@ function translate(key) {
 
 function fixture(initial = [], dependencies) {
   const controlCalls = [];
+  const navigationCalls = [];
   const closeCalls = [];
   const annotationStarts = [];
   const annotationStops = [];
   const annotationCommits = [];
   const annotationRefreshes = [];
+  const historyReads = [];
+  const historyClears = [];
   let listener = () => {};
   let annotationListener = () => {};
   let annotationCommit = async (request) => ({
@@ -237,6 +274,50 @@ function fixture(initial = [], dependencies) {
       controlCalls.push([sessionId, owner]);
       return await control(sessionId, owner);
     },
+    async navigate(sessionId, command) {
+      navigationCalls.push([sessionId, command]);
+      return projection(sessionId, {
+        generation: 2,
+        owner: "human",
+        status: "paused",
+      });
+    },
+    async readHistory(request) {
+      historyReads.push(request);
+      return {
+        totalVisits: 1,
+        retainedVisits: 1,
+        uniquePaths: 1,
+        agentVisits: 1,
+        humanVisits: 0,
+        visits: [
+          {
+            visitId: 1,
+            visitedAt: 1_800,
+            actor: "agent",
+            navigationKind: "document",
+            url: "https://example.com/docs",
+            origin: "https://example.com",
+            pathname: "/docs",
+            pathKey: "https://example.com/docs",
+            pathVisitCount: 1,
+            pathAgentVisits: 1,
+            pathHumanVisits: 0,
+          },
+        ],
+      };
+    },
+    async clearHistory(request) {
+      historyClears.push(request);
+      return {
+        totalVisits: 0,
+        retainedVisits: 0,
+        uniquePaths: 0,
+        agentVisits: 0,
+        humanVisits: 0,
+        visits: [],
+      };
+    },
     async startAnnotation(sessionId) {
       annotationStarts.push(sessionId);
       return await annotationStart(sessionId);
@@ -282,11 +363,14 @@ function fixture(initial = [], dependencies) {
     port,
     controller,
     controlCalls,
+    navigationCalls,
     closeCalls,
     annotationStarts,
     annotationStops,
     annotationCommits,
     annotationRefreshes,
+    historyReads,
+    historyClears,
     publish(projections) {
       listener(projections);
     },
@@ -350,6 +434,27 @@ test("Agent Browser projections create independent agent-web tabs", async () => 
     "human",
   );
   assert.equal(target.tabs.getSnapshot().tabs[0].title, "Taken over");
+
+  target.controller.dispose();
+  target.tabs.dispose();
+});
+
+test("Agent Browser controller validates browsing-footprint reads and clears", async () => {
+  const target = fixture([projection("session-1")]);
+  await target.controller.initialize();
+
+  const snapshot = await target.controller.readHistory({
+    limit: 40,
+    actor: "agent",
+  });
+  assert.equal(snapshot.visits[0].pathname, "/docs");
+  assert.deepEqual(target.historyReads, [
+    { limit: 40, actor: "agent" },
+  ]);
+
+  const cleared = await target.controller.clearHistory();
+  assert.equal(cleared.totalVisits, 0);
+  assert.deepEqual(target.historyClears, [{ confirm: true }]);
 
   target.controller.dispose();
   target.tabs.dispose();
@@ -1026,6 +1131,10 @@ test("Agent Browser renderer shields agent input and exposes takeover", () => {
     }),
   );
   assert.match(actionMarkup, /aria-label="Take control"/u);
+  assert.match(
+    actionMarkup,
+    /aria-label="Browsing footprint"/u,
+  );
   assert.ok(
     actionMarkup.includes(controlIconMarkup),
     "the control action must use MousePointerClick, not the page globe",
@@ -1201,6 +1310,95 @@ test("Agent Browser renderer shields agent input and exposes takeover", () => {
     }, true),
   );
   assert.doesNotMatch(crashedMarkup, /data-agent-cursor/u);
+
+  target.controller.dispose();
+  target.tabs.dispose();
+});
+
+test("Agent Browser navigation controls require stable human ownership", async () => {
+  const target = fixture([
+    projection("session-1", {
+      owner: "human",
+      status: "paused",
+      navigation: {
+        loading: false,
+        canGoBack: true,
+        canGoForward: false,
+      },
+    }),
+  ]);
+  await target.controller.initialize();
+  const renderer = createAgentBrowserTabRenderer(
+    target.controller,
+    translate,
+  );
+  const tab = target.tabs.getSnapshot().tabs[0];
+  const humanMarkup = renderToStaticMarkup(
+    renderer.renderLeadingActions(tab),
+  );
+  const humanButtons = humanMarkup.match(/<button[^>]*>/gu) ?? [];
+  const humanBack = humanButtons.find((button) =>
+    button.includes('aria-label="Back"')
+  );
+  const humanForward = humanButtons.find((button) =>
+    button.includes('aria-label="Forward"')
+  );
+  const humanReload = humanButtons.find((button) =>
+    button.includes('aria-label="Reload"')
+  );
+  assert.ok(humanBack);
+  assert.ok(humanForward);
+  assert.ok(humanReload);
+  assert.doesNotMatch(humanBack, /\bdisabled\b/u);
+  assert.match(humanForward, /\bdisabled\b/u);
+  assert.doesNotMatch(humanReload, /\bdisabled\b/u);
+
+  await target.controller.navigate(tab.id, "back");
+  assert.deepEqual(target.navigationCalls, [["session-1", "back"]]);
+
+  target.publish([
+    projection("session-1", {
+      generation: 2,
+      owner: "human",
+      status: "paused",
+      navigation: {
+        loading: true,
+        canGoBack: true,
+        canGoForward: false,
+      },
+    }),
+  ]);
+  const loadingMarkup = renderToStaticMarkup(
+    renderer.renderLeadingActions(target.tabs.tab(tab.id)),
+  );
+  assert.match(loadingMarkup, /aria-label="Stop"/u);
+  await target.controller.navigate(tab.id, "stop");
+  assert.deepEqual(target.navigationCalls, [
+    ["session-1", "back"],
+    ["session-1", "stop"],
+  ]);
+
+  target.publish([
+    projection("session-1", {
+      generation: 3,
+      owner: "agent",
+      status: "ready",
+      navigation: {
+        loading: false,
+        canGoBack: true,
+        canGoForward: true,
+      },
+    }),
+  ]);
+  const agentMarkup = renderToStaticMarkup(
+    renderer.renderLeadingActions(target.tabs.tab(tab.id)),
+  );
+  const agentButtons = agentMarkup.match(/<button[^>]*>/gu) ?? [];
+  assert.equal(agentButtons.length, 3);
+  assert.equal(
+    agentButtons.every((button) => /\bdisabled\b/u.test(button)),
+    true,
+  );
 
   target.controller.dispose();
   target.tabs.dispose();

@@ -1,9 +1,14 @@
 import {
   agentBrowserErrorResponse,
+  agentBrowserClaimControlSuccessResponse,
   agentBrowserSuccessResponse,
+  createAgentBrowserControlChangedEvent,
   isAgentBrowserProcessMessage,
   parseAgentBrowserProcessRequest,
   type AgentBrowserOperationResult,
+  type AgentBrowserClaimControlRequest,
+  type AgentBrowserClaimControlResult,
+  type AgentBrowserOwner,
   type AgentBrowserRequest,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
 import {
@@ -32,12 +37,20 @@ export interface AgentBrowserProcessHandler {
     request: AgentBrowserRequest,
     signal: AbortSignal,
   ): Promise<AgentBrowserOperationResult>;
+  claimControl(
+    ownerSessionId: string,
+    sessionId: string,
+    expectedControlRevision: number,
+    signal: AbortSignal,
+  ): Promise<AgentBrowserClaimControlResult>;
   closeOwner(ownerSessionId: string): Promise<void> | void;
 }
 
 interface PendingProcessRequest {
   readonly controller: AbortController;
-  readonly request: AgentBrowserRequest;
+  readonly request:
+    | AgentBrowserRequest
+    | AgentBrowserClaimControlRequest;
 }
 
 function possibleRequestId(value: unknown): number | undefined {
@@ -86,6 +99,21 @@ export class AgentBrowserProcessChannel {
 
   get disposed(): boolean {
     return this.#disposed;
+  }
+
+  publishControlChanged(
+    ownerSessionId: string,
+    sessionId: string,
+    owner: AgentBrowserOwner,
+    controlRevision: number,
+  ): void {
+    if (!this.#owners.has(ownerSessionId)) return;
+    this.#send(createAgentBrowserControlChangedEvent(
+      ownerSessionId,
+      sessionId,
+      owner,
+      controlRevision,
+    ));
   }
 
   dispose(): void {
@@ -240,17 +268,31 @@ export class AgentBrowserProcessChannel {
   async #run(pending: PendingProcessRequest): Promise<void> {
     const { request } = pending;
     try {
-      const result = await this.#handler.handleProcessRequest(
-        request,
-        pending.controller.signal,
-      );
+      const result = request.type === "claim-control"
+        ? await this.#handler.claimControl(
+            request.ownerSessionId,
+            request.sessionId,
+            request.expectedControlRevision,
+            pending.controller.signal,
+          )
+        : await this.#handler.handleProcessRequest(
+            request,
+            pending.controller.signal,
+          );
       if (this.#pending.get(request.requestId) !== pending) return;
       this.#pending.delete(request.requestId);
-      this.#send(agentBrowserSuccessResponse(
-        request.requestId,
-        request.operation,
-        result,
-      ));
+      this.#send(
+        request.type === "claim-control"
+          ? agentBrowserClaimControlSuccessResponse(
+              request.requestId,
+              result,
+            )
+          : agentBrowserSuccessResponse(
+              request.requestId,
+              request.operation,
+              result,
+            ),
+      );
     } catch (error) {
       if (this.#pending.get(request.requestId) !== pending) return;
       this.#pending.delete(request.requestId);

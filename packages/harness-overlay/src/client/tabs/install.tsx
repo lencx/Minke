@@ -449,6 +449,9 @@ export function installTabs(
     const webTabs = tabsPort.embeddedWebAvailable
       ? new WebTabsController(tabs, tabsPort, {
           chat: browserCommentsChat,
+          history: agentBrowserPort.available
+            ? agentBrowserPort
+            : undefined,
           openLocalPath: ({ path, title }) =>
             filesTabs?.openLocalPath(
               path,
@@ -597,7 +600,10 @@ export function installTabs(
         id: "minke-tabs-new-session-toggle",
         order: 10,
         locale: TABS_NAMESPACE,
-        inject: () => ({ runtimes }),
+        inject: () => ({
+          runtimes,
+          presentation: rightHost,
+        }),
       },
       NewSessionTabsHeaderAction as ComponentType<never>,
     ),
@@ -646,7 +652,10 @@ export function installTabs(
           id: "minke-tabs-toggle",
           order: 10,
           locale: TABS_NAMESPACE,
-          inject: () => ({ runtimes }),
+          inject: () => ({
+            runtimes,
+            presentation: rightHost,
+          }),
         },
         TabsHeaderAction as ComponentType<never>,
       ),

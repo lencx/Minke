@@ -14,8 +14,14 @@ import { tmpdir } from "node:os";
 import { join, parse, resolve, win32 } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
-import { createElement } from "react";
+import {
+  act,
+  createElement,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import {
+  JSDOM,
+} from "../vendor/deepseek-harness/node_modules/jsdom/lib/api.js";
 import {
   SquareArrowOutUpRight,
 } from "@lucide/icons";
@@ -135,6 +141,16 @@ import {
   WebTabsController,
 } from "@minke/harness-overlay/client/tabs/web/controller.ts";
 import {
+  WebAddressBar,
+} from "@minke/harness-overlay/client/tabs/web/WebAddressBar.tsx";
+import {
+  recentWebHistorySuggestions,
+  webHistoryDisplayAddress,
+} from "@minke/harness-overlay/client/tabs/web/history-suggestions.ts";
+import {
+  webTabsEn,
+} from "@minke/harness-overlay/client/tabs/web/locales.ts";
+import {
   installWebLinkTabs,
 } from "@minke/harness-overlay/client/tabs/web/interceptor.ts";
 import {
@@ -150,6 +166,9 @@ import {
   FileWatchRuntime,
 } from "@minke/desktop/main/tabs/file-watch.ts";
 import {
+  bindWebTabHistory,
+} from "@minke/desktop/main/tabs/history.ts";
+import {
   canGrantTabWebPermission,
   openUserGestureTabLinkExternally,
   protectTabWebviewGuest,
@@ -164,6 +183,43 @@ import {
 
 async function settleAsyncWork() {
   await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function withTabsBrowserGlobals(dom, callback) {
+  const values = {
+    document: dom.window.document,
+    Event: dom.window.Event,
+    HTMLElement: dom.window.HTMLElement,
+    HTMLInputElement: dom.window.HTMLInputElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    navigator: dom.window.navigator,
+    Node: dom.window.Node,
+    window: dom.window,
+  };
+  const descriptors = new Map(
+    Object.keys(values).map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(globalThis, key),
+    ]),
+  );
+  try {
+    for (const [key, value] of Object.entries(values)) {
+      Object.defineProperty(globalThis, key, {
+        configurable: true,
+        value,
+        writable: true,
+      });
+    }
+    return await callback();
+  } finally {
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor === undefined) {
+        Reflect.deleteProperty(globalThis, key);
+      } else {
+        Object.defineProperty(globalThis, key, descriptor);
+      }
+    }
+  }
 }
 
 function fileVersion(content) {
@@ -3195,6 +3251,105 @@ test("trusted Web guest clicks may open registered app protocols", () => {
   ]);
 });
 
+test("Web Tab history observes only committed main-frame web navigations", () => {
+  const listeners = new Map();
+  const guest = {
+    id: 42,
+    on(name, listener) {
+      listeners.set(name, listener);
+    },
+    removeListener(name, listener) {
+      if (listeners.get(name) === listener) listeners.delete(name);
+    },
+  };
+  const visits = [];
+  const dispose = bindWebTabHistory(guest, {
+    recordHumanNavigation(...visit) {
+      visits.push(visit);
+    },
+  });
+
+  listeners.get("did-navigate")(
+    {},
+    "https://example.com/docs?mode=full",
+  );
+  listeners.get("did-navigate-in-page")(
+    {},
+    "https://example.com/docs?mode=full#part",
+    false,
+  );
+  listeners.get("did-navigate-in-page")(
+    {},
+    "https://example.com/docs?mode=full#part",
+    true,
+  );
+  listeners.get("did-navigate")({}, "mailto:hello@example.com");
+
+  assert.deepEqual(visits, [
+    [
+      "web:42",
+      "https://example.com/docs?mode=full",
+      "document",
+    ],
+    [
+      "web:42",
+      "https://example.com/docs?mode=full#part",
+      "same-document",
+    ],
+  ]);
+  dispose();
+  assert.equal(listeners.size, 0);
+});
+
+test("Web history suggestions are recent, path-deduplicated, and searchable", () => {
+  const visits = [
+    {
+      pathKey: "https://example.com/docs",
+      url: "https://example.com/docs?mode=latest#intro",
+      origin: "https://example.com",
+      pathname: "/docs",
+    },
+    {
+      pathKey: "https://example.com/docs",
+      url: "https://example.com/docs?mode=old",
+      origin: "https://example.com",
+      pathname: "/docs",
+    },
+    {
+      pathKey: "http://local.test/settings",
+      url: "http://local.test/settings",
+      origin: "http://local.test",
+      pathname: "/settings",
+    },
+  ];
+
+  assert.deepEqual(
+    recentWebHistorySuggestions(visits, "").map(
+      (visit) => visit.url,
+    ),
+    [
+      "https://example.com/docs?mode=latest#intro",
+      "http://local.test/settings",
+    ],
+  );
+  assert.deepEqual(
+    recentWebHistorySuggestions(visits, "example docs").map(
+      (visit) => visit.url,
+    ),
+    ["https://example.com/docs?mode=latest#intro"],
+  );
+  assert.equal(
+    webHistoryDisplayAddress(
+      "https://example.com/docs?mode=latest#intro",
+    ),
+    "example.com/docs?mode=latest#intro",
+  );
+  assert.equal(
+    webHistoryDisplayAddress("http://local.test/settings"),
+    "http://local.test/settings",
+  );
+});
+
 test("Web address paths route through the local Files seam", () => {
   const tabs = new TabsRuntime({
     showPanel() {},
@@ -3246,6 +3401,181 @@ test("Web address paths route through the local Files seam", () => {
   ]);
   web.dispose();
   tabs.dispose();
+});
+
+test("Web controller reads the shared browsing footprint for the address bar", async () => {
+  const tabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const requests = [];
+  const visits = [{ url: "https://example.com/recent" }];
+  const web = new WebTabsController(
+    tabs,
+    {
+      available: true,
+      openExternal() {},
+    },
+    {
+      history: {
+        async readHistory(request) {
+          requests.push(request);
+          return { visits };
+        },
+      },
+    },
+  );
+
+  assert.equal(await web.readRecentHistory(), visits);
+  assert.deepEqual(requests, [{ limit: 200 }]);
+  web.dispose();
+  tabs.dispose();
+});
+
+test("Web address bar opens recent visits and supports keyboard selection", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><div id="root"></div>',
+    { pretendToBeVisual: true },
+  );
+  const navigations = [];
+  let reads = 0;
+  const visits = [
+    {
+      actor: "human",
+      navigationKind: "document",
+      origin: "https://example.com",
+      pathname: "/docs",
+      pathAgentVisits: 1,
+      pathHumanVisits: 2,
+      pathKey: "https://example.com/docs",
+      pathVisitCount: 3,
+      url: "https://example.com/docs?latest=true",
+      visitId: 3,
+      visitedAt: 3_000,
+    },
+    {
+      actor: "agent",
+      navigationKind: "document",
+      origin: "https://example.com",
+      pathname: "/docs",
+      pathAgentVisits: 1,
+      pathHumanVisits: 2,
+      pathKey: "https://example.com/docs",
+      pathVisitCount: 3,
+      url: "https://example.com/docs?old=true",
+      visitId: 2,
+      visitedAt: 2_000,
+    },
+    {
+      actor: "agent",
+      navigationKind: "document",
+      origin: "https://example.com",
+      pathname: "/settings",
+      pathAgentVisits: 1,
+      pathHumanVisits: 0,
+      pathKey: "https://example.com/settings",
+      pathVisitCount: 1,
+      url: "https://example.com/settings",
+      visitId: 1,
+      visitedAt: 1_000,
+    },
+  ];
+  try {
+    await withTabsBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const container =
+        dom.window.document.getElementById("root");
+      assert.ok(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(
+            createElement(WebAddressBar, {
+              tab: {
+                id: "tab-1",
+                key: "blank:1",
+                kind: "web",
+                title: "New tab",
+                payload: {
+                  loading: false,
+                  canGoBack: false,
+                  canGoForward: false,
+                },
+              },
+              controller: {
+                async readRecentHistory() {
+                  reads += 1;
+                  return visits;
+                },
+                navigate(id, url) {
+                  navigations.push({ id, url });
+                  return true;
+                },
+              },
+              t: (key) => webTabsEn[key],
+            }),
+          );
+          await Promise.resolve();
+        });
+        const input = container.querySelector("input");
+        assert.ok(input instanceof dom.window.HTMLInputElement);
+        assert.equal(reads, 1);
+        assert.equal(
+          dom.window.document.querySelectorAll('[role="option"]')
+            .length,
+          2,
+        );
+
+        await act(async () => {
+          input.dispatchEvent(
+            new dom.window.KeyboardEvent("keydown", {
+              bubbles: true,
+              key: "Escape",
+            }),
+          );
+        });
+        assert.equal(
+          dom.window.document.querySelector('[role="listbox"]'),
+          null,
+        );
+
+        await act(async () => {
+          input.dispatchEvent(
+            new dom.window.KeyboardEvent("keydown", {
+              bubbles: true,
+              key: "ArrowDown",
+            }),
+          );
+        });
+        assert.equal(input.getAttribute("aria-expanded"), "true");
+        assert.equal(
+          dom.window.document
+            .querySelector('[role="option"]')
+            ?.getAttribute("aria-selected"),
+          "true",
+        );
+
+        await act(async () => {
+          input.dispatchEvent(
+            new dom.window.KeyboardEvent("keydown", {
+              bubbles: true,
+              key: "Enter",
+            }),
+          );
+        });
+        assert.deepEqual(navigations, [{
+          id: "tab-1",
+          url: "https://example.com/docs?latest=true",
+        }]);
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+      }
+    });
+  } finally {
+    dom.window.close();
+  }
 });
 
 test("Tabs is content-agnostic and preserves hidden tab state", () => {
@@ -3527,6 +3857,68 @@ test("mobile drawer Tabs own their top actions", () => {
     FILES_TAB_STYLES,
     /data-presentation="drawer"[\s\S]*\.minke-files-mode-select\s*\{[\s\S]*width:\s*44px;/u,
     "mobile Files layout selection needs a full touch target",
+  );
+});
+
+test("an open right drawer suppresses the global placement controls", () => {
+  const rightTabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  });
+  const bottomTabs = new TabsRuntime({
+    showPanel() {},
+    hidePanel() {},
+  }, {
+    idPrefix: "bottom-",
+  });
+  rightTabs.open({
+    kind: "web",
+    key: "https://example.com/",
+    title: "Example",
+    payload: {},
+  });
+  const presentation = {
+    getSnapshot: () => "drawer",
+    subscribe: () => () => {},
+  };
+
+  const markup = renderToStaticMarkup(
+    createElement(TabsHeaderAction, {
+      runtimes: {
+        bottom: bottomTabs,
+        right: rightTabs,
+      },
+      presentation,
+      t: (key) => tabsEn[key],
+    }),
+  );
+  assert.equal(
+    markup,
+    "",
+    "the drawer close action must be the only control in its top-right corner",
+  );
+
+  const blankMarkup = renderToStaticMarkup(
+    createElement(NewSessionTabsHeaderAction, {
+      runtimes: {
+        bottom: bottomTabs,
+        right: rightTabs,
+      },
+      presentation,
+      t: (key) => tabsEn[key],
+      useSessions: (selector) =>
+        selector({
+          current: "blank-session",
+          byId: {
+            "blank-session": { blank: true },
+          },
+        }),
+    }),
+  );
+  assert.equal(
+    blankMarkup,
+    "",
+    "the blank-session fallback must obey the same drawer ownership",
   );
 });
 

@@ -55,9 +55,15 @@ import type {
   WebSearchSettings,
 } from "@minke/harness-overlay/web-search-settings-contract.ts";
 import type {
+  AgentBrowserNavigationCommand,
   AgentBrowserOwner,
   AgentBrowserProjection,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
+import type {
+  AgentBrowserHistoryClearRequest,
+  AgentBrowserHistoryReadRequest,
+  AgentBrowserHistorySnapshot,
+} from "@minke/harness-overlay/agent-browser-history-contract.ts";
 import type {
   AgentBrowserAnnotationCommitResult,
   AgentBrowserAnnotationEvent,
@@ -195,6 +201,16 @@ export interface DesktopAgentBrowserPort {
     sessionId: string,
     owner: AgentBrowserOwner,
   ): Promise<AgentBrowserProjection>;
+  navigate(
+    sessionId: string,
+    command: AgentBrowserNavigationCommand,
+  ): Promise<AgentBrowserProjection>;
+  readHistory(
+    request: AgentBrowserHistoryReadRequest,
+  ): Promise<AgentBrowserHistorySnapshot>;
+  clearHistory(
+    request: AgentBrowserHistoryClearRequest,
+  ): Promise<AgentBrowserHistorySnapshot>;
   startAnnotation(
     sessionId: string,
   ): Promise<AgentBrowserAnnotationSession>;
@@ -308,6 +324,16 @@ export interface DesktopAgentBrowserBridge {
   setControl(
     sessionId: string,
     owner: AgentBrowserOwner,
+  ): Promise<unknown>;
+  navigate(
+    sessionId: string,
+    command: AgentBrowserNavigationCommand,
+  ): Promise<unknown>;
+  readHistory(
+    request: AgentBrowserHistoryReadRequest,
+  ): Promise<unknown>;
+  clearHistory(
+    request: AgentBrowserHistoryClearRequest,
   ): Promise<unknown>;
   startAnnotation(sessionId: string): Promise<unknown>;
   stopAnnotation(

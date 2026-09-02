@@ -6,6 +6,7 @@ import type {
   IpcMainInvokeEvent,
   Session,
   WebContents,
+  WebContentsDidStartNavigationEventParams,
   WebContentsWillNavigateEventParams,
   WebContentsWillRedirectEventParams,
   WebPreferences,
@@ -14,22 +15,39 @@ import { randomUUID } from "node:crypto";
 import {
   AGENT_BROWSER_CLOSE_CHANNEL,
   AGENT_BROWSER_CONTROL_CHANNEL,
+  AGENT_BROWSER_NAVIGATION_CHANNEL,
   AGENT_BROWSER_SESSIONS_CHANGED_CHANNEL,
   AGENT_BROWSER_SESSIONS_READ_CHANNEL,
   normalizeAgentBrowserUrl,
+  parseAgentBrowserTarget,
   parseAgentBrowserControlRequest,
+  parseAgentBrowserNavigationRequest,
   parseAgentBrowserProcessRequest,
   parseAgentBrowserProjection,
   parseAgentBrowserSessionId,
+  type AgentBrowserNavigationCommand,
+  type AgentBrowserNavigationState,
   type AgentBrowserOperationResult,
+  type AgentBrowserClaimControlResult,
   type AgentBrowserCursorPhase,
   type AgentBrowserCursorProjection,
+  type AgentBrowserFindQuery,
+  type AgentBrowserFindView,
   type AgentBrowserOwner,
   type AgentBrowserProjection,
   type AgentBrowserRequest,
+  type AgentBrowserTarget,
   type AgentBrowserSessionResult,
   type AgentBrowserSessionStatus,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
+import {
+  AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
+  AGENT_BROWSER_HISTORY_READ_CHANNEL,
+  parseAgentBrowserHistoryClearRequest,
+  parseAgentBrowserHistoryReadRequest,
+  type AgentBrowserHistorySnapshot,
+  type AgentBrowserNavigationKind,
+} from "@minke/harness-overlay/agent-browser-history-contract.ts";
 import {
   AGENT_BROWSER_ANNOTATION_COMMIT_CHANNEL,
   AGENT_BROWSER_ANNOTATION_EVENT_CHANNEL,
@@ -54,7 +72,11 @@ import {
   AgentBrowserError,
   asAgentBrowserError,
   type AgentBrowserCdpPointerTarget,
+  type AgentBrowserTargetAction,
 } from "./cdp.ts";
+import type {
+  AgentBrowserHistoryPort,
+} from "./history.ts";
 import {
   AgentBrowserProcessChannel,
   type AgentBrowserProcessChild,
@@ -84,6 +106,8 @@ export interface AgentBrowserRuntimeOptions {
   readonly createToken?: () => string;
   readonly guestAttachTimeoutMs?: number;
   readonly cdpCommandTimeoutMs?: number;
+  /** Runtime-owned durable visit log, closed by dispose(). */
+  readonly history?: AgentBrowserHistoryPort;
 }
 
 type AgentBrowserAuthorization = (
@@ -126,11 +150,18 @@ interface AgentBrowserSessionState {
   removeGuestListeners?: () => void;
   operationTail: Promise<void>;
   controlTail: Promise<void>;
+  controlRevision: number;
   humanTakeoverPending: boolean;
   closing: boolean;
   annotation?: AgentBrowserAnnotationState;
   cursor?: AgentBrowserCursorProjection;
   cursorSequence: number;
+  snapshotRequired: boolean;
+  navigation: AgentBrowserNavigationState;
+  pendingHistoryVisit?: {
+    readonly actor: AgentBrowserOwner;
+    readonly navigationKind: AgentBrowserNavigationKind;
+  };
 }
 
 interface WindowProjectionBinding {
@@ -275,18 +306,6 @@ function requiredNumber(
   return Number(value);
 }
 
-function optionalString(
-  payload: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = payload[key];
-  if (value === undefined || typeof value === "string") return value;
-  throw new AgentBrowserError(
-    "bad_request",
-    `Agent Browser payload ${key} must be a string`,
-  );
-}
-
 async function waitForPromise<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -325,6 +344,7 @@ export class AgentBrowserRuntime {
   readonly #options: AgentBrowserRuntimeOptions;
   readonly #attachTimeoutMs: number;
   readonly #cdpTimeoutMs: number;
+  readonly #history: AgentBrowserHistoryPort | undefined;
   readonly #states =
     new Map<string, AgentBrowserSessionState>();
   readonly #agentSessions = new WeakSet<Session>();
@@ -334,6 +354,7 @@ export class AgentBrowserRuntime {
   #windowBinding: WindowProjectionBinding | undefined;
   #windowBindingDisposer: (() => void) | undefined;
   #userAgent: string | undefined;
+  #historyWriteFailureReported = false;
   #disposed = false;
 
   constructor(options: AgentBrowserRuntimeOptions) {
@@ -348,6 +369,7 @@ export class AgentBrowserRuntime {
       30_000,
       "Agent Browser CDP timeout",
     );
+    this.#history = options.history;
   }
 
   projections(): readonly AgentBrowserProjection[] {
@@ -367,6 +389,28 @@ export class AgentBrowserRuntime {
     for (const state of this.#states.values()) {
       state.session.setUserAgent(normalized);
     }
+  }
+
+  /**
+   * Record a navigation committed by a trusted, human-controlled Web Tab.
+   *
+   * Ordinary Web Tabs share the same browsing-footprint store as Agent
+   * Browser sessions, but they never accept actor attribution from renderer
+   * traffic. The main process supplies both the source identity and actor.
+   */
+  recordHumanNavigation(
+    sourceId: string,
+    url: string,
+    navigationKind: AgentBrowserNavigationKind,
+  ): void {
+    if (this.#disposed) return;
+    this.#writeHistoryVisit({
+      sessionId: sourceId,
+      url,
+      actor: "human",
+      navigationKind,
+      visitedAt: Date.now(),
+    });
   }
 
   bindChild(
@@ -426,6 +470,58 @@ export class AgentBrowserRuntime {
         request.sessionId,
         request.owner,
       );
+    };
+    const handleNavigation = async (
+      event: IpcMainInvokeEvent,
+      value: unknown,
+    ): Promise<AgentBrowserProjection> => {
+      if (!authorize(event)) {
+        throw new Error("unauthorized Agent Browser request");
+      }
+      const request = parseAgentBrowserNavigationRequest(value);
+      return await this.navigateForHuman(
+        request.sessionId,
+        request.command,
+      );
+    };
+    const handleHistoryRead = (
+      event: IpcMainInvokeEvent,
+      value: unknown,
+    ): AgentBrowserHistorySnapshot => {
+      if (!authorize(event)) {
+        throw new Error("unauthorized Agent Browser request");
+      }
+      const request =
+        parseAgentBrowserHistoryReadRequest(value);
+      if (this.#history === undefined) {
+        throw new Error(
+          "Agent Browser browsing footprint is unavailable",
+        );
+      }
+      return this.#history.read(request);
+    };
+    const handleHistoryClear = (
+      event: IpcMainInvokeEvent,
+      value: unknown,
+    ): AgentBrowserHistorySnapshot => {
+      if (!authorize(event)) {
+        throw new Error("unauthorized Agent Browser request");
+      }
+      parseAgentBrowserHistoryClearRequest(value);
+      if (this.#history === undefined) {
+        throw new Error(
+          "Agent Browser browsing footprint is unavailable",
+        );
+      }
+      this.#history.clear();
+      return {
+        totalVisits: 0,
+        retainedVisits: 0,
+        uniquePaths: 0,
+        agentVisits: 0,
+        humanVisits: 0,
+        visits: [],
+      };
     };
     const handleAnnotationStart = async (
       event: IpcMainInvokeEvent,
@@ -492,6 +588,15 @@ export class AgentBrowserRuntime {
 
     ipc.handle(AGENT_BROWSER_SESSIONS_READ_CHANNEL, handleRead);
     ipc.handle(AGENT_BROWSER_CONTROL_CHANNEL, handleControl);
+    ipc.handle(AGENT_BROWSER_NAVIGATION_CHANNEL, handleNavigation);
+    ipc.handle(
+      AGENT_BROWSER_HISTORY_READ_CHANNEL,
+      handleHistoryRead,
+    );
+    ipc.handle(
+      AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
+      handleHistoryClear,
+    );
     ipc.handle(
       AGENT_BROWSER_ANNOTATION_START_CHANNEL,
       handleAnnotationStart,
@@ -519,6 +624,9 @@ export class AgentBrowserRuntime {
         embedder.off("destroyed", handleDestroyed);
         ipc.removeHandler(AGENT_BROWSER_SESSIONS_READ_CHANNEL);
         ipc.removeHandler(AGENT_BROWSER_CONTROL_CHANNEL);
+        ipc.removeHandler(AGENT_BROWSER_NAVIGATION_CHANNEL);
+        ipc.removeHandler(AGENT_BROWSER_HISTORY_READ_CHANNEL);
+        ipc.removeHandler(AGENT_BROWSER_HISTORY_CLEAR_CHANNEL);
         ipc.removeHandler(AGENT_BROWSER_ANNOTATION_START_CHANNEL);
         ipc.removeHandler(AGENT_BROWSER_ANNOTATION_STOP_CHANNEL);
         ipc.removeHandler(AGENT_BROWSER_ANNOTATION_REFRESH_CHANNEL);
@@ -725,84 +833,123 @@ export class AgentBrowserRuntime {
             throw browserError;
           }
         }
+        case "history": {
+          const command = requiredString(
+            parsed.payload,
+            "command",
+          ) as AgentBrowserNavigationCommand;
+          const guest = state.guest;
+          if (guest === undefined || guest.isDestroyed()) {
+            throw new AgentBrowserError(
+              "target_gone",
+              "Agent Browser target is unavailable",
+            );
+          }
+          if (
+            (command === "back" &&
+              !guest.navigationHistory.canGoBack()) ||
+            (command === "forward" &&
+              !guest.navigationHistory.canGoForward())
+          ) {
+            throw new AgentBrowserError(
+              "navigation_unavailable",
+              `Agent Browser cannot navigate ${command} from the current page`,
+            );
+          }
+          this.#clearCursor(state);
+          cdp.invalidateReferences("document");
+          state.generation = cdp.generation;
+          state.snapshotRequired = true;
+          if (command === "stop") {
+            guest.stop();
+            this.#syncNavigationState(state, false);
+            state.status = "ready";
+          } else {
+            state.navigation = {
+              ...state.navigation,
+              loading: true,
+            };
+            state.status = "loading";
+            if (command === "back") {
+              guest.navigationHistory.goBack();
+            } else if (command === "forward") {
+              guest.navigationHistory.goForward();
+            } else {
+              guest.reload();
+            }
+          }
+          this.#publish();
+          return this.#sessionResult(state);
+        }
         case "snapshot": {
           const snapshot = await cdp.snapshot(signal);
           state.generation = cdp.generation;
+          state.snapshotRequired = false;
           return {
             ...this.#sessionResult(state),
             ...snapshot,
           };
         }
-        case "click": {
-          const cursorHooks = this.#canProjectCursor(state)
-            ? {
-              beforeDispatch: async (
-                pointerTarget: AgentBrowserCdpPointerTarget,
-              ): Promise<void> => {
-                this.#publishCursor(
-                  state,
-                  "moving",
-                  pointerTarget,
-                  CURSOR_TRAVEL_DURATION_MS,
-                );
-                await waitForCursorTravel(
-                  CURSOR_TRAVEL_DURATION_MS,
-                  signal,
-                );
-              },
-              beforePress: async (
-                pointerTarget: AgentBrowserCdpPointerTarget,
-              ): Promise<void> => {
-                this.#publishCursor(
-                  state,
-                  "clicking",
-                  pointerTarget,
-                  CURSOR_TRAVEL_DURATION_MS,
-                );
-                await waitForCursorTravel(
-                  CURSOR_CLICK_FEEDBACK_HOLD_MS,
-                  signal,
-                );
-              },
-            }
-            : undefined;
-          await cdp.click(
-            requiredString(parsed.payload, "ref"),
+        case "find": {
+          const findResult = await cdp.find(
+            typeof parsed.payload.cursor === "string"
+              ? { cursor: parsed.payload.cursor }
+              : {
+                  query:
+                    parsed.payload.query as AgentBrowserFindQuery,
+                  view:
+                    parsed.payload.view as AgentBrowserFindView,
+                  depth: Number(parsed.payload.depth),
+                  limit: Number(parsed.payload.limit),
+                },
             signal,
-            cursorHooks,
           );
-          return this.#sessionResult(state);
+          state.generation = cdp.generation;
+          state.snapshotRequired = false;
+          return {
+            ...this.#sessionResult(state),
+            ...findResult,
+          };
         }
-        case "fill": {
-          const ref = requiredString(parsed.payload, "ref");
-          const target = await this.#pointerTargetForProjection(
+        case "locate": {
+          const locateResult = await cdp.locateWithGeneratedCode(
+            requiredString(parsed.payload, "code"),
+            signal,
+          );
+          state.generation = cdp.generation;
+          state.snapshotRequired = false;
+          return {
+            ...this.#sessionResult(state),
+            ...locateResult,
+          };
+        }
+        case "click": {
+          const ref = await this.#resolveActionTarget(
+            state,
+            cdp,
+            parseAgentBrowserTarget(parsed.payload.target),
+            "click",
+            signal,
+          );
+          await this.#clickRef(
             state,
             cdp,
             ref,
             signal,
           );
-          if (target !== undefined) {
-            const targetGeneration = cdp.generation;
-            this.#publishCursor(
-              state,
-              "moving",
-              target,
-              CURSOR_TRAVEL_DURATION_MS,
-            );
-            await waitForCursorTravel(
-              CURSOR_TRAVEL_DURATION_MS,
-              signal,
-            );
-            if (cdp.generation === targetGeneration) {
-              this.#publishCursor(
-                state,
-                "typing",
-                target,
-                CURSOR_TRAVEL_DURATION_MS,
-              );
-            }
-          }
-          await cdp.fill(
+          return this.#sessionResult(state);
+        }
+        case "fill": {
+          const ref = await this.#resolveActionTarget(
+            state,
+            cdp,
+            parseAgentBrowserTarget(parsed.payload.target),
+            "fill",
+            signal,
+          );
+          await this.#fillRef(
+            state,
+            cdp,
             ref,
             requiredString(parsed.payload, "value"),
             signal,
@@ -810,8 +957,19 @@ export class AgentBrowserRuntime {
           return this.#sessionResult(state);
         }
         case "press": {
-          const ref = optionalString(parsed.payload, "ref");
-          const target = ref === undefined
+          const requestedTarget = parsed.payload.target === undefined
+            ? undefined
+            : parseAgentBrowserTarget(parsed.payload.target);
+          const ref = requestedTarget === undefined
+            ? undefined
+            : await this.#resolveActionTarget(
+              state,
+              cdp,
+              requestedTarget,
+              "press",
+              signal,
+            );
+          const pointerTarget = ref === undefined
             ? undefined
             : await this.#pointerTargetForProjection(
               state,
@@ -819,12 +977,12 @@ export class AgentBrowserRuntime {
               ref,
               signal,
           );
-          if (target !== undefined) {
+          if (pointerTarget !== undefined) {
             const targetGeneration = cdp.generation;
             this.#publishCursor(
               state,
               "moving",
-              target,
+              pointerTarget,
               CURSOR_TRAVEL_DURATION_MS,
             );
             await waitForCursorTravel(
@@ -835,7 +993,7 @@ export class AgentBrowserRuntime {
               this.#publishCursor(
                 state,
                 "typing",
-                target,
+                pointerTarget,
                 CURSOR_TRAVEL_DURATION_MS,
               );
             }
@@ -870,9 +1028,114 @@ export class AgentBrowserRuntime {
     });
   }
 
+  async claimControl(
+    ownerSessionId: string,
+    sessionId: string,
+    expectedControlRevision: number,
+    signal: AbortSignal,
+  ): Promise<AgentBrowserClaimControlResult> {
+    this.#ensureAvailable();
+    if (signal.aborted) throw abortError(signal);
+    const state = this.#states.get(sessionId);
+    if (
+      state === undefined ||
+      state.closing ||
+      state.ownerSessionId !== ownerSessionId
+    ) {
+      throw new AgentBrowserError(
+        "session_not_found",
+        "Agent Browser session was not found",
+      );
+    }
+    if (state.status === "crashed") {
+      throw new AgentBrowserError(
+        "target_gone",
+        state.error ?? "Agent Browser target crashed",
+      );
+    }
+    if (
+      state.controlRevision !== expectedControlRevision &&
+      (
+        state.controlRevision <= expectedControlRevision ||
+        state.owner !== "agent" ||
+        state.humanTakeoverPending ||
+        !state.snapshotRequired
+      )
+    ) {
+      throw new AgentBrowserError(
+        "control_superseded",
+        "A newer human control intent superseded the automatic Agent Browser claim",
+      );
+    }
+    let cancellation: Promise<void> | undefined;
+    const retainHumanControl = (): void => {
+      if (
+        signal.reason instanceof AgentBrowserError &&
+        (
+          signal.reason.code === "owner_released" ||
+          signal.reason.code === "channel_closed"
+        )
+      ) {
+        // Teardown already revokes the complete owner/session lifetime. A
+        // compensating human handoff here would publish a late control event
+        // for a session that is being destroyed.
+        return;
+      }
+      cancellation ??= this.setControl(
+        sessionId,
+        "human",
+      ).then(
+        () => {},
+        () => {},
+      );
+    };
+    signal.addEventListener("abort", retainHumanControl, {
+      once: true,
+    });
+    if (signal.aborted) retainHumanControl();
+    try {
+      if (state.controlRevision === expectedControlRevision) {
+        await this.setControl(
+          sessionId,
+          "agent",
+          expectedControlRevision,
+        );
+      }
+      if (signal.aborted) {
+        await cancellation;
+        throw abortError(signal);
+      }
+      const result = this.#sessionResult(state);
+      if (
+        result.owner !== "agent" ||
+        result.snapshotRequired !== true
+      ) {
+        throw new AgentBrowserError(
+          "control_superseded",
+          "Agent Browser control changed before the automatic claim completed",
+        );
+      }
+      return {
+        ...result,
+        owner: "agent",
+        snapshotRequired: true,
+        controlRevision: state.controlRevision,
+      };
+    } catch (error) {
+      if (signal.aborted) {
+        await cancellation;
+        throw abortError(signal);
+      }
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", retainHumanControl);
+    }
+  }
+
   async setControl(
     sessionId: string,
     owner: AgentBrowserOwner,
+    expectedControlRevision?: number,
   ): Promise<AgentBrowserProjection> {
     this.#ensureAvailable();
     const state = this.#states.get(sessionId);
@@ -882,12 +1145,37 @@ export class AgentBrowserRuntime {
         "Agent Browser session was not found",
       );
     }
+    if (
+      expectedControlRevision !== undefined &&
+      state.controlRevision !== expectedControlRevision
+    ) {
+      throw new AgentBrowserError(
+        "control_superseded",
+        "Agent Browser control changed before the automatic claim was admitted",
+      );
+    }
+    const controlRevision = state.controlRevision + 1;
+    if (!Number.isSafeInteger(controlRevision)) {
+      throw new AgentBrowserError(
+        "control_revision_exhausted",
+        "Agent Browser control revision space is exhausted",
+      );
+    }
+    state.controlRevision = controlRevision;
     if (owner === "human") {
       // Close the admission gate synchronously. The transition is projected
       // only after already-admitted work reaches a terminal result.
       state.humanTakeoverPending = true;
       state.cdp?.interruptNavigationForHumanTakeover();
       if (this.#clearCursor(state)) this.#publish();
+      for (const channel of this.#processChannels) {
+        channel.publishControlChanged(
+          state.ownerSessionId,
+          state.sessionId,
+          "human",
+          controlRevision,
+        );
+      }
     }
     const transition = state.controlTail
       .catch(() => {})
@@ -904,19 +1192,41 @@ export class AgentBrowserRuntime {
             "Agent Browser session was not found",
           );
         }
-        if (state.owner !== owner) {
+        if (state.controlRevision !== controlRevision) {
+          throw new AgentBrowserError(
+            "control_superseded",
+            "A newer Agent Browser control intent superseded this transition",
+          );
+        }
+        const controlEpochChanged =
+          state.owner !== owner ||
+          (
+            owner === "agent" &&
+            (
+              state.humanTakeoverPending ||
+              expectedControlRevision !== undefined
+            )
+          );
+        if (controlEpochChanged) {
           if (owner === "agent") {
             await this.stopAnnotation(
               state.sessionId,
               state.annotation?.annotationSessionId,
               "control_changed",
             );
+            if (state.controlRevision !== controlRevision) {
+              throw new AgentBrowserError(
+                "control_superseded",
+                "A newer Agent Browser control intent superseded this transition",
+              );
+            }
           }
           this.#clearCursor(state);
           state.owner = owner;
           state.cdp?.invalidateReferences();
           state.generation =
             state.cdp?.generation ?? state.generation + 1;
+          state.snapshotRequired = owner === "agent";
           if (state.status !== "crashed") {
             state.status =
               owner === "human"
@@ -924,6 +1234,17 @@ export class AgentBrowserRuntime {
                 : state.cdp === undefined
                   ? "pending"
                   : "ready";
+          }
+          if (owner !== "human") {
+            state.humanTakeoverPending = false;
+            for (const channel of this.#processChannels) {
+              channel.publishControlChanged(
+                state.ownerSessionId,
+                state.sessionId,
+                owner,
+                controlRevision,
+              );
+            }
           }
           this.#publish();
         }
@@ -941,11 +1262,81 @@ export class AgentBrowserRuntime {
     } finally {
       if (
         owner === "human" &&
-        state.owner !== "human"
+        state.owner !== "human" &&
+        state.controlRevision === controlRevision
       ) {
         state.humanTakeoverPending = false;
       }
     }
+  }
+
+  async navigateForHuman(
+    sessionId: string,
+    command: AgentBrowserNavigationCommand,
+  ): Promise<AgentBrowserProjection> {
+    this.#ensureAvailable();
+    const state = this.#states.get(sessionId);
+    if (state === undefined || state.closing) {
+      throw new AgentBrowserError(
+        "session_not_found",
+        "Agent Browser session was not found",
+      );
+    }
+    const navigation = state.controlTail
+      .catch(() => {})
+      .then(() => {
+        if (
+          state.closing ||
+          this.#states.get(sessionId) !== state
+        ) {
+          throw new AgentBrowserError(
+            "session_not_found",
+            "Agent Browser session was not found",
+          );
+        }
+        if (
+          state.owner !== "human" ||
+          state.humanTakeoverPending
+        ) {
+          throw new AgentBrowserError(
+            "navigation_requires_human_control",
+            "Take control of the Agent Browser tab before using browser navigation",
+          );
+        }
+        const guest = state.guest;
+        if (guest === undefined || guest.isDestroyed()) {
+          throw new AgentBrowserError(
+            "target_gone",
+            "Agent Browser target is unavailable",
+          );
+        }
+        switch (command) {
+          case "back":
+            if (guest.navigationHistory.canGoBack()) {
+              guest.navigationHistory.goBack();
+            }
+            break;
+          case "forward":
+            if (guest.navigationHistory.canGoForward()) {
+              guest.navigationHistory.goForward();
+            }
+            break;
+          case "reload":
+            guest.reload();
+            break;
+          case "stop":
+            guest.stop();
+            break;
+        }
+        this.#syncNavigationState(state);
+        this.#publish();
+        return this.#projection(state);
+      });
+    state.controlTail = navigation.then(
+      () => {},
+      () => {},
+    );
+    return await navigation;
   }
 
   async startAnnotation(
@@ -1251,6 +1642,7 @@ export class AgentBrowserRuntime {
     }
     this.#states.clear();
     this.#windowBinding = undefined;
+    this.#history?.close();
   }
 
   async #open(
@@ -1309,9 +1701,16 @@ export class AgentBrowserRuntime {
       attachmentClaimed: false,
       operationTail: Promise.resolve(),
       controlTail: Promise.resolve(),
+      controlRevision: 0,
       humanTakeoverPending: false,
       closing: false,
       cursorSequence: 0,
+      snapshotRequired: false,
+      navigation: {
+        loading: false,
+        canGoBack: false,
+        canGoForward: false,
+      },
     };
     this.#states.set(sessionId, state);
     this.#publish();
@@ -1543,10 +1942,20 @@ export class AgentBrowserRuntime {
       onGenerationChange: (generation, reason) => {
         if (state.closing) return;
         state.generation = generation;
+        if (state.owner === "agent") {
+          state.snapshotRequired = true;
+        }
         if (reason === "document") {
           this.#clearCursor(state);
         }
         this.#publish();
+      },
+      onReferencesDirty: (reason) => {
+        if (state.closing) return;
+        state.snapshotRequired = true;
+        if (reason === "document" && this.#clearCursor(state)) {
+          this.#publish();
+        }
       },
       onDetach: (reason) => {
         this.#crash(state, `Debugger detached: ${reason}`);
@@ -1566,6 +1975,7 @@ export class AgentBrowserRuntime {
         );
       }
       state.generation = cdp.generation;
+      state.snapshotRequired = false;
       state.status =
         state.owner === "human" ? "paused" : "ready";
       state.attachment.resolve();
@@ -1623,8 +2033,33 @@ export class AgentBrowserRuntime {
       this.#clearCursor(state);
       if (navigatedUrl !== INITIAL_GUEST_URL) {
         state.url = normalizeAgentBrowserUrl(navigatedUrl);
+        this.#recordHistoryVisit(
+          state,
+          navigatedUrl,
+          "document",
+        );
       }
       delete state.error;
+      this.#syncNavigationState(state);
+      this.#publish();
+    };
+    const handleDidNavigateInPage = (
+      _event: ElectronEvent,
+      navigatedUrl: string,
+      isMainFrame: boolean,
+    ): void => {
+      if (!isMainFrame || !isSafeGuestUrl(navigatedUrl)) return;
+      this.#clearCursor(state);
+      if (navigatedUrl !== INITIAL_GUEST_URL) {
+        state.url = normalizeAgentBrowserUrl(navigatedUrl);
+        this.#recordHistoryVisit(
+          state,
+          navigatedUrl,
+          "same-document",
+        );
+      }
+      delete state.error;
+      this.#syncNavigationState(state);
       this.#publish();
     };
     const handleTitle = (
@@ -1636,15 +2071,38 @@ export class AgentBrowserRuntime {
       else state.title = bounded;
       this.#publish();
     };
-    const handleStartLoading = (): void => {
-      if (state.status !== "crashed" && state.owner === "agent") {
-        this.#clearCursor(state);
-        state.status = "loading";
-        this.#publish();
+    const handleDidStartNavigation = (
+      details: ElectronEvent<
+        WebContentsDidStartNavigationEventParams
+      >,
+    ): void => {
+      if (
+        !details.isMainFrame ||
+        isInitialGuestUrl(details.url) ||
+        !isSafeGuestUrl(details.url)
+      ) {
+        return;
       }
+      state.pendingHistoryVisit = {
+        actor: state.owner,
+        navigationKind: details.isSameDocument
+          ? "same-document"
+          : "document",
+      };
+    };
+    const handleStartLoading = (): void => {
+      if (state.status === "crashed") return;
+      this.#clearCursor(state);
+      state.navigation = {
+        ...state.navigation,
+        loading: true,
+      };
+      if (state.owner === "agent") state.status = "loading";
+      this.#publish();
     };
     const handleStopLoading = (): void => {
       if (state.status !== "crashed") {
+        this.#syncNavigationState(state, false);
         state.status =
           state.owner === "human" ? "paused" : "ready";
         this.#publish();
@@ -1657,10 +2115,13 @@ export class AgentBrowserRuntime {
       _validatedUrl: string,
       isMainFrame: boolean,
     ): void => {
-      if (!isMainFrame || errorCode === -3) return;
+      if (!isMainFrame) return;
+      state.pendingHistoryVisit = undefined;
+      if (errorCode === -3) return;
       state.error =
         (errorDescription || `Navigation failed (${String(errorCode)})`)
           .slice(0, 2_048);
+      this.#syncNavigationState(state, false);
       if (state.owner === "agent") state.status = "ready";
       this.#publish();
     };
@@ -1682,8 +2143,10 @@ export class AgentBrowserRuntime {
 
     guest.on("will-navigate", handleWillNavigate);
     guest.on("will-redirect", handleWillRedirect);
+    guest.on("did-start-navigation", handleDidStartNavigation);
     guest.on("login", handleLogin);
     guest.on("did-navigate", handleDidNavigate);
+    guest.on("did-navigate-in-page", handleDidNavigateInPage);
     guest.on("page-title-updated", handleTitle);
     guest.on("did-start-loading", handleStartLoading);
     guest.on("did-stop-loading", handleStopLoading);
@@ -1694,8 +2157,10 @@ export class AgentBrowserRuntime {
     state.removeGuestListeners = () => {
       guest.off("will-navigate", handleWillNavigate);
       guest.off("will-redirect", handleWillRedirect);
+      guest.off("did-start-navigation", handleDidStartNavigation);
       guest.off("login", handleLogin);
       guest.off("did-navigate", handleDidNavigate);
+      guest.off("did-navigate-in-page", handleDidNavigateInPage);
       guest.off("page-title-updated", handleTitle);
       guest.off("did-start-loading", handleStartLoading);
       guest.off("did-stop-loading", handleStopLoading);
@@ -1733,6 +2198,10 @@ export class AgentBrowserRuntime {
     if (state.status === "crashed") return;
     this.#clearCursor(state);
     state.status = "crashed";
+    state.navigation = {
+      ...state.navigation,
+      loading: false,
+    };
     state.error = (reason || "Agent Browser target crashed")
       .slice(0, 2_048);
     state.attachment.reject(
@@ -1818,6 +2287,7 @@ export class AgentBrowserRuntime {
       generation: projection.generation,
       owner: projection.owner,
       status: projection.status,
+      snapshotRequired: state.snapshotRequired,
       ...(projection.url === undefined
         ? {}
         : { url: projection.url }),
@@ -1825,6 +2295,178 @@ export class AgentBrowserRuntime {
         ? {}
         : { title: projection.title }),
     };
+  }
+
+  #recordHistoryVisit(
+    state: AgentBrowserSessionState,
+    url: string,
+    navigationKind: AgentBrowserNavigationKind,
+  ): void {
+    const history = this.#history;
+    if (history === undefined) {
+      state.pendingHistoryVisit = undefined;
+      return;
+    }
+    const pending = state.pendingHistoryVisit;
+    state.pendingHistoryVisit = undefined;
+    const visitActor =
+      pending?.navigationKind === navigationKind
+        ? pending.actor
+        : state.owner;
+    this.#writeHistoryVisit({
+      sessionId: state.sessionId,
+      url,
+      actor: visitActor,
+      navigationKind,
+      visitedAt: Date.now(),
+    });
+  }
+
+  #writeHistoryVisit(
+    visit: Parameters<AgentBrowserHistoryPort["recordVisit"]>[0],
+  ): void {
+    const history = this.#history;
+    if (history === undefined) return;
+    try {
+      history.recordVisit(visit);
+    } catch (error) {
+      if (this.#historyWriteFailureReported) return;
+      this.#historyWriteFailureReported = true;
+      console.warn(
+        "Minke could not record browsing history:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  async #resolveActionTarget(
+    state: AgentBrowserSessionState,
+    cdp: AgentBrowserCdp,
+    target: AgentBrowserTarget,
+    action: AgentBrowserTargetAction,
+    signal: AbortSignal,
+  ): Promise<string> {
+    if ("ref" in target) {
+      this.#requireFreshSnapshot(state);
+      return target.ref;
+    }
+    const resolved = await cdp.resolveSemanticTarget(
+      target,
+      action,
+      signal,
+    );
+    state.generation = cdp.generation;
+    state.snapshotRequired = false;
+    return resolved.ref;
+  }
+
+  #requireFreshSnapshot(state: AgentBrowserSessionState): void {
+    if (!state.snapshotRequired) return;
+    throw new AgentBrowserError(
+      "snapshot_required",
+      "The page or control authority changed since the last observation. "
+        + "Call browser_snapshot before another element action.",
+    );
+  }
+
+  #syncNavigationState(
+    state: AgentBrowserSessionState,
+    loading = state.navigation.loading,
+  ): void {
+    const guest = state.guest;
+    let canGoBack = false;
+    let canGoForward = false;
+    if (guest !== undefined && !guest.isDestroyed()) {
+      try {
+        canGoBack = guest.navigationHistory.canGoBack();
+        canGoForward = guest.navigationHistory.canGoForward();
+      } catch {
+        // Chromium may be tearing down the navigation controller.
+      }
+    }
+    state.navigation = {
+      loading,
+      canGoBack,
+      canGoForward,
+    };
+  }
+
+  async #clickRef(
+    state: AgentBrowserSessionState,
+    cdp: AgentBrowserCdp,
+    ref: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const cursorHooks = this.#canProjectCursor(state)
+      ? {
+        beforeDispatch: async (
+          pointerTarget: AgentBrowserCdpPointerTarget,
+        ): Promise<void> => {
+          this.#publishCursor(
+            state,
+            "moving",
+            pointerTarget,
+            CURSOR_TRAVEL_DURATION_MS,
+          );
+          await waitForCursorTravel(
+            CURSOR_TRAVEL_DURATION_MS,
+            signal,
+          );
+        },
+        beforePress: async (
+          pointerTarget: AgentBrowserCdpPointerTarget,
+        ): Promise<void> => {
+          this.#publishCursor(
+            state,
+            "clicking",
+            pointerTarget,
+            CURSOR_TRAVEL_DURATION_MS,
+          );
+          await waitForCursorTravel(
+            CURSOR_CLICK_FEEDBACK_HOLD_MS,
+            signal,
+          );
+        },
+      }
+      : undefined;
+    await cdp.click(ref, signal, cursorHooks);
+  }
+
+  async #fillRef(
+    state: AgentBrowserSessionState,
+    cdp: AgentBrowserCdp,
+    ref: string,
+    value: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const target = await this.#pointerTargetForProjection(
+      state,
+      cdp,
+      ref,
+      signal,
+    );
+    if (target !== undefined) {
+      const targetGeneration = cdp.generation;
+      this.#publishCursor(
+        state,
+        "moving",
+        target,
+        CURSOR_TRAVEL_DURATION_MS,
+      );
+      await waitForCursorTravel(
+        CURSOR_TRAVEL_DURATION_MS,
+        signal,
+      );
+      if (cdp.generation === targetGeneration) {
+        this.#publishCursor(
+          state,
+          "typing",
+          target,
+          CURSOR_TRAVEL_DURATION_MS,
+        );
+      }
+    }
+    await cdp.fill(ref, value, signal);
   }
 
   async #pointerTargetForProjection(
@@ -1893,6 +2535,7 @@ export class AgentBrowserRuntime {
       generation: state.generation,
       owner: state.owner,
       status: state.status,
+      navigation: state.navigation,
       ...(state.url === undefined ? {} : { url: state.url }),
       ...(state.title === undefined ? {} : { title: state.title }),
       ...(state.error === undefined ? {} : { error: state.error }),

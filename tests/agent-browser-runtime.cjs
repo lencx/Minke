@@ -189,7 +189,22 @@ async function startFixtureServer() {
       <html>
         <head><title>Agent Browser Runtime</title></head>
         <body>
-          <script>window.__minkeButtonClicks = 0;</script>
+          <script>
+            window.__minkeButtonClicks = 0;
+            window.__minkePoisonedLocatorCalls = 0;
+            const nativeDocumentQuerySelectorAll =
+              Document.prototype.querySelectorAll;
+            Document.prototype.querySelectorAll = function(selector) {
+              if (selector === "table tr") {
+                window.__minkePoisonedLocatorCalls += 1;
+                return nativeDocumentQuerySelectorAll.call(
+                  this,
+                  "button"
+                );
+              }
+              return nativeDocumentQuerySelectorAll.call(this, selector);
+            };
+          </script>
           <p id="state">Ready</p>
           <button
             type="button"
@@ -200,6 +215,23 @@ async function startFixtureServer() {
                 'Done ' + String(window.__minkeButtonClicks);
             "
           >Continue</button>
+          <table>
+            <tr>
+              <td>5.</td>
+              <td>
+                <a href="https://video.example/story">
+                  Example story [video]
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td></td>
+              <td>
+                265 points by author |
+                <a href="/item?id=5">31 comments</a>
+              </td>
+            </tr>
+          </table>
         </body>
       </html>`);
   });
@@ -353,13 +385,56 @@ async function run() {
     const snapshot = await call('snapshot', {
       sessionId: opened.sessionId,
     });
+    const repeatedSnapshot = await call('snapshot', {
+      sessionId: opened.sessionId,
+    });
+    assert.equal(repeatedSnapshot.snapshotId, snapshot.snapshotId);
+    assert.equal(repeatedSnapshot.generation, snapshot.generation);
+    assert.deepEqual(repeatedSnapshot.nodes, snapshot.nodes);
     const button = snapshot.nodes.find(
       (node) => node.name === 'Continue',
     );
     assert.notEqual(button, undefined);
+    const storyMatches = snapshot.nodes.filter(
+      (node) => node.name === 'Example story [video]',
+    );
+    assert.equal(storyMatches.length, 1);
+    const storyLink = storyMatches[0];
+    const commentsLink = snapshot.nodes.find(
+      (node) =>
+        node.role.toLowerCase() === 'link' &&
+        node.name === '31 comments',
+    );
+    assert.notEqual(storyLink, undefined);
+    assert.notEqual(commentsLink, undefined);
+    assert.equal(storyLink.role.toLowerCase(), 'link');
+    assert.equal(storyLink.actionable, true);
+    assert.equal(
+      storyLink.url,
+      'https://video.example/story',
+    );
+    assert.match(commentsLink.url, /\/item\?id=5$/u);
+    assert.ok(commentsLink.depth > 0);
+    const generatedLocate = await call('locate', {
+      sessionId: opened.sessionId,
+      code:
+        'page.locator("table tr").nth(0).next("tr").getByRole("link", {name:/comments/i})',
+    });
+    assert.equal(generatedLocate.snapshotId, snapshot.snapshotId);
+    assert.deepEqual(generatedLocate.node, {
+      ...commentsLink,
+      match: true,
+    });
+    assert.equal(
+      await agentGuest.executeJavaScript(
+        'window.__minkePoisonedLocatorCalls',
+      ),
+      0,
+      'generated locators must execute with isolated-world DOM intrinsics',
+    );
     await call('click', {
       sessionId: opened.sessionId,
-      ref: button.ref,
+      target: { ref: button.ref },
     });
     const clickProjection = parseAgentBrowserProjection(
       runtime.projections()[0],
@@ -498,6 +573,17 @@ async function run() {
     );
     assert.equal(agent.owner, 'agent');
     assert.equal(agent.status, 'ready');
+    await assert.rejects(
+      call('click', {
+        sessionId: opened.sessionId,
+        target: { ref: button.ref },
+      }),
+      (error) => error.code === 'snapshot_required',
+    );
+    const resumedSnapshot = await call('snapshot', {
+      sessionId: opened.sessionId,
+    });
+    assert.notEqual(resumedSnapshot.snapshotId, snapshot.snapshotId);
     await call('wait', {
       sessionId: opened.sessionId,
       text: 'Done 2',

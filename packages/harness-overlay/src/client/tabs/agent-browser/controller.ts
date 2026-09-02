@@ -1,9 +1,17 @@
 import {
   parseAgentBrowserProjection,
   parseAgentBrowserProjections,
+  type AgentBrowserNavigationCommand,
   type AgentBrowserOwner,
   type AgentBrowserProjection,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
+import {
+  parseAgentBrowserHistoryClearRequest,
+  parseAgentBrowserHistoryReadRequest,
+  parseAgentBrowserHistorySnapshot,
+  type AgentBrowserHistoryReadRequest,
+  type AgentBrowserHistorySnapshot,
+} from "@minke/harness-overlay/agent-browser-history-contract.ts";
 import {
   AGENT_BROWSER_ANNOTATION_COMMENT_LIMIT,
   AGENT_BROWSER_ANNOTATION_TARGET_LIMIT,
@@ -625,6 +633,57 @@ export class AgentBrowserTabsController {
       this.#controlPending.delete(sessionId);
       this.#refreshPresentation(sessionId);
     }
+  }
+
+  async navigate(
+    tabId: string,
+    command: AgentBrowserNavigationCommand,
+  ): Promise<void> {
+    const tab = this.#tabs.tab(tabId);
+    if (
+      this.#disposed ||
+      tab === undefined ||
+      !isAgentBrowserTab(tab) ||
+      tab.payload.owner !== "human" ||
+      tab.payload.controlPending ||
+      tab.payload.status !== "paused"
+    ) {
+      return;
+    }
+    try {
+      const projection = parseAgentBrowserProjection(
+        await this.#port.navigate(tab.payload.sessionId, command),
+      );
+      if (projection.sessionId !== tab.payload.sessionId) return;
+      this.#upsert(projection);
+    } catch {
+      // A control race or guest teardown is reflected by the next main-owned
+      // projection; toolbar clicks must not create unhandled rejections.
+    }
+  }
+
+  async readHistory(
+    request: AgentBrowserHistoryReadRequest,
+  ): Promise<AgentBrowserHistorySnapshot> {
+    if (this.#disposed || !this.#port.available) {
+      throw new Error("Agent Browser history is unavailable");
+    }
+    return parseAgentBrowserHistorySnapshot(
+      await this.#port.readHistory(
+        parseAgentBrowserHistoryReadRequest(request),
+      ),
+    );
+  }
+
+  async clearHistory(): Promise<AgentBrowserHistorySnapshot> {
+    if (this.#disposed || !this.#port.available) {
+      throw new Error("Agent Browser history is unavailable");
+    }
+    return parseAgentBrowserHistorySnapshot(
+      await this.#port.clearHistory(
+        parseAgentBrowserHistoryClearRequest({ confirm: true }),
+      ),
+    );
   }
 
   beforeClose(tab: ManagedTab): boolean {

@@ -166,15 +166,27 @@ import {
 import {
   AGENT_BROWSER_CLOSE_CHANNEL,
   AGENT_BROWSER_CONTROL_CHANNEL,
+  AGENT_BROWSER_NAVIGATION_CHANNEL,
   AGENT_BROWSER_SESSIONS_CHANGED_CHANNEL,
   AGENT_BROWSER_SESSIONS_READ_CHANNEL,
   parseAgentBrowserControlRequest,
+  parseAgentBrowserNavigationRequest,
   parseAgentBrowserProjection,
   parseAgentBrowserProjections,
   parseAgentBrowserSessionId,
   type AgentBrowserOwner,
+  type AgentBrowserNavigationCommand,
   type AgentBrowserProjection,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
+import {
+  AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
+  AGENT_BROWSER_HISTORY_READ_CHANNEL,
+  parseAgentBrowserHistoryClearRequest,
+  parseAgentBrowserHistoryReadRequest,
+  parseAgentBrowserHistorySnapshot,
+  type AgentBrowserHistoryClearRequest,
+  type AgentBrowserHistoryReadRequest,
+} from "@minke/harness-overlay/agent-browser-history-contract.ts";
 import {
   AGENT_BROWSER_ANNOTATION_COMMIT_CHANNEL,
   AGENT_BROWSER_ANNOTATION_EVENT_CHANNEL,
@@ -364,6 +376,41 @@ const agentBrowser = Object.freeze({
       await ipcRenderer.invoke(
         AGENT_BROWSER_CONTROL_CHANNEL,
         request,
+      ),
+    );
+  },
+  async navigate(
+    sessionId: string,
+    command: AgentBrowserNavigationCommand,
+  ): Promise<unknown> {
+    const request = parseAgentBrowserNavigationRequest({
+      sessionId,
+      command,
+    });
+    return parseAgentBrowserProjection(
+      await ipcRenderer.invoke(
+        AGENT_BROWSER_NAVIGATION_CHANNEL,
+        request,
+      ),
+    );
+  },
+  async readHistory(
+    request: AgentBrowserHistoryReadRequest,
+  ): Promise<unknown> {
+    return parseAgentBrowserHistorySnapshot(
+      await ipcRenderer.invoke(
+        AGENT_BROWSER_HISTORY_READ_CHANNEL,
+        parseAgentBrowserHistoryReadRequest(request),
+      ),
+    );
+  },
+  async clearHistory(
+    request: AgentBrowserHistoryClearRequest,
+  ): Promise<unknown> {
+    return parseAgentBrowserHistorySnapshot(
+      await ipcRenderer.invoke(
+        AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
+        parseAgentBrowserHistoryClearRequest(request),
       ),
     );
   },

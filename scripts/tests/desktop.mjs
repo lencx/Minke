@@ -13,6 +13,8 @@ const projectRoot = resolve(
 const taskFiles = Object.freeze({
   core: Object.freeze([
     "agent-browser-cdp-annotation.test.mjs",
+    "agent-browser-generated-locator.test.mjs",
+    "agent-browser-history.test.mjs",
     "agent-browser-main.test.mjs",
     "agent-browser-process-channel.test.mjs",
     "app-data-paths.test.mjs",

@@ -18,12 +18,19 @@ import type {
   TabRenderer,
 } from "@minke/harness-overlay/client/tabs/types.ts";
 import {
+  BackIcon,
+  ForwardIcon,
+  ReloadIcon,
+  StopIcon,
   WebIcon,
 } from "@minke/harness-overlay/client/tabs/web/icons.tsx";
 import {
   BrowserAnnotateIcon,
   BrowserControlIcon,
 } from "./icons.tsx";
+import {
+  AgentBrowserHistoryDialog,
+} from "./AgentBrowserHistoryDialog.tsx";
 import {
   renderAgentBrowserTabView,
 } from "./AgentBrowserTabView.tsx";
@@ -36,6 +43,7 @@ import type {
 import {
   AGENT_BROWSER_TAB_KIND,
   hasStableAgentControl,
+  hasStableHumanControl,
   isAgentBrowserTab,
   type AgentBrowserTab,
 } from "./types.ts";
@@ -246,6 +254,54 @@ export function createAgentBrowserTabRenderer(
   return {
     kind: AGENT_BROWSER_TAB_KIND,
     renderIcon: controlSignal,
+    renderLeadingActions: (tab) => {
+      if (!isAgentBrowserTab(tab)) return null;
+      const human = hasStableHumanControl(tab.payload);
+      const navigation = tab.payload.navigation;
+      const loading = navigation?.loading === true;
+      return (
+        <>
+          <ToolbarButton
+            label={t("agentBrowser.nav.back")}
+            disabled={
+              !human || navigation?.canGoBack !== true
+            }
+            onClick={() => {
+              void controller.navigate(tab.id, "back");
+            }}
+          >
+            <BackIcon />
+          </ToolbarButton>
+          <ToolbarButton
+            label={t("agentBrowser.nav.forward")}
+            disabled={
+              !human || navigation?.canGoForward !== true
+            }
+            onClick={() => {
+              void controller.navigate(tab.id, "forward");
+            }}
+          >
+            <ForwardIcon />
+          </ToolbarButton>
+          <ToolbarButton
+            label={t(
+              loading
+                ? "agentBrowser.nav.stop"
+                : "agentBrowser.nav.reload",
+            )}
+            disabled={!human}
+            onClick={() => {
+              void controller.navigate(
+                tab.id,
+                loading ? "stop" : "reload",
+              );
+            }}
+          >
+            {loading ? <StopIcon /> : <ReloadIcon />}
+          </ToolbarButton>
+        </>
+      );
+    },
     renderToolbarCenter: (tab) =>
       isAgentBrowserTab(tab)
         ? (
@@ -261,6 +317,10 @@ export function createAgentBrowserTabRenderer(
       const human = tab.payload.owner === "human";
       return (
         <>
+          <AgentBrowserHistoryDialog
+            controller={controller}
+            t={t}
+          />
           <AnnotationActions
             tab={tab}
             controller={controller}

@@ -857,12 +857,12 @@ test("desktop Session export shadows the upstream Web action and modal", () => {
   );
   assert.match(
     tabsInstallSource,
-    /name:\s*"conversation\.session\.header\.utilities"[\s\S]*?id:\s*"minke-tabs-toggle"[\s\S]*?inject:\s*\(\)\s*=>\s*\(\{\s*runtimes\s*\}\)[\s\S]*?TabsHeaderAction as ComponentType<never>/u,
+    /name:\s*"conversation\.session\.header\.utilities"[\s\S]*?id:\s*"minke-tabs-toggle"[\s\S]*?inject:\s*\(\)\s*=>\s*\(\{[\s\S]*?runtimes,[\s\S]*?presentation:\s*rightHost,[\s\S]*?\}\)[\s\S]*?TabsHeaderAction as ComponentType<never>/u,
     "active Session controls must participate in the Header utility flow",
   );
   assert.match(
     tabsInstallSource,
-    /name:\s*"shell\.overlay"[\s\S]*?id:\s*"minke-tabs-new-session-toggle"[\s\S]*?inject:\s*\(\)\s*=>\s*\(\{\s*runtimes\s*\}\)[\s\S]*?NewSessionTabsHeaderAction as ComponentType<never>/u,
+    /name:\s*"shell\.overlay"[\s\S]*?id:\s*"minke-tabs-new-session-toggle"[\s\S]*?inject:\s*\(\)\s*=>\s*\(\{[\s\S]*?runtimes,[\s\S]*?presentation:\s*rightHost,[\s\S]*?\}\)[\s\S]*?NewSessionTabsHeaderAction as ComponentType<never>/u,
     "blank Sessions need one overlay fallback while Header chrome is absent",
   );
   assert.doesNotMatch(tabsInstallSource, /id:\s*"minke-tabs-placement"/u);
