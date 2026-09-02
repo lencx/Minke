@@ -377,6 +377,21 @@ test("only macOS New Session makes the content background transparent", () => {
   );
 });
 
+test("macOS New Session keeps the composer boundary on its transparent surface", () => {
+  const contract = inspectCssContract(desktopSurfaceCss);
+  const selector = '[data-phase="hero"] [data-composer-card]';
+  assert.equal(
+    contract.declaration(selector, "background-color"),
+    "transparent !important",
+    "the blank-session composer must keep the macOS glass surface",
+  );
+  assert.equal(
+    contract.declaration(selector, "box-shadow"),
+    "var(--dsw-elevation-stroke) !important",
+    "the transparent card still needs the shared 0.5px input boundary",
+  );
+});
+
 test("the smaller traffic lights use the tuned default-rail position", () => {
   const trafficLightPosition = macOSWindowSource.match(
     /trafficLightPosition:\s*\{\s*x:\s*(\d+),\s*y:\s*(\d+)\s*\}/,

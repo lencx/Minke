@@ -111,9 +111,11 @@
   background: transparent !important;
 }
 
+/* The upstream card draws its boundary through the elevation stroke rather
+   than a border. Keep that hairline when removing the soft shadow for glass. */
 [data-phase="hero"] [data-composer-card] {
   background-color: transparent !important;
-  box-shadow: none !important;
+  box-shadow: var(--dsw-elevation-stroke) !important;
 }
 
 [data-phase="hero"] [data-dsh-desktop-composer-add],
