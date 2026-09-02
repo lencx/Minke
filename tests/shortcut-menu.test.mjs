@@ -5,6 +5,9 @@ import {
   shortcutBindingToAccelerator,
 } from "@minke/desktop/main/shortcut-menu.ts";
 import { DesktopLocaleRuntime } from "@minke/desktop/i18n.ts";
+import {
+  TAB_CREATE_SHORTCUT_DESCRIPTORS,
+} from "@minke/harness-overlay/shortcut-contract.ts";
 
 const CUSTOM_PREFIX = "minke.shortcut.";
 
@@ -104,6 +107,12 @@ function customItem(host, suffix) {
   return item;
 }
 
+function submenuItems(host, suffix) {
+  const item = customItem(host, suffix);
+  assert.ok(Array.isArray(item.submenu));
+  return item.submenu;
+}
+
 test("canonical shortcuts map to Electron accelerators", () => {
   assert.equal(
     shortcutBindingToAccelerator("Mod+S", "darwin"),
@@ -200,6 +209,130 @@ test("all product shortcuts are visible native menu commands", () => {
   binding.dispose();
 });
 
+test("tab creation shortcuts are native commands grouped by placement", () => {
+  const expectedCreators = [
+    "files",
+    "terminal",
+    "browser",
+    "browser-history",
+    "plugins",
+  ];
+  for (const platform of ["darwin", "win32", "linux"]) {
+    const host = fakeMenuHost(defaultMenu());
+    const locale = new DesktopLocaleRuntime("en");
+    const dispatched = [];
+    const binding = bindShortcutMenu(
+      host,
+      locale,
+      {},
+      (id) => dispatched.push(id),
+      platform,
+    );
+
+    const right = submenuItems(
+      host,
+      "tabs.right.create.submenu",
+    );
+    const bottom = submenuItems(
+      host,
+      "tabs.bottom.create.submenu",
+    );
+    const template = host.templates.at(-1);
+    assert.ok(template);
+    const fileMenu = template.find(
+      (item) =>
+        Array.isArray(item.submenu) &&
+        item.submenu.some(
+          (child) =>
+            child.id ===
+            `${CUSTOM_PREFIX}tabs.right.create.submenu`,
+        ),
+    );
+    assert.ok(fileMenu);
+    assert.ok(Array.isArray(fileMenu.submenu));
+    assert.deepEqual(
+      fileMenu.submenu
+        .filter((item) =>
+          item.id ===
+            `${CUSTOM_PREFIX}tabs.right.create.submenu` ||
+          item.id ===
+            `${CUSTOM_PREFIX}tabs.bottom.create.submenu`
+        )
+        .map((item) => item.id),
+      [
+        `${CUSTOM_PREFIX}tabs.right.create.submenu`,
+        `${CUSTOM_PREFIX}tabs.bottom.create.submenu`,
+      ],
+    );
+    assert.equal(
+      customItem(host, "tabs.right.create.submenu").label,
+      "New Tab in Right Panel",
+    );
+    assert.equal(
+      customItem(host, "tabs.bottom.create.submenu").label,
+      "New Tab in Bottom Panel",
+    );
+    assert.deepEqual(
+      right.map((item) => item.label),
+      [
+        "File Manager",
+        "Terminal",
+        "Browser",
+        "Browser History",
+        "Plugins",
+      ],
+    );
+    assert.deepEqual(
+      bottom.map((item) => item.label),
+      [
+        "File Manager",
+        "Terminal",
+        "Browser",
+        "Browser History",
+        "Plugins",
+      ],
+    );
+
+    const expectedRight = TAB_CREATE_SHORTCUT_DESCRIPTORS
+      .filter((descriptor) => descriptor.placement === "right");
+    const expectedBottom = TAB_CREATE_SHORTCUT_DESCRIPTORS
+      .filter((descriptor) => descriptor.placement === "bottom");
+    assert.deepEqual(
+      expectedRight.map((descriptor) => descriptor.creatorId),
+      expectedCreators,
+    );
+    assert.deepEqual(
+      expectedBottom.map((descriptor) => descriptor.creatorId),
+      expectedCreators,
+    );
+    const keys = ["1", "2", "7", "8", "9"];
+    assert.deepEqual(
+      right.map(({ id, accelerator }) => ({ accelerator, id })),
+      expectedRight.map((descriptor, index) => ({
+        accelerator:
+          `CommandOrControl+${keys[index]}`,
+        id: `${CUSTOM_PREFIX}${descriptor.actionId}`,
+      })),
+    );
+    assert.deepEqual(
+      bottom.map(({ id, accelerator }) => ({ accelerator, id })),
+      expectedBottom.map((descriptor, index) => ({
+        accelerator:
+          `CommandOrControl+Shift+${keys[index]}`,
+        id: `${CUSTOM_PREFIX}${descriptor.actionId}`,
+      })),
+    );
+    for (const item of [...right, ...bottom]) item.click();
+    assert.deepEqual(
+      dispatched,
+      [...expectedRight, ...expectedBottom].map(
+        (descriptor) => descriptor.actionId,
+      ),
+    );
+    binding.dispose();
+  }
+});
+
 test("persisted and localized changes rebuild menu accelerators", () => {
   const host = fakeMenuHost(defaultMenu());
   const locale = new DesktopLocaleRuntime("en");
@@ -215,6 +348,7 @@ test("persisted and localized changes rebuild menu accelerators", () => {
     "session.new": "",
     "composer.focus": "Mod+Shift+L",
     "sidebar.toggle": "Mod+Shift+S",
+    "tabs.right.open.files": "Alt+1",
   });
   assert.equal(
     Object.hasOwn(customItem(host, "session.new"), "accelerator"),
@@ -227,6 +361,10 @@ test("persisted and localized changes rebuild menu accelerators", () => {
   assert.equal(
     customItem(host, "sidebar.toggle").accelerator,
     "CommandOrControl+Shift+S",
+  );
+  assert.equal(
+    customItem(host, "tabs.right.open.files").accelerator,
+    "Alt+1",
   );
 
   locale.setLocale("zh");
@@ -251,13 +389,31 @@ test("persisted and localized changes rebuild menu accelerators", () => {
     customItem(host, "tabs.bottom.toggle").label,
     "展开或折叠底部栏",
   );
+  assert.equal(
+    customItem(host, "tabs.right.create.submenu").label,
+    "在右栏新建 Tab",
+  );
+  assert.equal(
+    customItem(host, "tabs.bottom.create.submenu").label,
+    "在底栏新建 Tab",
+  );
+  assert.deepEqual(
+    submenuItems(host, "tabs.right.create.submenu").map(
+      (item) => item.label,
+    ),
+    ["文件管理器", "终端", "浏览器", "浏览历史", "插件"],
+  );
 
   binding.refreshBaseMenu();
+  const ownedCommands = latestItems(host).filter(
+    (item) =>
+      item.id?.startsWith(CUSTOM_PREFIX) &&
+      item.type !== "separator",
+  );
+  assert.equal(ownedCommands.length, 21);
   assert.equal(
-    latestItems(host).filter(
-      (item) => item.id?.startsWith(CUSTOM_PREFIX),
-    ).filter((item) => item.type !== "separator").length,
-    9,
+    new Set(ownedCommands.map((item) => item.id)).size,
+    ownedCommands.length,
   );
 
   const rebuilds = host.templates.length;

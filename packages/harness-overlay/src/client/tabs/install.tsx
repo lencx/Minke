@@ -92,6 +92,9 @@ import {
   createBottomTabsToggle,
 } from "./bottom-toggle.ts";
 import {
+  TabCreateShortcutBindings,
+} from "./create-shortcuts.ts";
+import {
   createTerminalTabRenderer,
   installTerminalTabStyles,
   terminalTabsEn,
@@ -125,6 +128,7 @@ const PREFERENCES_NAMESPACE = "minke.preferences";
 
 export type TabsRuntimes = Readonly<{
   bottom: TabsRuntime;
+  createShortcuts: TabCreateShortcutBindings;
   right: TabsRuntime;
   toggleBottom(): void;
   workspaces: Readonly<{
@@ -316,8 +320,10 @@ export function installTabs(
   if (!tabsPort.available) return undefined;
 
   const tabsLayoutState = new TabsLayoutStateRuntime(tabsPort);
+  const createShortcuts = new TabCreateShortcutBindings();
   ctx.effect(
     () => () => {
+      createShortcuts.dispose();
       tabsLayoutState.dispose();
     },
     "minke-overlay: Tabs layout state",
@@ -660,6 +666,7 @@ export function installTabs(
   });
   const runtimes: TabsRuntimes = Object.freeze({
     bottom: bottomTabs,
+    createShortcuts,
     right: rightTabs,
     toggleBottom,
     workspaces: Object.freeze({
@@ -705,6 +712,7 @@ export function installTabs(
           placement: "right" as const,
           runtime: rightTabs,
           renderers: rightWorkspace.renderers,
+          createShortcuts,
           layoutState: tabsLayoutState,
           presentation: rightHost,
         }),
@@ -723,6 +731,7 @@ export function installTabs(
           placement: "bottom" as const,
           runtime: bottomTabs,
           renderers: bottomWorkspace.renderers,
+          createShortcuts,
           layoutState: tabsLayoutState,
         }),
       },

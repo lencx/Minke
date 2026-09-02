@@ -11,13 +11,16 @@ import {
   DEFAULT_SHORTCUT_BINDINGS,
   isShortcutBinding,
   parseShortcutBindings,
+  TAB_CREATE_SHORTCUT_DESCRIPTORS,
   type ProductShortcutActionId,
   type ShortcutBindings,
 } from "@minke/harness-overlay/shortcut-contract.ts";
 
 const OWNED_MENU_ID_PREFIX = "minke.shortcut.";
 
-const MENU_ITEM_IDS = Object.freeze({
+const MENU_ITEM_IDS: Readonly<
+  Partial<Record<ProductShortcutActionId, string>>
+> = Object.freeze({
   "palette.open": `${OWNED_MENU_ID_PREFIX}palette.open`,
   "settings.open": `${OWNED_MENU_ID_PREFIX}settings.open`,
   "session.new": `${OWNED_MENU_ID_PREFIX}session.new`,
@@ -27,9 +30,11 @@ const MENU_ITEM_IDS = Object.freeze({
   "sidebar.toggle": `${OWNED_MENU_ID_PREFIX}sidebar.toggle`,
   "tabs.toggle": `${OWNED_MENU_ID_PREFIX}tabs.toggle`,
   "tabs.bottom.toggle": `${OWNED_MENU_ID_PREFIX}tabs.bottom.toggle`,
-} satisfies Record<ProductShortcutActionId, string>);
+});
 
-const MENU_LABEL_KEYS = Object.freeze({
+const MENU_LABEL_KEYS: Readonly<
+  Partial<Record<ProductShortcutActionId, DesktopMessageKey>>
+> = Object.freeze({
   "palette.open": "menu.commandPalette",
   "settings.open": "menu.settings",
   "session.new": "menu.newSession",
@@ -39,7 +44,23 @@ const MENU_LABEL_KEYS = Object.freeze({
   "sidebar.toggle": "menu.toggleSidebar",
   "tabs.toggle": "menu.toggleRightSidebar",
   "tabs.bottom.toggle": "menu.toggleBottomPanel",
-} satisfies Record<ProductShortcutActionId, DesktopMessageKey>);
+});
+
+const TAB_CREATOR_LABEL_KEYS = Object.freeze({
+  files: "menu.newTab.files",
+  terminal: "menu.newTab.terminal",
+  browser: "menu.newTab.browser",
+  "browser-history": "menu.newTab.browserHistory",
+  plugins: "menu.newTab.plugins",
+} satisfies Record<string, DesktopMessageKey>);
+
+const TAB_CREATOR_ORDER = Object.freeze([
+  "files",
+  "terminal",
+  "browser",
+  "browser-history",
+  "plugins",
+] as const);
 
 const KEY_ACCELERATORS: Readonly<Record<string, string>> = Object.freeze({
   ArrowDown: "Down",
@@ -268,12 +289,24 @@ function injectActions(
     accelerators,
     dispatch,
   );
+  const rightTabMenu = tabCreateSubmenu(
+    "right",
+    locale,
+    accelerators,
+    dispatch,
+  );
+  const bottomTabMenu = tabCreateSubmenu(
+    "bottom",
+    locale,
+    accelerators,
+    dispatch,
+  );
 
   prependGroup(
     submenuOf(fileMenu.template),
     platform === "darwin"
-      ? [newSession]
-      : [newSession, settings],
+      ? [newSession, rightTabMenu, bottomTabMenu]
+      : [newSession, rightTabMenu, bottomTabMenu, settings],
     `${OWNED_MENU_ID_PREFIX}file.separator`,
   );
   prependGroup(
@@ -348,11 +381,65 @@ function actionMenuItem(
   dispatch: (id: ProductShortcutActionId) => void,
 ): MenuItemConstructorOptions {
   const accelerator = accelerators[id];
+  const itemId = MENU_ITEM_IDS[id];
+  const labelKey = MENU_LABEL_KEYS[id];
+  if (itemId === undefined || labelKey === undefined) {
+    throw new Error(`missing native menu metadata for ${id}`);
+  }
   return {
-    id: MENU_ITEM_IDS[id],
-    label: locale.t(MENU_LABEL_KEYS[id]),
+    id: itemId,
+    label: locale.t(labelKey),
     ...(accelerator === undefined ? {} : { accelerator }),
     click: () => dispatch(id),
+  };
+}
+
+function tabCreateSubmenu(
+  placement: "right" | "bottom",
+  locale: ShortcutMenuLocale,
+  accelerators: Record<ProductShortcutActionId, string | undefined>,
+  dispatch: (id: ProductShortcutActionId) => void,
+): MenuItemConstructorOptions {
+  const order = new Map(
+    TAB_CREATOR_ORDER.map((creatorId, index) => [
+      creatorId,
+      index,
+    ]),
+  );
+  const items = [...TAB_CREATE_SHORTCUT_DESCRIPTORS]
+    .filter((descriptor) => descriptor.placement === placement)
+    .sort(
+      (left, right) =>
+        (order.get(left.creatorId) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(right.creatorId) ?? Number.MAX_SAFE_INTEGER),
+    )
+    .map((descriptor): MenuItemConstructorOptions => {
+      const labelKey =
+        TAB_CREATOR_LABEL_KEYS[descriptor.creatorId];
+      if (labelKey === undefined) {
+        throw new Error(
+          `missing native tab creator label for ${descriptor.creatorId}`,
+        );
+      }
+      const accelerator = accelerators[descriptor.actionId];
+      return {
+        id: `${OWNED_MENU_ID_PREFIX}${descriptor.actionId}`,
+        label: locale.t(labelKey),
+        ...(accelerator === undefined
+          ? {}
+          : { accelerator }),
+        click: () => dispatch(descriptor.actionId),
+      };
+    });
+  return {
+    id:
+      `${OWNED_MENU_ID_PREFIX}tabs.${placement}.create.submenu`,
+    label: locale.t(
+      placement === "right"
+        ? "menu.newRightTab"
+        : "menu.newBottomTab",
+    ),
+    submenu: items,
   };
 }
 

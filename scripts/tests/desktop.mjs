@@ -79,6 +79,7 @@ const taskFiles = Object.freeze({
     "shortcut-runtime.test.mjs",
     "shortcut-settings.test.mjs",
     "style-runtime.test.mjs",
+    "tab-create-shortcuts.test.mjs",
     "tabs-create-menu.test.mjs",
     "tabs-header-default.test.mjs",
     "tabs.test.mjs",

@@ -9,6 +9,12 @@ import {
 import {
   createPortal,
 } from "react-dom";
+import {
+  detectShortcutPlatform,
+  formatShortcutBinding,
+  formatShortcutBindingAria,
+  type ShortcutPlatform,
+} from "../shortcuts/binding.ts";
 import type {
   TabsPanelPlacement,
 } from "./constants.ts";
@@ -18,6 +24,8 @@ import type {
 } from "./types.ts";
 
 const MENU_WIDTH = 224;
+const MENU_WIDTH_APPLE = 240;
+const MENU_WIDTH_OTHER = 288;
 const MENU_ROW_HEIGHT = 36;
 const MENU_COARSE_ROW_HEIGHT = 44;
 const MENU_VERTICAL_PADDING = 10;
@@ -45,6 +53,10 @@ export interface TabsCreateMenuProps {
   readonly open: boolean;
   readonly options: readonly TabCreateOption[];
   readonly placement: TabsPanelPlacement;
+  readonly shortcutBinding?: (
+    optionId: string,
+  ) => string | null | undefined;
+  readonly shortcutPlatform?: ShortcutPlatform;
 }
 
 const menuFocusableSelector = [
@@ -123,11 +135,18 @@ export function TabsCreateMenu({
   open,
   options,
   placement,
+  shortcutBinding,
+  shortcutPlatform = detectShortcutPlatform(),
 }: TabsCreateMenuProps): ReactNode {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const focusedAnchorRef = useRef<HTMLElement | null>(null);
   const [geometry, setGeometry] =
     useState<TabsCreateMenuGeometry>();
+  const menuWidth = shortcutBinding === undefined
+    ? MENU_WIDTH
+    : shortcutPlatform === "apple"
+      ? MENU_WIDTH_APPLE
+      : MENU_WIDTH_OTHER;
 
   useLayoutEffect(() => {
     if (!open || anchor === null) {
@@ -140,7 +159,7 @@ export function TabsCreateMenu({
     const update = (): void => {
       const bounds = anchor.getBoundingClientRect();
       const width = Math.max(0, Math.min(
-        MENU_WIDTH,
+        menuWidth,
         view.innerWidth - VIEWPORT_GUTTER * 2,
       ));
       const left = Math.min(
@@ -209,7 +228,7 @@ export function TabsCreateMenu({
       view.removeEventListener("resize", update);
       document.removeEventListener("scroll", update, true);
     };
-  }, [anchor, open, options.length]);
+  }, [anchor, menuWidth, open, options.length]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -340,30 +359,54 @@ export function TabsCreateMenu({
       }}
       onKeyDown={handleKeyDown}
     >
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          className="minke-tabs-create-menu__item"
-          data-option={option.id}
-          role="menuitem"
-          onClick={() => {
-            option.create(context);
-            onClose();
-            onCreated?.();
-          }}
-        >
-          <span
-            className="minke-tabs-create-menu__icon"
-            aria-hidden="true"
+      {options.map((option) => {
+        const resolvedBinding = shortcutBinding?.(option.id);
+        const binding =
+          typeof resolvedBinding === "string" &&
+            resolvedBinding.length > 0
+            ? resolvedBinding
+            : undefined;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            className="minke-tabs-create-menu__item"
+            data-option={option.id}
+            role="menuitem"
+            aria-keyshortcuts={
+              binding === undefined
+                ? undefined
+                : formatShortcutBindingAria(
+                    binding,
+                    shortcutPlatform,
+                  )
+            }
+            onClick={() => {
+              option.create(context);
+              onClose();
+              onCreated?.();
+            }}
           >
-            {option.icon}
-          </span>
-          <span className="minke-tabs-create-menu__label">
-            {option.label}
-          </span>
-        </button>
-      ))}
+            <span
+              className="minke-tabs-create-menu__icon"
+              aria-hidden="true"
+            >
+              {option.icon}
+            </span>
+            <span className="minke-tabs-create-menu__label">
+              {option.label}
+            </span>
+            {binding !== undefined && (
+              <kbd
+                className="minke-tabs-create-menu__shortcut"
+                aria-hidden="true"
+              >
+                {formatShortcutBinding(binding, shortcutPlatform)}
+              </kbd>
+            )}
+          </button>
+        );
+      })}
     </div>,
     anchor.ownerDocument.body,
   );

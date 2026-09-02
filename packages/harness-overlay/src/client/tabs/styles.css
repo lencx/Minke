@@ -448,9 +448,10 @@ body:has(
 }
 
 .minke-tabs-create-menu__item {
-  display: flex;
+  display: grid;
   width: 100%;
   min-height: 36px;
+  grid-template-columns: 18px minmax(0, 1fr) max-content;
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
@@ -494,12 +495,22 @@ body:has(
 
 .minke-tabs-create-menu__label {
   min-width: 0;
-  flex: 1;
   overflow: hidden;
   font-size: 13px;
   font-weight: 500;
   line-height: 18px;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minke-tabs-create-menu__shortcut {
+  min-width: max-content;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 10px;
+  font-weight: 450;
+  line-height: 16px;
+  opacity: 0.82;
   white-space: nowrap;
 }
 

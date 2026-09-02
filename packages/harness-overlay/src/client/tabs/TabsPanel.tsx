@@ -23,6 +23,9 @@ import type {
   TabsLayoutStateRuntime,
 } from "./layout-state.ts";
 import type {
+  TabCreateShortcutBindings,
+} from "./create-shortcuts.ts";
+import type {
   TabRendererRegistry,
 } from "./registry.ts";
 import type {
@@ -71,6 +74,7 @@ export interface TabsPanelProps {
   placement: TabsPanelPlacement;
   runtime: TabsRuntime;
   renderers: TabRendererRegistry;
+  createShortcuts: TabCreateShortcutBindings;
   layoutState: TabsLayoutStateRuntime;
   presentation?: RightTabsPresentationPort;
   setRightTrackWidth?: (width: number) => void;
@@ -110,6 +114,7 @@ export function TabsPanel({
   placement,
   runtime,
   renderers,
+  createShortcuts,
   layoutState,
   presentation,
   setRightTrackWidth,
@@ -125,6 +130,11 @@ export function TabsPanel({
     renderers.subscribe,
     renderers.getSnapshot,
     renderers.getSnapshot,
+  );
+  useSyncExternalStore(
+    createShortcuts.subscribe,
+    createShortcuts.getSnapshot,
+    createShortcuts.getSnapshot,
   );
   const responsivePresentation = useSyncExternalStore(
     presentation?.subscribe ?? ignorePresentationChanges,
@@ -142,8 +152,8 @@ export function TabsPanel({
       : state.byId[current]?.cwd;
   });
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const newTabButtonRef =
-    useRef<HTMLButtonElement | null>(null);
+  const [newTabButton, setNewTabButton] =
+    useState<HTMLButtonElement | null>(null);
   const resizeRef = useRef<TabsPanelResizeController | null>(
     null,
   );
@@ -681,7 +691,7 @@ export function TabsPanel({
           )}
           <div className="minke-tabs-tabbar__actions">
             <button
-              ref={newTabButtonRef}
+              ref={setNewTabButton}
               type="button"
               className="minke-tabs-toolbar__button"
               aria-label={t("tab.new")}
@@ -781,7 +791,7 @@ export function TabsPanel({
       </div>
     </aside>
     <TabsCreateMenu
-      anchor={newTabButtonRef.current}
+      anchor={newTabButton}
       context={{ cwd }}
       focusBoundary={drawer ? panelRef.current : undefined}
       id={createMenuId}
@@ -795,6 +805,9 @@ export function TabsPanel({
       }
       options={createOptions}
       placement={placement}
+      shortcutBinding={(optionId) =>
+        createShortcuts.binding(placement, optionId)}
+      shortcutPlatform={createShortcuts.platform}
     />
     </>
   );

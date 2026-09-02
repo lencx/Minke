@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   act,
   createElement,
+  StrictMode,
 } from "react";
 import {
   JSDOM,
@@ -10,6 +11,21 @@ import {
 import {
   TabsCreateMenu,
 } from "@minke/harness-overlay/client/tabs/TabsCreateMenu.tsx";
+import {
+  TabsPanel,
+} from "@minke/harness-overlay/client/tabs/TabsPanel.tsx";
+import {
+  TabRendererRegistry,
+} from "@minke/harness-overlay/client/tabs/registry.ts";
+import {
+  TabsRuntime,
+} from "@minke/harness-overlay/client/tabs/runtime.ts";
+import {
+  TABS_STYLES,
+} from "@minke/harness-overlay/client/tabs/styles.ts";
+import {
+  inspectCssContract,
+} from "./support/css-contract.mjs";
 
 async function withBrowserGlobals(dom, callback) {
   const values = {
@@ -46,6 +62,130 @@ async function withBrowserGlobals(dom, callback) {
     }
   }
 }
+
+test("the populated TabsPanel mounts its new-tab menu after the plus button is clicked", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><div id="root"></div>',
+    { pretendToBeVisual: true },
+  );
+  try {
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const runtime = new TabsRuntime({
+        hidePanel() {},
+        showPanel() {},
+      });
+      const renderers = new TabRendererRegistry();
+      renderers.register({
+        kind: "terminal",
+        createOptions() {
+          return [{
+            id: "terminal",
+            label: "Terminal",
+            icon: createElement("span", null, "T"),
+            create() {},
+          }];
+        },
+        renderIcon() {
+          return createElement("span", null, "T");
+        },
+        renderView(tab, active) {
+          return createElement("div", {
+            hidden: !active,
+            id: `minke-tab-view-${tab.id}`,
+            key: tab.id,
+            role: "tabpanel",
+          });
+        },
+      });
+      runtime.open({
+        kind: "terminal",
+        key: "terminal-1",
+        title: "Terminal",
+        payload: {},
+      });
+      const createShortcuts = {
+        platform: "apple",
+        binding() {
+          return "Mod+2";
+        },
+        getSnapshot: () => 0,
+        subscribe: () => () => {},
+      };
+      const layoutState = {
+        async size() {
+          return undefined;
+        },
+        setSize() {},
+      };
+      const container =
+        dom.window.document.getElementById("root");
+      assert.ok(container);
+      Object.defineProperty(
+        dom.window.HTMLElement.prototype,
+        "scrollIntoView",
+        {
+          configurable: true,
+          value() {},
+        },
+      );
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(
+            createElement(
+              StrictMode,
+              null,
+              createElement(TabsPanel, {
+                createShortcuts,
+                layoutState,
+                placement: "right",
+                renderers,
+                runtime,
+                t: (key) => key,
+                useSessions(selector) {
+                  return selector({
+                    byId: {},
+                    current: undefined,
+                  });
+                },
+              }),
+            ),
+          );
+          await new Promise((resolve) => setImmediate(resolve));
+        });
+        const button = container.querySelector(
+          '.minke-tabs-toolbar__button[aria-haspopup="menu"]',
+        );
+        assert.ok(button instanceof dom.window.HTMLButtonElement);
+        assert.equal(button.getAttribute("aria-expanded"), "false");
+
+        act(() => {
+          button.click();
+        });
+
+        assert.equal(button.getAttribute("aria-expanded"), "true");
+        const menu =
+          dom.window.document.querySelector('[role="menu"]');
+        assert.ok(
+          menu instanceof dom.window.HTMLElement,
+          "an expanded TabsPanel new-tab button must own a mounted menu",
+        );
+        assert.equal(
+          button.getAttribute("aria-controls"),
+          menu.id,
+        );
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+        runtime.dispose();
+      }
+    });
+  } finally {
+    dom.window.close();
+  }
+});
 
 test("the new-tab menu is anchored, keyboard navigable, and creates a tab", async () => {
   const dom = new JSDOM(
@@ -117,10 +257,16 @@ test("the new-tab menu is anchored, keyboard navigable, and creates a tab", asyn
         assert.equal(menu.getAttribute("data-side"), "below");
         assert.equal(menu.style.left, "64px");
         assert.equal(menu.style.top, "50px");
+        assert.equal(menu.style.width, "224px");
         const items = [
           ...menu.querySelectorAll('[role="menuitem"]'),
         ];
         assert.equal(items.length, 2);
+        assert.equal(
+          menu.querySelector(".minke-tabs-create-menu__shortcut"),
+          null,
+        );
+        assert.equal(items[0].getAttribute("aria-keyshortcuts"), null);
         assert.equal(dom.window.document.activeElement, items[0]);
 
         await act(async () => {
@@ -174,6 +320,195 @@ test("the new-tab menu is anchored, keyboard navigable, and creates a tab", asyn
   } finally {
     dom.window.close();
   }
+});
+
+test("the new-tab menu presents real shortcuts for each platform and placement", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><button id="anchor">+</button><div id="root"></div>',
+    { pretendToBeVisual: true },
+  );
+  try {
+    await withBrowserGlobals(dom, async () => {
+      const { createRoot } = await import("react-dom/client");
+      const anchor = dom.window.document.getElementById("anchor");
+      const container = dom.window.document.getElementById("root");
+      assert.ok(anchor instanceof dom.window.HTMLButtonElement);
+      assert.ok(container);
+      anchor.getBoundingClientRect = () => ({
+        bottom: 44,
+        height: 28,
+        left: 260,
+        right: 288,
+        top: 16,
+        width: 28,
+        x: 260,
+        y: 16,
+        toJSON() {},
+      });
+      const root = createRoot(container);
+      const options = [{
+        id: "terminal",
+        label: "Terminal",
+        icon: createElement("span", null, "T"),
+        create() {},
+      }];
+      const cases = [
+        {
+          aria: "Meta+T",
+          binding: "Mod+T",
+          innerWidth: 1_024,
+          left: "48px",
+          placement: "right",
+          platform: "apple",
+          text: "⌘T",
+          width: "240px",
+        },
+        {
+          aria: "Meta+Shift+T",
+          binding: "Mod+Shift+T",
+          innerWidth: 1_024,
+          left: "48px",
+          placement: "bottom",
+          platform: "apple",
+          text: "⇧⌘T",
+          width: "240px",
+        },
+        {
+          aria: "Control+T",
+          binding: "Mod+T",
+          innerWidth: 1_024,
+          left: "8px",
+          placement: "right",
+          platform: "other",
+          text: "Ctrl + T",
+          width: "288px",
+        },
+        {
+          aria: "Control+Shift+T",
+          binding: "Mod+Shift+T",
+          innerWidth: 1_024,
+          left: "8px",
+          placement: "bottom",
+          platform: "other",
+          text: "Ctrl + Shift + T",
+          width: "288px",
+        },
+        {
+          aria: null,
+          binding: null,
+          innerWidth: 1_024,
+          left: "8px",
+          placement: "bottom",
+          platform: "other",
+          text: null,
+          width: "288px",
+        },
+        {
+          aria: "Control+Shift+T",
+          binding: "Mod+Shift+T",
+          innerWidth: 200,
+          left: "8px",
+          placement: "bottom",
+          platform: "other",
+          text: "Ctrl + Shift + T",
+          width: "184px",
+        },
+      ];
+
+      try {
+        for (const candidate of cases) {
+          Object.defineProperty(dom.window, "innerWidth", {
+            configurable: true,
+            value: candidate.innerWidth,
+          });
+          await act(async () => {
+            root.render(
+              createElement(TabsCreateMenu, {
+                anchor,
+                context: {},
+                label: "New tab",
+                onClose() {},
+                open: true,
+                options,
+                placement: candidate.placement,
+                shortcutBinding() {
+                  return candidate.binding;
+                },
+                shortcutPlatform: candidate.platform,
+              }),
+            );
+            dom.window.dispatchEvent(
+              new dom.window.Event("resize"),
+            );
+            await new Promise((resolve) => setImmediate(resolve));
+          });
+
+          const menu =
+            dom.window.document.querySelector('[role="menu"]');
+          const item = menu?.querySelector('[role="menuitem"]');
+          assert.ok(menu instanceof dom.window.HTMLElement);
+          assert.ok(item instanceof dom.window.HTMLButtonElement);
+          assert.equal(
+            menu.getAttribute("data-placement"),
+            candidate.placement,
+          );
+          assert.equal(menu.style.left, candidate.left);
+          assert.equal(menu.style.width, candidate.width);
+          assert.equal(
+            item.getAttribute("aria-keyshortcuts"),
+            candidate.aria,
+          );
+          const shortcut = item.querySelector(
+            ".minke-tabs-create-menu__shortcut",
+          );
+          if (candidate.text === null) {
+            assert.equal(shortcut, null);
+          } else {
+            assert.equal(shortcut?.textContent, candidate.text);
+            assert.equal(shortcut?.getAttribute("aria-hidden"), "true");
+          }
+        }
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+      }
+    });
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("the new-tab shortcut column stays compact and does not wrap", () => {
+  const contract = inspectCssContract(TABS_STYLES);
+  assert.equal(
+    contract.declaration(
+      ".minke-tabs-create-menu__item",
+      "display",
+    ),
+    "grid",
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-tabs-create-menu__item",
+      "grid-template-columns",
+    ),
+    "18px minmax(0, 1fr) max-content",
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-tabs-create-menu__shortcut",
+      "white-space",
+    ),
+    "nowrap",
+  );
+  assert.equal(
+    contract.declaration(
+      ".minke-tabs-create-menu__shortcut",
+      "color",
+    ),
+    "var(--dsw-alias-label-tertiary)",
+  );
 });
 
 test("the new-tab menu flips above a near-bottom anchor", async () => {

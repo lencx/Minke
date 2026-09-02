@@ -1,6 +1,8 @@
 import type { ComponentType } from "react";
 import {
   DEFAULT_SHORTCUT_BINDINGS,
+  TAB_CREATE_SHORTCUT_DESCRIPTORS,
+  type TabCreateShortcutActionId,
 } from "@minke/harness-overlay/shortcut-contract.ts";
 import type {
   HarnessClientContext,
@@ -54,6 +56,22 @@ import type {
 
 const SHORTCUTS_NAMESPACE = "minke.shortcuts";
 const PALETTE_NAMESPACE = "minke.palette";
+const TAB_CREATE_SHORTCUT_LABELS = Object.freeze({
+  "tabs.right.open.files": "action.openRightFiles",
+  "tabs.bottom.open.files": "action.openBottomFiles",
+  "tabs.right.open.terminal": "action.openRightTerminal",
+  "tabs.bottom.open.terminal": "action.openBottomTerminal",
+  "tabs.right.open.browser": "action.openRightBrowser",
+  "tabs.bottom.open.browser": "action.openBottomBrowser",
+  "tabs.right.open.browser-history":
+    "action.openRightBrowserHistory",
+  "tabs.bottom.open.browser-history":
+    "action.openBottomBrowserHistory",
+  "tabs.right.open.plugins": "action.openRightPlugins",
+  "tabs.bottom.open.plugins": "action.openBottomPlugins",
+} satisfies Readonly<
+  Record<TabCreateShortcutActionId, ShortcutLocaleKey>
+>);
 
 /** Build the New Session action against alpha.2's public navigation face. */
 export function createNewSessionShortcutAction(
@@ -399,6 +417,41 @@ export function installShortcuts(
     creator.create({ cwd });
   };
   if (tabsRuntimes !== undefined) {
+    TAB_CREATE_SHORTCUT_DESCRIPTORS.forEach(
+      (descriptor, index) => {
+        const workspace =
+          tabsRuntimes.workspaces[descriptor.placement];
+        if (
+          !workspace.renderers.creators().some(
+            (candidate) =>
+              candidate.id === descriptor.creatorId,
+          )
+        ) {
+          return;
+        }
+        ctx.effect(
+          () =>
+            runtime.register({
+              id: descriptor.actionId,
+              label: () =>
+                t(
+                  TAB_CREATE_SHORTCUT_LABELS[
+                    descriptor.actionId
+                  ],
+                ),
+              defaultBinding: descriptor.defaultBinding,
+              order: 70 + index,
+              run: () => {
+                openTab(
+                  workspace,
+                  descriptor.creatorId,
+                );
+              },
+            }),
+          `minke-overlay: ${descriptor.actionId} shortcut`,
+        );
+      },
+    );
     const registerTabAction = (
       id: string,
       label: PaletteLocaleKey,
@@ -462,6 +515,10 @@ export function installShortcuts(
       tabsRuntimes.workspaces.right,
       "plugins",
       130,
+    );
+    ctx.effect(
+      () => tabsRuntimes.createShortcuts.connect(runtime),
+      "minke-overlay: Tab create shortcut bindings",
     );
   }
   void runtime.initialize();
