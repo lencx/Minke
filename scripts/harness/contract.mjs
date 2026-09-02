@@ -99,6 +99,7 @@ async function verifyWebAccessContract(harnessRoot) {
   );
   const [
     baseBundlePatchSource,
+    webAppBundlePatchSource,
     webRuntimeSource,
     toolWebPluginSource,
     webSearchToolSource,
@@ -112,6 +113,16 @@ async function verifyWebAccessContract(harnessRoot) {
         "packages",
         "bundle",
         "base",
+        "cordis.patch.yml",
+      ),
+      "utf8",
+    ),
+    readFile(
+      join(
+        harnessRoot,
+        "packages",
+        "bundle",
+        "web-app",
         "cordis.patch.yml",
       ),
       "utf8",
@@ -155,6 +166,22 @@ async function verifyWebAccessContract(harnessRoot) {
     baseBundlePatchSource,
     "fetchProvider: http",
     "Harness web_fetch provider selection changed; review Minke's SSRF boundary.",
+  );
+  requireSourceSeam(
+    baseBundlePatchSource,
+    [
+      "- id: tool-web",
+      "      name: '@deepseek-ai/dsh-tool-web'",
+      "      config:",
+      "        fetch: true",
+      "        searchTimeoutMs: 60000",
+    ].join("\n"),
+    "Harness base bundle no longer enables web_fetch by default.",
+  );
+  requireSourceSeam(
+    webAppBundlePatchSource,
+    "- id: tool-web\n  disabled: true",
+    "Harness Web bundle no longer disables the host web tools before composing Agent Presets.",
   );
   requireSourceSeam(
     webRuntimeSource,
@@ -282,7 +309,7 @@ async function verifyTurnNavigationContract(harnessRoot) {
   );
   requireSourceSeam(
     sessionContractSource,
-    "loadThrough(seq: number): Promise<void>",
+    "loadThrough(seq: SessionSeq): Promise<void>",
     "Harness Session client no longer exposes the deep-history turn-jump loader.",
   );
   requireSourceSeam(
@@ -439,6 +466,11 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
     patchSource,
     "web",
     `${bundle.patch} must not override native web provider selection.`,
+  );
+  forbidPluginRow(
+    patchSource,
+    "tool-web",
+    `${bundle.patch} must not duplicate native web_search or web_fetch.`,
   );
   for (const runtimePackage of runtimePackages) {
     requireSourceSeam(

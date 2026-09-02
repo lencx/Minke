@@ -1,9 +1,9 @@
 {
   "repository": "deepseek-ai/deepseek-harness",
   "submodulePath": "vendor/deepseek-harness",
-  "commit": "dd6322d604e00eec1ba5e0c8541159906a21094a",
+  "commit": "4e84901e6471b79ec0338099867ebb4606d12bb5",
   "packageName": "@deepseek-ai/dsh",
-  "packageVersion": "0.1.2-alpha.3",
+  "packageVersion": "0.1.2-alpha.4",
   "frontendPackageName": "@deepseek-ai/dsh-web-frontend",
   "pnpmVersion": "11.7.0",
   "runtimeSizeBudgetBytes": {

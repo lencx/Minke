@@ -321,6 +321,12 @@ function fixture(options = {}) {
             "    - id: session-turn-outline",
             "      name: '@deepseek-ai/dsh-session-turn-outline'",
           ]),
+      ...(options.webAppHostWebTools === false
+        ? []
+        : [
+            "- id: tool-web",
+            "  disabled: true",
+          ]),
       "",
     ].join("\n"),
   );
@@ -329,7 +335,7 @@ function fixture(options = {}) {
     "packages/api/session-controller/src/client/contract/session.ts",
     options.turnLoadThrough === false
       ? "export interface ISession {}\n"
-      : "export interface ISession { loadThrough(seq: number): Promise<void> }\n",
+      : "export interface ISession { loadThrough(seq: SessionSeq): Promise<void> }\n",
   );
   write(
     harnessRoot,
@@ -368,6 +374,11 @@ function fixture(options = {}) {
         : [
             "    - id: tool-web",
             "      name: '@deepseek-ai/dsh-tool-web'",
+            "      config:",
+            `        fetch: ${
+              options.webFetchBaseEnabled === false ? "false" : "true"
+            }`,
+            "        searchTimeoutMs: 60000",
           ]),
       "",
     ].join("\n"),
@@ -829,6 +840,14 @@ test("the Harness contract requires the SSRF-safe web_fetch topology", async () 
       { webFetchProviderSelection: false },
       /web_fetch provider selection changed/u,
     ],
+    [
+      { webFetchBaseEnabled: false },
+      /base bundle no longer enables web_fetch by default/u,
+    ],
+    [
+      { webAppHostWebTools: false },
+      /Web bundle no longer disables the host web tools/u,
+    ],
   ]) {
     const { projectRoot } = fixture(options);
     await assert.rejects(
@@ -836,6 +855,23 @@ test("the Harness contract requires the SSRF-safe web_fetch topology", async () 
       expected,
     );
   }
+});
+
+test("the product bundle cannot duplicate native web tools", async () => {
+  const { projectRoot } = fixture();
+  write(
+    projectRoot,
+    "packages/harness-overlay/cordis.patch.yml",
+    productPatch([
+      "    - id: tool-web",
+      "      name: '@deepseek-ai/dsh-tool-web'",
+    ]),
+  );
+
+  await assert.rejects(
+    verifyHarnessContract(projectRoot),
+    /must not duplicate native web_search or web_fetch/u,
+  );
 });
 
 test("the Harness contract requires the SSRF-safe web_fetch transport", async () => {

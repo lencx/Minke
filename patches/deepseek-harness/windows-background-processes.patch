@@ -96,6 +96,27 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
  		detached: platform !== "win32"
  	});
  	const collectStream = (mode, stream, label) => {
+diff --git a/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js b/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-experimental-code-runtime-python/lib/index.js
+@@ -843,7 +843,8 @@ function validatePythonBin(bin) {
+ 			env: pythonEnvironment(),
+ 			timeout: PYTHON_PROBE_TIMEOUT_MS,
+ 			killSignal: "SIGKILL",
+-			maxBuffer: 1024
++			maxBuffer: 1024,
++			windowsHide: true
+ 		}).trim();
+ 	} catch (error) {
+ 		throw new Error(`dsh-code-runtime-python: config.pythonBin ${JSON.stringify(bin)} failed the CPython version probe: ${messageOf(error)}`);
+@@ -1197,6 +1198,7 @@ var PythonCodeRuntime = class extends CodeRuntime {
+ 			], {
+ 				env: pythonEnvironment(),
+ 				detached: true,
++				windowsHide: true,
+ 				stdio: [
+ 					"pipe",
+ 					"pipe",
 diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
