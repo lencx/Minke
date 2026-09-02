@@ -43,6 +43,15 @@ import {
   type AgentBrowserTabsTranslate,
 } from "./agent-browser/index.ts";
 import {
+  browserHistoryEn,
+  browserHistoryZh,
+  BrowserHistoryTabsController,
+  createBrowserHistoryTabRenderer,
+  installBrowserHistoryStyles,
+  type BrowserHistoryLocaleKey,
+  type BrowserHistoryTranslate,
+} from "./browser-history/index.ts";
+import {
   CodeThemeSettingsRuntime,
   createFilesTabRenderer,
   filesTabsEn,
@@ -106,6 +115,8 @@ import {
 const TABS_NAMESPACE = "minke.tabs";
 const AGENT_BROWSER_TABS_NAMESPACE =
   "minke.tabs.agent-browser";
+const BROWSER_HISTORY_NAMESPACE =
+  "minke.tabs.browser-history";
 const FILES_TABS_NAMESPACE = "minke.tabs.files";
 const WEB_TABS_NAMESPACE = "minke.tabs.web";
 const PLUGINS_NAMESPACE = "minke.tabs.plugins";
@@ -340,6 +351,23 @@ export function installTabs(
       "minke-overlay: Agent Browser tab dictionaries",
     );
   }
+  if (
+    agentBrowserPort.available &&
+    tabsPort.embeddedWebAvailable
+  ) {
+    ctx.effect(
+      () =>
+        ctx.locale.register(BROWSER_HISTORY_NAMESPACE, {
+          zh: browserHistoryZh,
+          en: browserHistoryEn,
+        }),
+      "minke-overlay: Browser History dictionaries",
+    );
+    ctx.effect(
+      () => installBrowserHistoryStyles(),
+      "minke-overlay: Browser History styles",
+    );
+  }
   if (pluginLifecyclePort.available) {
     ctx.effect(
       () =>
@@ -405,6 +433,10 @@ export function installTabs(
   const webT = ctx.locale.bind<WebTabsLocaleKey>(
     WEB_TABS_NAMESPACE,
   ) as WebTabsTranslate;
+  const browserHistoryT =
+    ctx.locale.bind<BrowserHistoryLocaleKey>(
+      BROWSER_HISTORY_NAMESPACE,
+    ) as BrowserHistoryTranslate;
   const pluginsT = ctx.locale.bind<PluginsLocaleKey>(
     PLUGINS_NAMESPACE,
   ) as PluginsTranslate;
@@ -475,6 +507,14 @@ export function installTabs(
     const terminalTabs = terminalPort.available
       ? new TerminalTabsController(tabs, terminalPort)
       : undefined;
+    const browserHistoryTabs =
+      agentBrowserPort.available && webTabs !== undefined
+        ? new BrowserHistoryTabsController(
+            tabs,
+            agentBrowserPort,
+            webTabs,
+          )
+        : undefined;
     ctx.effect(
       () => () => {
         terminalTabs?.dispose();
@@ -531,7 +571,20 @@ export function installTabs(
         `minke-overlay: ${placement} Web tab renderer`,
       );
     }
+    if (browserHistoryTabs !== undefined) {
+      ctx.effect(
+        () =>
+          renderers.register(
+            createBrowserHistoryTabRenderer(
+              browserHistoryTabs,
+              browserHistoryT,
+            ),
+          ),
+        `minke-overlay: ${placement} Browser History renderer`,
+      );
+    }
     return Object.freeze({
+      browserHistoryTabs,
       filesTabs,
       pluginTabs,
       renderers,
@@ -557,6 +610,8 @@ export function installTabs(
         },
       )
     : undefined;
+  const rightBrowserHistoryTabs =
+    rightWorkspace.browserHistoryTabs;
   if (agentBrowserTabs !== undefined) {
     ctx.effect(
       () =>
@@ -564,6 +619,17 @@ export function installTabs(
           createAgentBrowserTabRenderer(
             agentBrowserTabs,
             agentBrowserT,
+            rightBrowserHistoryTabs === undefined
+              ? undefined
+              : {
+                  openHistory: () => {
+                    rightBrowserHistoryTabs.create(
+                      browserHistoryT(
+                        "browserHistory.tab.title",
+                      ),
+                    );
+                  },
+                },
           ),
         ),
       "minke-overlay: right Agent Browser renderer",

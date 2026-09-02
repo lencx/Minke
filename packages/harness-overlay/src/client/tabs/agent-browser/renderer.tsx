@@ -5,6 +5,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  History,
   Send,
 } from "@lucide/icons";
 import {
@@ -29,9 +30,6 @@ import {
   BrowserControlIcon,
 } from "./icons.tsx";
 import {
-  AgentBrowserHistoryDialog,
-} from "./AgentBrowserHistoryDialog.tsx";
-import {
   renderAgentBrowserTabView,
 } from "./AgentBrowserTabView.tsx";
 import type {
@@ -47,6 +45,10 @@ import {
   isAgentBrowserTab,
   type AgentBrowserTab,
 } from "./types.ts";
+
+export interface AgentBrowserTabRendererDependencies {
+  readonly openHistory?: () => void;
+}
 
 function statusLabel(
   tab: ManagedTab,
@@ -250,6 +252,7 @@ function AnnotationActions({
 export function createAgentBrowserTabRenderer(
   controller: AgentBrowserTabsController,
   t: AgentBrowserTabsTranslate,
+  dependencies?: AgentBrowserTabRendererDependencies,
 ): TabRenderer {
   return {
     kind: AGENT_BROWSER_TAB_KIND,
@@ -317,10 +320,13 @@ export function createAgentBrowserTabRenderer(
       const human = tab.payload.owner === "human";
       return (
         <>
-          <AgentBrowserHistoryDialog
-            controller={controller}
-            t={t}
-          />
+          <ToolbarButton
+            label={t("agentBrowser.history.action.open")}
+            disabled={dependencies?.openHistory === undefined}
+            onClick={() => dependencies?.openHistory?.()}
+          >
+            <LucideIcon icon={History} size={14} />
+          </ToolbarButton>
           <AnnotationActions
             tab={tab}
             controller={controller}

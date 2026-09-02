@@ -1,0 +1,102 @@
+export const browserHistoryZh = {
+  "browserHistory.create.label": "浏览历史",
+  "browserHistory.tab.title": "浏览历史",
+  "browserHistory.title": "浏览历史",
+  "browserHistory.privacy": "仅保存在本机。",
+  "browserHistory.search.label": "搜索浏览历史",
+  "browserHistory.search.placeholder": "搜索内容、标题或网址",
+  "browserHistory.search.clear": "清除搜索",
+  "browserHistory.filter.label": "按访问者筛选浏览历史",
+  "browserHistory.filter.all": "全部",
+  "browserHistory.filter.human": "你",
+  "browserHistory.filter.agent": "Agent",
+  "browserHistory.actor.human": "你",
+  "browserHistory.actor.agent": "Agent",
+  "browserHistory.results": "最近 {count} 条记录",
+  "browserHistory.results.matches": "{count} 条匹配结果",
+  "browserHistory.results.loaded": "已加载 {count} 条",
+  "browserHistory.results.loadedMore": "已加载 {count}+ 条",
+  "browserHistory.list.label": "浏览历史列表",
+  "browserHistory.visit.count.one": "访问 1 次",
+  "browserHistory.visit.count.many": "访问 {count} 次",
+  "browserHistory.loading": "正在读取浏览历史…",
+  "browserHistory.empty": "还没有浏览历史",
+  "browserHistory.empty.detail":
+    "你和 Agent 打开的网页会显示在这里。",
+  "browserHistory.noMatch": "没有匹配的浏览历史",
+  "browserHistory.noMatch.detail":
+    "请尝试其他关键词或访问者筛选条件。",
+  "browserHistory.noMatch.reset": "重置筛选",
+  "browserHistory.error": "无法读取浏览历史",
+  "browserHistory.error.detail": "请稍后重试。",
+  "browserHistory.retry": "重试",
+  "browserHistory.loadMore.loading": "正在加载更多…",
+  "browserHistory.loadMore.action": "加载更多历史",
+  "browserHistory.loadMore.error": "无法加载更多历史",
+  "browserHistory.loadMore.retry": "重试",
+  "browserHistory.clear": "清空",
+  "browserHistory.clear.label": "清空浏览历史",
+  "browserHistory.clear.confirm": "清空所有浏览历史？此操作无法撤销。",
+  "browserHistory.clear.error": "清空失败，请重试。",
+  "browserHistory.clear.cancel": "取消",
+  "browserHistory.clear.confirmAction": "清空历史",
+  "browserHistory.clear.clearing": "正在清空…",
+} as const;
+
+export type BrowserHistoryLocaleKey =
+  keyof typeof browserHistoryZh;
+
+export type BrowserHistoryTranslate = (
+  key: BrowserHistoryLocaleKey,
+  params?: Record<string, unknown>,
+) => string;
+
+export const browserHistoryEn: Record<
+  BrowserHistoryLocaleKey,
+  string
+> = {
+  "browserHistory.create.label": "Browser History",
+  "browserHistory.tab.title": "Browser History",
+  "browserHistory.title": "Browser History",
+  "browserHistory.privacy": "Saved only on this device.",
+  "browserHistory.search.label": "Search browsing history",
+  "browserHistory.search.placeholder": "Search content, titles, or URLs",
+  "browserHistory.search.clear": "Clear search",
+  "browserHistory.filter.label": "Filter browsing history by visitor",
+  "browserHistory.filter.all": "All",
+  "browserHistory.filter.human": "You",
+  "browserHistory.filter.agent": "Agent",
+  "browserHistory.actor.human": "You",
+  "browserHistory.actor.agent": "Agent",
+  "browserHistory.results": "{count} recent visits",
+  "browserHistory.results.matches": "{count} matches",
+  "browserHistory.results.loaded": "{count} loaded",
+  "browserHistory.results.loadedMore": "{count}+ loaded",
+  "browserHistory.list.label": "Browsing history",
+  "browserHistory.visit.count.one": "1 visit",
+  "browserHistory.visit.count.many": "{count} visits",
+  "browserHistory.loading": "Loading browsing history…",
+  "browserHistory.empty": "No browsing history yet",
+  "browserHistory.empty.detail":
+    "Pages opened by you and the agent will appear here.",
+  "browserHistory.noMatch": "No matching browsing history",
+  "browserHistory.noMatch.detail":
+    "Try another search or visitor filter.",
+  "browserHistory.noMatch.reset": "Reset filters",
+  "browserHistory.error": "Could not load browsing history",
+  "browserHistory.error.detail": "Please try again in a moment.",
+  "browserHistory.retry": "Try again",
+  "browserHistory.loadMore.loading": "Loading more…",
+  "browserHistory.loadMore.action": "Load more history",
+  "browserHistory.loadMore.error": "Could not load more history",
+  "browserHistory.loadMore.retry": "Try again",
+  "browserHistory.clear": "Clear",
+  "browserHistory.clear.label": "Clear browsing history",
+  "browserHistory.clear.confirm":
+    "Clear all browsing history? This cannot be undone.",
+  "browserHistory.clear.error":
+    "Could not clear browsing history. Try again.",
+  "browserHistory.clear.cancel": "Cancel",
+  "browserHistory.clear.confirmAction": "Clear history",
+  "browserHistory.clear.clearing": "Clearing…",
+};

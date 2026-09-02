@@ -60,6 +60,7 @@ const taskFiles = Object.freeze({
     "agent-browser-chat.test.mjs",
     "agent-browser-tabs.test.mjs",
     "bootstrap-theme.test.mjs",
+    "browser-history-tabs.test.mjs",
     "browser-settings.test.mjs",
     "client-actions.test.mjs",
     "command-palette.test.mjs",
