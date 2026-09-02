@@ -26,16 +26,14 @@ Minke brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 ## Highlights
 
-Since v0.2.0, Minke has added Agent Browser and multi-channel remote control, regression-tested every remote-access route end to end, and continued to polish the desktop workflow.
+Minke combines agentic browsing, local tools, remote access, and native desktop controls in one focused workspace.
 
-- **Agent Browser with shared human control** — Built-in, credential-free Web search helps agents find sources, while Agent Browser lets them open and navigate sites in dedicated tabs, inspect page structure, click, fill fields, press keys, wait for changes, and capture screenshots. Every action stays visible: take control at any time, return it to the agent, or annotate exact page elements and send screenshot-backed context into the current conversation.
-- **Remote control through WeChat, Telegram, and Discord** — Connect WeChat with a QR code or add Telegram and Discord through Bot tokens, then start Minke Agent tasks from the messaging apps you already use and receive results in the same conversation. WeChat accepts direct messages only from the account that scanned the code, while Telegram and Discord use direct-message pairing. Credentials are encrypted locally, and the durable Gateway retains pending work across temporary connection or Agent failures.
-- **All three Web remote-access routes are verified and available** — Tailscale Serve over HTTPS, Tailscale Direct IP, and Cloudflare Access have all completed end-to-end regression testing and are ready to use; changing routes does not require restarting Minke. The remote side is a responsive Web workspace rather than a desktop projection, so a phone or tablet can continue conversations, start agents, manage project files, use the host terminal, and install the HTTPS experience as a PWA.
-- **More than a chat window** — Independent right and bottom Tabs keep Files, Terminal, Browser, Plugins, and Session details beside the active conversation. The Plugins workspace supports GitHub discovery, installation, status checks, repair, and removal. Files supports navigation, syntax-highlighted previews, editing, and diffs, while Terminal connects to a real PTY on the Minke host.
-- **Local model integrations** — Minke can discover and connect to LM Studio, Ollama, and other loopback OpenAI-compatible services. Optional lifecycle management can start supported local runtimes when needed without taking ownership of services that were already running.
-- **Continuous workflow polish** — A message outline for long conversations, fast composer focus, element annotations in regular Web tabs, cross-volume file browsing, lossless long Telegram replies, and clearer browser and connection settings make frequent actions smoother. The global Command Palette (`Mod+K`), configurable shortcuts, native menus, Session history navigation, log export, synchronized themes, and English and Chinese UI remain close at hand.
-- **Safe, recoverable data migration** — Choose where Minke stores its data, then preview and merge existing Sessions, plugins, and settings. Minke deduplicates identical files, preserves conflicts and source directories, and switches only after the restart-time migration succeeds; starting with a clean data home remains an option.
-- **Local-first and cross-platform** — Application state and browser session data stay on your machine under the Minke data boundary. Automated releases target macOS, Windows, and Linux, including a portable AppImage; the built-in updater verifies the Release, exact file size, and SHA-256 before asking you to install.
+- **Agent Browser with shared control** — Agents can search, open, and interact with the Web in visible browser tabs. Take control of a live tab without closing it, hand it back when ready, or send annotated page context to the conversation.
+- **A complete desktop workspace** — Right and bottom panels keep Files, Terminal, Browser, Browser History, and Plugins beside the conversation, with native menus and customizable shortcuts for quick access.
+- **Local-first by design** — Sessions, settings, Browser History, and browser session data remain on your machine.
+- **Remote access where you already work** — Continue tasks from a responsive Web workspace or through WeChat, Telegram, and Discord, with private access options built around Tailscale and Cloudflare.
+- **Local model support** — Discover and connect to LM Studio, Ollama, and other loopback OpenAI-compatible services without giving up control of services you already run.
+- **Cross-platform desktop support** — Minke supports macOS, Windows, and Linux with native desktop integration, built-in updates, synchronized themes, and English and Chinese UI.
 
 <table>
   <tr>
@@ -106,7 +104,7 @@ Download Minke only from the official [GitHub Releases](https://github.com/lencx
 | Windows | `x64` | [Download `.exe`](https://github.com/lencx/Minke/releases/latest/download/Minke-windows-x64.exe) |
 | Linux | Debian / Ubuntu (`x64`) | [Download `.deb`](https://github.com/lencx/Minke/releases/latest/download/Minke-linux-x64.deb) |
 | Linux | Fedora / RHEL (`x64`) | [Download `.rpm`](https://github.com/lencx/Minke/releases/latest/download/Minke-linux-x64.rpm) |
-| Linux | Any distro (portable) | [Download `.AppImage`](https://github.com/lencx/Minke/releases/latest/download/Minke-linux-x64.AppImage) |
+| Linux | `x64` (portable AppImage) | [Download `.AppImage`](https://github.com/lencx/Minke/releases/latest/download/Minke-linux-x64.AppImage) |
 
 Release checksums are available in [`SHA256SUMS`](https://github.com/lencx/Minke/releases/latest/download/SHA256SUMS).
 
@@ -137,49 +135,36 @@ platform behavior.
 > [!CAUTION]
 > Removing the quarantine attribute bypasses a macOS security check. Minke's updater never runs this command automatically. Use it only as a last resort for `Minke.app` downloaded from the official Releases page, and never replace the path with a broad directory.
 
-#### WeChat, Telegram, or Discord reports unavailable credential storage
+#### Authorize credential storage on macOS
 
-WeChat, Telegram, and Discord share one encrypted credential vault backed by
-the operating system's credential protection. On macOS, Minke delegates each
-explicit authorization attempt to a short-lived Minke helper that uses
-Electron `safeStorage`. Cancelling one attempt does not poison the running
-desktop process: the next click starts a fresh helper and can show the system
-prompt again.
+Minke requests Keychain access only after you open **Connections** and click
+**Authorize credential access**. If macOS prompts, enter your Mac login
+password and choose **Always Allow**. If access is denied, click **Request
+authorization again**.
 
-Check the installed application first:
+If credential storage remains unavailable, one possible cause is an invalid or
+modified app signature that prevents macOS from recognizing Minke's Keychain
+identity. Verify the application:
 
 ```bash
 codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app"
 ```
 
-If verification reports an invalid bundle or modified `Info.plist`, quit
-Minke, apply a local ad-hoc signature, verify it, and reopen the application
-with this single command:
+If verification fails for an older pre-release build that you trust and
+reinstalling is not practical, quit Minke completely, then repair and reopen
+it:
 
 ```bash
-/usr/bin/osascript -e 'tell application "Minke" to quit' 2>/dev/null || true; while /usr/bin/pgrep -f '^/Applications/Minke\.app/Contents/MacOS/Minke( |$)' >/dev/null; do /bin/sleep 0.2; done; /usr/bin/codesign --force --deep --sign - --timestamp=none "/Applications/Minke.app" && /usr/bin/codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app" && /usr/bin/open "/Applications/Minke.app"
+/usr/bin/codesign --force --deep --sign - --timestamp=none "/Applications/Minke.app" \
+  && /usr/bin/codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app" \
+  && /usr/bin/open "/Applications/Minke.app"
 ```
 
-Minke does not access Keychain during startup. After it opens, open
-**Connections** and click **Authorize credential access**. Only then may macOS
-ask for Keychain access; enter the Mac login password and choose **Always
-Allow**. If `codesign` reports insufficient permissions, prefix only the
-signing invocation (`/usr/bin/codesign --force ...`) with `sudo`.
-
-If you choose **Deny**, click **Request authorization again**. If legacy
-Electron state prevented another system dialog in an older build, the new
-attempt still starts from a fresh helper process. Minke does not restart and
-does not delete credentials, inboxes, or pending deliveries.
-
 > [!WARNING]
-> This command replaces the installed app's existing signature and is only a
-> local workaround for an unsigned or already-invalid pre-release build. Do
-> not run it on a valid Developer ID-signed and notarized release. The repair
-> may need to be repeated after reinstalling or updating Minke. Signing affects
-> whether Keychain recognizes separate builds as the same application; it is
-> not involved in retrying an authorization attempt. Do not delete
-> `~/.minke/secrets` or the Minke Safe Storage item manually because existing
-> channel credentials depend on that encryption key.
+> Re-signing replaces the installed app's signature. Do not run this command
+> on a valid Developer ID-signed and notarized release; reinstall the official
+> build instead. Do not delete `~/.minke/secrets` or the Minke Safe Storage
+> item because existing channel credentials depend on them.
 
 ### Windows
 

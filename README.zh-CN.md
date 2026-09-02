@@ -26,16 +26,14 @@ Minke 在本地运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 
 ## 核心亮点
 
-自 v0.2.0 发布以来，Minke 新增了 Agent Browser、多消息通道远程控制，并完成了全部远程访问链路的端到端回归测试，同时持续打磨桌面工作流。
+Minke 将 Agent、浏览器、终端、文件和本机工具收拢在一个可配置的桌面工作空间中。
 
-- **Agent Browser 与人机协作** — 内置免配置 Web 搜索帮助 Agent 找到信息源，Agent Browser 则让它在独立标签页中打开和浏览网站、读取页面结构、点击、输入、按键、等待页面变化并截图。整个过程实时可见，你可以随时接管或交还控制，还能直接标注网页元素，将带截图和页面上下文的反馈发回当前对话。
-- **通过微信、Telegram 和 Discord 远程控制** — 扫码连接微信，或通过 Bot Token 接入 Telegram 与 Discord，即可从常用消息应用向 Minke Agent 发起任务并在原会话中接收结果。微信仅接受扫码账号的一对一消息，Telegram 与 Discord 使用私聊配对；凭据加密保存在本机，持久化 Gateway 会在短暂断线或 Agent 暂不可用时保留待处理消息。
-- **三种 Web 远程访问均已验证可用** — Tailscale Serve HTTPS、Tailscale Direct IP 和 Cloudflare Access 均已完成端到端测试回归，目前都可以使用，切换配置也无需重启 Minke。远程端是响应式 Web 工作空间，而不是桌面投影；你可以在手机或平板上继续对话、启动 Agent、管理项目文件和使用宿主机终端，并通过 HTTPS 地址安装为 PWA。
-- **不只是对话窗口** — 彼此独立的右侧和底部 Tabs，将文件管理器、终端、浏览器、插件和 Session 详情放在当前对话旁边。插件区支持从 GitHub 发现插件，以及安装、状态检查、修复与卸载。文件管理器支持目录浏览、语法高亮预览、编辑与 Diff；终端则连接运行 Minke 的电脑上的真实 PTY。
-- **本地模型集成** — Minke 可以发现并连接 LM Studio、Ollama，以及其他仅监听本机回环地址的 OpenAI 兼容服务。可选的生命周期管理能够按需启动受支持的本地运行时，同时不会接管原本已经运行的服务。
-- **日常体验持续打磨** — 长对话消息大纲、Composer 快速聚焦、普通网页标签页的元素标注、跨磁盘文件浏览、Telegram 长回复完整投递，以及更清晰的浏览器和连接设置，让高频操作更顺手。全局命令面板（`Mod+K`）、可配置快捷键、原生菜单、Session 历史导航与日志导出、主题同步和中英文界面也都保持可用。
-- **安全、可恢复的数据迁移** — 自定义 Minke 数据目录，预览并合并现有 Session、插件与设置。Minke 会去重相同文件、保留冲突和源目录，并只在重启迁移成功后切换；也可以选择从全新数据目录开始。
-- **本地优先并覆盖三大平台** — 应用状态和浏览器会话数据保留在本机的 Minke 数据边界内。自动化发布覆盖 macOS、Windows 和 Linux，并提供便携的 AppImage；内置更新流程会校验 Release、文件大小和 SHA-256，再由你确认安装。
+- **Agent Browser 与人机协作** — Agent 可以在可见的浏览器标签页中搜索、打开并操作网页；你可以在不关闭当前标签页的情况下接管、完成后交还给 Agent，也可以把带标注的页面上下文发回对话。
+- **完整的桌面工作空间** — 右侧栏和底栏把文件管理器、终端、浏览器、浏览历史与插件放在对话旁边，并通过原生菜单和可自定义快捷键快速访问。
+- **本地优先** — Session、设置、浏览历史和浏览器会话数据都保留在你的电脑上。
+- **在常用设备和应用中远程使用** — 通过响应式 Web 工作空间，或微信、Telegram 与 Discord 继续任务，并可使用基于 Tailscale 和 Cloudflare 的私密访问方案。
+- **本地模型支持** — 发现并连接 LM Studio、Ollama 及其他仅监听本机回环地址的 OpenAI 兼容服务，同时保留对现有服务的控制权。
+- **跨平台桌面支持** — Minke 支持 macOS、Windows 和 Linux，并提供原生桌面集成、内置更新、主题同步及中英文界面。
 
 <table>
   <tr>
@@ -97,12 +95,12 @@ Minke 同一时间只启用一条远程链路，并只在应用运行期间持�
 | Windows | `x64` | `.exe` |
 | Linux | Debian / Ubuntu（`x64`） | `.deb` |
 | Linux | Fedora / RHEL（`x64`） | `.rpm` |
-| Linux | 便携版（`x64`） | `.AppImage` |
+| Linux | `x64`（便携 AppImage） | `.AppImage` |
 
 打包后的 macOS、Windows 和 Linux 版本都会自动检查稳定更新。Minke 会为当前系统
 选择名称固定的 DMG、EXE、DEB、RPM 或 AppImage，校验 GitHub 不可变 Release、
 下载地址链、精确大小、SHA-256 和系统可用的来源属性，再询问是否打开。可在
-**设置 → Minke → 个人偏好 → 应用更新** 中关闭后台下载；关闭后必须先确认“下载更新”。
+**设置 → Minke → 偏好设置 → 软件更新** 中关闭后台下载；关闭后必须先确认“下载更新”。
 也可随时在 **关于 Minke → 检查更新** 中手动触发。安装过程始终需要用户明确确认。
 用户操作和各平台行为见[桌面应用更新说明](./docs/app-updates.md)。
 
@@ -122,41 +120,32 @@ Minke 同一时间只启用一条远程链路，并只在应用运行期间持�
 > [!CAUTION]
 > 移除 quarantine 属性会绕过一项 macOS 安全检查。Minke 更新器绝不会自动执行该命令。请仅将它作为最后手段，对从官方 Releases 页面下载的 `Minke.app` 使用，并且不要把路径替换为宽泛目录。
 
-#### 微信、Telegram 或 Discord 提示凭据存储不可用
+#### 在 macOS 上授权凭据存储
 
-微信、Telegram 和 Discord 共用一个由操作系统凭据保护的加密保险库。在 macOS
-上，每次显式授权都会交给一个短生命周期的 Minke 辅助进程，通过 Electron
-`safeStorage` 访问钥匙串。取消一次授权不会污染正在运行的桌面进程；再次点击
-按钮会启动全新的辅助进程，因此系统可以再次显示授权窗口。
+Minke 仅在你打开**连接**并点击**授权凭据访问**后请求钥匙串权限。如果 macOS
+弹出系统窗口，请输入 Mac 登录密码并选择**始终允许**；如果拒绝了访问，点击
+**重新请求授权**即可。
 
-先检查已安装应用：
+如果凭据存储仍不可用，一种可能原因是应用签名无效或被修改，导致 macOS 无法
+识别 Minke 的钥匙串身份。先校验应用：
 
 ```bash
 codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app"
 ```
 
-如果校验提示应用包无效或 `Info.plist` 已被修改，可使用下面这一条命令退出
-Minke、添加本机临时签名、验证并重新打开应用：
+如果可信的旧预发布构建校验失败，并且不便重新安装，请先完全退出 Minke，再修复
+签名并重新打开：
 
 ```bash
-/usr/bin/osascript -e 'tell application "Minke" to quit' 2>/dev/null || true; while /usr/bin/pgrep -f '^/Applications/Minke\.app/Contents/MacOS/Minke( |$)' >/dev/null; do /bin/sleep 0.2; done; /usr/bin/codesign --force --deep --sign - --timestamp=none "/Applications/Minke.app" && /usr/bin/codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app" && /usr/bin/open "/Applications/Minke.app"
+/usr/bin/codesign --force --deep --sign - --timestamp=none "/Applications/Minke.app" \
+  && /usr/bin/codesign --verify --deep --strict --verbose=2 "/Applications/Minke.app" \
+  && /usr/bin/open "/Applications/Minke.app"
 ```
 
-macOS 弹出钥匙串授权窗口后，输入 Mac 登录密码并选择**始终允许**。如果
-`codesign` 提示权限不足，只在执行签名的命令（`/usr/bin/codesign --force ...`）
-前添加 `sudo`。
-
-Minke 不会在启动时访问钥匙串。应用打开后，进入**连接**并点击**授权凭据访问**，
-系统才可能显示授权窗口。若选择了**拒绝**，点击**重新请求授权**即可；即使旧版
-Electron 状态曾阻止系统再次弹窗，新请求也会从全新的辅助进程开始。Minke 不会
-重启，也不会删除凭据、收件箱或待投递记录。
-
 > [!WARNING]
-> 该命令会替换已安装应用的现有签名，仅适用于未签名或签名已经无效的预发布构建；
-> 不要对 Developer ID 签名且经过 Apple 公证的有效正式版本执行。重新安装或更新
-> Minke 后可能需要再次修复。签名只影响钥匙串是否把不同构建识别为同一个应用，
-> 与单次授权能否重试无关。不要手动删除 `~/.minke/secrets` 或“钥匙串访问”
-> 中的 Minke Safe Storage 项，因为已有通道凭据依赖对应的加密密钥。
+> 临时重签会替换已安装应用的现有签名。不要对具有有效 Developer ID 签名且经过
+> Apple 公证的版本执行；请改为重新安装官方构建。不要删除 `~/.minke/secrets`
+> 或“钥匙串访问”中的 Minke Safe Storage 项，已有通道凭据依赖这些数据。
 
 ### Windows
 
