@@ -46,6 +46,9 @@ export const inject = ["credentials", "llm", "subprocess"];
 
 export type Config = ModelRuntimeConfig;
 
+// Capability defaults belong to each model service. The capacity fields below
+// are explicit operator overrides only and therefore intentionally have no
+// schema default.
 const lmStudioConfig: z<LmStudioRuntimeConfig> = z
   .object({
     enabled: z.boolean().default(false),
@@ -55,17 +58,8 @@ const lmStudioConfig: z<LmStudioRuntimeConfig> = z
     baseURL: z.string().default(""),
     command: z.string().default(""),
     apiKeyEnv: z.string().role("credential-ref").default(""),
-    defaultContextWindow: z.number().step(1).min(1).default(32_768),
-    defaultMaxTokens: z.number().step(1).min(1).default(8_192),
-  })
-  .default({
-    enabled: false,
-    lifecycle: "external",
-    baseURL: "",
-    command: "",
-    apiKeyEnv: "",
-    defaultContextWindow: 32_768,
-    defaultMaxTokens: 8_192,
+    defaultContextWindow: z.number().step(1).min(1),
+    defaultMaxTokens: z.number().step(1).min(1),
   });
 
 const openAICompatibleConfig: z<OpenAICompatibleRuntimeConfig> = z.object({
@@ -74,8 +68,8 @@ const openAICompatibleConfig: z<OpenAICompatibleRuntimeConfig> = z.object({
   displayName: z.string(),
   baseURL: z.string().required(),
   apiKeyEnv: z.string().role("credential-ref"),
-  defaultContextWindow: z.number().step(1).min(1).default(32_768),
-  defaultMaxTokens: z.number().step(1).min(1).default(8_192),
+  defaultContextWindow: z.number().step(1).min(1),
+  defaultMaxTokens: z.number().step(1).min(1),
 });
 
 const ollamaConfig: z<OllamaRuntimeConfig> = z
@@ -86,16 +80,8 @@ const ollamaConfig: z<OllamaRuntimeConfig> = z
       .default("external"),
     baseURL: z.string().default(""),
     command: z.string().default(""),
-    defaultContextWindow: z.number().step(1).min(1).default(32_768),
-    defaultMaxTokens: z.number().step(1).min(1).default(8_192),
-  })
-  .default({
-    enabled: false,
-    lifecycle: "external",
-    baseURL: "",
-    command: "",
-    defaultContextWindow: 32_768,
-    defaultMaxTokens: 8_192,
+    defaultContextWindow: z.number().step(1).min(1),
+    defaultMaxTokens: z.number().step(1).min(1),
   });
 
 export const Config: z<Config> = z.object({

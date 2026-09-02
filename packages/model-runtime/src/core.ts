@@ -4,8 +4,6 @@
  */
 const DEFAULT_LM_STUDIO_BASE_URL = "http://127.0.0.1:1234/v1";
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1";
-const DEFAULT_CONTEXT_WINDOW = 32_768;
-const DEFAULT_MAX_TOKENS = 8_192;
 const MODEL_REQUEST_TIMEOUT_MS = 1_500;
 const MODEL_LOAD_TIMEOUT_MS = 10 * 60 * 1_000;
 const CLI_STATUS_TIMEOUT_MS = 2_000;
@@ -31,8 +29,8 @@ export interface ProviderProfile {
   displayName: string;
   api: "openai-completions";
   baseURL: string;
-  defaultContextWindow: number;
-  defaultMaxTokens: number;
+  defaultContextWindow?: number;
+  defaultMaxTokens?: number;
   defaultInput: ["text"];
   models: ModelProfile[];
   apiKeyEnv?: string;
@@ -944,14 +942,24 @@ function mergeLmStudioListings(
 function effectiveLmStudioContext(
   profile: ModelProfile,
   states: readonly LmStudioModelState[] | undefined,
-  targetContext: number,
+  contextOverride: number | undefined,
 ): ModelProfile {
   if (states === undefined) return profile;
   const resolved = lmStudioStateForModel(states, profile.id);
   if (resolved === undefined) return profile;
+  if (contextOverride === undefined) {
+    // A loaded instance is the service's effective limit. For an unloaded
+    // model, preserve the capability reported by LM Studio's catalog.
+    return resolved.instance === undefined
+      ? profile
+      : {
+          ...profile,
+          contextWindow: resolved.instance.contextLength,
+        };
+  }
   const required = Math.min(
-    targetContext,
-    resolved.state.maxContextLength ?? targetContext,
+    contextOverride,
+    resolved.state.maxContextLength ?? contextOverride,
   );
   const contextWindow = Math.max(
     required,
@@ -964,7 +972,7 @@ async function discoverLmStudioModels(
   host: ModelRuntimeHost,
   baseURL: string,
   token: string | undefined,
-  targetContext: number,
+  contextOverride: number | undefined,
 ): Promise<ModelProfile[]> {
   const endpoint = new URL(baseURL);
   const [openAI, detailed, states] = await Promise.all([
@@ -973,7 +981,7 @@ async function discoverLmStudioModels(
     fetchLmStudioModelStates(host, endpoint.origin, token),
   ]);
   return mergeLmStudioListings(openAI, detailed, states).map((profile) =>
-    effectiveLmStudioContext(profile, states, targetContext)
+    effectiveLmStudioContext(profile, states, contextOverride)
   );
 }
 
@@ -1038,13 +1046,16 @@ function providerProfile(
   defaultMaxTokens: number | undefined,
   auth: Pick<ProviderProfile, "apiKeyEnv" | "headers">,
 ): ProviderProfile {
+  const contextWindow = positiveInteger(defaultContextWindow);
+  const maxTokens = positiveInteger(defaultMaxTokens);
   return {
     displayName,
     api: "openai-completions",
     baseURL,
-    defaultContextWindow:
-      positiveInteger(defaultContextWindow) ?? DEFAULT_CONTEXT_WINDOW,
-    defaultMaxTokens: positiveInteger(defaultMaxTokens) ?? DEFAULT_MAX_TOKENS,
+    ...(contextWindow === undefined
+      ? {}
+      : { defaultContextWindow: contextWindow }),
+    ...(maxTokens === undefined ? {} : { defaultMaxTokens: maxTokens }),
     defaultInput: ["text"],
     models,
     ...auth,
@@ -1097,9 +1108,9 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
             DEFAULT_LM_STUDIO_BASE_URL,
           ])
         : [explicitBaseURL];
-    const targetContext =
-      positiveInteger(this.config.defaultContextWindow) ??
-      DEFAULT_CONTEXT_WINDOW;
+    const contextOverride = positiveInteger(
+      this.config.defaultContextWindow,
+    );
     const probe = async (
       status: LmStudioStatus | undefined,
     ): Promise<{ baseURL: string; models: ModelProfile[] } | undefined> => {
@@ -1110,7 +1121,7 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
             host,
             baseURL,
             nonEmptyText(token),
-            targetContext,
+            contextOverride,
           ),
         })),
       );
@@ -1121,13 +1132,16 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
       canReloadModels: boolean,
       dispose: () => Promise<void>,
     ): PreparedAdapter => {
-      const contextGate = new LmStudioContextGate(
-        host,
-        new URL(selected.baseURL).origin,
-        nonEmptyText(token),
-        targetContext,
-        canReloadModels,
-      );
+      const contextGate =
+        contextOverride === undefined
+          ? undefined
+          : new LmStudioContextGate(
+              host,
+              new URL(selected.baseURL).origin,
+              nonEmptyText(token),
+              contextOverride,
+              canReloadModels,
+            );
       return {
         provider: providerProfile(
           "LM Studio",
@@ -1137,8 +1151,12 @@ class LmStudioAdapter implements ModelRuntimeAdapter {
           this.config.defaultMaxTokens,
           auth,
         ),
-        prepareRequest: async ({ model, signal }) =>
-          await contextGate.prepare(model, signal),
+        ...(contextGate === undefined
+          ? {}
+          : {
+              prepareRequest: async ({ model, signal }) =>
+                await contextGate.prepare(model, signal),
+            }),
         dispose,
       };
     };

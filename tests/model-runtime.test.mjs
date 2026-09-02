@@ -154,8 +154,6 @@ test("LM Studio adapter enriches the authoritative OpenAI model catalog", async 
       apiKeyEnv: "LM_API_TOKEN",
       api: "openai-completions",
       baseURL: "http://localhost:1234/v1",
-      defaultContextWindow: 32768,
-      defaultMaxTokens: 8192,
       defaultInput: ["text"],
       models: [
         {
@@ -188,7 +186,7 @@ test("LM Studio adapter enriches the authoritative OpenAI model catalog", async 
   await prepared.dispose();
 });
 
-test("LM Studio loads an explicitly requested external model when it is not loaded", async () => {
+test("LM Studio leaves service loading policy untouched without a context override", async () => {
   const model = "google/gemma-4-26b-a4b";
   const visionModel = "vision/unloaded";
   const embeddingModel = "nomic/embed-text";
@@ -298,6 +296,12 @@ test("LM Studio loads an explicitly requested external model when it is not load
     ).input,
     ["text", "image"],
   );
+  assert.equal(
+    prepared.providers["lm-studio"].models.find(
+      ({ id }) => id === model,
+    ).contextWindow,
+    131_072,
+  );
 
   await Promise.all([
     prepared.prepareRequest({
@@ -310,21 +314,9 @@ test("LM Studio loads an explicitly requested external model when it is not load
     }),
   ]);
 
-  assert.equal(loadedContext, 32_768);
-  assert.ok(
-    nativeListings >= 3,
-    "discovery, preparation, and post-load verification must use the native state",
-  );
-  assert.deepEqual(mutations, [
-    {
-      operation: "load",
-      body: {
-        model,
-        context_length: 32_768,
-        echo_load_config: true,
-      },
-    },
-  ]);
+  assert.equal(loadedContext, 0);
+  assert.equal(nativeListings, 1);
+  assert.deepEqual(mutations, []);
   await prepared.dispose();
 });
 
@@ -400,6 +392,7 @@ for (
           enabled: true,
           lifecycle: "external",
           baseURL: "http://localhost:1234/v1",
+          defaultContextWindow: 32_768,
         },
       },
       host,
@@ -424,7 +417,7 @@ for (
   });
 }
 
-test("LM Studio rejects an undersized external model before the first request", async () => {
+test("LM Studio follows the context of an externally loaded model", async () => {
   const model = "qwen/qwen3.8-27b";
   const initialPromptTokens = 7_903;
   let loadedContext = 4_608;
@@ -508,31 +501,17 @@ test("LM Studio rejects an undersized external model before the first request", 
   );
   assert.equal(
     prepared.providers["lm-studio"].models[0].contextWindow,
-    32_768,
+    4_608,
   );
 
-  await assert.rejects(
-    prepared.prepareRequest({
-      provider: "lm-studio",
-      model,
-    }),
-    (error) => {
-      assert.equal(error.code, "LM_STUDIO_CONTEXT_TOO_SMALL");
-      assert.match(error.message, /4608/u);
-      assert.match(error.message, /32768/u);
-      assert.match(error.message, /unload and reload/u);
-      return true;
-    },
-  );
-  assert.equal(loadedContext, 4_608);
-  assert.ok(initialPromptTokens >= loadedContext);
-  assert.deepEqual(mutations, []);
-
-  loadedContext = 32_768;
   await prepared.prepareRequest({
     provider: "lm-studio",
     model,
   });
+  assert.equal(loadedContext, 4_608);
+  assert.ok(initialPromptTokens >= loadedContext);
+  assert.deepEqual(mutations, []);
+
   await prepared.dispose();
 });
 
@@ -618,6 +597,7 @@ test("LM Studio expands an undersized model only when Minke started the service"
       lmStudio: {
         enabled: true,
         lifecycle: "ensure-running",
+        defaultContextWindow: 32_768,
       },
     },
     host,
@@ -735,6 +715,7 @@ test("LM Studio restores an owned model when context expansion fails", async () 
       lmStudio: {
         enabled: true,
         lifecycle: "ensure-running",
+        defaultContextWindow: 32_768,
       },
     },
     host,
@@ -2018,8 +1999,6 @@ test("generic OpenAI-compatible adapters discover configured loopback services",
     displayName: "Local OpenAI",
     api: "openai-completions",
     baseURL: "http://localhost:11434/v1",
-    defaultContextWindow: 32768,
-    defaultMaxTokens: 8192,
     defaultInput: ["text"],
     models: [
       {
