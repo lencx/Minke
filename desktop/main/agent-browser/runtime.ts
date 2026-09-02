@@ -43,6 +43,7 @@ import {
 import {
   AGENT_BROWSER_HISTORY_CLEAR_CHANNEL,
   AGENT_BROWSER_HISTORY_READ_CHANNEL,
+  normalizeAgentBrowserHistoryFaviconUrl,
   parseAgentBrowserHistoryClearRequest,
   parseAgentBrowserHistoryReadRequest,
   type AgentBrowserHistorySnapshot,
@@ -162,6 +163,7 @@ interface AgentBrowserSessionState {
     readonly actor: AgentBrowserOwner;
     readonly navigationKind: AgentBrowserNavigationKind;
   };
+  historyVisitId?: number;
 }
 
 interface WindowProjectionBinding {
@@ -402,15 +404,35 @@ export class AgentBrowserRuntime {
     sourceId: string,
     url: string,
     navigationKind: AgentBrowserNavigationKind,
-  ): void {
-    if (this.#disposed) return;
-    this.#writeHistoryVisit({
+  ): number | undefined {
+    if (this.#disposed) return undefined;
+    return this.#writeHistoryVisit({
       sessionId: sourceId,
       url,
       actor: "human",
       navigationKind,
       visitedAt: Date.now(),
     });
+  }
+
+  /** Attach trusted WebContents title metadata to one committed visit. */
+  updateVisitTitle(visitId: number, title: string): void {
+    if (this.#disposed) return;
+    this.#writeHistoryVisitTitle(visitId, title);
+  }
+
+  /** Attach a trusted WebContents favicon to one committed visit. */
+  updateVisitFavicon(
+    visitId: number,
+    pageUrl: string,
+    faviconUrl: string,
+  ): void {
+    if (this.#disposed) return;
+    this.#writeHistoryVisitFavicon(
+      visitId,
+      pageUrl,
+      faviconUrl,
+    );
   }
 
   bindChild(
@@ -2068,8 +2090,42 @@ export class AgentBrowserRuntime {
     ): void => {
       const bounded = title.slice(0, 160);
       if (bounded === "") delete state.title;
-      else state.title = bounded;
+      else {
+        state.title = bounded;
+        const visitId = state.historyVisitId;
+        if (visitId !== undefined) {
+          this.#writeHistoryVisitTitle(visitId, bounded);
+        }
+      }
       this.#publish();
+    };
+    const handleFavicon = (
+      _event: ElectronEvent,
+      favicons: string[],
+    ): void => {
+      const visitId = state.historyVisitId;
+      const pageUrl = state.url;
+      if (visitId === undefined || pageUrl === undefined) return;
+      let currentUrl: string;
+      try {
+        currentUrl = normalizeAgentBrowserUrl(guest.getURL());
+      } catch {
+        return;
+      }
+      if (currentUrl !== pageUrl) return;
+      const faviconUrl = favicons
+        .map((candidate) =>
+          normalizeAgentBrowserHistoryFaviconUrl(
+            candidate,
+            pageUrl,
+          ))
+        .find((candidate) => candidate !== undefined);
+      if (faviconUrl === undefined) return;
+      this.#writeHistoryVisitFavicon(
+        visitId,
+        pageUrl,
+        faviconUrl,
+      );
     };
     const handleDidStartNavigation = (
       details: ElectronEvent<
@@ -2148,6 +2204,7 @@ export class AgentBrowserRuntime {
     guest.on("did-navigate", handleDidNavigate);
     guest.on("did-navigate-in-page", handleDidNavigateInPage);
     guest.on("page-title-updated", handleTitle);
+    guest.on("page-favicon-updated", handleFavicon);
     guest.on("did-start-loading", handleStartLoading);
     guest.on("did-stop-loading", handleStopLoading);
     guest.on("did-fail-load", handleFailLoad);
@@ -2162,6 +2219,7 @@ export class AgentBrowserRuntime {
       guest.off("did-navigate", handleDidNavigate);
       guest.off("did-navigate-in-page", handleDidNavigateInPage);
       guest.off("page-title-updated", handleTitle);
+      guest.off("page-favicon-updated", handleFavicon);
       guest.off("did-start-loading", handleStartLoading);
       guest.off("did-stop-loading", handleStopLoading);
       guest.off("did-fail-load", handleFailLoad);
@@ -2313,9 +2371,13 @@ export class AgentBrowserRuntime {
       pending?.navigationKind === navigationKind
         ? pending.actor
         : state.owner;
-    this.#writeHistoryVisit({
+    state.historyVisitId = this.#writeHistoryVisit({
       sessionId: state.sessionId,
       url,
+      ...(navigationKind === "same-document" &&
+          state.title !== undefined
+        ? { title: state.title }
+        : {}),
       actor: visitActor,
       navigationKind,
       visitedAt: Date.now(),
@@ -2324,16 +2386,55 @@ export class AgentBrowserRuntime {
 
   #writeHistoryVisit(
     visit: Parameters<AgentBrowserHistoryPort["recordVisit"]>[0],
-  ): void {
+  ): number | undefined {
     const history = this.#history;
-    if (history === undefined) return;
+    if (history === undefined) return undefined;
     try {
-      history.recordVisit(visit);
+      return history.recordVisit(visit);
     } catch (error) {
       if (this.#historyWriteFailureReported) return;
       this.#historyWriteFailureReported = true;
       console.warn(
         "Minke could not record browsing history:",
+        error instanceof Error ? error.message : String(error),
+      );
+      return undefined;
+    }
+  }
+
+  #writeHistoryVisitTitle(visitId: number, title: string): void {
+    const history = this.#history;
+    if (history === undefined) return;
+    try {
+      history.updateVisitTitle(visitId, title);
+    } catch (error) {
+      if (this.#historyWriteFailureReported) return;
+      this.#historyWriteFailureReported = true;
+      console.warn(
+        "Minke could not update browsing history title:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  #writeHistoryVisitFavicon(
+    visitId: number,
+    pageUrl: string,
+    faviconUrl: string,
+  ): void {
+    const history = this.#history;
+    if (history === undefined) return;
+    try {
+      history.updateVisitFavicon(
+        visitId,
+        pageUrl,
+        faviconUrl,
+      );
+    } catch (error) {
+      if (this.#historyWriteFailureReported) return;
+      this.#historyWriteFailureReported = true;
+      console.warn(
+        "Minke could not update browsing history favicon:",
         error instanceof Error ? error.message : String(error),
       );
     }

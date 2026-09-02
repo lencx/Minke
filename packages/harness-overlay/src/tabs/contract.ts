@@ -122,3 +122,31 @@ export function normalizeWebTabUrl(
     return undefined;
   }
 }
+
+const MAX_WEB_FAVICON_URL_LENGTH = 8_192;
+
+/**
+ * Accept only bounded browser-resource URLs for a page favicon.
+ *
+ * Favicons may legitimately be served from a CDN rather than the page's
+ * origin, so both URLs are validated independently instead of requiring an
+ * origin match.
+ */
+export function normalizeWebFaviconUrl(
+  candidate: string,
+  pageUrl: string,
+): string | undefined {
+  if (candidate.length > MAX_WEB_FAVICON_URL_LENGTH) {
+    return undefined;
+  }
+  const faviconUrl = normalizeWebTabUrl(candidate);
+  const normalizedPageUrl = normalizeWebTabUrl(pageUrl);
+  if (
+    faviconUrl === undefined ||
+    normalizedPageUrl === undefined ||
+    faviconUrl.length > MAX_WEB_FAVICON_URL_LENGTH
+  ) {
+    return undefined;
+  }
+  return faviconUrl;
+}

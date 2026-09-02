@@ -4,8 +4,9 @@ import type {
 import {
   normalizeWebTabUrl,
 } from "@minke/harness-overlay/tabs/contract.ts";
-import type {
-  AgentBrowserNavigationKind,
+import {
+  normalizeAgentBrowserHistoryFaviconUrl,
+  type AgentBrowserNavigationKind,
 } from "@minke/harness-overlay/agent-browser-history-contract.ts";
 
 export interface BrowserHistoryNavigationRecorder {
@@ -13,6 +14,12 @@ export interface BrowserHistoryNavigationRecorder {
     sourceId: string,
     url: string,
     navigationKind: AgentBrowserNavigationKind,
+  ): number | undefined;
+  updateVisitTitle(visitId: number, title: string): void;
+  updateVisitFavicon(
+    visitId: number,
+    pageUrl: string,
+    faviconUrl: string,
   ): void;
 }
 
@@ -27,17 +34,38 @@ export function bindWebTabHistory(
   history: BrowserHistoryNavigationRecorder,
 ): () => void {
   const sourceId = `web:${String(guest.id)}`;
+  let activeVisitId: number | undefined;
+  let activeVisitUrl: string | undefined;
+  const updateTitle = (title: string): void => {
+    if (activeVisitId === undefined || title.trim() === "") return;
+    history.updateVisitTitle(activeVisitId, title);
+  };
   const record = (
     candidate: string,
     navigationKind: AgentBrowserNavigationKind,
   ): void => {
     const url = normalizeWebTabUrl(candidate);
-    if (url === undefined) return;
-    history.recordHumanNavigation(
+    if (url === undefined) {
+      activeVisitId = undefined;
+      activeVisitUrl = undefined;
+      return;
+    }
+    activeVisitId = history.recordHumanNavigation(
       sourceId,
       url,
       navigationKind,
     );
+    activeVisitUrl =
+      activeVisitId === undefined ? undefined : url;
+    if (
+      activeVisitId === undefined ||
+      navigationKind !== "same-document"
+    ) return;
+    try {
+      updateTitle(guest.getTitle());
+    } catch {
+      // The committed visit remains valid if the guest detaches mid-read.
+    }
   };
   const handleDidNavigate = (
     _event: Electron.Event,
@@ -52,9 +80,41 @@ export function bindWebTabHistory(
   ): void => {
     if (isMainFrame) record(url, "same-document");
   };
+  const handleTitle = (
+    _event: Electron.Event,
+    title: string,
+  ): void => {
+    updateTitle(title);
+  };
+  const handleFavicon = (
+    _event: Electron.Event,
+    favicons: string[],
+  ): void => {
+    const visitId = activeVisitId;
+    const pageUrl = activeVisitUrl;
+    if (visitId === undefined || pageUrl === undefined) return;
+    let currentUrl: string | undefined;
+    try {
+      currentUrl = normalizeWebTabUrl(guest.getURL());
+    } catch {
+      return;
+    }
+    if (currentUrl !== pageUrl) return;
+    const faviconUrl = favicons
+      .map((candidate) =>
+        normalizeAgentBrowserHistoryFaviconUrl(
+          candidate,
+          pageUrl,
+        ))
+      .find((candidate) => candidate !== undefined);
+    if (faviconUrl === undefined) return;
+    history.updateVisitFavicon(visitId, pageUrl, faviconUrl);
+  };
 
   guest.on("did-navigate", handleDidNavigate);
   guest.on("did-navigate-in-page", handleDidNavigateInPage);
+  guest.on("page-title-updated", handleTitle);
+  guest.on("page-favicon-updated", handleFavicon);
 
   let disposed = false;
   return () => {
@@ -65,5 +125,7 @@ export function bindWebTabHistory(
       "did-navigate-in-page",
       handleDidNavigateInPage,
     );
+    guest.removeListener("page-title-updated", handleTitle);
+    guest.removeListener("page-favicon-updated", handleFavicon);
   };
 }

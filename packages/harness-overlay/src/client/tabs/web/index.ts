@@ -7,6 +7,8 @@ export {
 export {
   recentWebHistorySuggestions,
   webHistoryDisplayAddress,
+  webHistoryMatchesQuery,
+  webHistoryPrimaryLabel,
   WEB_HISTORY_SUGGESTION_LIMIT,
 } from "./history-suggestions.ts";
 export {

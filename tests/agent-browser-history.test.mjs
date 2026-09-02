@@ -1,14 +1,110 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   SqliteAgentBrowserHistory,
   agentBrowserHistoryFilePath,
 } from "@minke/desktop/main/agent-browser/index.ts";
 
-test("Agent Browser history persists visits and aggregates identical paths", async (t) => {
+async function createVersionOneHistoryDatabase(path) {
+  await mkdir(dirname(path), { recursive: true });
+  const database = new DatabaseSync(path);
+  try {
+    database.exec(`
+      CREATE TABLE visits (
+        visit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        url TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        pathname TEXT NOT NULL,
+        path_key TEXT NOT NULL,
+        actor TEXT NOT NULL CHECK (actor IN ('agent', 'human')),
+        navigation_kind TEXT NOT NULL CHECK (
+          navigation_kind IN ('document', 'same-document')
+        ),
+        visited_at INTEGER NOT NULL CHECK (visited_at >= 0)
+      ) STRICT;
+      CREATE TABLE path_stats (
+        path_key TEXT PRIMARY KEY,
+        origin TEXT NOT NULL,
+        pathname TEXT NOT NULL,
+        visit_count INTEGER NOT NULL CHECK (visit_count > 0),
+        agent_visit_count INTEGER NOT NULL
+          CHECK (agent_visit_count >= 0),
+        human_visit_count INTEGER NOT NULL
+          CHECK (human_visit_count >= 0),
+        first_visited_at INTEGER NOT NULL CHECK (first_visited_at >= 0),
+        last_visited_at INTEGER NOT NULL CHECK (last_visited_at >= 0),
+        last_url TEXT NOT NULL,
+        CHECK (
+          agent_visit_count + human_visit_count = visit_count
+        )
+      ) STRICT;
+      INSERT INTO visits (
+        session_id,
+        url,
+        origin,
+        pathname,
+        path_key,
+        actor,
+        navigation_kind,
+        visited_at
+      ) VALUES (
+        'web:legacy',
+        'https://www.google.com/search?q=legacy+query',
+        'https://www.google.com',
+        '/search',
+        'https://www.google.com/search',
+        'human',
+        'document',
+        1000
+      );
+      INSERT INTO path_stats (
+        path_key,
+        origin,
+        pathname,
+        visit_count,
+        agent_visit_count,
+        human_visit_count,
+        first_visited_at,
+        last_visited_at,
+        last_url
+      ) VALUES (
+        'https://www.google.com/search',
+        'https://www.google.com',
+        '/search',
+        1,
+        0,
+        1,
+        1000,
+        1000,
+        'https://www.google.com/search?q=legacy+query'
+      );
+      PRAGMA user_version = 1;
+    `);
+  } finally {
+    database.close();
+  }
+}
+
+async function createVersionTwoHistoryDatabase(path) {
+  await createVersionOneHistoryDatabase(path);
+  const database = new DatabaseSync(path);
+  try {
+    database.exec(`
+      ALTER TABLE visits ADD COLUMN title TEXT;
+      UPDATE visits SET title = 'Legacy v2 search';
+      PRAGMA user_version = 2;
+    `);
+  } finally {
+    database.close();
+  }
+}
+
+test("Agent Browser history persists visits, aggregates paths, and keeps ids monotonic", async (t) => {
   const directory = await mkdtemp(
     join(tmpdir(), "minke-agent-browser-history-"),
   );
@@ -128,7 +224,7 @@ test("Agent Browser history persists visits and aggregates identical paths", asy
   });
   assert.equal(
     reopened.read({ limit: 20 }).visits[0].visitId,
-    1,
+    4,
   );
   reopened.close();
 });
@@ -138,6 +234,86 @@ test("Agent Browser history path stays inside the desktop user-data root", () =>
     agentBrowserHistoryFilePath("/tmp/minke-user-data"),
     "/tmp/minke-user-data/agent-browser/history.sqlite",
   );
+});
+
+test("Agent Browser history stores page titles and derives Minke search queries", async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "minke-agent-browser-history-title-"),
+  );
+  t.after(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+  const history = new SqliteAgentBrowserHistory({
+    path: agentBrowserHistoryFilePath(directory),
+  });
+
+  const visitId = history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "web:42",
+    title: "hello world - Google Search",
+    url: "https://www.google.com/search?q=hello+world&source=minke",
+    visitedAt: 5_000,
+  });
+  assert.equal(visitId, 1);
+  history.updateVisitTitle(visitId, "Updated search title");
+
+  assert.deepEqual(
+    history.read({ limit: 10 }).visits.map(
+      ({ searchQuery, title, url }) => ({
+        searchQuery,
+        title,
+        url,
+      }),
+    ),
+    [{
+      searchQuery: "hello world",
+      title: "Updated search title",
+      url: "https://www.google.com/search?q=hello+world&source=minke",
+    }],
+  );
+  history.close();
+});
+
+test("Agent Browser history migrates v1 databases without losing visits", async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "minke-agent-browser-history-v1-"),
+  );
+  t.after(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+  const path = agentBrowserHistoryFilePath(directory);
+  await createVersionOneHistoryDatabase(path);
+
+  const history = new SqliteAgentBrowserHistory({ path });
+  assert.deepEqual(history.read({ limit: 10 }).visits, [{
+    visitId: 1,
+    visitedAt: 1_000,
+    actor: "human",
+    navigationKind: "document",
+    url: "https://www.google.com/search?q=legacy+query",
+    searchQuery: "legacy query",
+    origin: "https://www.google.com",
+    pathname: "/search",
+    pathKey: "https://www.google.com/search",
+    pathVisitCount: 1,
+    pathAgentVisits: 0,
+    pathHumanVisits: 1,
+  }]);
+  const visitId = history.recordVisit({
+    actor: "agent",
+    navigationKind: "document",
+    sessionId: "agent-after-migration",
+    title: "Fresh title",
+    url: "https://example.com/fresh",
+    visitedAt: 2_000,
+  });
+  assert.equal(visitId, 2);
+  history.close();
+
+  const reopened = new SqliteAgentBrowserHistory({ path });
+  assert.equal(reopened.read({ limit: 10 }).visits[0].title, "Fresh title");
+  reopened.close();
 });
 
 test("Agent Browser history prunes only the event timeline", async (t) => {
@@ -178,5 +354,277 @@ test("Agent Browser history prunes only the event timeline", async (t) => {
     ],
   );
   history.close();
+  history.close();
+});
+
+test("Agent Browser history migrates v2 databases and backfills searchable queries", async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "minke-agent-browser-history-v2-"),
+  );
+  t.after(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+  const path = agentBrowserHistoryFilePath(directory);
+  await createVersionTwoHistoryDatabase(path);
+
+  const history = new SqliteAgentBrowserHistory({ path });
+  assert.equal(
+    history.read({
+      limit: 10,
+      query: "legacy query",
+    }).visits[0]?.title,
+    "Legacy v2 search",
+  );
+  history.close();
+
+  const database = new DatabaseSync(path, { readOnly: true });
+  try {
+    assert.equal(
+      database.prepare("PRAGMA user_version").get().user_version,
+      3,
+    );
+    assert.equal(
+      database.prepare(`
+        SELECT search_query
+        FROM visits
+        WHERE visit_id = 1
+      `).get().search_query,
+      "legacy query",
+    );
+    assert.deepEqual(
+      database.prepare(`
+        SELECT origin, favicon_url
+        FROM site_icons
+      `).all(),
+      [],
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("Agent Browser history paginates with a stable timestamp and visit-id cursor", async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "minke-agent-browser-history-pages-"),
+  );
+  t.after(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+  const history = new SqliteAgentBrowserHistory({
+    path: agentBrowserHistoryFilePath(directory),
+  });
+  for (let index = 1; index <= 205; index += 1) {
+    history.recordVisit({
+      actor: index % 2 === 0 ? "human" : "agent",
+      navigationKind: "document",
+      sessionId: "history-pages",
+      title: `History entry ${String(index)}`,
+      url: `https://example.com/items/${String(index)}`,
+      visitedAt: 10_000,
+    });
+  }
+
+  const first = history.read({ limit: 100 });
+  assert.equal(first.visits.length, 100);
+  assert.deepEqual(first.nextCursor, {
+    visitId: 106,
+    visitedAt: 10_000,
+  });
+
+  const insertedAfterFirstPage = history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "history-pages",
+    url: "https://example.com/new-after-page-one",
+    visitedAt: 10_000,
+  });
+  assert.equal(insertedAfterFirstPage, 206);
+
+  const second = history.read({
+    before: first.nextCursor,
+    limit: 100,
+  });
+  const third = history.read({
+    before: second.nextCursor,
+    limit: 100,
+  });
+  assert.deepEqual(
+    [
+      ...first.visits,
+      ...second.visits,
+      ...third.visits,
+    ].map((visit) => visit.visitId),
+    Array.from(
+      { length: 205 },
+      (_value, index) => 205 - index,
+    ),
+  );
+  assert.equal(second.visits.length, 100);
+  assert.equal(third.visits.length, 5);
+  assert.equal(third.nextCursor, undefined);
+
+  const humanFirst = history.read({
+    actor: "human",
+    limit: 40,
+  });
+  const humanSecond = history.read({
+    actor: "human",
+    before: humanFirst.nextCursor,
+    limit: 40,
+  });
+  assert.equal(
+    [...humanFirst.visits, ...humanSecond.visits]
+      .every((visit) => visit.actor === "human"),
+    true,
+  );
+  assert.equal(humanSecond.visits.length, 40);
+  history.close();
+});
+
+test("Agent Browser history filters before paging and treats LIKE metacharacters literally", async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "minke-agent-browser-history-search-"),
+  );
+  t.after(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+  const history = new SqliteAgentBrowserHistory({
+    path: agentBrowserHistoryFilePath(directory),
+  });
+  history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "history-search",
+    title: "Ordinary result",
+    url: "https://example.com/ordinary",
+    visitedAt: 1_000,
+  });
+  history.recordVisit({
+    actor: "agent",
+    navigationKind: "document",
+    sessionId: "history-search",
+    title: "Release 100%_ready",
+    url: "https://example.com/release",
+    visitedAt: 2_000,
+  });
+  history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "history-search",
+    title: "Search result",
+    url: "https://www.google.com/search?q=hello+world",
+    visitedAt: 3_000,
+  });
+
+  assert.deepEqual(
+    history.read({
+      limit: 1,
+      query: "hello world",
+    }).visits.map((visit) => visit.searchQuery),
+    ["hello world"],
+  );
+  assert.deepEqual(
+    history.read({
+      actor: "agent",
+      limit: 1,
+      query: "100%_ready",
+    }).visits.map((visit) => visit.title),
+    ["Release 100%_ready"],
+  );
+  assert.equal(
+    history.read({
+      actor: "human",
+      limit: 10,
+      query: "100%_ready",
+    }).visits.length,
+    0,
+  );
+  history.close();
+});
+
+test("Agent Browser history caches safe favicons per origin and clears them with visits", async (t) => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "minke-agent-browser-history-icons-"),
+  );
+  t.after(async () => {
+    await rm(directory, { force: true, recursive: true });
+  });
+  const history = new SqliteAgentBrowserHistory({
+    path: agentBrowserHistoryFilePath(directory),
+  });
+  const firstVisit = history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "history-icons",
+    url: "https://example.com/first",
+    visitedAt: 1_000,
+  });
+  history.recordVisit({
+    actor: "agent",
+    navigationKind: "document",
+    sessionId: "history-icons",
+    url: "https://example.com/second",
+    visitedAt: 2_000,
+  });
+  history.updateVisitFavicon(
+    firstVisit,
+    "https://example.com/first",
+    "https://example.com/example-icon.png",
+  );
+  assert.deepEqual(
+    history.read({ limit: 10 }).visits.map(
+      (visit) => visit.faviconUrl,
+    ),
+    [
+      "https://example.com/example-icon.png",
+      "https://example.com/example-icon.png",
+    ],
+  );
+
+  history.updateVisitFavicon(
+    firstVisit,
+    "https://wrong.example/first",
+    "https://wrong.example/icon.png",
+  );
+  assert.equal(
+    history.read({ limit: 1 }).visits[0]?.faviconUrl,
+    "https://example.com/example-icon.png",
+  );
+  history.updateVisitFavicon(
+    firstVisit,
+    "https://example.com/first",
+    "https://cdn.example.net/cross-origin.png",
+  );
+  assert.equal(
+    history.read({ limit: 1 }).visits[0]?.faviconUrl,
+    "https://example.com/example-icon.png",
+  );
+  history.updateVisitFavicon(
+    firstVisit,
+    "https://example.com/first",
+    "data:image/png;base64,unsafe",
+  );
+  assert.equal(
+    history.read({ limit: 1 }).visits[0]?.faviconUrl,
+    "https://example.com/example-icon.png",
+  );
+
+  history.clear();
+  history.updateVisitFavicon(
+    firstVisit,
+    "https://example.com/first",
+    "https://example.com/stale.png",
+  );
+  history.recordVisit({
+    actor: "human",
+    navigationKind: "document",
+    sessionId: "history-icons",
+    url: "https://example.com/after-clear",
+    visitedAt: 3_000,
+  });
+  assert.equal(
+    history.read({ limit: 1 }).visits[0]?.faviconUrl,
+    undefined,
+  );
   history.close();
 });

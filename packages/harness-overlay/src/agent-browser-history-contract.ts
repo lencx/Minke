@@ -2,22 +2,37 @@ import {
   normalizeAgentBrowserUrl,
   type AgentBrowserOwner,
 } from "./agent-browser-contract.ts";
+import {
+  normalizeWebFaviconUrl,
+} from "./tabs/contract.ts";
 
 export const AGENT_BROWSER_HISTORY_READ_CHANNEL =
   "minke:agent-browser:history:read";
 export const AGENT_BROWSER_HISTORY_CLEAR_CHANNEL =
   "minke:agent-browser:history:clear";
 
+export const AGENT_BROWSER_HISTORY_DEFAULT_LIMIT = 100;
 export const AGENT_BROWSER_HISTORY_LIMIT = 200;
 const MAX_JAVASCRIPT_DATE = 8_640_000_000_000_000;
+const MAX_HISTORY_TITLE_LENGTH = 160;
+const MAX_HISTORY_SEARCH_QUERY_LENGTH = 2_048;
+const MAX_HISTORY_FILTER_QUERY_LENGTH = 512;
+const MAX_HISTORY_FAVICON_URL_LENGTH = 8_192;
 
 export type AgentBrowserNavigationKind =
   | "document"
   | "same-document";
 
+export interface AgentBrowserHistoryCursor {
+  readonly visitedAt: number;
+  readonly visitId: number;
+}
+
 export interface AgentBrowserHistoryReadRequest {
   readonly limit: number;
   readonly actor?: AgentBrowserOwner;
+  readonly query?: string;
+  readonly before?: AgentBrowserHistoryCursor;
 }
 
 export interface AgentBrowserHistoryClearRequest {
@@ -30,6 +45,9 @@ export interface AgentBrowserHistoryVisit {
   readonly actor: AgentBrowserOwner;
   readonly navigationKind: AgentBrowserNavigationKind;
   readonly url: string;
+  readonly title?: string;
+  readonly searchQuery?: string;
+  readonly faviconUrl?: string;
   readonly origin: string;
   readonly pathname: string;
   readonly pathKey: string;
@@ -45,6 +63,28 @@ export interface AgentBrowserHistorySnapshot {
   readonly agentVisits: number;
   readonly humanVisits: number;
   readonly visits: readonly AgentBrowserHistoryVisit[];
+  readonly nextCursor?: AgentBrowserHistoryCursor;
+}
+
+/**
+ * Persist only same-origin favicon URLs. The live Web Tab may display a CDN
+ * icon, but History must not replay an arbitrary cross-origin request later.
+ */
+export function normalizeAgentBrowserHistoryFaviconUrl(
+  candidate: string,
+  pageUrl: string,
+): string | undefined {
+  const faviconUrl = normalizeWebFaviconUrl(candidate, pageUrl);
+  if (faviconUrl === undefined) return undefined;
+  try {
+    const normalizedPageUrl = normalizeAgentBrowserUrl(pageUrl);
+    return new URL(faviconUrl).origin ===
+      new URL(normalizedPageUrl).origin
+      ? faviconUrl
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function record(
@@ -136,6 +176,40 @@ function parseNavigationKind(
   return value;
 }
 
+function parseHistoryCursor(
+  value: unknown,
+): AgentBrowserHistoryCursor {
+  const cursor = record(
+    value,
+    "Agent Browser history cursor",
+  );
+  if (!exactKeys(cursor, ["visitedAt", "visitId"])) {
+    throw new TypeError("invalid Agent Browser history cursor");
+  }
+  return {
+    visitedAt: nonNegativeInteger(
+      cursor.visitedAt,
+      "Agent Browser history cursor timestamp",
+      MAX_JAVASCRIPT_DATE,
+    ),
+    visitId: positiveInteger(
+      cursor.visitId,
+      "Agent Browser history cursor visit id",
+    ),
+  };
+}
+
+function filterQuery(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const query = boundedString(
+    value,
+    "Agent Browser history filter query",
+    MAX_HISTORY_FILTER_QUERY_LENGTH,
+    true,
+  ).replace(/\s+/gu, " ").trim();
+  return query === "" ? undefined : query;
+}
+
 export function parseAgentBrowserHistoryReadRequest(
   value: unknown,
 ): AgentBrowserHistoryReadRequest {
@@ -143,11 +217,18 @@ export function parseAgentBrowserHistoryReadRequest(
     value,
     "Agent Browser history read request",
   );
-  if (!exactKeys(request, ["limit"], ["actor"])) {
+  if (
+    !exactKeys(
+      request,
+      ["limit"],
+      ["actor", "before", "query"],
+    )
+  ) {
     throw new TypeError(
       "invalid Agent Browser history read request",
     );
   }
+  const query = filterQuery(request.query);
   return {
     limit: positiveInteger(
       request.limit,
@@ -157,6 +238,12 @@ export function parseAgentBrowserHistoryReadRequest(
     ...(request.actor === undefined
       ? {}
       : { actor: parseActor(request.actor) }),
+    ...(query === undefined
+      ? {}
+      : { query }),
+    ...(request.before === undefined
+      ? {}
+      : { before: parseHistoryCursor(request.before) }),
   };
 }
 
@@ -181,19 +268,23 @@ export function parseAgentBrowserHistoryClearRequest(
 function parseVisit(value: unknown): AgentBrowserHistoryVisit {
   const visit = record(value, "Agent Browser history visit");
   if (
-    !exactKeys(visit, [
-      "visitId",
-      "visitedAt",
-      "actor",
-      "navigationKind",
-      "url",
-      "origin",
-      "pathname",
-      "pathKey",
-      "pathVisitCount",
-      "pathAgentVisits",
-      "pathHumanVisits",
-    ])
+    !exactKeys(
+      visit,
+      [
+        "visitId",
+        "visitedAt",
+        "actor",
+        "navigationKind",
+        "url",
+        "origin",
+        "pathname",
+        "pathKey",
+        "pathVisitCount",
+        "pathAgentVisits",
+        "pathHumanVisits",
+      ],
+      ["title", "searchQuery", "faviconUrl"],
+    )
   ) {
     throw new TypeError("invalid Agent Browser history visit");
   }
@@ -240,6 +331,24 @@ function parseVisit(value: unknown): AgentBrowserHistoryVisit {
       "Agent Browser history path counts are inconsistent",
     );
   }
+  const faviconUrl = visit.faviconUrl === undefined
+    ? undefined
+    : normalizeAgentBrowserHistoryFaviconUrl(
+      boundedString(
+        visit.faviconUrl,
+        "Agent Browser history favicon URL",
+        MAX_HISTORY_FAVICON_URL_LENGTH,
+      ),
+      url,
+    );
+  if (
+    visit.faviconUrl !== undefined &&
+    faviconUrl === undefined
+  ) {
+    throw new TypeError(
+      "Agent Browser history favicon URL is invalid",
+    );
+  }
   return {
     visitId: positiveInteger(
       visit.visitId,
@@ -253,6 +362,25 @@ function parseVisit(value: unknown): AgentBrowserHistoryVisit {
     actor: parseActor(visit.actor),
     navigationKind: parseNavigationKind(visit.navigationKind),
     url,
+    ...(visit.title === undefined
+      ? {}
+      : {
+          title: boundedString(
+            visit.title,
+            "Agent Browser history title",
+            MAX_HISTORY_TITLE_LENGTH,
+          ),
+        }),
+    ...(visit.searchQuery === undefined
+      ? {}
+      : {
+          searchQuery: boundedString(
+            visit.searchQuery,
+            "Agent Browser history search query",
+            MAX_HISTORY_SEARCH_QUERY_LENGTH,
+          ),
+        }),
+    ...(faviconUrl === undefined ? {} : { faviconUrl }),
     origin,
     pathname,
     pathKey,
@@ -270,14 +398,18 @@ export function parseAgentBrowserHistorySnapshot(
     "Agent Browser history snapshot",
   );
   if (
-    !exactKeys(snapshot, [
-      "totalVisits",
-      "retainedVisits",
-      "uniquePaths",
-      "agentVisits",
-      "humanVisits",
-      "visits",
-    ]) ||
+    !exactKeys(
+      snapshot,
+      [
+        "totalVisits",
+        "retainedVisits",
+        "uniquePaths",
+        "agentVisits",
+        "humanVisits",
+        "visits",
+      ],
+      ["nextCursor"],
+    ) ||
     !Array.isArray(snapshot.visits) ||
     snapshot.visits.length > AGENT_BROWSER_HISTORY_LIMIT
   ) {
@@ -335,6 +467,22 @@ export function parseAgentBrowserHistorySnapshot(
       );
     }
   }
+  const nextCursor = snapshot.nextCursor === undefined
+    ? undefined
+    : parseHistoryCursor(snapshot.nextCursor);
+  const lastVisit = visits.at(-1);
+  if (
+    nextCursor !== undefined &&
+    (
+      lastVisit === undefined ||
+      nextCursor.visitedAt !== lastVisit.visitedAt ||
+      nextCursor.visitId !== lastVisit.visitId
+    )
+  ) {
+    throw new TypeError(
+      "Agent Browser history cursor must match the last visit",
+    );
+  }
   return {
     totalVisits,
     retainedVisits,
@@ -342,5 +490,6 @@ export function parseAgentBrowserHistorySnapshot(
     agentVisits,
     humanVisits,
     visits,
+    ...(nextCursor === undefined ? {} : { nextCursor }),
   };
 }

@@ -17,6 +17,7 @@ import {
   parseAgentBrowserProjections,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
 import {
+  AGENT_BROWSER_HISTORY_DEFAULT_LIMIT,
   AGENT_BROWSER_HISTORY_LIMIT,
   parseAgentBrowserHistoryClearRequest,
   parseAgentBrowserHistoryReadRequest,
@@ -24,12 +25,33 @@ import {
 } from "@minke/harness-overlay/agent-browser-history-contract.ts";
 
 test("Agent Browser browsing-footprint contracts are strict and consistent", () => {
+  assert.equal(AGENT_BROWSER_HISTORY_DEFAULT_LIMIT, 100);
   assert.deepEqual(
     parseAgentBrowserHistoryReadRequest({
       limit: 50,
       actor: "human",
+      before: {
+        visitId: 40,
+        visitedAt: 1_700,
+      },
+      query: "  release   notes  ",
     }),
-    { limit: 50, actor: "human" },
+    {
+      limit: 50,
+      actor: "human",
+      before: {
+        visitId: 40,
+        visitedAt: 1_700,
+      },
+      query: "release notes",
+    },
+  );
+  assert.deepEqual(
+    parseAgentBrowserHistoryReadRequest({
+      limit: 50,
+      query: "   ",
+    }),
+    { limit: 50 },
   );
   assert.deepEqual(
     parseAgentBrowserHistoryClearRequest({ confirm: true }),
@@ -41,6 +63,17 @@ test("Agent Browser browsing-footprint contracts are strict and consistent", () 
         limit: AGENT_BROWSER_HISTORY_LIMIT + 1,
       }),
     /limit/u,
+  );
+  assert.throws(
+    () =>
+      parseAgentBrowserHistoryReadRequest({
+        before: {
+          visitId: 0,
+          visitedAt: 1_700,
+        },
+        limit: 50,
+      }),
+    /cursor visit id/u,
   );
   assert.throws(
     () =>
@@ -63,6 +96,9 @@ test("Agent Browser browsing-footprint contracts are strict and consistent", () 
         actor: "agent",
         navigationKind: "same-document",
         url: "https://example.com/items/42?view=comments#fifth",
+        title: "Item 42 comments",
+        searchQuery: "item 42",
+        faviconUrl: "https://example.com/icons/site.png",
         origin: "https://example.com",
         pathname: "/items/42",
         pathKey: "https://example.com/items/42",
@@ -71,6 +107,10 @@ test("Agent Browser browsing-footprint contracts are strict and consistent", () 
         pathHumanVisits: 1,
       },
     ],
+    nextCursor: {
+      visitId: 3,
+      visitedAt: 1_800,
+    },
   };
   assert.deepEqual(
     parseAgentBrowserHistorySnapshot(snapshot),
@@ -101,6 +141,39 @@ test("Agent Browser browsing-footprint contracts are strict and consistent", () 
         ],
       }),
     /timestamp/u,
+  );
+  assert.throws(
+    () =>
+      parseAgentBrowserHistorySnapshot({
+        ...snapshot,
+        nextCursor: {
+          visitId: 2,
+          visitedAt: 1_800,
+        },
+      }),
+    /cursor must match/u,
+  );
+  assert.throws(
+    () =>
+      parseAgentBrowserHistorySnapshot({
+        ...snapshot,
+        visits: [{
+          ...snapshot.visits[0],
+          faviconUrl: "https://cdn.example.com/site.png",
+        }],
+      }),
+    /favicon URL/u,
+  );
+  assert.throws(
+    () =>
+      parseAgentBrowserHistorySnapshot({
+        ...snapshot,
+        visits: [{
+          ...snapshot.visits[0],
+          faviconUrl: "data:image/png;base64,unsafe",
+        }],
+      }),
+    /favicon URL/u,
   );
 });
 

@@ -3731,6 +3731,66 @@ test("committed visits retain the owner captured when navigation started", async
   assert.equal(closed, true);
 });
 
+test("committed Agent Browser visits receive titles by stable visit id", async () => {
+  const visits = [];
+  const titleUpdates = [];
+  const target = runtimeFixture({
+    history: {
+      recordVisit(visit) {
+        visits.push(visit);
+        return visits.length;
+      },
+      updateVisitTitle(visitId, title) {
+        titleUpdates.push({ title, visitId });
+      },
+      read() {
+        throw new Error("not used");
+      },
+      clear() {
+        throw new Error("not used");
+      },
+      close() {},
+    },
+  });
+  const opened = await openAgentBrowser(target);
+  const documentUrl = "https://example.com/docs";
+  opened.guest.emit("did-start-navigation", {
+    url: documentUrl,
+    isMainFrame: true,
+    isSameDocument: false,
+  });
+  opened.guest.emit("did-navigate", {}, documentUrl);
+  opened.guest.emit(
+    "page-title-updated",
+    {},
+    "Example documentation",
+  );
+
+  const sameDocumentUrl = `${documentUrl}#api`;
+  opened.guest.emit("did-start-navigation", {
+    url: sameDocumentUrl,
+    isMainFrame: true,
+    isSameDocument: true,
+  });
+  opened.guest.emit(
+    "did-navigate-in-page",
+    {},
+    sameDocumentUrl,
+    true,
+  );
+
+  assert.deepEqual(titleUpdates, [{
+    visitId: 1,
+    title: "Example documentation",
+  }]);
+  assert.equal(visits[0].title, undefined);
+  assert.equal(visits[1].title, "Example documentation");
+
+  await target.runtime.closeOwner("conversation-1");
+  target.binding.dispose();
+  target.runtime.dispose();
+});
+
 test("browsing-footprint IPC is authorized, validated, and clear-confirmed", async () => {
   const reads = [];
   let clearCalls = 0;

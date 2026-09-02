@@ -1,8 +1,9 @@
 import {
+  normalizeWebFaviconUrl,
   normalizeWebTabUrl,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
-  AGENT_BROWSER_HISTORY_LIMIT,
+  AGENT_BROWSER_HISTORY_DEFAULT_LIMIT,
   type AgentBrowserHistoryVisit,
 } from "@minke/harness-overlay/agent-browser-history-contract.ts";
 import {
@@ -48,20 +49,7 @@ const HOST_LIKE_ADDRESS =
   /^(?:localhost|\[[\da-f:.]+\]|(?:\d{1,3}\.){3}\d{1,3}|[^\s./?#:]+(?:\.[^\s./?#:]+)+)(?::\d{1,5})?(?:[/?#].*)?$/iu;
 const GOOGLE_SEARCH_URL = "https://www.google.com/search";
 
-export function normalizeWebFaviconUrl(
-  candidate: string,
-  pageUrl: string,
-): string | undefined {
-  const faviconUrl = normalizeWebTabUrl(candidate);
-  const normalizedPageUrl = normalizeWebTabUrl(pageUrl);
-  if (
-    faviconUrl === undefined ||
-    normalizedPageUrl === undefined
-  ) {
-    return undefined;
-  }
-  return faviconUrl;
-}
+export { normalizeWebFaviconUrl };
 
 function googleSearchUrl(query: string): string {
   const url = new URL(GOOGLE_SEARCH_URL);
@@ -350,7 +338,7 @@ export class WebTabsController {
     const history = this.#history;
     if (history === undefined) return [];
     const snapshot = await history.readHistory({
-      limit: AGENT_BROWSER_HISTORY_LIMIT,
+      limit: AGENT_BROWSER_HISTORY_DEFAULT_LIMIT,
     });
     return snapshot.visits;
   }

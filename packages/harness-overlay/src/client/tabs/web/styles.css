@@ -197,13 +197,24 @@
   outline-offset: -2px;
 }
 
+.minke-tabs-location-history__primary,
 .minke-tabs-location-history__address {
   overflow: hidden;
-  font-family: var(--ds-font-family-code);
   font-size: 11px;
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.minke-tabs-location-history__primary {
+  font-weight: 500;
+}
+
+.minke-tabs-location-history__address {
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--ds-font-family-code);
+  font-size: 10px;
+  line-height: 14px;
 }
 
 .minke-tabs-location-history__metadata {

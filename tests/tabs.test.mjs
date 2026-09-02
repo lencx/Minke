@@ -146,6 +146,8 @@ import {
 import {
   recentWebHistorySuggestions,
   webHistoryDisplayAddress,
+  webHistoryPrimaryLabel,
+  WEB_HISTORY_SUGGESTION_LIMIT,
 } from "@minke/harness-overlay/client/tabs/web/history-suggestions.ts";
 import {
   webTabsEn,
@@ -3084,6 +3086,14 @@ test("Web tab favicons accept safe site and CDN URLs", () => {
     ),
     undefined,
   );
+  assert.equal(
+    normalizeWebFaviconUrl(
+      `https://example.com/${"界".repeat(3_000)}`,
+      "https://example.com/",
+    ),
+    undefined,
+    "the normalized URL must remain inside the persisted bound",
+  );
 });
 
 test("webview attachment overwrites untrusted guest preferences", () => {
@@ -3255,6 +3265,10 @@ test("Web Tab history observes only committed main-frame web navigations", () =>
   const listeners = new Map();
   const guest = {
     id: 42,
+    title: "Example documentation",
+    getTitle() {
+      return this.title;
+    },
     on(name, listener) {
       listeners.set(name, listener);
     },
@@ -3263,9 +3277,14 @@ test("Web Tab history observes only committed main-frame web navigations", () =>
     },
   };
   const visits = [];
+  const titleUpdates = [];
   const dispose = bindWebTabHistory(guest, {
     recordHumanNavigation(...visit) {
       visits.push(visit);
+      return visits.length;
+    },
+    updateVisitTitle(visitId, title) {
+      titleUpdates.push({ title, visitId });
     },
   });
 
@@ -3273,6 +3292,11 @@ test("Web Tab history observes only committed main-frame web navigations", () =>
     {},
     "https://example.com/docs?mode=full",
   );
+  listeners.get("page-title-updated")(
+    {},
+    "Updated documentation",
+  );
+  guest.title = "Updated documentation";
   listeners.get("did-navigate-in-page")(
     {},
     "https://example.com/docs?mode=full#part",
@@ -3296,6 +3320,10 @@ test("Web Tab history observes only committed main-frame web navigations", () =>
       "https://example.com/docs?mode=full#part",
       "same-document",
     ],
+  ]);
+  assert.deepEqual(titleUpdates, [
+    { visitId: 1, title: "Updated documentation" },
+    { visitId: 2, title: "Updated documentation" },
   ]);
   dispose();
   assert.equal(listeners.size, 0);
@@ -3347,6 +3375,144 @@ test("Web history suggestions are recent, path-deduplicated, and searchable", ()
   assert.equal(
     webHistoryDisplayAddress("http://local.test/settings"),
     "http://local.test/settings",
+  );
+});
+
+test("Web history suggestions show the latest 100 entries by default", () => {
+  const visits = Array.from({ length: 110 }, (_, index) => ({
+    pathKey: `https://example.com/page-${String(index)}`,
+    url: `https://example.com/page-${String(index)}`,
+    origin: "https://example.com",
+    pathname: `/page-${String(index)}`,
+  }));
+
+  assert.equal(WEB_HISTORY_SUGGESTION_LIMIT, 100);
+  assert.equal(
+    recentWebHistorySuggestions(visits, "").length,
+    100,
+  );
+  assert.equal(
+    recentWebHistorySuggestions(visits, "").at(-1)?.pathname,
+    "/page-99",
+  );
+});
+
+test("Web history labels prefer search content, then title, then URL", () => {
+  assert.equal(
+    webHistoryPrimaryLabel({
+      searchQuery: "hello world",
+      title: "hello world - Google Search",
+      url: "https://www.google.com/search?q=hello+world",
+    }),
+    "hello world",
+  );
+  assert.equal(
+    webHistoryPrimaryLabel({
+      title: "Hacker News",
+      url: "https://news.ycombinator.com/",
+    }),
+    "Hacker News",
+  );
+  assert.equal(
+    webHistoryPrimaryLabel({
+      url: "https://example.com/docs?mode=latest",
+    }),
+    "example.com/docs?mode=latest",
+  );
+});
+
+test("Web history suggestions match search content and page titles", () => {
+  const visits = [
+    {
+      pathKey: "https://www.google.com/search",
+      url: "https://www.google.com/search?q=release+notes",
+      origin: "https://www.google.com",
+      pathname: "/search",
+      searchQuery: "release notes",
+      title: "Google Search",
+    },
+    {
+      pathKey: "https://example.com/docs",
+      url: "https://example.com/docs",
+      origin: "https://example.com",
+      pathname: "/docs",
+      title: "Agent orchestration handbook",
+    },
+  ];
+
+  assert.deepEqual(
+    recentWebHistorySuggestions(visits, "release notes").map(
+      (visit) => visit.url,
+    ),
+    ["https://www.google.com/search?q=release+notes"],
+  );
+  assert.deepEqual(
+    recentWebHistorySuggestions(visits, "orchestration handbook").map(
+      (visit) => visit.url,
+    ),
+    ["https://example.com/docs"],
+  );
+});
+
+test("Web history suggestions distinguish searches on the same path", () => {
+  const visits = [
+    {
+      pathKey: "https://www.google.com/search",
+      url: "https://www.google.com/search?q=hello",
+      origin: "https://www.google.com",
+      pathname: "/search",
+      searchQuery: "hello",
+    },
+    {
+      pathKey: "https://www.google.com/search",
+      url: "https://www.google.com/search?q=hello&source=older",
+      origin: "https://www.google.com",
+      pathname: "/search",
+      searchQuery: "hello",
+    },
+    {
+      pathKey: "https://www.google.com/search",
+      url: "https://www.google.com/search?q=release+notes",
+      origin: "https://www.google.com",
+      pathname: "/search",
+      searchQuery: "release notes",
+    },
+  ];
+
+  assert.deepEqual(
+    recentWebHistorySuggestions(visits, "").map(
+      (visit) => visit.url,
+    ),
+    [
+      "https://www.google.com/search?q=hello",
+      "https://www.google.com/search?q=release+notes",
+    ],
+  );
+});
+
+test("Web history search considers older titles before de-duplication", () => {
+  const visits = [
+    {
+      pathKey: "https://example.com/docs",
+      url: "https://example.com/docs?version=current",
+      origin: "https://example.com",
+      pathname: "/docs",
+      title: "Current documentation",
+    },
+    {
+      pathKey: "https://example.com/docs",
+      url: "https://example.com/docs?version=legacy",
+      origin: "https://example.com",
+      pathname: "/docs",
+      title: "Legacy orchestration handbook",
+    },
+  ];
+
+  assert.deepEqual(
+    recentWebHistorySuggestions(visits, "legacy handbook").map(
+      (visit) => visit.url,
+    ),
+    ["https://example.com/docs?version=legacy"],
   );
 });
 
@@ -3427,7 +3593,7 @@ test("Web controller reads the shared browsing footprint for the address bar", a
   );
 
   assert.equal(await web.readRecentHistory(), visits);
-  assert.deepEqual(requests, [{ limit: 200 }]);
+  assert.deepEqual(requests, [{ limit: 100 }]);
   web.dispose();
   tabs.dispose();
 });
@@ -3449,9 +3615,25 @@ test("Web address bar opens recent visits and supports keyboard selection", asyn
       pathHumanVisits: 2,
       pathKey: "https://example.com/docs",
       pathVisitCount: 3,
+      title: "Example documentation",
       url: "https://example.com/docs?latest=true",
       visitId: 3,
       visitedAt: 3_000,
+    },
+    {
+      actor: "agent",
+      navigationKind: "document",
+      origin: "https://www.google.com",
+      pathname: "/search",
+      pathAgentVisits: 4,
+      pathHumanVisits: 2,
+      pathKey: "https://www.google.com/search",
+      pathVisitCount: 6,
+      searchQuery: "release notes",
+      title: "release notes - Google Search",
+      url: "https://www.google.com/search?q=release+notes",
+      visitId: 2,
+      visitedAt: 2_500,
     },
     {
       actor: "agent",
@@ -3463,7 +3645,7 @@ test("Web address bar opens recent visits and supports keyboard selection", asyn
       pathKey: "https://example.com/docs",
       pathVisitCount: 3,
       url: "https://example.com/docs?old=true",
-      visitId: 2,
+      visitId: 4,
       visitedAt: 2_000,
     },
     {
@@ -3523,7 +3705,38 @@ test("Web address bar opens recent visits and supports keyboard selection", asyn
         assert.equal(
           dom.window.document.querySelectorAll('[role="option"]')
             .length,
-          2,
+          3,
+        );
+        const firstOption =
+          dom.window.document.querySelector('[role="option"]');
+        assert.equal(
+          firstOption?.querySelector(
+            ".minke-tabs-location-history__primary",
+          )?.textContent,
+          "Example documentation",
+        );
+        assert.equal(
+          firstOption?.querySelector(
+            ".minke-tabs-location-history__address",
+          )?.textContent,
+          "example.com/docs?latest=true",
+        );
+        const searchOption = [
+          ...dom.window.document.querySelectorAll(
+            '[role="option"]',
+          ),
+        ].find((option) =>
+          option.querySelector(
+            ".minke-tabs-location-history__primary",
+          )?.textContent === "release notes"
+        );
+        assert.ok(searchOption);
+        assert.doesNotMatch(
+          searchOption.querySelector(
+            ".minke-tabs-location-history__metadata",
+          )?.textContent ?? "",
+          /visits/u,
+          "a search result must not expose the aggregate count for the shared /search path",
         );
 
         await act(async () => {

@@ -27,6 +27,7 @@ import {
 import {
   recentWebHistorySuggestions,
   webHistoryDisplayAddress,
+  webHistoryPrimaryLabel,
 } from "./history-suggestions.ts";
 import type {
   WebTabsTranslate,
@@ -264,45 +265,63 @@ export function WebAddressBar({
                   : t("web.history.empty")}
               </div>
             )
-            : historySuggestions.map((visit, index) => (
-              <button
-                key={visit.pathKey}
-                id={`${historyListId}-option-${String(index)}`}
-                type="button"
-                className="minke-tabs-location-history__option"
-                role="option"
-                aria-selected={index === activeIndex}
-                title={visit.url}
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                }}
-                onPointerEnter={() => setActiveIndex(index)}
-                onClick={() => navigateTo(visit.url)}
-              >
-                <span className="minke-tabs-location-history__address">
-                  {webHistoryDisplayAddress(visit.url)}
-                </span>
-                <span className="minke-tabs-location-history__metadata">
-                  <span>
-                    {t(
-                      visit.actor === "agent"
-                        ? "web.history.actor.agent"
-                        : "web.history.actor.human",
+            : historySuggestions.map((visit, index) => {
+              const address = webHistoryDisplayAddress(visit.url);
+              const primary = webHistoryPrimaryLabel(visit);
+              return (
+                <button
+                  key={visit.visitId}
+                  id={`${historyListId}-option-${String(index)}`}
+                  type="button"
+                  className="minke-tabs-location-history__option"
+                  role="option"
+                  aria-selected={index === activeIndex}
+                  title={visit.url}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                  }}
+                  onPointerEnter={() => setActiveIndex(index)}
+                  onClick={() => navigateTo(visit.url)}
+                >
+                  <span
+                    className="minke-tabs-location-history__primary"
+                  >
+                    {primary}
+                  </span>
+                  {primary !== address && (
+                    <span
+                      className="minke-tabs-location-history__address"
+                      dir="ltr"
+                    >
+                      {address}
+                    </span>
+                  )}
+                  <span className="minke-tabs-location-history__metadata">
+                    <span>
+                      {t(
+                        visit.actor === "agent"
+                          ? "web.history.actor.agent"
+                          : "web.history.actor.human",
+                      )}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <time dateTime={new Date(visit.visitedAt).toISOString()}>
+                      {historyDateTime.format(visit.visitedAt)}
+                    </time>
+                    {visit.searchQuery === undefined && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>
+                          {t("web.history.visits", {
+                            count: visit.pathVisitCount,
+                          })}
+                        </span>
+                      </>
                     )}
                   </span>
-                  <span aria-hidden="true">·</span>
-                  <time dateTime={new Date(visit.visitedAt).toISOString()}>
-                    {historyDateTime.format(visit.visitedAt)}
-                  </time>
-                  <span aria-hidden="true">·</span>
-                  <span>
-                    {t("web.history.visits", {
-                      count: visit.pathVisitCount,
-                    })}
-                  </span>
-                </span>
-              </button>
-            ))}
+                </button>
+              );
+            })}
       </div>
     )
     : null;
