@@ -7,6 +7,11 @@ import {
   type ReactNode,
 } from "react";
 import {
+  AppWindow,
+  PanelsTopLeft,
+  type LucideIconData,
+} from "@lucide/icons";
+import {
   DEFAULT_TERMINAL_SETTINGS,
   parseTerminalSettings,
   TERMINAL_FONT_SIZE_MAX,
@@ -45,6 +50,9 @@ import type {
 import type {
   WebSearchSettingsRuntime,
 } from "./web-search-runtime.ts";
+import {
+  LucideIcon,
+} from "../tabs/components/LucideIcon.ts";
 
 export interface PreferencesSectionProps {
   appUpdateSettings?: AppUpdateSettingsRuntime;
@@ -54,7 +62,7 @@ export interface PreferencesSectionProps {
   t?: PreferencesTranslate;
 }
 
-/** One settings section for personal editor and Terminal preferences. */
+/** Product-level workspace and application preferences. */
 export function PreferencesSection({
   appUpdateSettings,
   webSearchSettings,
@@ -73,6 +81,11 @@ export function PreferencesSection({
   ) {
     return null;
   }
+  const hasWorkspaceSettings =
+    codeThemes !== undefined || terminalSettings !== undefined;
+  const hasApplicationSettings =
+    webSearchSettings !== undefined || appUpdateSettings !== undefined;
+
   return (
     <section
       className="minke-preferences"
@@ -90,35 +103,97 @@ export function PreferencesSection({
           {t("preferences.description")}
         </p>
       </div>
-      {codeThemes !== undefined && (
-        <CodeThemePreferences runtime={codeThemes} t={t} />
-      )}
-      {terminalSettings !== undefined && codeThemes !== undefined && (
-        <ThemedTerminalPreferences
-          runtime={terminalSettings}
-          codeThemes={codeThemes}
-          t={t}
-        />
-      )}
-      {terminalSettings !== undefined && codeThemes === undefined && (
-        <TerminalPreferences
-          runtime={terminalSettings}
-          codeTheme="github-light-default"
-          t={t}
-        />
-      )}
-      {webSearchSettings !== undefined && (
-        <WebSearchPreferences
-          runtime={webSearchSettings}
-          t={t}
-        />
-      )}
-      {appUpdateSettings !== undefined && (
-        <AppUpdatePreferences
-          runtime={appUpdateSettings}
-          t={t}
-        />
-      )}
+      <div className="minke-preferences__categories">
+        {hasWorkspaceSettings && (
+          <PreferencesCategory
+            id="workspace"
+            icon={PanelsTopLeft}
+            title={t("preferences.category.workspace.title")}
+            description={t(
+              "preferences.category.workspace.description",
+            )}
+          >
+            {codeThemes !== undefined && (
+              <CodeThemePreferences runtime={codeThemes} t={t} />
+            )}
+            {terminalSettings !== undefined &&
+              codeThemes !== undefined && (
+              <ThemedTerminalPreferences
+                runtime={terminalSettings}
+                codeThemes={codeThemes}
+                t={t}
+              />
+            )}
+            {terminalSettings !== undefined &&
+              codeThemes === undefined && (
+              <TerminalPreferences
+                runtime={terminalSettings}
+                codeTheme="github-light-default"
+                t={t}
+              />
+            )}
+          </PreferencesCategory>
+        )}
+        {hasApplicationSettings && (
+          <PreferencesCategory
+            id="application"
+            icon={AppWindow}
+            title={t("preferences.category.application.title")}
+            description={t(
+              "preferences.category.application.description",
+            )}
+          >
+            {webSearchSettings !== undefined && (
+              <WebSearchPreferences
+                runtime={webSearchSettings}
+                t={t}
+              />
+            )}
+            {appUpdateSettings !== undefined && (
+              <AppUpdatePreferences
+                runtime={appUpdateSettings}
+                t={t}
+              />
+            )}
+          </PreferencesCategory>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PreferencesCategory({
+  id,
+  icon,
+  title,
+  description,
+  children,
+}: {
+  readonly id: "workspace" | "application";
+  readonly icon: LucideIconData;
+  readonly title: string;
+  readonly description: string;
+  readonly children: ReactNode;
+}): ReactNode {
+  const titleId = `minke-preferences-${id}-title`;
+  return (
+    <section
+      className="minke-preferences__category"
+      aria-labelledby={titleId}
+      data-preferences-category={id}
+    >
+      <div className="minke-preferences__category-heading">
+        <span className="minke-preferences__category-icon">
+          <LucideIcon icon={icon} size={16} />
+        </span>
+        <div className="minke-preferences__category-copy">
+          <h3 id={titleId}>{title}</h3>
+          <p>{description}</p>
+        </div>
+      </div>
+      <div className="minke-preferences__category-body">
+        {children}
+      </div>
     </section>
   );
 }
@@ -143,9 +218,9 @@ function WebSearchPreferences({
       data-minke-web-search-settings
     >
       <div className="minke-preferences__group-heading">
-        <h3 id="minke-web-search-settings-title">
+        <h4 id="minke-web-search-settings-title">
           {t("preferences.webSearch.title")}
-        </h3>
+        </h4>
         <p>{t("preferences.webSearch.description")}</p>
         {snapshot.error !== undefined && (
           <p className="minke-preferences__error" role="alert">
@@ -156,7 +231,7 @@ function WebSearchPreferences({
         )}
       </div>
       <div className="minke-preferences__fields">
-        <label className="minke-preferences__row">
+        <label className="minke-preferences__row minke-preferences__row--toggle">
           <span className="minke-preferences__copy">
             <span className="minke-preferences__label">
               {t("preferences.webSearch.fallback.label")}
@@ -212,9 +287,9 @@ function AppUpdatePreferences({
       data-minke-app-update-settings
     >
       <div className="minke-preferences__group-heading">
-        <h3 id="minke-app-update-settings-title">
+        <h4 id="minke-app-update-settings-title">
           {t("preferences.update.title")}
-        </h3>
+        </h4>
         <p>{t("preferences.update.description")}</p>
         {snapshot.error !== undefined && (
           <p className="minke-preferences__error" role="alert">
@@ -223,7 +298,7 @@ function AppUpdatePreferences({
         )}
       </div>
       <div className="minke-preferences__fields">
-        <label className="minke-preferences__row">
+        <label className="minke-preferences__row minke-preferences__row--toggle">
           <span className="minke-preferences__copy">
             <span className="minke-preferences__label">
               {t("preferences.update.autoDownload.label")}
@@ -275,9 +350,9 @@ function CodeThemePreferences({
       aria-labelledby="minke-preferences-code-title"
     >
       <div className="minke-preferences__group-heading">
-        <h3 id="minke-preferences-code-title">
+        <h4 id="minke-preferences-code-title">
           {t("preferences.code.title")}
-        </h3>
+        </h4>
         <p>{t("preferences.code.description")}</p>
         {snapshot.error !== undefined && (
           <p className="minke-preferences__error" role="alert">
@@ -285,27 +360,26 @@ function CodeThemePreferences({
           </p>
         )}
       </div>
-      <div className="minke-preferences__fields">
+      <div className="minke-preferences__theme-options">
         {CODE_THEME_MODES.map((colorScheme) => (
-          <CodeThemePreferenceRow
+          <div
             key={colorScheme}
-            colorScheme={colorScheme}
-            theme={snapshot.themes[colorScheme]}
-            editable={snapshot.editable}
-            runtime={runtime}
-            t={t}
-          />
-        ))}
-      </div>
-      <div className="minke-preferences__code-previews">
-        {CODE_THEME_MODES.map((colorScheme) => (
-          <CodeThemePreview
-            key={colorScheme}
-            colorScheme={colorScheme}
-            theme={snapshot.themes[colorScheme]}
-            active={snapshot.colorScheme === colorScheme}
-            t={t}
-          />
+            className="minke-preferences__theme-option"
+          >
+            <CodeThemePreferenceRow
+              colorScheme={colorScheme}
+              theme={snapshot.themes[colorScheme]}
+              editable={snapshot.editable}
+              runtime={runtime}
+              t={t}
+            />
+            <CodeThemePreview
+              colorScheme={colorScheme}
+              theme={snapshot.themes[colorScheme]}
+              active={snapshot.colorScheme === colorScheme}
+              t={t}
+            />
+          </div>
         ))}
       </div>
     </section>
@@ -430,9 +504,9 @@ function CodeThemePreview({
       </div>
       <code>
         <span style={{ color: palette.keyword }}>const</span>
-        {" theme = "}
+        {" palette = "}
         <span style={{ color: palette.string }}>
-          &quot;{theme}&quot;
+          &quot;active&quot;
         </span>
         {"; "}
         <span style={{ color: palette.comment }}>// Minke</span>
@@ -533,9 +607,9 @@ function TerminalPreferences({
       data-minke-terminal-settings
     >
       <div className="minke-preferences__group-heading">
-        <h3 id="minke-terminal-settings-title">
+        <h4 id="minke-terminal-settings-title">
           {t("preferences.terminal.title")}
-        </h3>
+        </h4>
         <p>{t("preferences.terminal.description")}</p>
         {snapshot.error !== undefined && (
           <p

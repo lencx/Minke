@@ -179,7 +179,7 @@ test("web search fallback renders native-tool routing and restart boundary", asy
   );
 
   assert.equal(
-    html.includes("启用 Minke 搜索兜底"),
+    html.includes("搜索失败时尝试备用来源"),
     true,
   );
   assert.equal(html.includes("web_search 失败"), true);
@@ -187,6 +187,10 @@ test("web search fallback renders native-tool routing and restart boundary", asy
   assert.equal(html.includes("重启 Minke 后生效"), true);
   assert.equal(
     html.includes("data-minke-web-search-settings"),
+    true,
+  );
+  assert.equal(
+    html.includes('data-preferences-category="application"'),
     true,
   );
   assert.equal(
@@ -206,7 +210,7 @@ test("web search fallback copy is complete in both locales", () => {
   );
   assert.equal(
     preferencesEn["preferences.webSearch.fallback.label"],
-    "Enable Minke search fallback",
+    "Try alternate sources when search fails",
   );
   assert.match(
     preferencesEn["preferences.webSearch.fallback.help"],

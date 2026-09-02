@@ -136,20 +136,29 @@ test("Terminal settings validate a small, exact rendering contract", () => {
   );
 });
 
-test("Personal preferences copy stays complete in English and Chinese", () => {
+test("Preferences copy stays complete in English and Chinese", () => {
   assert.deepEqual(
     Object.keys(preferencesEn).sort(),
     Object.keys(preferencesZh).sort(),
   );
-  assert.equal(preferencesZh["preferences.nav"], "个人偏好");
+  assert.equal(preferencesZh["preferences.nav"], "偏好设置");
   assert.equal(preferencesEn["preferences.nav"], "Preferences");
+  assert.equal(preferencesZh["preferences.title"], "偏好设置");
+  assert.equal(
+    preferencesEn["preferences.category.workspace.title"],
+    "Workspace",
+  );
+  assert.equal(
+    preferencesZh["preferences.category.application.title"],
+    "应用行为",
+  );
   assert.equal(
     preferencesZh["preferences.codeTheme.light.label"],
-    "浅色外观",
+    "浅色模式",
   );
   assert.equal(
     preferencesZh["preferences.codeTheme.dark.label"],
-    "深色外观",
+    "深色模式",
   );
   assert.equal(
     preferencesEn["preferences.terminal.title"],
@@ -157,7 +166,7 @@ test("Personal preferences copy stays complete in English and Chinese", () => {
   );
   assert.equal(
     preferencesZh["preferences.code.title"],
-    "代码与终端主题",
+    "代码外观",
   );
   assert.deepEqual(
     Object.keys(terminalTabsEn).sort(),
@@ -165,7 +174,7 @@ test("Personal preferences copy stays complete in English and Chinese", () => {
   );
 });
 
-test("Personal preferences groups code theme and Terminal controls", () => {
+test("Preferences groups workspace and application settings", () => {
   const source = readFileSync(
     new URL(
       "../packages/harness-overlay/src/client/preferences/PreferencesSection.tsx",
@@ -175,6 +184,8 @@ test("Personal preferences groups code theme and Terminal controls", () => {
   );
 
   assert.match(source, /data-minke-preferences/u);
+  assert.match(source, /id="workspace"/u);
+  assert.match(source, /id="application"/u);
   assert.match(source, /data-minke-terminal-settings/u);
   assert.match(source, /data-appearance=\{colorScheme\}/u);
   assert.match(
@@ -184,7 +195,7 @@ test("Personal preferences groups code theme and Terminal controls", () => {
   );
   assert.match(
     source,
-    /className="minke-preferences__input minke-preferences__select"/u,
+    /className="minke-preferences__theme-options"/u,
   );
   assert.match(
     source,

@@ -292,6 +292,10 @@ test("About renders stable localized update action and status slots", () => {
 
 test("personal preferences localize the automatic update download control", () => {
   assert.equal(
+    preferencesZh["preferences.update.title"],
+    "软件更新",
+  );
+  assert.equal(
     preferencesZh["preferences.update.autoDownload.label"],
     "自动下载更新",
   );

@@ -2,7 +2,7 @@ import {
   DatabaseBackup,
   Globe,
   Keyboard,
-  Palette,
+  SlidersHorizontal,
   type LucideIconData,
 } from "@lucide/icons";
 import {
@@ -31,7 +31,7 @@ import type {
 const PAGE_ICONS: Readonly<
   Record<MinkeSettingsPageIcon, LucideIconData>
 > = {
-  preferences: Palette,
+  preferences: SlidersHorizontal,
   browser: Globe,
   shortcuts: Keyboard,
   "data-home": DatabaseBackup,
@@ -143,8 +143,8 @@ export interface MinkeSettingsSectionProps {
 /**
  * Keep all Minke-owned configuration in one DSH Settings section.
  *
- * The icon tabs are deliberately compact, while their accessible names,
- * native tooltips, stable positions, and page headings retain discoverability.
+ * Compact labeled tabs keep each product settings area discoverable while
+ * preserving keyboard navigation and stable positions.
  */
 export function MinkeSettingsSection({
   runtime,
@@ -246,7 +246,7 @@ export function MinkeSettingsSection({
                         icon={PAGE_ICONS[page.icon]}
                         size={17}
                       />
-                      <span className="minke-settings__hidden-label">
+                      <span className="minke-settings__tab-label">
                         {label}
                       </span>
                     </button>

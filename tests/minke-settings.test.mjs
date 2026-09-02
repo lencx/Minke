@@ -279,7 +279,7 @@ test("the Minke Settings row uses an adaptive SVG logo", () => {
   assert.equal(minke.attributes.has(marker), false);
 });
 
-test("the unified DSH section renders accessible icon tabs", () => {
+test("the unified DSH section renders accessible labeled tabs", () => {
   const runtime = new MinkeSettingsRuntime();
   runtime.register(page("preferences", 0, "Preferences"));
   runtime.register({
@@ -307,6 +307,10 @@ test("the unified DSH section renders accessible icon tabs", () => {
   assert.ok(html.includes('aria-selected="true"'));
   assert.ok(html.includes('aria-label="Preferences"'));
   assert.ok(html.includes('aria-label="Browser"'));
+  assert.equal(
+    (html.match(/class="minke-settings__tab-label"/gu) ?? []).length,
+    4,
+  );
   assert.ok(!html.includes('title="Remote access"'));
   assert.ok(html.includes("Preferences content"));
   assert.ok(!html.includes("Local models"));

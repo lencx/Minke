@@ -6,7 +6,7 @@ Packaged macOS, Windows, and Linux builds can check for stable Minke releases. U
 
 - Minke checks shortly after startup and then once every 24 hours.
 - **About Minke → Check for updates** runs a check immediately.
-- **Settings → Minke → Preferences → Application updates** contains **Download updates automatically**. It is enabled by default.
+- **Settings → Minke → Preferences → Software updates** contains **Download updates automatically**. It is enabled by default.
 - When automatic downloads are enabled, Minke downloads and verifies a new installer in the background, then asks before opening or revealing it.
 - When automatic downloads are disabled, select **Download update** before any installer is downloaded.
 

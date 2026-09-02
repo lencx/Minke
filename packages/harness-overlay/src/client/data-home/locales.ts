@@ -1,5 +1,5 @@
 export const dataHomeZh = {
-  nav: "数据与存储",
+  nav: "存储",
   title: "数据与存储",
   description:
     "选择 DSH 的稳定数据目录，并决定合并现有数据或从全新目录开始。",
@@ -71,7 +71,7 @@ export const dataHomeZh = {
 export type DataHomeLocaleKey = keyof typeof dataHomeZh;
 
 export const dataHomeEn: Record<DataHomeLocaleKey, string> = {
-  nav: "Data & Storage",
+  nav: "Storage",
   title: "Data & Storage",
   description:
     "Choose a stable DSH data directory, then merge existing data or start with a fresh directory.",

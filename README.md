@@ -115,7 +115,7 @@ automatically. Minke selects the fixed DMG, EXE, DEB, RPM, or AppImage asset
 for the running system, verifies the immutable GitHub Release, URL chain,
 exact size, SHA-256 digest, and available OS provenance marker, then asks
 before opening it. Disable background downloads under
-**Settings → Minke → Preferences → Application updates** to require a
+**Settings → Minke → Preferences → Software updates** to require a
 **Download update** confirmation first, or use **About Minke → Check for
 updates** at any time. Installation always remains explicit. See
 [desktop application updates](./docs/app-updates.md) for the user flow and

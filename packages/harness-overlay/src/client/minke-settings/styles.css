@@ -29,6 +29,8 @@
   top: 0;
   z-index: 2;
   display: flex;
+  max-width: 100%;
+  overflow-x: auto;
   margin-bottom: 24px;
   padding: 0 0 12px;
   background: var(--dsw-alias-bg-layer-2);
@@ -46,12 +48,15 @@
 
 .minke-settings__tab {
   box-sizing: border-box;
-  display: inline-grid;
-  width: 40px;
+  display: inline-flex;
+  width: auto;
+  min-width: 40px;
   height: 36px;
   flex: none;
-  place-items: center;
-  padding: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
   border: 0;
   border-radius: 9px;
   background: transparent;
@@ -75,6 +80,15 @@
 .minke-settings__tab:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 2px;
+}
+
+.minke-settings__tab-label {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .minke-settings__pages,
@@ -130,15 +144,6 @@
 .minke-settings__page-error > button:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 2px;
-}
-
-.minke-settings__hidden-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

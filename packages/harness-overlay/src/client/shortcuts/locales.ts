@@ -30,7 +30,7 @@ export type ShortcutTranslate = (
 ) => string;
 
 export const en: Record<ShortcutLocaleKey, string> = {
-  nav: "Keyboard shortcuts",
+  nav: "Shortcuts",
   title: "Keyboard shortcuts",
   description:
     "Select an action, then press its new key combination. Minke saves these settings.",
