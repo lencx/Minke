@@ -260,7 +260,11 @@ test("Agent Browser history persists visits, aggregates paths, and keeps ids mon
 test("Agent Browser history path stays inside the desktop user-data root", () => {
   assert.equal(
     agentBrowserHistoryFilePath("/tmp/minke-user-data"),
-    "/tmp/minke-user-data/agent-browser/history.sqlite",
+    join(
+      "/tmp/minke-user-data",
+      "agent-browser",
+      "history.sqlite",
+    ),
   );
 });
 
