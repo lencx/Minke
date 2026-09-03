@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
@@ -19,9 +20,20 @@ const packageManifest = JSON.parse(
 if (process.platform !== "darwin") {
   test("sys is a Darwin-only optional module", { skip: true }, () => {});
 } else {
+  const entryPath = packageEntryPath.pathname;
+  const binaryPath = join(dirname(entryPath), "lencx_mb.node");
+
+  test("sys ships a universal Darwin native module", () => {
+    const architectures = execFileSync(
+      "/usr/bin/lipo",
+      ["-archs", binaryPath],
+      { encoding: "utf8" },
+    ).trim().split(/\s+/u).sort();
+
+    assert.deepEqual(architectures, ["arm64", "x86_64"]);
+  });
+
   test("sys resolves lencx_mb.node and requires explicit activation", () => {
-    const entryPath = packageEntryPath.pathname;
-    const binaryPath = join(dirname(entryPath), "lencx_mb.node");
     const sys = require(entryPath);
 
     assert.equal(packageManifest.name, "sys");
