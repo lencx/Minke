@@ -106,33 +106,6 @@
   );
 }
 
-.minke-agent-browser__view[data-agent-active]::before {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 1;
-  width: 54px;
-  height: 2px;
-  border-radius: 999px;
-  animation: minke-agent-browser-frame-flow 3.2s linear infinite;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    #43d9ff 20%,
-    #765dff 42%,
-    #e255ff 64%,
-    #ff9f43 82%,
-    transparent 100%
-  );
-  content: "";
-  offset-anchor: center;
-  offset-distance: 0%;
-  offset-path: inset(1px round 3px);
-  offset-rotate: auto;
-  pointer-events: none;
-  will-change: offset-distance;
-}
-
 .minke-agent-browser__view[data-owner="agent"]
   .minke-agent-browser__guest,
 .minke-agent-browser__view[data-control-pending]
@@ -323,11 +296,6 @@
 
 .minke-agent-browser-history__visit {
   padding: 10px 14px;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
-}
-
-.minke-agent-browser-history__visit:last-child {
-  border-bottom: 0;
 }
 
 .minke-agent-browser-history__visit-main,
@@ -1031,12 +999,6 @@
   }
 }
 
-@keyframes minke-agent-browser-frame-flow {
-  to {
-    offset-distance: 100%;
-  }
-}
-
 @keyframes minke-agent-browser-cursor-appear {
   from {
     opacity: 0;
@@ -1110,12 +1072,9 @@
 @media (prefers-reduced-motion: reduce) {
   .minke-tab:has(
     .minke-agent-browser__tab-signal[data-agent-active]
-  )::after,
-  .minke-agent-browser__view[data-agent-active]::before {
+  )::after {
     animation: none;
-    offset-distance: 12.5%;
     background-position: 50% 50%;
-    will-change: auto;
   }
 
   .minke-agent-browser__agent-cursor-layer,

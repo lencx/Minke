@@ -26,6 +26,7 @@ export const AGENT_BROWSER_OPERATIONS = [
   "click",
   "fill",
   "press",
+  "scroll",
   "wait",
   "screenshot",
   "close",
@@ -49,6 +50,18 @@ export const AGENT_BROWSER_NAVIGATION_COMMANDS = [
 ] as const;
 export type AgentBrowserNavigationCommand =
   typeof AGENT_BROWSER_NAVIGATION_COMMANDS[number];
+export const AGENT_BROWSER_SCROLL_DIRECTIONS = [
+  "up",
+  "down",
+  "left",
+  "right",
+  "top",
+  "bottom",
+] as const;
+export type AgentBrowserScrollDirection =
+  typeof AGENT_BROWSER_SCROLL_DIRECTIONS[number];
+export const MAX_AGENT_BROWSER_SCROLL_AMOUNT = 10_000;
+export const MAX_AGENT_BROWSER_SCROLL_COORDINATE = 100_000_000;
 export type AgentBrowserSessionStatus =
   | "pending"
   | "ready"
@@ -248,13 +261,25 @@ export interface AgentBrowserFindResult
   readonly offset: number;
   readonly indexTruncated: boolean;
   readonly nextCursor?: string;
-  readonly searchExhausted?: boolean;
 }
 
 export interface AgentBrowserLocateResult
   extends AgentBrowserSessionResult {
   readonly snapshotId: string;
   readonly node: AgentBrowserLocatedNode;
+}
+
+export interface AgentBrowserScrollResult
+  extends AgentBrowserSessionResult {
+  /** "page" or the exact observed ref of a scroll container. */
+  readonly scope: string;
+  readonly beforeX: number;
+  readonly beforeY: number;
+  readonly afterX: number;
+  readonly afterY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+  readonly moved: boolean;
 }
 
 export interface AgentBrowserScreenshotResult
@@ -273,6 +298,7 @@ export type AgentBrowserOperationResult =
   | AgentBrowserSnapshotResult
   | AgentBrowserFindResult
   | AgentBrowserLocateResult
+  | AgentBrowserScrollResult
   | AgentBrowserScreenshotResult
   | AgentBrowserCloseResult;
 
@@ -850,6 +876,20 @@ function parseAgentBrowserFindQuery(
   };
 }
 
+function parseAgentBrowserScrollDirection(
+  value: unknown,
+): AgentBrowserScrollDirection {
+  if (
+    typeof value !== "string" ||
+    !AGENT_BROWSER_SCROLL_DIRECTIONS.includes(
+      value as AgentBrowserScrollDirection,
+    )
+  ) {
+    throw new TypeError("invalid Agent Browser scroll direction");
+  }
+  return value as AgentBrowserScrollDirection;
+}
+
 export function parseAgentBrowserToolPayload(
   operation: AgentBrowserOperation,
   value: unknown,
@@ -990,6 +1030,53 @@ export function parseAgentBrowserToolPayload(
           ? {}
           : { target: parseAgentBrowserTarget(payload.target) }),
       };
+    case "scroll": {
+      if (
+        !exactKeys(
+          payload,
+          ["sessionId", "direction"],
+          ["amount", "withinRef"],
+        )
+      ) {
+        throw new TypeError("invalid Agent Browser scroll payload");
+      }
+      const direction = parseAgentBrowserScrollDirection(
+        payload.direction,
+      );
+      const edge = direction === "top" || direction === "bottom";
+      if (edge && payload.amount !== undefined) {
+        throw new TypeError(
+          "Agent Browser edge scroll must not include an amount",
+        );
+      }
+      if (!edge && payload.amount === undefined) {
+        throw new TypeError(
+          "Agent Browser directional scroll requires an amount",
+        );
+      }
+      const amount = payload.amount === undefined
+        ? undefined
+        : positiveInteger(
+          payload.amount,
+          "Agent Browser scroll amount",
+        );
+      if (
+        amount !== undefined &&
+        amount > MAX_AGENT_BROWSER_SCROLL_AMOUNT
+      ) {
+        throw new TypeError(
+          `Agent Browser scroll amount exceeds ${String(MAX_AGENT_BROWSER_SCROLL_AMOUNT)}`,
+        );
+      }
+      return {
+        sessionId: parseAgentBrowserSessionId(payload.sessionId),
+        direction,
+        ...(amount === undefined ? {} : { amount }),
+        ...(payload.withinRef === undefined
+          ? {}
+          : { withinRef: parseAgentBrowserRef(payload.withinRef) }),
+      };
+    }
     case "wait": {
       if (
         !exactKeys(
@@ -1816,13 +1903,9 @@ export function parseAgentBrowserOperationResult(
           "offset",
           "indexTruncated",
         ],
-        ["url", "title", "nextCursor", "searchExhausted"],
+        ["url", "title", "nextCursor"],
       ) ||
-      typeof result.indexTruncated !== "boolean" ||
-      (
-        result.searchExhausted !== undefined &&
-        typeof result.searchExhausted !== "boolean"
-      )
+      typeof result.indexTruncated !== "boolean"
     ) {
       throw new TypeError("invalid Agent Browser find result");
     }
@@ -1872,9 +1955,6 @@ export function parseAgentBrowserOperationResult(
       totalMatches,
       offset,
       indexTruncated: result.indexTruncated,
-      ...(result.searchExhausted === undefined
-        ? {}
-        : { searchExhausted: result.searchExhausted }),
       ...(result.nextCursor === undefined
         ? {}
         : {
@@ -1932,6 +2012,116 @@ export function parseAgentBrowserOperationResult(
       ...session,
       snapshotId,
       node,
+    };
+  }
+  if (operation === "scroll") {
+    const result = record(value, "Agent Browser scroll result");
+    if (
+      !exactKeys(
+        result,
+        [
+          "sessionId",
+          "generation",
+          "owner",
+          "status",
+          "snapshotRequired",
+          "scope",
+          "beforeX",
+          "beforeY",
+          "afterX",
+          "afterY",
+          "maxX",
+          "maxY",
+          "moved",
+        ],
+        ["url", "title"],
+      ) ||
+      typeof result.moved !== "boolean"
+    ) {
+      throw new TypeError("invalid Agent Browser scroll result");
+    }
+    const session = parseSessionResult({
+      sessionId: result.sessionId,
+      generation: result.generation,
+      owner: result.owner,
+      status: result.status,
+      snapshotRequired: result.snapshotRequired,
+      ...(result.url === undefined ? {} : { url: result.url }),
+      ...(result.title === undefined
+        ? {}
+        : { title: result.title }),
+    });
+    let scope: string;
+    if (result.scope === "page") {
+      scope = "page";
+    } else {
+      try {
+        scope = parseAgentBrowserRef(result.scope);
+      } catch {
+        throw new TypeError("invalid Agent Browser scroll scope");
+      }
+    }
+    if (
+      scope !== "page" &&
+      !scope.startsWith(`s${String(session.generation)}:`)
+    ) {
+      throw new TypeError(
+        "Agent Browser scroll scope must belong to its generation",
+      );
+    }
+    const beforeX = boundedNonNegativeInteger(
+      result.beforeX,
+      "Agent Browser scroll before x",
+      MAX_AGENT_BROWSER_SCROLL_COORDINATE,
+    );
+    const beforeY = boundedNonNegativeInteger(
+      result.beforeY,
+      "Agent Browser scroll before y",
+      MAX_AGENT_BROWSER_SCROLL_COORDINATE,
+    );
+    const afterX = boundedNonNegativeInteger(
+      result.afterX,
+      "Agent Browser scroll after x",
+      MAX_AGENT_BROWSER_SCROLL_COORDINATE,
+    );
+    const afterY = boundedNonNegativeInteger(
+      result.afterY,
+      "Agent Browser scroll after y",
+      MAX_AGENT_BROWSER_SCROLL_COORDINATE,
+    );
+    const maxX = boundedNonNegativeInteger(
+      result.maxX,
+      "Agent Browser scroll maximum x",
+      MAX_AGENT_BROWSER_SCROLL_COORDINATE,
+    );
+    const maxY = boundedNonNegativeInteger(
+      result.maxY,
+      "Agent Browser scroll maximum y",
+      MAX_AGENT_BROWSER_SCROLL_COORDINATE,
+    );
+    const moved = beforeX !== afterX || beforeY !== afterY;
+    if (
+      beforeX > maxX ||
+      afterX > maxX ||
+      beforeY > maxY ||
+      afterY > maxY ||
+      result.moved !== moved ||
+      (moved && !session.snapshotRequired)
+    ) {
+      throw new TypeError(
+        "invalid Agent Browser scroll movement evidence",
+      );
+    }
+    return {
+      ...session,
+      scope,
+      beforeX,
+      beforeY,
+      afterX,
+      afterY,
+      maxX,
+      maxY,
+      moved,
     };
   }
   if (operation === "screenshot") {

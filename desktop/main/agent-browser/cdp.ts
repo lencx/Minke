@@ -1,10 +1,12 @@
 import {
   inferAgentBrowserNodeActions,
+  MAX_AGENT_BROWSER_SCROLL_COORDINATE,
   type AgentBrowserCursorPoint,
   type AgentBrowserCursorViewport,
   type AgentBrowserFindQuery,
   type AgentBrowserFindView,
   type AgentBrowserNodeAction,
+  type AgentBrowserScrollDirection,
   type AgentBrowserSemanticTarget,
   type AgentBrowserSnapshotNode,
 } from "@minke/harness-overlay/agent-browser-contract.ts";
@@ -28,6 +30,71 @@ const MAX_SCREENSHOT_BASE64_LENGTH = 8 * 1024 * 1024;
 const GENERATED_LOCATOR_COMMAND_TIMEOUT_MS = 2_000;
 const GENERATED_LOCATOR_WORLD_NAME =
   "minke-agent-browser-generated-locator";
+const SCROLL_WORLD_NAME = "minke-agent-browser-scroll";
+const SCROLL_FUNCTION = `function minkeScroll(direction, amount) {
+  const target = this?.nodeType === 9
+    ? (this.scrollingElement || this.documentElement || this.body)
+    : this;
+  if (!target) return null;
+  const maxX = Math.max(
+    0,
+    Math.round(Number(target.scrollWidth) - Number(target.clientWidth)),
+  );
+  const maxY = Math.max(
+    0,
+    Math.round(Number(target.scrollHeight) - Number(target.clientHeight)),
+  );
+  const rtl = getComputedStyle(target).direction === "rtl";
+  const normalizedX = () => Math.max(
+    0,
+    Math.min(
+      maxX,
+      Math.round(
+        rtl
+          ? maxX + Number(target.scrollLeft)
+          : Number(target.scrollLeft),
+      ),
+    ),
+  );
+  const normalizedY = () => Math.max(
+    0,
+    Math.min(maxY, Math.round(Number(target.scrollTop))),
+  );
+  const beforeX = normalizedX();
+  const beforeY = normalizedY();
+  let nextX = beforeX;
+  let nextY = beforeY;
+  if (direction === "left") nextX -= amount;
+  if (direction === "right") nextX += amount;
+  if (direction === "up") nextY -= amount;
+  if (direction === "down") nextY += amount;
+  if (direction === "top") nextY = 0;
+  if (direction === "bottom") nextY = maxY;
+  nextX = Math.max(0, Math.min(maxX, nextX));
+  nextY = Math.max(0, Math.min(maxY, nextY));
+  const rawX = rtl ? nextX - maxX : nextX;
+  if (typeof target.scrollTo === "function") {
+    target.scrollTo({
+      left: rawX,
+      top: nextY,
+      behavior: "instant",
+    });
+  } else {
+    target.scrollLeft = rawX;
+    target.scrollTop = nextY;
+  }
+  const afterX = normalizedX();
+  const afterY = normalizedY();
+  return {
+    beforeX,
+    beforeY,
+    afterX,
+    afterY,
+    maxX,
+    maxY,
+    moved: beforeX !== afterX || beforeY !== afterY,
+  };
+}`;
 const ANNOTATION_HIGHLIGHT_CONFIG = Object.freeze({
   showInfo: false,
   showStyles: false,
@@ -145,6 +212,18 @@ export interface AgentBrowserCdpClickHooks {
   readonly beforePress?: (
     target: AgentBrowserCdpPointerTarget,
   ) => void | Promise<void>;
+}
+
+export interface AgentBrowserCdpScrollResult {
+  /** "page" or the exact current ref of a scroll container. */
+  readonly scope: string;
+  readonly beforeX: number;
+  readonly beforeY: number;
+  readonly afterX: number;
+  readonly afterY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+  readonly moved: boolean;
 }
 
 export type AgentBrowserTargetAction = AgentBrowserNodeAction;
@@ -970,6 +1049,17 @@ function finiteNumber(value: unknown): number | undefined {
     : undefined;
 }
 
+function boundedScrollCoordinate(
+  value: unknown,
+): number | undefined {
+  return typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      value >= 0 &&
+      value <= MAX_AGENT_BROWSER_SCROLL_COORDINATE
+    ? value
+    : undefined;
+}
+
 function firstQuad(value: unknown): readonly number[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const candidate = Array.isArray(value[0])
@@ -1057,6 +1147,7 @@ export class AgentBrowserCdp {
   #annotationOverlayEnabled = false;
   #generation = 1;
   #referencesDirty = false;
+  #scrollSequence = 0;
   #snapshotCache: SnapshotCache | undefined;
   readonly #findCursors = new Map<string, FindCursorState>();
   #findCursorSequence = 0;
@@ -2837,6 +2928,204 @@ export class AgentBrowserCdp {
     }
   }
 
+  async scroll(
+    direction: AgentBrowserScrollDirection,
+    amount: number | undefined,
+    withinRef?: string,
+    signal?: AbortSignal,
+  ): Promise<AgentBrowserCdpScrollResult> {
+    const scopedReference = withinRef === undefined
+      ? undefined
+      : {
+          ref: withinRef,
+          reference: this.#resolveReference(withinRef),
+        };
+    let frameId = this.#mainFrameId;
+    if (frameId === undefined) {
+      const frameTree = commandResult<{
+        frameTree?: unknown;
+      }>(
+        await this.#command(
+          "Page.getFrameTree",
+          {},
+          signal,
+        ),
+      );
+      const discoveredFrameId =
+        record(record(frameTree.frameTree).frame).id;
+      if (
+        typeof discoveredFrameId !== "string" ||
+        discoveredFrameId === ""
+      ) {
+        throw new AgentBrowserError(
+          "target_gone",
+          "Agent Browser main frame is unavailable",
+        );
+      }
+      frameId = discoveredFrameId;
+      this.#mainFrameId = discoveredFrameId;
+    }
+    const world = commandResult<{
+      executionContextId?: unknown;
+    }>(
+      await this.#command(
+        "Page.createIsolatedWorld",
+        {
+          frameId,
+          worldName: SCROLL_WORLD_NAME,
+        },
+        signal,
+      ),
+    );
+    const executionContextId = positiveInteger(
+      world.executionContextId,
+    );
+    if (executionContextId === undefined) {
+      throw new AgentBrowserError(
+        "scroll_failed",
+        "Chromium did not create an isolated scroll world",
+      );
+    }
+    const objectGroup =
+      `minke-agent-browser-scroll-${String(this.#generation)}-${
+        String(++this.#scrollSequence)
+      }`;
+    let dispatched = false;
+    try {
+      let objectId: unknown;
+      if (scopedReference === undefined) {
+        const documentResult = commandResult<{
+          result?: unknown;
+          exceptionDetails?: unknown;
+        }>(
+          await this.#command(
+            "Runtime.evaluate",
+            {
+              expression: "document",
+              contextId: executionContextId,
+              returnByValue: false,
+              objectGroup,
+            },
+            signal,
+          ),
+        );
+        if (documentResult.exceptionDetails !== undefined) {
+          throw new AgentBrowserError(
+            "scroll_failed",
+            "Agent Browser could not access the page scroll root",
+          );
+        }
+        objectId = record(documentResult.result).objectId;
+      } else {
+        this.#assertCurrentReference(
+          scopedReference.ref,
+          scopedReference.reference,
+        );
+        const resolved = commandResult<{
+          object?: unknown;
+        }>(
+          await this.#command(
+            "DOM.resolveNode",
+            {
+              backendNodeId:
+                scopedReference.reference.backendNodeId,
+              executionContextId,
+              objectGroup,
+            },
+            signal,
+          ),
+        );
+        this.#assertCurrentReference(
+          scopedReference.ref,
+          scopedReference.reference,
+        );
+        objectId = record(resolved.object).objectId;
+      }
+      if (typeof objectId !== "string" || objectId === "") {
+        throw new AgentBrowserError(
+          "target_gone",
+          "Agent Browser scroll target is unavailable",
+        );
+      }
+      assertNotAborted(signal);
+      dispatched = true;
+      const call = commandResult<{
+        result?: unknown;
+        exceptionDetails?: unknown;
+      }>(
+        await this.#command(
+          "Runtime.callFunctionOn",
+          {
+            objectId,
+            functionDeclaration: SCROLL_FUNCTION,
+            arguments: [
+              { value: direction },
+              { value: amount ?? 0 },
+            ],
+            returnByValue: true,
+            awaitPromise: false,
+            objectGroup,
+          },
+          signal,
+        ),
+      );
+      if (call.exceptionDetails !== undefined) {
+        throw new AgentBrowserError(
+          "scroll_failed",
+          "Agent Browser could not scroll the requested target",
+        );
+      }
+      const value = record(record(call.result).value);
+      const beforeX = boundedScrollCoordinate(value.beforeX);
+      const beforeY = boundedScrollCoordinate(value.beforeY);
+      const afterX = boundedScrollCoordinate(value.afterX);
+      const afterY = boundedScrollCoordinate(value.afterY);
+      const maxX = boundedScrollCoordinate(value.maxX);
+      const maxY = boundedScrollCoordinate(value.maxY);
+      if (
+        beforeX === undefined ||
+        beforeY === undefined ||
+        afterX === undefined ||
+        afterY === undefined ||
+        maxX === undefined ||
+        maxY === undefined ||
+        beforeX > maxX ||
+        afterX > maxX ||
+        beforeY > maxY ||
+        afterY > maxY ||
+        typeof value.moved !== "boolean" ||
+        value.moved !==
+          (beforeX !== afterX || beforeY !== afterY)
+      ) {
+        throw new AgentBrowserError(
+          "scroll_failed",
+          "Chromium returned invalid Agent Browser scroll evidence",
+        );
+      }
+      if (value.moved) this.markReferencesDirty();
+      return {
+        scope: withinRef ?? "page",
+        beforeX,
+        beforeY,
+        afterX,
+        afterY,
+        maxX,
+        maxY,
+        moved: value.moved,
+      };
+    } catch (error) {
+      if (dispatched) this.markReferencesDirty();
+      throw asMutationError(error, "scroll_failed", dispatched);
+    } finally {
+      await this.#command(
+        "Runtime.releaseObjectGroup",
+        { objectGroup },
+      ).catch(() => {
+        // The target or execution context may have gone away after scrolling.
+      });
+    }
+  }
+
   async waitForText(
     text: string,
     timeoutMs: number,
@@ -4000,7 +4289,7 @@ export class AgentBrowserCdp {
   async #assertPointerHit(
     ref: string,
     reference: ResolvedReference,
-    point: AgentBrowserCursorPoint,
+    documentPoint: AgentBrowserCursorPoint,
     signal?: AbortSignal,
   ): Promise<void> {
     const hit = commandResult<{
@@ -4009,8 +4298,8 @@ export class AgentBrowserCdp {
       await this.#command(
         "DOM.getNodeForLocation",
         {
-          x: Math.round(point.x),
-          y: Math.round(point.y),
+          x: Math.round(documentPoint.x),
+          y: Math.round(documentPoint.y),
           includeUserAgentShadowDOM: true,
         },
         signal,
@@ -4243,10 +4532,30 @@ export class AgentBrowserCdp {
       x: visibleLeft + visibleWidth / 2,
       y: visibleTop + visibleHeight / 2,
     };
+    const visualViewport = record(
+      layoutResult.cssVisualViewport,
+    );
+    const cssLayoutViewport = record(
+      layoutResult.cssLayoutViewport,
+    );
+    const layoutViewport = record(layoutResult.layoutViewport);
+    const pageX =
+      finiteNumber(visualViewport.pageX) ??
+      finiteNumber(cssLayoutViewport.pageX) ??
+      finiteNumber(layoutViewport.pageX) ??
+      0;
+    const pageY =
+      finiteNumber(visualViewport.pageY) ??
+      finiteNumber(cssLayoutViewport.pageY) ??
+      finiteNumber(layoutViewport.pageY) ??
+      0;
     await this.#assertPointerHit(
       ref,
       reference,
-      point,
+      {
+        x: point.x + pageX,
+        y: point.y + pageY,
+      },
       signal,
     );
     return { point, viewport };

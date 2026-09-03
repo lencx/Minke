@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { HarnessError } from "@deepseek-ai/dsh-llm";
+import { Context } from "@deepseek-ai/cordis";
+import { HarnessError, ToolCallId } from "@deepseek-ai/dsh-llm";
+import SystemPrompt from "@vendor/deepseek-harness/packages/core/system-prompt/lib/index.js";
+import ToolRuntime from "@vendor/deepseek-harness/packages/core/tools/lib/index.js";
 import {
   AGENT_BROWSER_PROCESS_CHANNEL,
   AGENT_BROWSER_PROTOCOL_VERSION,
@@ -99,6 +102,22 @@ function sessionResult(overrides = {}) {
     url: "https://example.com/",
     ...overrides,
   };
+}
+
+function assertNoProgress(result, code, messagePattern) {
+  assert.deepEqual(
+    {
+      outcome: result.outcome,
+      code: result.code,
+      resumeAfter: result.resumeAfter,
+    },
+    {
+      outcome: "no_progress",
+      code,
+      resumeAfter: "new_turn",
+    },
+  );
+  assert.match(result.message, messagePattern);
 }
 
 test("process client correlates responses and validates their operation shape", async () => {
@@ -377,11 +396,11 @@ test("fixed tool schemas infer only the current agent's focused browser session"
       maxLength: MAX_AGENT_BROWSER_LOCATOR_CODE_LENGTH,
       pattern: "\\S",
       description:
-        'One page locator expression with literal arguments, for example page.locator("tr.athing").nth(11).next("tr").getByRole("link", {name:/comments?|discuss/i}).',
+        'One page locator expression with literal arguments, for example page.locator("[data-row]").nth(2).getByRole("button", {name:"Details"}).',
     },
   );
   assert.deepEqual(
-    locateTool.output.schema.properties.node.required,
+    locateTool.output.schema.oneOf[0].properties.node.required,
     [
       "ref",
       "role",
@@ -392,16 +411,20 @@ test("fixed tool schemas infer only the current agent's focused browser session"
     ],
   );
   assert.equal(
-    locateTool.output.schema.properties.node.properties.actionable.const,
+    locateTool.output.schema.oneOf[0].properties.node.properties.actionable.const,
     true,
   );
   assert.equal(
-    locateTool.output.schema.properties.node.properties.disabled.const,
+    locateTool.output.schema.oneOf[0].properties.node.properties.disabled.const,
     false,
   );
   assert.equal(
-    locateTool.output.schema.properties.node.properties.match.const,
+    locateTool.output.schema.oneOf[0].properties.node.properties.match.const,
     true,
+  );
+  assert.equal(
+    locateTool.output.schema.oneOf[1].properties.outcome.const,
+    "no_progress",
   );
   assert.deepEqual(clickTool.parameters.required, ["target"]);
   assert.match(
@@ -546,6 +569,7 @@ test("a failed element mutation blocks an unchanged retry on the current observa
   );
   const exec = {
     signal: new AbortController().signal,
+    rootCallId: "recovery-turn-1",
     agent: { session: { id: "conversation-recovery" } },
   };
   const args = {
@@ -589,9 +613,10 @@ test("a failed element mutation blocks an unchanged retry on the current observa
         ),
       );
     }
-    await assert.rejects(
-      repeated,
-      /snapshot.*unchanged.*revise the target/iu,
+    assertNoProgress(
+      await repeated,
+      "repeated_operation",
+      /same non-progressing result/iu,
     );
     assert.equal(
       port.sent.length,
@@ -599,6 +624,7 @@ test("a failed element mutation blocks an unchanged retry on the current observa
       "the repeated mutation must be stopped before Electron IPC",
     );
 
+    exec.rootCallId = "recovery-turn-2";
     const snapshot = snapshotTool.execute(
       { session_id: "browser-1" },
       exec,
@@ -637,7 +663,7 @@ test("a failed element mutation blocks an unchanged retry on the current observa
     }
     await assert.rejects(
       unchanged,
-      /snapshot.*unchanged.*revise the target/iu,
+      /snapshot.*unchanged.*browser_find/iu,
     );
     assert.equal(
       port.sent.length,
@@ -809,7 +835,7 @@ test("zero-match find loops are bounded within one agent turn", async () => {
         },
       ),
     );
-    await pending;
+    return await pending;
   };
 
   try {
@@ -822,25 +848,24 @@ test("zero-match find loops are bounded within one agent turn", async () => {
       },
       exec,
     );
-    assert.equal(repeated.searchExhausted, true);
+    assertNoProgress(
+      repeated,
+      "find_repeated",
+      /already succeeded.*unchanged page/iu,
+    );
     assert.equal(concludedTurns, 1);
     assert.equal(port.sent.length, beforeRepeat);
 
     exec.rootCallId = "turn-2";
     await runEmpty("missing two");
     await runEmpty("missing three");
-    await runEmpty("missing four");
-    const beforeBudget = port.sent.length;
-    const budgeted = await findTool.execute(
-      {
-        session_id: "browser-1",
-        query: { text: "missing five" },
-      },
-      exec,
+    const budgeted = await runEmpty("missing four");
+    assertNoProgress(
+      budgeted,
+      "find_exhausted",
+      /three distinct searches/iu,
     );
-    assert.equal(budgeted.searchExhausted, true);
     assert.equal(concludedTurns, 2);
-    assert.equal(port.sent.length, beforeBudget);
   } finally {
     for (const cleanup of cleanups) cleanup();
   }
@@ -928,25 +953,14 @@ test("native top-level call ids do not reset the active turn's zero-match budget
 
   await runEmpty(1);
   await runEmpty(2);
-  await runEmpty(3);
-  const sentBeforeBudget = port.sent.length;
-  const budgeted = await findTool.execute(
-    {
-      session_id: "browser-1",
-      query: { text: "missing 4" },
-    },
-    {
-      signal,
-      rootCallId: "native-call-4",
-      agent,
-      concludeTurn() {
-        concludedTurns += 1;
-      },
-    },
+  const budgeted = await runEmpty(3);
+  assertNoProgress(
+    budgeted,
+    "find_exhausted",
+    /three distinct searches/iu,
   );
-  assert.equal(budgeted.searchExhausted, true);
   assert.equal(concludedTurns, 1);
-  assert.equal(port.sent.length, sentBeforeBudget);
+  const sentBeforeBudget = port.sent.length;
 
   await listeners.get("agent/pre-step")(
     { agent, turn: 2, step: 2, signal },
@@ -1047,15 +1061,17 @@ test("successful find refinements cannot repeat or grow without bound on one pag
   );
   await runMatch("requested action", 1);
   const beforeRepeat = port.sent.length;
-  await assert.rejects(
-    findTool.execute(
-      {
-        session_id: "browser-1",
-        query: { text: "requested action" },
-      },
-      exec,
-    ),
-    /already succeeded.*unchanged page.*concluded/iu,
+  const repeated = await findTool.execute(
+    {
+      session_id: "browser-1",
+      query: { text: "requested action" },
+    },
+    exec,
+  );
+  assertNoProgress(
+    repeated,
+    "find_repeated",
+    /already succeeded.*unchanged page/iu,
   );
   assert.equal(port.sent.length, beforeRepeat);
   assert.equal(concludedTurns, 1);
@@ -1068,21 +1084,487 @@ test("successful find refinements cannot repeat or grow without bound on one pag
     await runMatch(`refinement ${String(index)}`, index);
   }
   const beforeBudget = port.sent.length;
-  await assert.rejects(
-    findTool.execute(
-      {
-        session_id: "browser-1",
-        query: { text: "refinement 6" },
-      },
-      exec,
-    ),
-    /5 distinct browser_find calls.*concluded/iu,
+  const exhausted = await findTool.execute(
+    {
+      session_id: "browser-1",
+      query: { text: "refinement 6" },
+    },
+    exec,
+  );
+  assertNoProgress(
+    exhausted,
+    "find_exhausted",
+    /shared target-resolution budget/iu,
   );
   assert.equal(port.sent.length, beforeBudget);
   assert.equal(concludedTurns, 2);
 });
 
-test("one agent turn hard-stops duplicate opens and a third identical remote failure", async () => {
+test("invalidated evidence does not deduplicate a query against the prior page", async () => {
+  const port = new FakeProcessPort();
+  const definitions = [];
+  let cleanup;
+  applyAgentBrowserTools(
+    {
+      effect(callback) {
+        cleanup = callback();
+      },
+      tools: {
+        register(definition) {
+          definitions.push(definition);
+        },
+      },
+    },
+    {},
+    port,
+  );
+  const findTool = definitions.find(
+    (definition) => definition.name === "browser_find",
+  );
+  const navigateTool = definitions.find(
+    (definition) => definition.name === "browser_navigate",
+  );
+  const exec = {
+    signal: new AbortController().signal,
+    rootCallId: "turn-find-after-navigation",
+    agent: {
+      session: { id: "conversation-find-after-navigation" },
+    },
+  };
+  const findArgs = {
+    session_id: "browser-1",
+    query: { text: "Settings" },
+  };
+  const findResult = (snapshotId, ref, url) => ({
+    ...sessionResult({
+      generation: Number(snapshotId.slice(1)),
+      url,
+    }),
+    snapshotId,
+    nodes: [{
+      ref,
+      role: "link",
+      name: "Settings",
+      actionable: true,
+      match: true,
+    }],
+    view: "matches",
+    totalNodes: 10,
+    actionableNodes: 3,
+    totalMatches: 1,
+    offset: 0,
+    indexTruncated: false,
+  });
+
+  try {
+    const firstFind = findTool.execute(findArgs, exec);
+    const firstFindRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        firstFindRequest.requestId,
+        "find",
+        findResult(
+          "s1",
+          "s1:e1",
+          "https://example.com/first",
+        ),
+      ),
+    );
+    await firstFind;
+
+    const navigated = navigateTool.execute(
+      {
+        session_id: "browser-1",
+        url: "https://example.com/second",
+      },
+      exec,
+    );
+    const navigateRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        navigateRequest.requestId,
+        "navigate",
+        sessionResult({
+          generation: 2,
+          snapshotRequired: true,
+          url: "https://example.com/second",
+        }),
+      ),
+    );
+    await navigated;
+
+    const sentBeforeSecondFind = port.sent.length;
+    const secondFind = findTool.execute(findArgs, exec);
+    assert.equal(port.sent.length, sentBeforeSecondFind + 1);
+    const secondFindRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        secondFindRequest.requestId,
+        "find",
+        findResult(
+          "s2",
+          "s2:e1",
+          "https://example.com/second",
+        ),
+      ),
+    );
+    const result = await secondFind;
+    assert.equal(result.snapshotId, "s2");
+  } finally {
+    cleanup?.();
+  }
+});
+
+test("browser no-progress guards conclude through the real ToolRuntime", async () => {
+  const ctx = new Context();
+  await ctx.plugin(SystemPrompt);
+  await ctx.plugin(ToolRuntime);
+  const port = new FakeProcessPort();
+  applyAgentBrowserTools(ctx, {}, port);
+  const signal = new AbortController().signal;
+  const agent = {
+    session: { id: "conversation-runtime-circuit" },
+  };
+  const args = {
+    session_id: "browser-1",
+    query: { text: "requested action" },
+  };
+  const rootCallId = ToolCallId("browser-root-call");
+
+  try {
+    const first = ctx.tools.execute({
+      callId: ToolCallId("browser-find-1"),
+      rootCallId,
+      name: "browser_find",
+      arguments: args,
+      signal,
+      agent,
+    });
+    await Promise.resolve();
+    const request = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        request.requestId,
+        "find",
+        {
+          ...sessionResult(),
+          snapshotId: "s1",
+          nodes: [{
+            ref: "s1:e1",
+            role: "link",
+            name: "requested action",
+            actionable: true,
+            disabled: false,
+            match: true,
+          }],
+          view: "context",
+          totalNodes: 1,
+          actionableNodes: 1,
+          totalMatches: 1,
+          offset: 0,
+          indexTruncated: false,
+        },
+      ),
+    );
+    const firstResult = await first;
+    assert.equal(firstResult.isError, false);
+
+    const sentBeforeRepeat = port.sent.length;
+    const repeated = await ctx.tools.execute({
+      callId: ToolCallId("browser-find-2"),
+      rootCallId,
+      name: "browser_find",
+      arguments: args,
+      signal,
+      agent,
+    });
+    assert.equal(port.sent.length, sentBeforeRepeat);
+    assert.equal(repeated.isError, false);
+    assert.equal(repeated.concludesTurn, true);
+    assert.equal(repeated.value.outcome, "no_progress");
+    assert.equal(repeated.value.code, "find_repeated");
+    assert.match(
+      repeated.content[0].text,
+      /no further browser operation.*current turn/iu,
+    );
+  } finally {
+    await ctx.fiber.dispose();
+  }
+});
+
+test("real ToolRuntime terminates cross-operation browser ping-pong", async () => {
+  const ctx = new Context();
+  await ctx.plugin(SystemPrompt);
+  await ctx.plugin(ToolRuntime);
+  const port = new FakeProcessPort();
+  applyAgentBrowserTools(ctx, {}, port);
+  const signal = new AbortController().signal;
+  const agent = {
+    session: { id: "conversation-runtime-ping-pong" },
+  };
+  const rootCallId = ToolCallId("browser-ping-pong-root");
+  let callIndex = 0;
+  const runFailure = async (url) => {
+    callIndex += 1;
+    const pending = ctx.tools.execute({
+      callId: ToolCallId(
+        `browser-navigate-${String(callIndex)}`,
+      ),
+      rootCallId,
+      name: "browser_navigate",
+      arguments: {
+        session_id: "browser-1",
+        url,
+      },
+      signal,
+      agent,
+    });
+    await Promise.resolve();
+    const request = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserErrorResponse(
+        request.requestId,
+        new Error("navigation outcome remained unknown"),
+        { code: "navigation_failed", outcome: "unknown" },
+      ),
+    );
+    return await pending;
+  };
+
+  try {
+    const first = await runFailure("https://example.com/a");
+    const second = await runFailure("https://example.com/b");
+    const third = await runFailure("https://example.com/a");
+    const fourth = await runFailure("https://example.com/b");
+
+    for (const result of [first, second, third]) {
+      assert.equal(result.isError, true);
+      assert.equal(result.concludesTurn, undefined);
+    }
+    assert.equal(fourth.isError, false);
+    assert.equal(fourth.concludesTurn, true);
+    assertNoProgress(
+      fourth.value,
+      "ping_pong_loop",
+      /browser-state cycle/iu,
+    );
+
+    const sentBeforeHaltedCall = port.sent.length;
+    const halted = await ctx.tools.execute({
+      callId: ToolCallId("browser-navigate-after-stop"),
+      rootCallId,
+      name: "browser_navigate",
+      arguments: {
+        session_id: "browser-1",
+        url: "https://example.com/c",
+      },
+      signal,
+      agent,
+    });
+    assert.equal(port.sent.length, sentBeforeHaltedCall);
+    assert.equal(halted.isError, false);
+    assert.equal(halted.concludesTurn, true);
+    assert.equal(halted.value.code, "ping_pong_loop");
+  } finally {
+    await ctx.fiber.dispose();
+  }
+});
+
+test("successful browser navigation oscillation concludes on the repeated state cycle", async () => {
+  const port = new FakeProcessPort();
+  const definitions = [];
+  const cleanups = [];
+  applyAgentBrowserTools(
+    {
+      effect(callback) {
+        const cleanup = callback();
+        if (typeof cleanup === "function") cleanups.push(cleanup);
+      },
+      tools: {
+        register(definition) {
+          definitions.push(definition);
+        },
+      },
+    },
+    {},
+    port,
+  );
+  const navigateTool = definitions.find(
+    (definition) => definition.name === "browser_navigate",
+  );
+  const snapshotTool = definitions.find(
+    (definition) => definition.name === "browser_snapshot",
+  );
+  let concludedTurns = 0;
+  const exec = {
+    signal: new AbortController().signal,
+    rootCallId: "turn-navigation-cycle",
+    concludeTurn() {
+      concludedTurns += 1;
+    },
+    agent: {
+      session: { id: "conversation-navigation-cycle" },
+    },
+  };
+  const urls = [
+    "https://example.com/a",
+    "https://example.com/b",
+    "https://example.com/a",
+    "https://example.com/b",
+  ];
+
+  try {
+    let terminal;
+    for (const [index, url] of urls.entries()) {
+      const pending = navigateTool.execute(
+        { session_id: "browser-1", url },
+        exec,
+      );
+      const request = port.sent.at(-1);
+      port.emit(
+        "message",
+        agentBrowserSuccessResponse(
+          request.requestId,
+          "navigate",
+          sessionResult({
+            generation: index + 2,
+            snapshotRequired: true,
+            url,
+          }),
+        ),
+      );
+      const result = await pending;
+      if (index < 3) {
+        assert.equal(result.url, url);
+        const snapshot = snapshotTool.execute(
+          { session_id: "browser-1" },
+          exec,
+        );
+        const snapshotRequest = port.sent.at(-1);
+        port.emit(
+          "message",
+          agentBrowserSuccessResponse(
+            snapshotRequest.requestId,
+            "snapshot",
+            {
+              ...sessionResult({
+                generation: index + 2,
+                snapshotRequired: false,
+                url,
+              }),
+              snapshotId: `s${String(index + 2)}`,
+              nodes: [],
+              totalNodes: 0,
+              actionableNodes: 0,
+              indexTruncated: false,
+            },
+          ),
+        );
+        await snapshot;
+      } else {
+        terminal = result;
+      }
+    }
+    assertNoProgress(
+      terminal,
+      "ping_pong_loop",
+      /browser-state cycle/iu,
+    );
+    assert.equal(concludedTurns, 1);
+
+    const sentBeforeStoppedCall = port.sent.length;
+    assertNoProgress(
+      await navigateTool.execute(
+        {
+          session_id: "browser-1",
+          url: "https://example.com/c",
+        },
+        exec,
+      ),
+      "ping_pong_loop",
+      /browser-state cycle/iu,
+    );
+    assert.equal(port.sent.length, sentBeforeStoppedCall);
+  } finally {
+    for (const cleanup of cleanups) cleanup();
+  }
+});
+
+test("an unchanged redundant snapshot concludes without replaying page content", async () => {
+  const ctx = new Context();
+  await ctx.plugin(SystemPrompt);
+  await ctx.plugin(ToolRuntime);
+  const port = new FakeProcessPort();
+  applyAgentBrowserTools(ctx, {}, port);
+  const signal = new AbortController().signal;
+  const agent = {
+    session: { id: "conversation-runtime-snapshot-loop" },
+  };
+  const args = { session_id: "browser-1" };
+  const rootCallId = ToolCallId("browser-snapshot-root");
+  const snapshot = {
+    ...sessionResult(),
+    snapshotId: "s1",
+    nodes: [{
+      ref: "s1:e1",
+      role: "link",
+      name: "Target",
+      actionable: true,
+      disabled: false,
+    }],
+    view: "outline",
+    totalNodes: 1,
+    actionableNodes: 1,
+    indexTruncated: false,
+  };
+  const executeSnapshot = async (callId) => {
+    const pending = ctx.tools.execute({
+      callId: ToolCallId(callId),
+      rootCallId,
+      name: "browser_snapshot",
+      arguments: args,
+      signal,
+      agent,
+    });
+    await Promise.resolve();
+    const request = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        request.requestId,
+        "snapshot",
+        snapshot,
+      ),
+    );
+    return await pending;
+  };
+
+  try {
+    const first = await executeSnapshot("browser-snapshot-1");
+    assert.equal(first.isError, false);
+    assert.equal(first.concludesTurn, undefined);
+    assert.match(first.content[0].text, /\[s1:e1\]/u);
+
+    const repeated = await executeSnapshot("browser-snapshot-2");
+    assert.equal(repeated.isError, false);
+    assert.equal(repeated.concludesTurn, true);
+    assertNoProgress(
+      repeated.value,
+      "snapshot_repeated",
+      /unchanged snapshot s1/iu,
+    );
+    assert.doesNotMatch(repeated.content[0].text, /\[s1:e1\]/u);
+  } finally {
+    await ctx.fiber.dispose();
+  }
+});
+
+test("one agent turn hard-stops duplicate opens and a repeated known remote failure", async () => {
   const port = new FakeProcessPort();
   const definitions = [];
   const listeners = new Map();
@@ -1167,9 +1649,10 @@ test("one agent turn hard-stops duplicate opens and a third identical remote fai
       ),
     );
   }
-  await assert.rejects(
-    duplicate,
-    /already opened.*concluded/iu,
+  assertNoProgress(
+    await duplicate,
+    "repeated_open",
+    /already opened/iu,
   );
   assert.equal(port.sent.length, sentBeforeDuplicate);
   assert.equal(concludedTurns, 1);
@@ -1182,22 +1665,20 @@ test("one agent turn hard-stops duplicate opens and a third identical remote fai
     session_id: "browser-1",
     url: "https://example.com/failing",
   };
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const pending = navigateTool.execute(navigateArgs, exec);
-    const request = port.sent.at(-1);
-    port.emit(
-      "message",
-      agentBrowserErrorResponse(
-        request.requestId,
-        new Error(`navigation failure ${String(attempt)}`),
-        { code: "navigation_failed", outcome: "known" },
-      ),
-    );
-    await assert.rejects(
-      pending,
-      (error) => error.remoteCode === "navigation_failed",
-    );
-  }
+  const pending = navigateTool.execute(navigateArgs, exec);
+  const request = port.sent.at(-1);
+  port.emit(
+    "message",
+    agentBrowserErrorResponse(
+      request.requestId,
+      new Error("navigation failure"),
+      { code: "navigation_failed", outcome: "known" },
+    ),
+  );
+  await assert.rejects(
+    pending,
+    (error) => error.remoteCode === "navigation_failed",
+  );
   const sentBeforeCircuit = port.sent.length;
   const circuit = navigateTool.execute(navigateArgs, exec);
   if (port.sent.length > sentBeforeCircuit) {
@@ -1206,17 +1687,156 @@ test("one agent turn hard-stops duplicate opens and a third identical remote fai
       "message",
       agentBrowserErrorResponse(
         request.requestId,
-        new Error("navigation failure 3"),
+        new Error("repeated navigation failure"),
         { code: "navigation_failed", outcome: "known" },
       ),
     );
   }
-  await assert.rejects(
-    circuit,
-    /failed twice.*concluded/iu,
+  assertNoProgress(
+    await circuit,
+    "repeated_operation",
+    /same non-progressing result/iu,
   );
   assert.equal(port.sent.length, sentBeforeCircuit);
   assert.equal(concludedTurns, 2);
+});
+
+test("live URL traces follow tab close and navigation", async () => {
+  const port = new FakeProcessPort();
+  const definitions = [];
+  let cleanup;
+  applyAgentBrowserTools(
+    {
+      effect(callback) {
+        cleanup = callback();
+      },
+      tools: {
+        register(definition) {
+          definitions.push(definition);
+        },
+      },
+    },
+    {},
+    port,
+  );
+  const openTool = definitions.find(
+    (definition) => definition.name === "browser_open",
+  );
+  const closeTool = definitions.find(
+    (definition) => definition.name === "browser_close",
+  );
+  const navigateTool = definitions.find(
+    (definition) => definition.name === "browser_navigate",
+  );
+  const exec = {
+    signal: new AbortController().signal,
+    rootCallId: "turn-reopen-closed-tab",
+    agent: {
+      session: { id: "conversation-reopen-closed-tab" },
+    },
+  };
+  const url = "https://example.com/reopen";
+
+  try {
+    const opened = openTool.execute({ url }, exec);
+    const firstOpenRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        firstOpenRequest.requestId,
+        "open",
+        sessionResult({
+          sessionId: "browser-reopen",
+          url,
+        }),
+      ),
+    );
+    await opened;
+
+    const closed = closeTool.execute(
+      { session_id: "browser-reopen" },
+      exec,
+    );
+    const closeRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        closeRequest.requestId,
+        "close",
+        {
+          sessionId: "browser-reopen",
+          closed: true,
+        },
+      ),
+    );
+    await closed;
+
+    const sentBeforeReopen = port.sent.length;
+    const reopened = openTool.execute({ url }, exec);
+    assert.equal(port.sent.length, sentBeforeReopen + 1);
+    const secondOpenRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        secondOpenRequest.requestId,
+        "open",
+        sessionResult({
+          sessionId: "browser-reopened",
+          url,
+        }),
+      ),
+    );
+    const result = await reopened;
+    assert.equal(result.sessionId, "browser-reopened");
+
+    const navigated = navigateTool.execute(
+      {
+        session_id: "browser-reopened",
+        url: "https://example.com/elsewhere",
+      },
+      exec,
+    );
+    const navigateRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        navigateRequest.requestId,
+        "navigate",
+        sessionResult({
+          sessionId: "browser-reopened",
+          snapshotRequired: true,
+          url: "https://example.com/elsewhere",
+        }),
+      ),
+    );
+    await navigated;
+
+    const sentBeforeOpenAfterNavigation = port.sent.length;
+    const openedAfterNavigation = openTool.execute({ url }, exec);
+    assert.equal(
+      port.sent.length,
+      sentBeforeOpenAfterNavigation + 1,
+    );
+    const thirdOpenRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        thirdOpenRequest.requestId,
+        "open",
+        sessionResult({
+          sessionId: "browser-after-navigation",
+          url,
+        }),
+      ),
+    );
+    const thirdResult = await openedAfterNavigation;
+    assert.equal(
+      thirdResult.sessionId,
+      "browser-after-navigation",
+    );
+  } finally {
+    cleanup?.();
+  }
 });
 
 test("fresh snapshot action refs authorize only their listed mutations", async () => {
@@ -1385,6 +2005,10 @@ test("browser_find binds a constrained one-based ordinal before authorizing a sc
     findTool.parameters.properties.query;
   assert.equal(
     Object.hasOwn(querySchema.properties, "ordinal"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(findTool.parameters.properties, "ordinal"),
     true,
   );
   assert.equal(
@@ -1403,8 +2027,8 @@ test("browser_find binds a constrained one-based ordinal before authorizing a sc
       query: {
         role: "listitem",
         name: "Result",
-        ordinal: 8,
       },
+      ordinal: 8,
       view: "subtree",
       depth: 2,
     },
@@ -1422,7 +2046,7 @@ test("browser_find binds a constrained one-based ordinal before authorizing a sc
     },
     view: "subtree",
     depth: 2,
-    limit: 20,
+    limit: 5,
   });
   const ordinalResult = {
     ...sessionResult(),
@@ -1510,8 +2134,8 @@ test("browser_find binds a constrained one-based ordinal before authorizing a sc
       exact: true,
     },
     view: "matches",
-    depth: 2,
-    limit: 20,
+    depth: 0,
+    limit: 5,
   });
   port.emit(
     "message",
@@ -1597,10 +2221,12 @@ test("browser_find rejects invalid or unconstrained ordinals before IPC", () => 
   );
   const exec = {
     signal: new AbortController().signal,
+    rootCallId: "invalid-ordinal-0",
     agent: { session: { id: "conversation-invalid-ordinal" } },
   };
 
-  for (const ordinal of [0, 1.5]) {
+  for (const [index, ordinal] of [0, 1.5].entries()) {
+    exec.rootCallId = `invalid-ordinal-${String(index + 1)}`;
     const sentBefore = port.sent.length;
     assert.throws(
       () =>
@@ -1609,29 +2235,82 @@ test("browser_find rejects invalid or unconstrained ordinals before IPC", () => 
             session_id: "browser-1",
             query: {
               role: "listitem",
-              ordinal,
             },
+            ordinal,
           },
           exec,
         ),
-      /query ordinal must be a positive integer/iu,
+      /browser_find ordinal must be a positive integer/iu,
     );
     assert.equal(port.sent.length, sentBefore);
   }
 
+  exec.rootCallId = "invalid-ordinal-only";
   const sentBeforeOrdinalOnly = port.sent.length;
   assert.throws(
     () =>
       findTool.execute(
         {
           session_id: "browser-1",
-          query: { ordinal: 8 },
+          query: {},
+          ordinal: 8,
         },
         exec,
       ),
     /requires a scope or semantic constraint/iu,
   );
   assert.equal(port.sent.length, sentBeforeOrdinalOnly);
+});
+
+test("repeated malformed browser arguments terminate the current turn", async () => {
+  const port = new FakeProcessPort();
+  const definitions = [];
+  applyAgentBrowserTools(
+    {
+      effect(callback) {
+        callback();
+      },
+      tools: {
+        register(definition) {
+          definitions.push(definition);
+        },
+      },
+    },
+    {},
+    port,
+  );
+  const findTool = definitions.find(
+    (definition) => definition.name === "browser_find",
+  );
+  let concludedTurns = 0;
+  const exec = {
+    signal: new AbortController().signal,
+    rootCallId: "malformed-find-turn",
+    agent: {
+      session: { id: "conversation-malformed-find" },
+    },
+    concludeTurn() {
+      concludedTurns += 1;
+    },
+  };
+  const invalidArgs = {
+    session_id: "browser-1",
+    query: { role: "link", text: "comments" },
+    index: 16,
+  };
+
+  assert.throws(
+    () => findTool.execute(invalidArgs, exec),
+    /unexpected fields: index.*Allowed fields:.*ordinal/iu,
+  );
+  const repeated = await findTool.execute(invalidArgs, exec);
+  assertNoProgress(
+    repeated,
+    "repeated_operation",
+    /same non-progressing result/iu,
+  );
+  assert.equal(concludedTurns, 1);
+  assert.equal(port.sent.length, 0);
 });
 
 test("restricted generated locator requires macro evidence and authorizes one exact action ref", async () => {
@@ -1771,6 +2450,149 @@ test("restricted generated locator requires macro evidence and authorizes one ex
       ),
     );
     await click;
+  } finally {
+    for (const cleanup of cleanups) cleanup();
+  }
+});
+
+test("a locate rejected before dispatch does not poison recovered snapshot actions", async () => {
+  const port = new FakeProcessPort();
+  const definitions = [];
+  const cleanups = [];
+  applyAgentBrowserTools(
+    {
+      effect(callback) {
+        const cleanup = callback();
+        if (typeof cleanup === "function") cleanups.push(cleanup);
+      },
+      tools: {
+        register(definition) {
+          definitions.push(definition);
+        },
+      },
+    },
+    {},
+    port,
+  );
+  const snapshotTool = definitions.find(
+    (definition) => definition.name === "browser_snapshot",
+  );
+  const locateTool = definitions.find(
+    (definition) => definition.name === "browser_locate",
+  );
+  const clickTool = definitions.find(
+    (definition) => definition.name === "browser_click",
+  );
+  const exec = {
+    signal: new AbortController().signal,
+    rootCallId: "turn-locate-preflight",
+    agent: {
+      session: {
+        id: "conversation-locate-preflight",
+      },
+    },
+  };
+  const snapshotResult = {
+    ...sessionResult(),
+    snapshotId: "s1",
+    nodes: [
+      {
+        ref: "s1:e1",
+        role: "button",
+        name: "Stale action",
+        actionable: true,
+        disabled: false,
+      },
+      {
+        ref: "s1:e2",
+        role: "button",
+        name: "Recovered action",
+        actionable: true,
+        disabled: false,
+      },
+    ],
+    totalNodes: 2,
+    actionableNodes: 2,
+  };
+
+  const emitSnapshot = async () => {
+    const pending = snapshotTool.execute(
+      { session_id: "browser-1" },
+      exec,
+    );
+    const request = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        request.requestId,
+        "snapshot",
+        snapshotResult,
+      ),
+    );
+    await pending;
+  };
+
+  try {
+    await emitSnapshot();
+
+    const staleClick = clickTool.execute(
+      {
+        session_id: "browser-1",
+        target: { ref: "s1:e1" },
+      },
+      exec,
+    );
+    const staleRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserErrorResponse(
+        staleRequest.requestId,
+        new Error("stale ref"),
+        { code: "stale_ref", outcome: "known" },
+      ),
+    );
+    await assert.rejects(
+      staleClick,
+      (error) => error.remoteCode === "stale_ref",
+    );
+
+    const sentBeforeLocate = port.sent.length;
+    await assert.rejects(
+      locateTool.execute(
+        {
+          session_id: "browser-1",
+          code:
+            'page.getByRole("button", {name:"Recovered action", exact:true})',
+        },
+        exec,
+      ),
+      /requires a current macro observation/iu,
+    );
+    assert.equal(port.sent.length, sentBeforeLocate);
+
+    await emitSnapshot();
+
+    const recoveredClick = clickTool.execute(
+      {
+        session_id: "browser-1",
+        target: { ref: "s1:e2" },
+      },
+      exec,
+    );
+    const recoveredRequest = port.sent.at(-1);
+    if (recoveredRequest.operation !== "click") {
+      await recoveredClick;
+    }
+    assert.equal(recoveredRequest.operation, "click");
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        recoveredRequest.requestId,
+        "click",
+        sessionResult({ snapshotRequired: true }),
+      ),
+    );
+    await recoveredClick;
   } finally {
     for (const cleanup of cleanups) cleanup();
   }
@@ -1949,6 +2771,14 @@ test("generated locator failures revoke action evidence and successful refs repl
       (error) => error.remoteCode === "ambiguous_target",
     );
 
+    listeners.get("agent/status")({
+      agent,
+      status: "idle",
+    });
+    await listeners.get("agent/pre-step")(
+      { agent, turn: 2, step: 1, signal },
+      async () => ({ kind: "enter", messages: [] }),
+    );
     const refreshedSnapshot = snapshotTool.execute(
       { session_id: "browser-1" },
       exec,
@@ -1974,9 +2804,26 @@ test("generated locator failures revoke action evidence and successful refs repl
         },
       ),
     );
-    await refreshedSnapshot;
+    const refreshedObservation = await refreshedSnapshot;
+    assert.equal(
+      refreshedObservation.actionAuthorization,
+      "refinement-required",
+    );
+    const refreshedOutput = snapshotTool.output.render(
+      {},
+      refreshedObservation,
+    )[0].text;
+    assert.match(
+      refreshedOutput,
+      /no mutation ref is authorized.*browser_find/iu,
+    );
+    assert.match(
+      refreshedOutput,
+      /\[s1:e1\].*\[scope-only\]/u,
+    );
+    assert.doesNotMatch(refreshedOutput, /\[actions=/u);
     await listeners.get("agent/pre-step")(
-      { agent, turn: 1, step: 5, signal },
+      { agent, turn: 2, step: 2, signal },
       async () => ({ kind: "enter", messages: [] }),
     );
 
@@ -2009,7 +2856,7 @@ test("generated locator failures revoke action evidence and successful refs repl
     assert.equal(port.sent.length, sentBeforeSemanticMutation);
 
     await listeners.get("agent/pre-step")(
-      { agent, turn: 2, step: 1, signal },
+      { agent, turn: 3, step: 1, signal },
       async () => ({ kind: "enter", messages: [] }),
     );
     await runSuccessfulLocate("Resolved action", "s1:e4");
@@ -2252,9 +3099,10 @@ test("generated locator attempts are bounded per owner session snapshot and turn
         ),
       );
     }
-    await assert.rejects(
-      exhausted,
-      /3 distinct browser_locate calls.*concluded/iu,
+    assertNoProgress(
+      await exhausted,
+      "locate_exhausted",
+      /shared target-resolution budget/iu,
     );
     assert.equal(port.sent.length, sentBeforeBudget);
     assert.equal(concludedTurns, 1);
@@ -2295,13 +3143,18 @@ test("generated locator attempts are bounded per owner session snapshot and turn
         ),
       );
     }
-    await assert.rejects(
-      repeated,
-      /already succeeded.*unchanged snapshot.*concluded/iu,
+    assertNoProgress(
+      await repeated,
+      "locate_repeated",
+      /already succeeded.*unchanged snapshot/iu,
     );
     assert.equal(port.sent.length, sentBeforeRepeat);
     assert.equal(concludedTurns, 2);
 
+    await listeners.get("agent/pre-step")(
+      { agent, turn: 3, step: 1, signal },
+      async () => ({ kind: "enter", messages: [] }),
+    );
     await observe(2);
     await successfulLocate("Resolved action", "s2:e2", 2);
     assert.equal(port.sent.length, sentBeforeRepeat + 2);
@@ -2310,7 +3163,7 @@ test("generated locator attempts are bounded per owner session snapshot and turn
   }
 });
 
-test("plugin registers twelve exclusive tools and forwards owner-scoped semantic and wait calls", async () => {
+test("plugin registers thirteen exclusive tools and forwards owner-scoped semantic, scroll, and wait calls", async () => {
   const port = new FakeProcessPort();
   const definitions = [];
   const promptSections = [];
@@ -2349,6 +3202,7 @@ test("plugin registers twelve exclusive tools and forwards owner-scoped semantic
       "browser_click",
       "browser_fill",
       "browser_press",
+      "browser_scroll",
       "browser_wait",
       "browser_screenshot",
       "browser_close",
@@ -2376,7 +3230,7 @@ test("plugin registers twelve exclusive tools and forwards owner-scoped semantic
   );
   assert.match(
     AGENT_BROWSER_INTENT_PROMPT,
-    /query\.ordinal.*after those constraints/isu,
+    /pass ordinal beside query.*after those constraints/isu,
   );
   assert.match(
     AGENT_BROWSER_INTENT_PROMPT,
@@ -2406,9 +3260,20 @@ test("plugin registers twelve exclusive tools and forwards owner-scoped semantic
     AGENT_BROWSER_INTENT_PROMPT,
     /human-control handoff ends the current browser turn/iu,
   );
+  assert.match(
+    AGENT_BROWSER_INTENT_PROMPT,
+    /browser_scroll.*lazy|lazy.*browser_scroll/iu,
+  );
   assert.doesNotMatch(
     AGENT_BROWSER_INTENT_PROMPT,
     /comments|replies|story/iu,
+  );
+  assert.doesNotMatch(
+    definitions.map((definition) => definition.description).join("\n") +
+      JSON.stringify(
+        definitions.map((definition) => definition.parameters),
+      ),
+    /ycombinator|tr\.athing|comments\?|discuss/iu,
   );
   assert.equal(
     definitions.every(
@@ -2459,6 +3324,50 @@ test("plugin registers twelve exclusive tools and forwards owner-scoped semantic
     waitTool.output.render({}, sessionResult())[0].text,
     /Observed requested text/u,
   );
+  const scrollTool = definitions.find(
+    (definition) => definition.name === "browser_scroll",
+  );
+  const scrollPending = scrollTool.execute(
+    {
+      session_id: "browser-1",
+      direction: "down",
+    },
+    {
+      signal: new AbortController().signal,
+      agent: { session: { id: "conversation-4" } },
+    },
+  );
+  const scrollRequest = port.sent.at(-1);
+  assert.equal(scrollRequest.operation, "scroll");
+  assert.deepEqual(scrollRequest.payload, {
+    sessionId: "browser-1",
+    direction: "down",
+    amount: 600,
+  });
+  const scrollResult = {
+    ...sessionResult({ snapshotRequired: true }),
+    scope: "page",
+    beforeX: 0,
+    beforeY: 20,
+    afterX: 0,
+    afterY: 620,
+    maxX: 0,
+    maxY: 2_000,
+    moved: true,
+  };
+  port.emit(
+    "message",
+    agentBrowserSuccessResponse(
+      scrollRequest.requestId,
+      "scroll",
+      scrollResult,
+    ),
+  );
+  assert.deepEqual(await scrollPending, scrollResult);
+  const renderedScroll =
+    scrollTool.output.render({}, scrollResult)[0].text;
+  assert.match(renderedScroll, /y 620\/2000 from 20/iu);
+  assert.match(renderedScroll, /browser_snapshot/iu);
   const findTool = definitions.find(
     (definition) => definition.name === "browser_find",
   );
@@ -2484,15 +3393,15 @@ test("plugin registers twelve exclusive tools and forwards owner-scoped semantic
       actionable: true,
       exact: false,
     },
-    view: "context",
-    depth: 2,
-    limit: 20,
+    view: "matches",
+    depth: 0,
+    limit: 5,
   });
   const findResult = {
     ...sessionResult(),
     snapshotId: "s1",
     nodes: [],
-    view: "context",
+    view: "matches",
     totalNodes: 10_000,
     actionableNodes: 500,
     totalMatches: 0,
@@ -2539,9 +3448,45 @@ test("plugin registers twelve exclusive tools and forwards owner-scoped semantic
     differentiatedFindOutput,
     /does not satisfy the query; do not treat as a match/iu,
   );
+  const nearbyActionLine = differentiatedFindOutput
+    .split("\n")
+    .find((line) => line.includes("[s1:e8]"));
+  assert.match(nearbyActionLine, /\[scope-only\]/u);
+  assert.doesNotMatch(nearbyActionLine, /\[actions=/u);
   assert.match(
     differentiatedFindOutput,
     /Resolution complete.*browser_click.*s1:e9.*do not issue another browser_find/iu,
+  );
+  const actionableWithStructuralEcho =
+    findTool.output.render({}, {
+      ...findResult,
+      nodes: [
+        {
+          ref: "s1:e8",
+          role: "row",
+          name: "Requested action",
+          actionable: false,
+          match: true,
+        },
+        {
+          ref: "s1:e9",
+          role: "link",
+          name: "Requested action",
+          actionable: true,
+          disabled: false,
+          actions: ["click", "press"],
+          match: true,
+        },
+      ],
+      totalMatches: 2,
+    })[0].text;
+  assert.match(
+    actionableWithStructuralEcho,
+    /Resolution complete.*target\.ref="s1:e9"/iu,
+  );
+  assert.doesNotMatch(
+    actionableWithStructuralEcho,
+    /One structural item directly matched/iu,
   );
   const clickTool = definitions.find(
     (definition) => definition.name === "browser_click",
@@ -2614,7 +3559,7 @@ test("plugin registers twelve exclusive tools and forwards owner-scoped semantic
       {},
       sessionResult({ snapshotRequired: true }),
     )[0].text,
-    /fresh snapshot required/u,
+    /prior refs are invalid.*browser_snapshot is required/u,
   );
   assert.doesNotMatch(
     clickTool.output.render({}, sessionResult())[0].text,
@@ -2686,6 +3631,309 @@ test("plugin registers twelve exclusive tools and forwards owner-scoped semantic
   await historyPending;
 
   for (const cleanup of cleanups) cleanup();
+});
+
+test("browser_scroll treats a stable boundary as evidence and stops an unchanged retry", async () => {
+  const port = new FakeProcessPort();
+  const definitions = [];
+  const cleanups = [];
+  applyAgentBrowserTools(
+    {
+      effect(callback) {
+        const cleanup = callback();
+        if (typeof cleanup === "function") cleanups.push(cleanup);
+      },
+      tools: {
+        register(definition) {
+          definitions.push(definition);
+        },
+      },
+    },
+    {},
+    port,
+  );
+  const scrollTool = definitions.find(
+    (definition) => definition.name === "browser_scroll",
+  );
+  let concludedTurns = 0;
+  const exec = {
+    signal: new AbortController().signal,
+    rootCallId: "turn-scroll-boundary",
+    concludeTurn() {
+      concludedTurns += 1;
+    },
+    agent: {
+      session: { id: "conversation-scroll-boundary" },
+    },
+  };
+  const args = {
+    session_id: "browser-1",
+    direction: "bottom",
+  };
+  const boundaryResult = {
+    ...sessionResult(),
+    scope: "page",
+    beforeX: 0,
+    beforeY: 2_000,
+    afterX: 0,
+    afterY: 2_000,
+    maxX: 0,
+    maxY: 2_000,
+    moved: false,
+  };
+
+  try {
+    const first = scrollTool.execute(args, exec);
+    const firstRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        firstRequest.requestId,
+        "scroll",
+        boundaryResult,
+      ),
+    );
+    assert.deepEqual(await first, boundaryResult);
+
+    const sentBeforeRepeat = port.sent.length;
+    const repeated = scrollTool.execute(args, exec);
+    await Promise.resolve();
+    if (port.sent.length > sentBeforeRepeat) {
+      const repeatedRequest = port.sent.at(-1);
+      port.emit(
+        "message",
+        agentBrowserSuccessResponse(
+          repeatedRequest.requestId,
+          "scroll",
+          boundaryResult,
+        ),
+      );
+    }
+    assertNoProgress(
+      await repeated,
+      "repeated_operation",
+      /same non-progressing result/iu,
+    );
+    assert.equal(port.sent.length, sentBeforeRepeat);
+    assert.equal(concludedTurns, 1);
+  } finally {
+    for (const cleanup of cleanups) cleanup();
+  }
+});
+
+test("browser_scroll accepts structural container refs only from current observation evidence", async () => {
+  const port = new FakeProcessPort();
+  const definitions = [];
+  const cleanups = [];
+  applyAgentBrowserTools(
+    {
+      effect(callback) {
+        const cleanup = callback();
+        if (typeof cleanup === "function") cleanups.push(cleanup);
+      },
+      tools: {
+        register(definition) {
+          definitions.push(definition);
+        },
+      },
+    },
+    {},
+    port,
+  );
+  const snapshotTool = definitions.find(
+    (definition) => definition.name === "browser_snapshot",
+  );
+  const scrollTool = definitions.find(
+    (definition) => definition.name === "browser_scroll",
+  );
+  const exec = {
+    signal: new AbortController().signal,
+    rootCallId: "turn-scroll-container-evidence",
+    agent: {
+      session: { id: "conversation-scroll-container" },
+    },
+  };
+  const args = {
+    session_id: "browser-1",
+    direction: "down",
+    within_ref: "s1:e1",
+  };
+
+  try {
+    const sentBeforeUngrounded = port.sent.length;
+    const ungrounded = scrollTool.execute(args, exec);
+    await Promise.resolve();
+    if (port.sent.length > sentBeforeUngrounded) {
+      const request = port.sent.at(-1);
+      port.emit(
+        "message",
+        agentBrowserErrorResponse(
+          request.requestId,
+          new Error("remote ref lookup should not run"),
+          { code: "stale_ref", outcome: "known" },
+        ),
+      );
+    }
+    await assert.rejects(
+      ungrounded,
+      /current observation.*browser_snapshot/iu,
+    );
+    assert.equal(port.sent.length, sentBeforeUngrounded);
+
+    const snapshot = snapshotTool.execute(
+      { session_id: "browser-1" },
+      exec,
+    );
+    const snapshotRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        snapshotRequest.requestId,
+        "snapshot",
+        {
+          ...sessionResult(),
+          snapshotId: "s1",
+          nodes: [{
+            ref: "s1:e1",
+            role: "region",
+            name: "Results",
+            actionable: false,
+          }],
+          view: "outline",
+          totalNodes: 1,
+          actionableNodes: 0,
+          indexTruncated: false,
+        },
+      ),
+    );
+    await snapshot;
+
+    const scroll = scrollTool.execute(args, exec);
+    const scrollRequest = port.sent.at(-1);
+    assert.equal(scrollRequest.operation, "scroll");
+    assert.equal(scrollRequest.payload.withinRef, "s1:e1");
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        scrollRequest.requestId,
+        "scroll",
+        {
+          ...sessionResult(),
+          scope: "s1:e1",
+          beforeX: 0,
+          beforeY: 400,
+          afterX: 0,
+          afterY: 400,
+          maxX: 0,
+          maxY: 400,
+          moved: false,
+        },
+      ),
+    );
+    assert.equal((await scroll).scope, "s1:e1");
+  } finally {
+    for (const cleanup of cleanups) cleanup();
+  }
+});
+
+test("an uncertain browser_scroll revokes host action evidence before another mutation", async () => {
+  const port = new FakeProcessPort();
+  const definitions = [];
+  const cleanups = [];
+  applyAgentBrowserTools(
+    {
+      effect(callback) {
+        const cleanup = callback();
+        if (typeof cleanup === "function") cleanups.push(cleanup);
+      },
+      tools: {
+        register(definition) {
+          definitions.push(definition);
+        },
+      },
+    },
+    {},
+    port,
+  );
+  const snapshotTool = definitions.find(
+    (definition) => definition.name === "browser_snapshot",
+  );
+  const scrollTool = definitions.find(
+    (definition) => definition.name === "browser_scroll",
+  );
+  const clickTool = definitions.find(
+    (definition) => definition.name === "browser_click",
+  );
+  const exec = {
+    signal: new AbortController().signal,
+    rootCallId: "turn-scroll-uncertain",
+    agent: { session: { id: "conversation-scroll-uncertain" } },
+  };
+
+  try {
+    const snapshot = snapshotTool.execute(
+      { session_id: "browser-1" },
+      exec,
+    );
+    const snapshotRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserSuccessResponse(
+        snapshotRequest.requestId,
+        "snapshot",
+        {
+          ...sessionResult(),
+          snapshotId: "s1",
+          nodes: [{
+            ref: "s1:e1",
+            role: "button",
+            name: "Continue",
+            actionable: true,
+            disabled: false,
+            actions: ["click", "press"],
+          }],
+          view: "outline",
+          totalNodes: 1,
+          actionableNodes: 1,
+          indexTruncated: false,
+        },
+      ),
+    );
+    await snapshot;
+
+    const scroll = scrollTool.execute(
+      {
+        session_id: "browser-1",
+        direction: "down",
+      },
+      exec,
+    );
+    const scrollRequest = port.sent.at(-1);
+    port.emit(
+      "message",
+      agentBrowserErrorResponse(
+        scrollRequest.requestId,
+        new Error("scroll acknowledgement lost"),
+        { code: "scroll_failed", outcome: "unknown" },
+      ),
+    );
+    await assert.rejects(scroll, /acknowledgement lost/iu);
+
+    const sentBeforeClick = port.sent.length;
+    await assert.rejects(
+      clickTool.execute(
+        {
+          session_id: "browser-1",
+          target: { ref: "s1:e1" },
+        },
+        exec,
+      ),
+      /invalidated evidence.*browser_snapshot/iu,
+    );
+    assert.equal(port.sent.length, sentBeforeClick);
+  } finally {
+    for (const cleanup of cleanups) cleanup();
+  }
 });
 
 test("browser_screenshot stores a durable model-visible image", async () => {
@@ -3649,6 +4897,7 @@ test("later browser turns reclaim once while newer human control supersedes a pe
 
   assert.deepEqual(await recoveredFind, {
     ...sessionResult({ generation: 2 }),
+    actionAuthorization: "refinement-required",
     snapshotId: "s2",
     nodes: [],
     view: "matches",
@@ -3660,6 +4909,7 @@ test("later browser turns reclaim once while newer human control supersedes a pe
   });
   assert.deepEqual(await recoveredSnapshot, {
     ...sessionResult({ generation: 2 }),
+    actionAuthorization: "refinement-required",
     snapshotId: "s3",
     nodes: [],
     totalNodes: 0,
@@ -4038,6 +5288,70 @@ test("snapshot output preserves neutral hierarchy and link destinations", () => 
   );
 });
 
+test("browser observation text stays within a bounded model projection", () => {
+  const port = new FakeProcessPort();
+  const definitions = [];
+  applyAgentBrowserTools(
+    {
+      effect(callback) {
+        callback();
+      },
+      tools: {
+        register(definition) {
+          definitions.push(definition);
+        },
+      },
+    },
+    {},
+    port,
+  );
+  const snapshotTool = definitions.find(
+    (definition) => definition.name === "browser_snapshot",
+  );
+  const findTool = definitions.find(
+    (definition) => definition.name === "browser_find",
+  );
+  const nodes = Array.from({ length: 300 }, (_, index) => ({
+    ref: `s1:e${String(index + 1)}`,
+    role: "link",
+    name: `Result ${String(index + 1)} ${"n".repeat(160)}`,
+    actionable: true,
+    disabled: false,
+    actions: ["click", "press"],
+    url: `https://example.com/items/${String(index + 1)}?${"q".repeat(160)}`,
+    description: "d".repeat(160),
+  }));
+  const snapshotOutput = snapshotTool.output.render({}, {
+    ...sessionResult(),
+    snapshotId: "s1",
+    nodes,
+    view: "outline",
+    totalNodes: 300,
+    actionableNodes: 300,
+    indexTruncated: false,
+  })[0].text;
+  const findOutput = findTool.output.render({}, {
+    ...sessionResult(),
+    snapshotId: "s1",
+    nodes: nodes.map((node, index) => ({
+      ...node,
+      match: index < 50,
+    })),
+    view: "context",
+    totalNodes: 300,
+    actionableNodes: 300,
+    totalMatches: 50,
+    offset: 0,
+    indexTruncated: false,
+  })[0].text;
+
+  for (const output of [snapshotOutput, findOutput]) {
+    assert.ok(Buffer.byteLength(output, "utf8") <= 8_192);
+    assert.match(output, /projection truncated/iu);
+    assert.match(output, /browser_find/iu);
+  }
+});
+
 test("tool calls require exec.agent.session.id and exact snake-case arguments", () => {
   const port = new FakeProcessPort();
   const definitions = [];
@@ -4080,7 +5394,7 @@ test("tool calls require exec.agent.session.id and exact snake-case arguments", 
           agent: { session: { id: "conversation-5" } },
         },
       ),
-    /invalid browser_click arguments/u,
+    /browser_click arguments are invalid: unexpected fields: unexpected/u,
   );
   assert.equal(port.sent.length, 0);
 });

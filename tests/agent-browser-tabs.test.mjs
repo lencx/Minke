@@ -1422,12 +1422,14 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
     source,
     /\.minke-tab:has\([\s\S]*data-agent-active[\s\S]*\)::after/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     source,
     /\.minke-agent-browser__view\[data-agent-active\]::before/u,
   );
-  assert.match(source, /offset-path:\s*inset\(/u);
-  assert.match(source, /offset-distance:\s*100%/u);
+  assert.doesNotMatch(
+    source,
+    /minke-agent-browser-frame-flow|offset-path|offset-distance/u,
+  );
   assert.doesNotMatch(
     source,
     /\.minke-tab:has\([\s\S]*?data-agent-active[\s\S]*?\)\s*\{[^}]*overflow:\s*hidden/u,
@@ -1450,10 +1452,6 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
     2,
   );
   assert.match(source, /background-size:\s*200% 100%/u);
-  assert.match(
-    source,
-    /@keyframes minke-agent-browser-frame-flow/u,
-  );
   assert.match(
     source,
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation:\s*none/u,
@@ -1788,6 +1786,25 @@ test("Agent Browser control styling animates only agent-owned surfaces", async (
       shiftedEnter: false,
       text: false,
     },
+  );
+});
+
+test("Agent Browser history entries are borderless", async () => {
+  const source = await readFile(
+    new URL(
+      "../packages/harness-overlay/src/client/tabs/agent-browser/styles.css",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const visitRule = source.match(
+    /\.minke-agent-browser-history__visit\s*\{(?<body>[^}]*)\}/u,
+  );
+  assert.notEqual(visitRule, null);
+  assert.doesNotMatch(visitRule.groups.body, /\bborder(?:-bottom)?:/u);
+  assert.doesNotMatch(
+    source,
+    /\.minke-agent-browser-history__visit:last-child/u,
   );
 });
 

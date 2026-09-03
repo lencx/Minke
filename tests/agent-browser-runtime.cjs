@@ -187,10 +187,14 @@ async function startFixtureServer() {
     });
     response.end(`<!doctype html>
       <html>
-        <head><title>Agent Browser Runtime</title></head>
+        <head>
+          <title>Agent Browser Runtime</title>
+          <style>html { scroll-behavior: smooth; }</style>
+        </head>
         <body>
           <script>
             window.__minkeButtonClicks = 0;
+            window.__minkeBelowFoldClicks = 0;
             window.__minkePoisonedLocatorCalls = 0;
             const nativeDocumentQuerySelectorAll =
               Document.prototype.querySelectorAll;
@@ -232,6 +236,12 @@ async function startFixtureServer() {
               </td>
             </tr>
           </table>
+          <div style="height: 1800px" aria-hidden="true"></div>
+          <button
+            type="button"
+            aria-label="Below fold"
+            onclick="window.__minkeBelowFoldClicks += 1"
+          >Below fold</button>
         </body>
       </html>`);
   });
@@ -432,9 +442,34 @@ async function run() {
       0,
       'generated locators must execute with isolated-world DOM intrinsics',
     );
+    const scrolled = await call('scroll', {
+      sessionId: opened.sessionId,
+      direction: 'down',
+      amount: 300,
+    });
+    assert.equal(scrolled.scope, 'page');
+    assert.equal(scrolled.moved, true);
+    assert.equal(scrolled.beforeY, 0);
+    assert.ok(scrolled.afterY > scrolled.beforeY);
+    assert.ok(scrolled.afterY <= scrolled.maxY);
+    assert.equal(scrolled.snapshotRequired, true);
+    await assert.rejects(
+      call('click', {
+        sessionId: opened.sessionId,
+        target: { ref: button.ref },
+      }),
+      (error) => error.code === 'snapshot_required',
+    );
+    const afterScrollSnapshot = await call('snapshot', {
+      sessionId: opened.sessionId,
+    });
+    const afterScrollButton = afterScrollSnapshot.nodes.find(
+      (node) => node.name === 'Continue',
+    );
+    assert.notEqual(afterScrollButton, undefined);
     await call('click', {
       sessionId: opened.sessionId,
-      target: { ref: button.ref },
+      target: { ref: afterScrollButton.ref },
     });
     const clickProjection = parseAgentBrowserProjection(
       runtime.projections()[0],
@@ -465,6 +500,29 @@ async function run() {
       [...Buffer.from(screenshot.data, 'base64').subarray(0, 8)],
       [137, 80, 78, 71, 13, 10, 26, 10],
     );
+    const beforeBelowFold = await call('snapshot', {
+      sessionId: opened.sessionId,
+    });
+    const belowFoldButton = beforeBelowFold.nodes.find(
+      (node) => node.name === 'Below fold',
+    );
+    assert.notEqual(belowFoldButton, undefined);
+    await call('click', {
+      sessionId: opened.sessionId,
+      target: { ref: belowFoldButton.ref },
+    });
+    assert.equal(
+      await agentGuest.executeJavaScript(
+        'window.__minkeBelowFoldClicks',
+      ),
+      1,
+    );
+    const returnedToTop = await call('scroll', {
+      sessionId: opened.sessionId,
+      direction: 'top',
+    });
+    assert.equal(returnedToTop.moved, true);
+    assert.equal(returnedToTop.afterY, 0);
 
     const human = await runtime.setControl(
       opened.sessionId,

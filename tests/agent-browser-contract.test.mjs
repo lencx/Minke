@@ -747,6 +747,93 @@ test("Agent Browser exposes the same bounded history commands to agents", () => 
   );
 });
 
+test("Agent Browser scroll requests and results expose bounded movement evidence", () => {
+  const request = createAgentBrowserRequest(
+    17,
+    "conversation-scroll",
+    "scroll",
+    {
+      sessionId: "browser-1",
+      direction: "down",
+      amount: 640,
+      withinRef: "s2:e4",
+    },
+  );
+  assert.deepEqual(parseAgentBrowserProcessRequest(request), request);
+  assert.deepEqual(request.payload, {
+    sessionId: "browser-1",
+    direction: "down",
+    amount: 640,
+    withinRef: "s2:e4",
+  });
+
+  for (const payload of [
+    {
+      sessionId: "browser-1",
+      direction: "sideways",
+      amount: 640,
+    },
+    {
+      sessionId: "browser-1",
+      direction: "down",
+      amount: 0,
+    },
+    {
+      sessionId: "browser-1",
+      direction: "bottom",
+      amount: 640,
+    },
+  ]) {
+    assert.throws(
+      () =>
+        createAgentBrowserRequest(
+          18,
+          "conversation-scroll",
+          "scroll",
+          payload,
+        ),
+      /scroll/iu,
+    );
+  }
+
+  const result = {
+    sessionId: "browser-1",
+    generation: 2,
+    owner: "agent",
+    status: "ready",
+    snapshotRequired: true,
+    url: "https://example.com/",
+    scope: "s2:e4",
+    beforeX: 0,
+    beforeY: 20,
+    afterX: 0,
+    afterY: 660,
+    maxX: 0,
+    maxY: 2_000,
+    moved: true,
+  };
+  assert.deepEqual(
+    parseAgentBrowserOperationResult("scroll", result),
+    result,
+  );
+  assert.throws(
+    () =>
+      parseAgentBrowserOperationResult("scroll", {
+        ...result,
+        moved: false,
+      }),
+    /scroll movement/iu,
+  );
+  assert.throws(
+    () =>
+      parseAgentBrowserOperationResult("scroll", {
+        ...result,
+        scope: "invented",
+      }),
+    /scroll scope/iu,
+  );
+});
+
 test("Agent Browser snapshot results expose only generation-bound refs", () => {
   const response = agentBrowserSuccessResponse(3, "snapshot", {
     sessionId: "browser-1",

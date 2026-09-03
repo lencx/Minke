@@ -36,6 +36,7 @@ import {
   type AgentBrowserOwner,
   type AgentBrowserProjection,
   type AgentBrowserRequest,
+  type AgentBrowserScrollDirection,
   type AgentBrowserTarget,
   type AgentBrowserSessionResult,
   type AgentBrowserSessionStatus,
@@ -1095,6 +1096,31 @@ export class AgentBrowserRuntime {
             signal,
           );
           return this.#sessionResult(state);
+        }
+        case "scroll": {
+          const withinRef =
+            typeof parsed.payload.withinRef === "string"
+              ? parsed.payload.withinRef
+              : undefined;
+          if (withinRef !== undefined) {
+            this.#requireFreshSnapshot(state);
+          }
+          const scroll = await cdp.scroll(
+            requiredString(
+              parsed.payload,
+              "direction",
+            ) as AgentBrowserScrollDirection,
+            typeof parsed.payload.amount === "number"
+              ? parsed.payload.amount
+              : undefined,
+            withinRef,
+            signal,
+          );
+          state.generation = cdp.generation;
+          return {
+            ...this.#sessionResult(state),
+            ...scroll,
+          };
         }
         case "wait":
           await cdp.waitForText(

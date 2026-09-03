@@ -71,6 +71,15 @@ class FakeDebugger extends EventEmitter {
     }],
   };
   generatedLocatorBackendNodeId = 7;
+  scrollResult = {
+    beforeX: 0,
+    beforeY: 0,
+    afterX: 0,
+    afterY: 640,
+    maxX: 0,
+    maxY: 2_000,
+    moved: true,
+  };
   axNodes = [
     {
       backendDOMNodeId: 7,
@@ -234,6 +243,13 @@ class FakeDebugger extends EventEmitter {
       case "Runtime.evaluate":
         return { result: { objectId: "document-1" } };
       case "Runtime.callFunctionOn":
+        if (
+          String(params.functionDeclaration).includes(
+            "minkeScroll",
+          )
+        ) {
+          return { result: { value: this.scrollResult } };
+        }
         if (
           String(params.functionDeclaration).includes(
             "minkeResolveGeneratedLocator",
@@ -2778,6 +2794,16 @@ test("pointer targets use the visible box intersection in CDP viewport coordinat
     { type: "mousePressed", x: 30, y: 30 },
     { type: "mouseReleased", x: 30, y: 30 },
   ]);
+  assert.deepEqual(
+    opened.guest.debugger.commands
+      .filter(({ method }) => method === "DOM.getNodeForLocation")
+      .at(-1).params,
+    {
+      x: 267,
+      y: 371,
+      includeUserAgentShadowDOM: true,
+    },
+  );
   const partialCursor = target.runtime.projections()[0].cursor;
   assert.deepEqual({
     ...partialCursor,
@@ -3675,6 +3701,168 @@ test("agent history actions invalidate refs and expose navigation availability",
   ]);
   assert.equal(stopped.status, "ready");
   assert.equal(stopped.snapshotRequired, true);
+
+  await target.runtime.closeOwner("conversation-1");
+  target.binding.dispose();
+  target.runtime.dispose();
+});
+
+test("scroll reports observable page or container movement and invalidates refs only when it moves", async () => {
+  const target = runtimeFixture();
+  const opened = await openAgentBrowser(target);
+  const snapshot = await target.runtime.handleProcessRequest(
+    createAgentBrowserRequest(
+      2,
+      "conversation-1",
+      "snapshot",
+      { sessionId: opened.result.sessionId },
+    ),
+    new AbortController().signal,
+  );
+  const containerRef = snapshot.nodes[0].ref;
+
+  const moved = await target.runtime.handleProcessRequest(
+    createAgentBrowserRequest(
+      3,
+      "conversation-1",
+      "scroll",
+      {
+        sessionId: opened.result.sessionId,
+        direction: "down",
+        amount: 640,
+        withinRef: containerRef,
+      },
+    ),
+    new AbortController().signal,
+  );
+  assert.deepEqual(
+    {
+      scope: moved.scope,
+      beforeX: moved.beforeX,
+      beforeY: moved.beforeY,
+      afterX: moved.afterX,
+      afterY: moved.afterY,
+      maxX: moved.maxX,
+      maxY: moved.maxY,
+      moved: moved.moved,
+      snapshotRequired: moved.snapshotRequired,
+    },
+    {
+      scope: containerRef,
+      beforeX: 0,
+      beforeY: 0,
+      afterX: 0,
+      afterY: 640,
+      maxX: 0,
+      maxY: 2_000,
+      moved: true,
+      snapshotRequired: true,
+    },
+  );
+  const scrollCall = opened.guest.debugger.commands.find(
+    ({ method, params }) =>
+      method === "Runtime.callFunctionOn" &&
+      String(params.functionDeclaration).includes("minkeScroll"),
+  );
+  assert.deepEqual(
+    scrollCall.params.arguments,
+    [{ value: "down" }, { value: 640 }],
+  );
+
+  await assert.rejects(
+    target.runtime.handleProcessRequest(
+      createAgentBrowserRequest(
+        4,
+        "conversation-1",
+        "click",
+        {
+          sessionId: opened.result.sessionId,
+          target: { ref: containerRef },
+        },
+      ),
+      new AbortController().signal,
+    ),
+    /browser_snapshot/u,
+  );
+
+  await target.runtime.handleProcessRequest(
+    createAgentBrowserRequest(
+      5,
+      "conversation-1",
+      "snapshot",
+      { sessionId: opened.result.sessionId },
+    ),
+    new AbortController().signal,
+  );
+  opened.guest.debugger.scrollResult = {
+    beforeX: 0,
+    beforeY: 0,
+    afterX: 0,
+    afterY: 0,
+    maxX: 0,
+    maxY: 2_000,
+    moved: false,
+  };
+  const boundary = await target.runtime.handleProcessRequest(
+    createAgentBrowserRequest(
+      6,
+      "conversation-1",
+      "scroll",
+      {
+        sessionId: opened.result.sessionId,
+        direction: "top",
+      },
+    ),
+    new AbortController().signal,
+  );
+  assert.equal(boundary.scope, "page");
+  assert.equal(boundary.moved, false);
+  assert.equal(boundary.snapshotRequired, false);
+
+  opened.guest.debugger.scrollResult = {
+    beforeX: 0,
+    beforeY: 0,
+    afterX: 0,
+    afterY: 100,
+    maxX: 0,
+    maxY: 2_000,
+    moved: false,
+  };
+  await assert.rejects(
+    target.runtime.handleProcessRequest(
+      createAgentBrowserRequest(
+        7,
+        "conversation-1",
+        "scroll",
+        {
+          sessionId: opened.result.sessionId,
+          direction: "down",
+          amount: 100,
+        },
+      ),
+      new AbortController().signal,
+    ),
+    (error) => {
+      assert.equal(error.code, "scroll_failed");
+      assert.equal(error.outcome, "unknown");
+      return true;
+    },
+  );
+  await assert.rejects(
+    target.runtime.handleProcessRequest(
+      createAgentBrowserRequest(
+        8,
+        "conversation-1",
+        "click",
+        {
+          sessionId: opened.result.sessionId,
+          target: { ref: containerRef },
+        },
+      ),
+      new AbortController().signal,
+    ),
+    /browser_snapshot/u,
+  );
 
   await target.runtime.closeOwner("conversation-1");
   target.binding.dispose();
