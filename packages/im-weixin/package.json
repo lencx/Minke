@@ -1,7 +1,7 @@
 {
   "name": "@lencx/minke-im-weixin",
   "description": "Minke-owned Weixin IM transport without an OpenClaw runtime dependency",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {

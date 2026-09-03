@@ -1,7 +1,7 @@
 {
   "name": "@lencx/minke-im-discord",
   "description": "Discord Bot API and Gateway v10 provider for the Minke IM Gateway",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {

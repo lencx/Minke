@@ -1,7 +1,7 @@
 {
   "name": "@lencx/minke-im-gateway",
   "description": "Provider-neutral IM gateway contracts and worker orchestration for Minke",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {

@@ -18,7 +18,7 @@ import {
 const DEFAULT_JSON_LIMIT = 2 * 1024 * 1024;
 const DEFAULT_MEDIA_LIMIT = 100 * 1024 * 1024;
 const DEFAULT_TRUSTED_HOST_SUFFIXES = [".weixin.qq.com"] as const;
-export const MINKE_WEIXIN_DEFAULT_BOT_AGENT = "Minke/0.3.0";
+export const MINKE_WEIXIN_DEFAULT_BOT_AGENT = "Minke/0.4.0";
 const BOT_AGENT_MAX_BYTES = 256;
 const MAX_RETRY_AFTER_MS = 24 * 60 * 60_000;
 const STALE_SESSION_CODE = -14;

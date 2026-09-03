@@ -11,7 +11,7 @@ import {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_USER_AGENT =
-  "DiscordBot (https://github.com/lencx/Minke, 0.3.0)";
+  "DiscordBot (https://github.com/lencx/Minke, 0.4.0)";
 const MAX_JSON_BYTES = 2 * 1024 * 1024;
 const MAX_RETRY_AFTER_MS = 7 * 24 * 60 * 60_000;
 

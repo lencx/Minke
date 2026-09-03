@@ -1,7 +1,7 @@
 {
   "name": "@lencx/minke-remote-access",
   "description": "Minke optional private remote-access lifecycles",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
