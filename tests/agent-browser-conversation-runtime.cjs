@@ -1171,6 +1171,9 @@ async function run() {
           frameOffsetPath: frameStyle.offsetPath,
           frameShadow: getComputedStyle(view).boxShadow,
           guestPointerEvents: getComputedStyle(guest).pointerEvents,
+          prefersReducedMotion: window.matchMedia(
+            "(prefers-reduced-motion: reduce)"
+          ).matches,
           tabAnimation:
             getComputedStyle(tab, "::after").animationName,
         };
@@ -1178,7 +1181,9 @@ async function run() {
     );
     assert.equal(
       agentControlStyling.tabAnimation,
-      'minke-agent-browser-tab-flow',
+      agentControlStyling.prefersReducedMotion
+        ? 'none'
+        : 'minke-agent-browser-tab-flow',
     );
     assert.equal(
       agentControlStyling.frameAnimation,
