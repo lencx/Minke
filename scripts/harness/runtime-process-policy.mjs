@@ -156,22 +156,37 @@ function collectChildProcessBindings(ast) {
     }
   });
 
-  return { direct, namespaces };
+  const bindings = { direct, namespaces };
+  // Harness can inject a spawner with `internals.spawn ?? spawn`.
+  // Its production fallback must remain covered by the launch audit.
+  walk(ast, (node) => {
+    if (
+      node.type !== "VariableDeclarator" ||
+      node.id.type !== "Identifier" ||
+      node.init?.type !== "LogicalExpression" ||
+      node.init.operator !== "??"
+    ) {
+      return;
+    }
+    const method = childProcessMethod(node.init.right, bindings);
+    if (method !== undefined) direct.set(node.id.name, method);
+  });
+  return bindings;
 }
 
-function childProcessMethod(call, bindings) {
+function childProcessMethod(callee, bindings) {
   if (
-    call.callee.type === "Identifier" &&
-    bindings.direct.has(call.callee.name)
+    callee.type === "Identifier" &&
+    bindings.direct.has(callee.name)
   ) {
-    return bindings.direct.get(call.callee.name);
+    return bindings.direct.get(callee.name);
   }
   if (
-    call.callee.type === "MemberExpression" &&
-    call.callee.object.type === "Identifier" &&
-    bindings.namespaces.has(call.callee.object.name)
+    callee.type === "MemberExpression" &&
+    callee.object.type === "Identifier" &&
+    bindings.namespaces.has(callee.object.name)
   ) {
-    const method = staticPropertyName(call.callee);
+    const method = staticPropertyName(callee);
     return childProcessMethods.has(method) ? method : undefined;
   }
   return undefined;
@@ -544,7 +559,7 @@ export async function inspectHarnessRuntimeProcessPolicy(runtimeRoot) {
 
     walk(ast, (node) => {
       if (node.type !== "CallExpression") return;
-      const method = childProcessMethod(node, bindings);
+      const method = childProcessMethod(node.callee, bindings);
       if (method !== undefined) {
         const launch = {
           method,

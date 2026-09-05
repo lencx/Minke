@@ -226,7 +226,7 @@ test("the background-process patch leaves generated ACL bundles to the runtime t
   );
 });
 
-test("the Windows picker worker keeps IPC open until its terminal result", async () => {
+test("the Windows picker worker keeps IPC open and avoids external path views", async () => {
   await withPatchedWin32PickerRuntime(async (runtimeRoot) => {
     const workerPath = resolve(
       runtimeRoot,
@@ -256,6 +256,7 @@ function decode(value, offsetOrType, maybeType) {
   }
   throw new Error("unexpected fake koffi decode");
 }
+decode.string16 = () => "C:\\\\fixture\\\\安卓开发";
 module.exports = {
   call(fn, _prototype, _self, ...args) {
     if (fn.slot === 20) args[0][0] = item;
@@ -281,7 +282,7 @@ module.exports = {
     return 8;
   },
   view() {
-    return Buffer.from("C:\\\\picked\\0", "utf16le");
+    throw new Error("koffi.view is unsafe in packaged Electron");
   },
 };
 `,
@@ -349,7 +350,7 @@ process.send = (message, callback) => {
       messages,
       [
         { kind: "showing", threadId: 4242 },
-        { kind: "done", path: "C:\\picked" },
+        { kind: "done", path: "C:\\fixture\\安卓开发" },
       ],
       "win32 folder dialog worker exited before reporting a result",
     );
@@ -458,6 +459,35 @@ launch("probe.exe", [], { stdio: "ignore", windowsHide: true });
       await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
     },
   );
+});
+
+test("Harness runtime process policy audits injectable child-process spawners", async () => {
+  for (const hidden of [false, true]) {
+    await withProcessPolicyFixture(
+      {
+        launchSource: `import { spawn } from "node:child_process";
+function launch(internals) {
+  const spawnProcess = internals.spawn ?? spawn;
+  spawnProcess("probe.exe", [], { windowsHide: ${String(hidden)} });
+}
+`,
+      },
+      async (runtimeRoot) => {
+        const inspection =
+          await inspectHarnessRuntimeProcessPolicy(runtimeRoot);
+        assert.equal(inspection.launches.length, 1);
+        if (hidden) {
+          assert.deepEqual(inspection.violations, []);
+          await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+        } else {
+          await assert.rejects(
+            verifyHarnessRuntimeProcessPolicy(runtimeRoot),
+            /spawn\(\) must set windowsHide: true/u,
+          );
+        }
+      },
+    );
+  }
 });
 
 test("Harness runtime process policy rejects visible restricted-token children", async () => {

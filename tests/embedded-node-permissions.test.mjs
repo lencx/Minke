@@ -86,8 +86,8 @@ async function loadPatchedHarnessScrubbedParentEnv(runtimeRoot) {
   ]);
   await applyHarnessRuntimePatches(runtimeRoot, patches);
 
-  // The scrub itself only needs Cordis base classes. Stub that unrelated
-  // dependency while executing the actual patched build artifact.
+  // Execute the real proxy overlay alongside the patched artifact; only the
+  // unrelated Cordis base classes need a stub in this isolated fixture.
   const cordisStubUrl =
     `data:text/javascript,${encodeURIComponent(
       "export class Context {}; export class Service {};",
@@ -99,6 +99,12 @@ async function loadPatchedHarnessScrubbedParentEnv(runtimeRoot) {
           shortCircuit: true,
           url: cordisStubUrl,
         };
+      }
+      if (specifier === "@deepseek-ai/dsh-http-proxy") {
+        return nextResolve(pathToFileURL(join(
+          projectRoot,
+          "vendor/deepseek-harness/packages/util/http-proxy/lib/index.js",
+        )).href, context);
       }
       return nextResolve(specifier, context);
     },

@@ -13,6 +13,10 @@ nodeLinker: hoisted
 overrides:
   '@codemirror/view': 6.43.9
   yauzl: 3.4.0
+  # Resolve Harness development dependencies from the pinned source checkout.
+  '@deepseek-ai/dsh-invariants': link:vendor/deepseek-harness/packages/runtime-diagnostics/invariants
+  '@deepseek-ai/dsh-llm': link:vendor/deepseek-harness/packages/llm/llm
+  '@deepseek-ai/dsh-typert-protocol': link:vendor/deepseek-harness/packages/typert/protocol
 
 allowBuilds:
   electron: true
@@ -25,13 +29,6 @@ minimumReleaseAgeExclude:
   - '@codemirror/view@6.43.9'
   - '@deepseek-ai/cordis@4.0.2'
   - '@deepseek-ai/cosmokit@1.8.3'
-  - '@deepseek-ai/dsh-brand@0.1.2-alpha.5'
-  - '@deepseek-ai/dsh-invariants@0.1.2-alpha.5'
-  - '@deepseek-ai/dsh-llm@0.1.2-alpha.5'
-  - '@deepseek-ai/dsh-timeout@0.1.2-alpha.5'
-  - '@deepseek-ai/dsh-typert-protocol@0.1.2-alpha.5'
-  - '@deepseek-ai/dsh-util-crypto@0.1.2-alpha.5'
-  - '@deepseek-ai/dsh-util-values@0.1.2-alpha.5'
   - '@deepseek-ai/schemastery@3.18.2'
 
 patchedDependencies:

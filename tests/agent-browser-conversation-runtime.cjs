@@ -1053,6 +1053,7 @@ async function run() {
         'browser_find',
         'browser_locate',
         'browser_wait',
+        'browser_scroll',
         'browser_screenshot',
         'browser_close',
       ].sort(),
@@ -1105,6 +1106,7 @@ async function run() {
         'browser_fill',
         'browser_press',
         'browser_wait',
+        'browser_scroll',
         'browser_screenshot',
         'browser_close',
       ].sort(),
@@ -1160,11 +1162,15 @@ async function run() {
           throw new Error("Agent-controlled browser styling is missing");
         }
         const frameStyle = getComputedStyle(view, "::before");
+        const guest = view.querySelector(".minke-agent-browser__guest");
+        if (!(guest instanceof HTMLElement)) {
+          throw new Error("Agent-controlled browser guest is missing");
+        }
         return {
           frameAnimation: frameStyle.animationName,
           frameOffsetPath: frameStyle.offsetPath,
-          framePointerEvents: frameStyle.pointerEvents,
-          frameZIndex: frameStyle.zIndex,
+          frameShadow: getComputedStyle(view).boxShadow,
+          guestPointerEvents: getComputedStyle(guest).pointerEvents,
           tabAnimation:
             getComputedStyle(tab, "::after").animationName,
         };
@@ -1176,11 +1182,11 @@ async function run() {
     );
     assert.equal(
       agentControlStyling.frameAnimation,
-      'minke-agent-browser-frame-flow',
+      'none',
     );
-    assert.match(agentControlStyling.frameOffsetPath, /inset/u);
-    assert.equal(agentControlStyling.framePointerEvents, 'none');
-    assert.equal(agentControlStyling.frameZIndex, '1');
+    assert.equal(agentControlStyling.frameOffsetPath, 'none');
+    assert.match(agentControlStyling.frameShadow, /\binset\b/u);
+    assert.equal(agentControlStyling.guestPointerEvents, 'none');
     const agentLayout = await readAgentBrowserLayout(window);
 
     const screenshotPath = process.env[SCREENSHOT_ENV];
@@ -1325,9 +1331,6 @@ async function run() {
       'the closed Agent Browser tab to leave the renderer',
     );
 
-    process.stdout.write(
-      'Agent Browser real conversation takeover smoke passed\n',
-    );
   } catch (error) {
     process.exitCode = 1;
     process.stderr.write(
@@ -1359,6 +1362,11 @@ async function run() {
 }
 
 run()
+  .then(() => {
+    process.stdout.write(
+      'Agent Browser real conversation takeover smoke passed\n',
+    );
+  })
   .catch((error) => {
     process.stderr.write(`${String(error?.stack ?? error)}\n`);
     process.exitCode = 1;

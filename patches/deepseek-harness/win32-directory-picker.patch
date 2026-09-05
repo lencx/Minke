@@ -47,6 +47,24 @@ diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/inde
 diff --git a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
 --- a/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
 +++ b/node_modules/@deepseek-ai/dsh-host-directory-picker-native/lib/worker.cjs
+@@ -15,14 +15,9 @@
+ /**
+-* Read a NUL-terminated UTF-16 string at a native address. koffi's
+-* `_Out_ void **` out-params surface a raw address, and
+-* `koffi.decode(addr, 'str16')` would dereference it as a pointer — crash
+-* on real Windows — so view the memory directly instead.
++* Copy a NUL-terminated UTF-16 string from a native address without creating
++* an external ArrayBuffer, which is unsafe in the packaged Electron runtime.
+ */
+ function readUtf16(koffi, address) {
+-	const bytes = Buffer.from(koffi.view(address, 32768));
+-	let end = 0;
+-	while (end + 1 < bytes.length && !(bytes[end] === 0 && bytes[end + 1] === 0)) end += 2;
+-	return bytes.toString("utf16le", 0, end);
++	return koffi.decode.string16(address);
+ }
+ const COINIT_APARTMENTTHREADED = 2;
+ const CLSCTX_INPROC_SERVER = 1;
 @@ -205,9 +205,10 @@ if (title === "") throw new Error("win32-dialog-worker: DSH_DIALOG_TITLE is requ
  if (process.send === void 0) throw new Error("win32-dialog-worker must run as a child process with an IPC channel");
  const send = process.send.bind(process);

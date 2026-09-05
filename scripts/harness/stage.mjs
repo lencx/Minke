@@ -2,6 +2,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import {
   chmod,
   cp,
@@ -18,6 +19,9 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  embeddedNodeChildEnvironment,
+} from "../../config/embedded-node-runtime.mts";
 import {
   runtimeSizeBudgetForPlatform,
   verifyHarnessContract,
@@ -62,6 +66,7 @@ import {
 } from "./runtime-process-policy.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const require = createRequire(import.meta.url);
 const activeRuntimeRoot = join(projectRoot, "runtime", "host");
 const generatedPackageName = "@dsh-desktop/runtime-build";
 const runtimeMetadataVersion = 3;
@@ -225,6 +230,35 @@ async function run(command, args, cwd, environment = process.env) {
 async function runPnpm(args, cwd, environment = process.env) {
   const invocation = resolvePnpmInvocation(args);
   await run(invocation.command, invocation.args, cwd, environment);
+}
+
+/** Session write leases load fs-ext through Electron's Node ABI. */
+async function rebuildRuntimeNativeModules(runtimeRoot) {
+  const { rebuild } = await import("@electron/rebuild");
+  const electronVersion = require("electron/package.json").version;
+  console.log(`Rebuilding fs-ext for Electron ${electronVersion} (${process.arch})`);
+  await rebuild({
+    buildPath: runtimeRoot,
+    electronVersion,
+    arch: process.arch,
+    onlyModules: ["fs-ext"],
+    force: true,
+  });
+}
+
+/** Reject missing or incompatible Session-lock binaries before publication or reuse. */
+async function verifyRuntimeNativeModules(runtimeRoot) {
+  const electronExecutable = require("electron");
+  await run(
+    electronExecutable,
+    ["--input-type=commonjs", "-e", "require('fs-ext');"],
+    runtimeRoot,
+    embeddedNodeChildEnvironment({
+      electronExecutable,
+      runtimeBin: join(runtimeRoot, "bin"),
+      pnpmEntry: join(runtimeRoot, "node_modules", "pnpm", "bin", "pnpm.cjs"),
+    }),
+  );
 }
 
 function capture(command, args, cwd) {
@@ -700,6 +734,7 @@ async function validateRuntime(
   }
   await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
   await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+  await verifyRuntimeNativeModules(runtimeRoot);
   await inspectHarnessClientCryptoBoundary(
     runtimeRoot,
     contract.frontendPackageName,
@@ -844,6 +879,7 @@ async function validateReusableRuntime(
   try {
     await verifyHarnessRuntimePatchesApplied(runtimeRoot, runtimePatches);
     await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
+    await verifyRuntimeNativeModules(runtimeRoot);
     await inspectHarnessClientCryptoBoundary(
       runtimeRoot,
       contract.frontendPackageName,
@@ -1057,6 +1093,7 @@ async function main() {
       productBundle,
     );
     await materializeSymlinks(candidateRuntimeRoot);
+    await rebuildRuntimeNativeModules(candidateRuntimeRoot);
     await applyHarnessRuntimePatches(candidateRuntimeRoot, runtimePatches);
     const processHardening =
       await hardenHarnessWindowsRestrictedLaunches(candidateRuntimeRoot);

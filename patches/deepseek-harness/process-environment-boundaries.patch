@@ -1,7 +1,7 @@
 diff --git a/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js b/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js
-@@ -44,8 +44,19 @@ const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i;
+@@ -48,8 +48,19 @@
  * @returns a fresh environment object safe to hand to a child spawn.
  */
  function scrubbedParentEnv() {
@@ -19,13 +19,13 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js b/node_module
 +		const normalized = key.toUpperCase();
 +		if (value !== void 0 && !SENSITIVE_ENV_PATTERN.test(key) && !normalized.startsWith("DSH_") && !ambientRuntimeControls.has(normalized)) env[key] = value;
 +	}
+ 	for (const [name, value] of Object.entries(proxyEnvironmentForChild())) if (value === void 0) Reflect.deleteProperty(env, name);
+ 	else env[name] = value;
  	return env;
- }
- /**
 diff --git a/node_modules/@deepseek-ai/dsh-native-command/lib/index.js b/node_modules/@deepseek-ai/dsh-native-command/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-native-command/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-native-command/lib/index.js
-@@ -2,6 +2,20 @@ import { execFile } from "node:child_process";
+@@ -2,6 +2,20 @@
  import { release } from "node:os";
  import { extname } from "node:path";
  //#region lib/types/runner.js
@@ -46,7 +46,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-native-command/lib/index.js b/node_mo
  /**
  * Shared no-shell `execFile` runner for host-native OS integrations.
  * @module @deepseek-ai/dsh-native-command/runner
-@@ -16,6 +30,7 @@ import { extname } from "node:path";
+@@ -16,6 +30,7 @@
  const runNativeCommand = (command, args, signal) => new Promise((resolve, reject) => {
  	execFile(command, [...args], {
  		encoding: "utf8",
@@ -57,7 +57,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-native-command/lib/index.js b/node_mo
 diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
-@@ -617,6 +617,14 @@ function createProcessInspector(platform = process.platform, arch = process.arch
+@@ -620,6 +620,14 @@
  */
  function childEnv(extra) {
  	const env = scrubbedParentEnv();
@@ -72,10 +72,11 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
  	if (process.platform !== "win32") return {
  		...env,
  		...extra
-@@ -629,6 +637,34 @@ function childEnv(extra) {
+@@ -631,6 +639,34 @@
+ 		entries.push([key, value]);
  	}
  	return Object.fromEntries(entries);
- }
++}
 +function sameExecutable(left, right) {
 +	if (typeof left !== "string" || typeof right !== "string") return false;
 +	return process.platform === "win32" ? left.toUpperCase() === right.toUpperCase() : left === right;
@@ -103,20 +104,19 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
 +		bootstrap,
 +		...args
 +	];
-+}
+ }
  /**
  * Liveness-poll cadence for tree-exit waits. The timer stays ref'd: an
- * awaited teardown must keep the event loop alive until the tree really
-@@ -845,7 +881,7 @@ function spawnSubprocess(spec, internals = {}) {
+@@ -862,7 +898,7 @@
  	const errMode = spec.stdio.stderr;
  	const stdinMode = spec.stdio.stdin;
  	const env = childEnv(spec.env);
--	const child = spawn(program, args, {
-+	const child = spawn(program, embeddedNodeArguments(program, args, env), {
+-	const child = spawnProcess(program, args, {
++	const child = spawnProcess(program, embeddedNodeArguments(program, args, env), {
  		cwd: spec.cwd,
  		env,
  		stdio: [
-@@ -1343,15 +1379,17 @@ var LocalSubprocessRuntime = class extends SubprocessRuntime {
+@@ -1361,15 +1397,17 @@
  		const file = spec.argv[0];
  		if (file === void 0 || file.length === 0) throw new Error("subprocess-local: terminal argv must contain a program");
  		spec.signal?.throwIfAborted();
@@ -139,7 +139,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
 diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
-@@ -49,9 +49,25 @@ function launchedThroughSsh(ctx) {
+@@ -49,9 +49,25 @@
  		return value !== void 0 && value !== "";
  	});
  }
@@ -168,7 +168,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@
 diff --git a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js
 --- a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js
 +++ b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js
-@@ -153,9 +153,31 @@ async function main() {
+@@ -153,9 +153,31 @@
  			if (api.setEnvironmentVariableW("TMP", privateTempDir) === 0) fail(`SetEnvironmentVariableW TMP failed (Win32 ${api.getLastError()})`);
  			if (api.setEnvironmentVariableW("TEMP", privateTempDir) === 0) fail(`SetEnvironmentVariableW TEMP failed (Win32 ${api.getLastError()})`);
  		}
