@@ -32,7 +32,7 @@ function aboutBundle() {
   const source = `
     import React from "react";
     import { createRoot } from "react-dom/client";
-    import { AboutPanel } from "./packages/harness-overlay/src/client/about/view.tsx";
+    import { AboutDialog } from "./packages/harness-overlay/src/client/about/view.tsx";
     import { en } from "./packages/harness-overlay/src/client/about/locales.ts";
     import aboutStyles from "./packages/harness-overlay/src/client/about/styles.css";
 
@@ -58,7 +58,7 @@ function aboutBundle() {
     };
 
     createRoot(document.getElementById("root")).render(
-      <AboutPanel
+      <AboutDialog
         checkForUpdates={checkForUpdates}
         iconUrl="data:image/gif;base64,R0lGODlhAQABAAAAACw="
         info={{
@@ -68,9 +68,9 @@ function aboutBundle() {
           platform: "darwin",
           arch: "arm64",
         }}
-        onClose={() => {}}
         openExternal={() => {}}
         t={t}
+        wide={true}
       />,
     );
   `;
@@ -121,6 +121,23 @@ async function geometry(window) {
   `);
 }
 
+async function aboutOwnsPanelOverlap(window) {
+  return await window.webContents.executeJavaScript(`
+    (() => {
+      const dialog = document.querySelector("[data-minke-about-dialog]");
+      const competingPanel = document.querySelector("#competing-bottom-panel");
+      const dialogRect = dialog.getBoundingClientRect();
+      const competingRect = competingPanel.getBoundingClientRect();
+      const overlapTop = Math.max(dialogRect.top, competingRect.top);
+      const overlapBottom = Math.min(dialogRect.bottom, competingRect.bottom);
+      if (overlapBottom <= overlapTop) return false;
+      const x = dialogRect.left + dialogRect.width / 2;
+      const y = overlapTop + (overlapBottom - overlapTop) / 2;
+      return dialog.contains(document.elementFromPoint(x, y));
+    })()
+  `);
+}
+
 async function run() {
   await app.whenReady();
   const window = new BrowserWindow({
@@ -155,10 +172,23 @@ async function run() {
           :root {
             --ds-font-family-code: ui-monospace;
           }
-          html, body, #root {
+          html, body, #fixture-layer, #root {
             width: 100%;
             height: 100%;
             margin: 0;
+          }
+          #fixture-layer {
+            position: relative;
+            z-index: 1;
+          }
+          #competing-bottom-panel {
+            position: fixed;
+            z-index: 2;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            height: 50%;
+            background: #111;
           }
           *, *::before, *::after {
             animation: none !important;
@@ -167,7 +197,8 @@ async function run() {
         </style>
       </head>
       <body>
-        <div id="root"></div>
+        <div id="fixture-layer"><div id="root"></div></div>
+        <div id="competing-bottom-panel"></div>
         <script>${bundle}</script>
       </body>
     </html>
@@ -179,8 +210,22 @@ async function run() {
     );
     await waitFor(
       window,
+      'document.querySelector("[data-minke-about-trigger]") !== null',
+      'About trigger',
+    );
+    await window.webContents.executeJavaScript(
+      'document.querySelector("[data-minke-about-trigger]").click()',
+    );
+    await waitFor(
+      window,
       'document.querySelector("[data-minke-about-update-check]") !== null',
       'About update button',
+    );
+
+    assert.equal(
+      await aboutOwnsPanelOverlap(window),
+      true,
+      'About dialog must paint above an overlapping bottom panel',
     );
 
     const initial = await geometry(window);
@@ -208,7 +253,7 @@ async function run() {
     assertRectStable(initial.project, checking.project, 'project button');
     assertRectStable(initial.panel, checking.panel, 'panel while checking');
     assertRectStable(initial.panel, complete.panel, 'panel after checking');
-    process.stdout.write('About update layout runtime regression passed\n');
+    process.stdout.write('About dialog stacking and update layout runtime regression passed\n');
   } finally {
     window.destroy();
     app.quit();

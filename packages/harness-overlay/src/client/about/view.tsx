@@ -15,6 +15,9 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import {
+  createPortal,
+} from "react-dom";
 import type {
   DesktopAboutInfo,
 } from "../desktop/index.ts";
@@ -320,16 +323,18 @@ export function AboutDialog({
       >
         <LucideIcon icon={Info} size={wide ? 17 : 18} />
       </button>
-      {open && (
-        <AboutPanel
-          checkForUpdates={checkForUpdates}
-          iconUrl={iconUrl}
-          info={info}
-          onClose={close}
-          openExternal={openExternal}
-          t={t}
-        />
-      )}
+      {open &&
+        createPortal(
+          <AboutPanel
+            checkForUpdates={checkForUpdates}
+            iconUrl={iconUrl}
+            info={info}
+            onClose={close}
+            openExternal={openExternal}
+            t={t}
+          />,
+          document.body,
+        )}
     </div>
   );
 }
