@@ -44,6 +44,7 @@ import { DesktopQuitConfirmation } from "./quit-confirmation.ts";
 import { DesktopFatalRecovery } from "./fatal-recovery.ts";
 import { RendererConsoleTail, writeDesktopCrashReport, type DesktopFailureSource } from "./crash-report.ts";
 import { requestDesktopRestart } from "./app-restart";
+import { applyLinuxPasswordStore } from "./linux-password-store.ts";
 import { createLocalModelStatusProbe } from "./local-model-status.ts";
 import { readLoginShellEnvironment, resolveLoginShellTimeout } from "./login-shell-environment.ts";
 import {
@@ -216,6 +217,7 @@ class DesktopApplication {
 
   async start(): Promise<void> {
     if (!prepareDesktopApplication(app)) return;
+    applyLinuxPasswordStore(app);
     app.on("second-instance", () => this.#showMainWindow());
 
     await app.whenReady();
