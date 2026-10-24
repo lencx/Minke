@@ -1,37 +1,68 @@
-@import "tailwindcss";
+:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  --minke-bootstrap-status-color: #475569;
+  --minke-bootstrap-pulse-color: #2563eb;
+}
 
-@layer base {
+html,
+body {
+  min-height: 100%;
+  background: transparent;
+}
+
+body {
+  margin: 0;
+}
+
+.minke-bootstrap {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+}
+
+.minke-bootstrap__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.minke-bootstrap__logo {
+  border-radius: 22%;
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 30%);
+}
+
+.minke-bootstrap__status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--minke-bootstrap-status-color);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.minke-bootstrap__pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--minke-bootstrap-pulse-color);
+  animation: minke-bootstrap-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes minke-bootstrap-pulse {
+  50% { opacity: 0.5; }
+}
+
+@media (prefers-color-scheme: dark) {
   :root {
-    color-scheme: light dark;
-    --minke-bootstrap-status-color: #475569;
-    --minke-bootstrap-pulse-color: #2563eb;
-  }
-
-  html,
-  body,
-  #root {
-    min-height: 100%;
-    background: transparent;
-  }
-
-  body {
-    margin: 0;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --minke-bootstrap-status-color: #cbd5e1;
-      --minke-bootstrap-pulse-color: #93c5fd;
-    }
+    --minke-bootstrap-status-color: #cbd5e1;
+    --minke-bootstrap-pulse-color: #93c5fd;
   }
 }
 
-@layer components {
-  .minke-bootstrap__status {
-    color: var(--minke-bootstrap-status-color);
-  }
-
+@media (prefers-reduced-motion: reduce) {
   .minke-bootstrap__pulse {
-    background-color: var(--minke-bootstrap-pulse-color);
+    animation: none;
   }
 }

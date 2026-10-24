@@ -190,7 +190,7 @@ Replace the example path with the downloaded package path.
 
 Build Minke on the same operating system and CPU architecture as the package you need. The build produces distributables for the current host under `out/make`; this project does not support cross-platform packaging from a single host.
 
-The current source uses **DSH v0.2.1-rc.2**. The source commit and applied patches are recorded in the [runtime configuration](./config/harness-runtime.json); see the [DSH upgrade notes (Chinese)](./docs/dsh-upgrade.md) for changes and migration details.
+The current source uses **DSH v0.2.1-rc.3**. The source commit and applied patches are recorded in the [runtime configuration](./config/harness-runtime.json); see the [DSH upgrade notes (Chinese)](./docs/dsh-upgrade.md) for changes and migration details.
 
 On macOS and Linux, Minke reads the login shell's environment once at startup so tools, model services, and plugin commands can use its PATH and proxy settings. Each shell attempt has a 10-second deadline; failures fall back to another system shell, then to the inherited environment. `MINKE_LOGIN_SHELL_TIMEOUT_MS` sets this deadline in milliseconds. Minke keeps the selected Data Home and its own runtime settings.
 

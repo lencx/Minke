@@ -10,7 +10,15 @@
     <title>Minke</title>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/main.tsx"></script>
+    <main class="minke-bootstrap">
+      <div class="minke-bootstrap__content">
+        <img class="minke-bootstrap__logo" src="./minke.svg" alt="Minke" width="80" height="80" />
+        <div class="minke-bootstrap__status" role="status">
+          <span class="minke-bootstrap__pulse" aria-hidden="true"></span>
+          <span id="bootstrap-status"></span>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/main.ts"></script>
   </body>
 </html>

@@ -7,12 +7,6 @@ export const pluginsZh = {
   "plugins.exitSafeMode": "退出安全模式并重启",
   "plugins.safeModeActive": "安全模式已开启",
   "plugins.restarting": "正在重启…",
-  "plugins.browser.title": "在 GitHub 上浏览插件",
-  "plugins.browser.topic": "github.com/topics/dsh-plugin",
-  "plugins.browser.searchLabel": "搜索 GitHub 插件仓库",
-  "plugins.browser.searchPlaceholder": "搜索插件",
-  "plugins.browser.searchClear": "清除搜索内容",
-  "plugins.browser.home": "返回插件主题",
 } as const;
 
 export type PluginsLocaleKey = keyof typeof pluginsZh;
@@ -31,10 +25,4 @@ export const pluginsEn: Record<PluginsLocaleKey, string> = {
   "plugins.exitSafeMode": "Exit safe mode and restart",
   "plugins.safeModeActive": "Safe mode is active",
   "plugins.restarting": "Restarting…",
-  "plugins.browser.title": "Browse plugins on GitHub",
-  "plugins.browser.topic": "github.com/topics/dsh-plugin",
-  "plugins.browser.searchLabel": "Search GitHub plugin repositories",
-  "plugins.browser.searchPlaceholder": "Search plugins",
-  "plugins.browser.searchClear": "Clear search",
-  "plugins.browser.home": "Return to the plugin topic",
 };

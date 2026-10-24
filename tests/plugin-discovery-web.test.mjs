@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { TabsRuntime } from "@minke/harness-overlay/client/tabs/runtime.ts";
 import { WebTabsController } from "@minke/harness-overlay/client/tabs/web/controller.ts";
 import { PluginTabsController } from "@minke/harness-overlay/client/tabs/plugins/controller.ts";
-import { PLUGIN_DISCOVERY_TOPIC_URL, createPluginSearchUrl } from "@minke/harness-overlay/client/tabs/plugins/resources.ts";
+import { PLUGIN_DISCOVERY_TOPIC_URL } from "@minke/harness-overlay/client/tabs/plugins/resources.ts";
 
 test("plugin discovery uses the shared browser navigation, failure and retry state", () => {
   const tabs = new TabsRuntime({ showPanel() {}, hidePanel() {} });
@@ -26,7 +26,7 @@ test("plugin discovery uses the shared browser navigation, failure and retry sta
   web.syncFromView(id, { loading: false });
   assert.equal(tabs.tab(id).payload.canGoBack, true);
   assert.equal(tabs.tab(id).title, "Discover plugins", "a preset keeps its discoverable title");
-  const search = createPluginSearchUrl("language:typescript tools");
+  const search = "https://github.com/search?q=topic%3Adsh-plugin+language%3Atypescript+tools&type=repositories";
   assert.equal(web.navigate(id, search), true);
   assert.equal(tabs.tab(id).payload.url, search);
   assert.equal(discovery.create("Discover plugins"), id, "navigation must not create duplicate presets");
@@ -50,7 +50,7 @@ test("saved legacy plugin discovery tabs become browser presets and retain valid
   discovery.restore({ id: "tab-12", key: "plugins", kind: "plugin-catalog", title: "Discover plugins", payload: {} });
   assert.equal(tabs.tab("tab-12").payload.url, PLUGIN_DISCOVERY_TOPIC_URL);
   assert.equal(tabs.tab("tab-12").payload.loading, true);
-  const search = createPluginSearchUrl("stars:>50");
+  const search = "https://github.com/search?q=topic%3Adsh-plugin+stars%3A%3E50&type=repositories";
   discovery.restore({ id: "tab-13", key: "saved", kind: "plugin-catalog", title: "Discover plugins", payload: { url: search } });
   assert.equal(tabs.tab("tab-13").payload.url, search);
   discovery.restore({ id: "tab-14", key: "unsafe", kind: "plugin-catalog", title: "Discover plugins", payload: { url: "javascript:alert(1)" } });
@@ -110,7 +110,8 @@ test("discovery shares one secure guest through navigation, error recovery and u
     const id = discovery.create("Discover plugins");
     function Screen() {
       useSyncExternalStore(tabs.subscribe, tabs.getSnapshot, tabs.getSnapshot);
-      return renderer.renderView(tabs.tab(id), true);
+      const tab = tabs.tab(id);
+      return createElement("div", null, renderer.renderToolbarCenter(tab), renderer.renderTrailingActions(tab), renderer.renderView(tab, true));
     }
     root = createRoot(dom.window.document.getElementById("root"));
     await act(async () => root.render(createElement(Screen)));
@@ -122,20 +123,20 @@ test("discovery shares one secure guest through navigation, error recovery and u
     assert.equal(guest.getAttribute("src"), "about:blank#discovery");
     assert.deepEqual(acquired, ["minke:persistent-browser"]);
     await act(async () => guest.dispatchEvent(new dom.window.Event("dom-ready")));
-    assert.equal(css.length, 2, "the preset adds GitHub topic styles to the common guest");
-    const search = createPluginSearchUrl("tools stars:>5");
+    assert.equal(css.length, 0, "discovery leaves GitHub presentation to the website");
+    const search = "https://github.com/search?q=topic%3Adsh-plugin+tools+stars%3A%3E5&type=repositories";
     await act(async () => web.navigate(id, search));
     // Electron may serialize a canceled load's error without its `code` field.
     // It is a navigation failure, never a reason to detach the live guest.
     await act(async () => cancelInitial(new Error("ERR_ABORTED (-3) loading initial page")));
-    guestUrl = createPluginSearchUrl("tools stars:>10");
+    guestUrl = "https://github.com/search?q=topic%3Adsh-plugin+tools+stars%3A%3E10&type=repositories";
     await act(async () => guest.dispatchEvent(Object.assign(new dom.window.Event("did-navigate"), { url: guestUrl })));
     assert.equal(tabs.tab(id).payload.url, guestUrl, "a canceled initial load must retain navigation observation and URL persistence");
     assert.equal(created.length, 1, "navigation must retain the guest and its history");
-    assert.equal(dom.window.document.querySelector('input[type="search"]').value, "tools stars:>10");
+    assert.equal(dom.window.document.querySelector('input[role="combobox"]').value, guestUrl);
     await act(async () => guest.dispatchEvent(new dom.window.Event("dom-ready")));
-    assert.equal(css.length, 4, "navigation applies the search layout to the retained guest");
-    assert.equal(removedCss.length, 2, "navigation removes the old layout before replacing it");
+    assert.equal(css.length, 0, "navigation does not inject site-specific styles");
+    assert.equal(removedCss.length, 0);
     const failure = new dom.window.Event("did-fail-load");
     Object.assign(failure, { isMainFrame: true, errorCode: -105, errorDescription: "offline", validatedURL: search });
     await act(async () => guest.dispatchEvent(failure));
@@ -148,7 +149,7 @@ test("discovery shares one secure guest through navigation, error recovery and u
     root = undefined;
     assert.equal(guest.isConnected, false);
     assert.deepEqual(released, ["discovery"]);
-    assert.equal(removedCss.length, 2, "detached guests need no native CSS cleanup");
+    assert.equal(removedCss.length, 0, "shared guests need no site-specific CSS cleanup");
     web.update(id, { loading: false });
     const before = tabs.tab(id).payload;
     guest.dispatchEvent(new dom.window.Event("did-start-loading"));

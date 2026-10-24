@@ -18,7 +18,7 @@ native `data-ds-theme-source` attribute, and picked files use `__DSH_HOST_PATHS_
 The former product-only locale and theme bridges are removed; these integrations
 need no compiled-runtime patch.
 
-`win32-directory-picker.patch` is pinned to Harness `dsh-v0.2.1-rc.2` (`687f282e8625c6b8d11ff58211a90524be2e4317`). It:
+`win32-directory-picker.patch` is pinned to Harness `dsh-v0.2.1-rc.3` (`1f81c047fc48fa190a683e469daa699857e9afe8`). It:
 
 - routes the directory dialog worker and Windows ACL sandbox runner through `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the dialog worker;
 - keeps the dialog worker's IPC channel open through non-terminal `showing` progress and disconnects only after a terminal result.
@@ -114,7 +114,7 @@ shared `/api/minke/*` Remote namespace. The unmodified Gateway and Connection
 own the physical route, authentication and dispatch. There is no dedicated
 `/minke` channel or replacement route adapter. Tests execute the unmodified
 released services, including invalid arguments, cancellation, unloading and rejection of a
-non-owner Peer without an access grant. The rc.2 Gateway and RemoteAccess
+non-owner Peer without an access grant. The native Gateway and RemoteAccess
 service own principal admission; Minke adds no parallel authorization route.
 
 `embedded-document-preview.patch` is pinned to the same Harness commit. It
@@ -179,7 +179,7 @@ The earlier 0.1.2-alpha.3 release removes only Harness's optional SQLite Session
 Minke's IM Gateway SQLite mailbox is a separate desktop transport store and is
 not part of that Session persistence contract.
 
-The 0.2.1-rc.2 runtime uses Session v4 and lifecycle-scoped SessionHandles.
+The 0.2.1-rc.3 runtime uses Session v4 and lifecycle-scoped SessionHandles.
 After loading its Node bootstrap, Minke's desktop entry invokes the public
 `runProfile()` interface with the existing `web` profile and product overlay.
 Its private IPC channel follows DSH Desktop's readiness, quit inspection and
@@ -207,11 +207,11 @@ Alpha.2 adds LibreOffice for Office previews. Its platform packages add about
 255–264 MiB on macOS, 185 MiB on Linux (WASM), and 325–328 MiB on Windows before
 pruning. All platforms share a 1 GiB runtime budget to leave room for Office
 engines and platform-specific native dependencies; the 15,000-file limit
-remains active. The staged 0.2.1-rc.2 macOS ARM64 runtime measures about 379 MiB
-and contains 14,442 files.
+remains active. The staged 0.2.1-rc.3 macOS ARM64 runtime measures about 379 MiB
+and contains 14,449 files.
 Every platform must still pass the size gate when staged.
 
-The rc.2 source declares React 18 types at its workspace root. The manual
+The pinned source declares React 18 types at its workspace root. The manual
 React type symlink adapter is retired; the native frozen install and build own
 type resolution. Browser product bundles consume the official RemoteError
 source leaf, avoiding the protocol root's Host-only Cordis dependency before

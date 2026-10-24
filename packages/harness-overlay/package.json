@@ -50,7 +50,7 @@
   ],
   "license": "Apache-2.0",
   "engines": {
-    "dsh": "0.2.1-rc.2"
+    "dsh": "0.2.1-rc.3"
   },
   "dependencies": {
     "@lencx/minke-model-runtime": "workspace:*",
@@ -58,8 +58,8 @@
     "qrcode": "1.5.4"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.3"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-llm": {
@@ -75,10 +75,10 @@
     "@codemirror/state": "6.7.1",
     "@codemirror/view": "6.43.9",
     "@deepseek-ai/cordis": "4.0.5",
-    "@deepseek-ai/dsh-client-shortcuts": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings-general": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-sidebar-browser": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-shortcuts": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-client-ui-settings-general": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-client-ui-sidebar-browser": "0.2.1-rc.3",
     "@iconify-json/vscode-icons": "1.2.73",
     "@lucide/icons": "1.31.0",
     "@types/qrcode": "1.5.6",

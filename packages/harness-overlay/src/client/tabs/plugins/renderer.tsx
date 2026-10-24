@@ -1,8 +1,4 @@
 import type {
-  ReactNode,
-} from "react";
-import type {
-  ManagedTab,
   TabRenderer,
 } from "@minke/harness-overlay/client/tabs/types.ts";
 import type {
@@ -14,23 +10,20 @@ import {
 import type {
   PluginsTranslate,
 } from "./locales.ts";
-import {
-  PluginsView,
-} from "./PluginsView.tsx";
-import {
-  isPluginTab,
-} from "./types.ts";
+import { createWebTabRenderer } from "../web/renderer.tsx";
 import type { WebTabsTranslate } from "../web/locales.ts";
 
-/** Plugin discovery renderer registered beside other Tabs content. */
+/** GitHub preset reuses the browser UI while preserving saved discovery identities. */
 export function createPluginTabRenderer(
   controller: PluginTabsController,
   t: PluginsTranslate,
   webT: WebTabsTranslate,
 ): TabRenderer {
+  const browser = createWebTabRenderer(controller.web, webT, { allowPopups: false, annotations: false });
   return {
+    ...browser,
     kind: "plugin-catalog",
-    persistence: { save: tab => isPluginTab(tab) ? { url: tab.payload.url } : undefined, restore: tab => controller.restore(tab) },
+    persistence: { save: tab => browser.persistence!.save(tab), restore: tab => controller.restore(tab) },
     createOptions: () => [
       {
         id: "plugins",
@@ -43,21 +36,5 @@ export function createPluginTabRenderer(
       },
     ],
     renderIcon: () => <PluginIcon size={13} />,
-    renderView: (
-      tab: ManagedTab,
-      active: boolean,
-    ): ReactNode =>
-      isPluginTab(tab)
-        ? (
-          <PluginsView
-            key={tab.id}
-            tab={tab}
-            active={active}
-            controller={controller}
-            t={t}
-            webT={webT}
-          />
-        )
-        : null,
   };
 }

@@ -340,6 +340,9 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   const assertGuideLayout = async state => {
     const bounds = await rendererValue(window, `() => {
       const guide = document.querySelector('[data-sidebar-right-guide]');
+      if (!guide) throw new Error('Start missing: ' + JSON.stringify({ width: innerWidth, height: innerHeight,
+        panel: document.querySelector('[data-sidebar-right-panel]')?.textContent,
+        activeElement: document.activeElement?.outerHTML }));
       let viewport = guide.parentElement;
       while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
       const pane = guide.closest('[data-dockkit-pane]');
@@ -871,7 +874,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   await rendererValue(window, `() => {
     window.__discoveryReadyGuest = undefined;
     const observer = new MutationObserver(() => {
-      const guest = document.querySelector('.minke-plugins-page webview');
+      const guest = document.querySelector('.minke-tabs-native-host[data-kind="plugin-catalog"] webview');
       if (!guest) return;
       observer.disconnect();
       guest.addEventListener('dom-ready', () => { window.__discoveryReadyGuest = guest; }, { once: true });
@@ -880,8 +883,8 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     return true;
   }`);
   await click('[data-sidebar-right-guide] [data-option="plugins"]');
-  await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-plugins-page [role="search"]') !== null`), 'plugin discovery search');
-  assert.deepEqual(await rendererValue(window, `() => [...document.querySelectorAll('.minke-plugins-page button')]
+  await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-native-host[data-kind="plugin-catalog"] input[role="combobox"]') !== null`), 'plugin discovery browser address');
+  assert.deepEqual(await rendererValue(window, `() => [...document.querySelectorAll('.minke-tabs-native-host[data-kind="plugin-catalog"] button')]
     .filter(button => /Manage plugins|safe mode/.test(button.textContent))
     .map(button => button.textContent)`), [], 'discovery must not duplicate management or recovery controls');
   const discoveryId = await waitFor(() => rendererValue(window, `() => {
@@ -890,10 +893,10 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     try { return host?.querySelector('webview')?.getWebContentsId() ? host.dataset.minkeTabInstance : false; }
     catch { return false; }
   }`), 'discovery shared browser guest');
-  await rendererValue(window, `() => document.querySelector('.minke-plugins-page webview').loadURL(${JSON.stringify(fixtureUrl)})`);
+  await rendererValue(window, `() => document.querySelector('.minke-tabs-native-host[data-kind="plugin-catalog"] webview').loadURL(${JSON.stringify(fixtureUrl)})`);
   const checkDiscoveryGuest = async () => {
     const id = await waitFor(() => rendererValue(window, `() => {
-      const view = document.querySelector('.minke-plugins-page webview');
+      const view = document.querySelector('.minke-tabs-native-host[data-kind="plugin-catalog"] webview');
       if (!view?.checkVisibility({ checkVisibilityCSS: true }) || view.closest('[inert]')) return false;
       const rect = view.getBoundingClientRect();
       if (document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) !== view) return false;
@@ -901,11 +904,11 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
       catch { return false; }
     }`), 'visible discovery fixture').catch(async error => {
       const state = await rendererValue(window, `() => {
-        const page = document.querySelector('.minke-plugins-page');
+        const page = document.querySelector('.minke-tabs-native-host[data-kind="plugin-catalog"]');
         const view = page?.querySelector('webview');
         let guest; try { guest = { url: view?.getURL(), id: view?.getWebContentsId() }; } catch (error) { guest = String(error); }
         return { guest, src: view?.getAttribute('src'), visible: view?.checkVisibility({ checkVisibilityCSS: true }),
-          address: page?.querySelector('.minke-plugins-browser__identity small')?.textContent,
+          address: page?.querySelector('input[role="combobox"]')?.value,
           error: page?.querySelector('[role="alert"]')?.textContent };
       }`);
       throw new Error(error.message + '; discovery=' + JSON.stringify(state));
@@ -915,7 +918,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
         const state = await webContents.fromId(id)?.executeJavaScript(`({ url: location.href, ready: document.readyState, title: document.title, state: document.querySelector('#state')?.textContent })`);
         throw new Error(error.message + '; guest=' + JSON.stringify(state));
       });
-    assert.equal(await rendererValue(window, `() => document.querySelectorAll('.minke-plugins-page webview').length`), 1, 'discovery owns one shared guest');
+    assert.equal(await rendererValue(window, `() => document.querySelectorAll('.minke-tabs-native-host[data-kind="plugin-catalog"] webview').length`), 1, 'discovery owns one shared guest');
     return id;
   };
   const discoveryGuestId = await checkDiscoveryGuest();

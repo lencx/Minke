@@ -171,7 +171,7 @@ sudo dnf install "/path/to/minke-package.rpm"
 
 请在与目标安装包相同的操作系统和 CPU 架构上构建 Minke。构建产物位于 `out/make`，本项目不支持在单一宿主机上进行跨平台打包。
 
-当前源码使用 **DSH v0.2.1-rc.2**。源码提交和应用的补丁记录在 [runtime 配置](./config/harness-runtime.json)中；功能变化和迁移事项见 [DSH 升级说明](./docs/dsh-upgrade.md)。
+当前源码使用 **DSH v0.2.1-rc.3**。源码提交和应用的补丁记录在 [runtime 配置](./config/harness-runtime.json)中；功能变化和迁移事项见 [DSH 升级说明](./docs/dsh-upgrade.md)。
 
 macOS 和 Linux 下，Minke 启动时会读取一次登录 shell 的环境，让工具、模型服务和插件命令使用其中的 PATH 与代理设置。每次 shell 尝试限时 10 秒，失败后尝试其他系统 shell，全部失败则沿用启动环境；可通过 `MINKE_LOGIN_SHELL_TIMEOUT_MS` 设置毫秒数。已选 Data Home 和 Minke 的运行时参数保持不变。
 

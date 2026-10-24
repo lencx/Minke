@@ -8,7 +8,7 @@ The host composition mounts the separate `@lencx/minke-model-runtime/dsh` adapte
 
 - `model-runtime` is a DSH plugin that owns local model discovery and optional service lifecycle for exactly two product runtimes: LM Studio and Ollama. LM Studio uses `lms server status --json` / `lms server start` and enriches its OpenAI-compatible catalog with LM Studio's v1 loaded-instance metadata. Before dispatch, it verifies that the selected instance has the configured context window. Selecting an unloaded model explicitly authorizes Minke to load that model with the configured context, even when LM Studio was started externally; Minke still never unloads or reconfigures an existing external instance. If Minke started the service itself, it may also reload an undersized default model instance while preserving its supported load parameters. Ollama uses its OpenAI-compatible `/v1/models` endpoint and starts through `ollama serve`. A generic `openAICompatible` adapter remains available for manually configured loopback servers; it does not gain command discovery or process management.
 
-Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.2.1-rc.2` runtime and are not embedded in Minke's base runtime. Install and enable Codex or Claude Code in **Plugins → Official**, using the version offered by the running DSH release. CLI installation into the `web` Profile is also available:
+Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.2.1-rc.3` runtime and are not embedded in Minke's base runtime. Install and enable Codex or Claude Code in **Plugins → Official**, using the version offered by the running DSH release. CLI installation into the `web` Profile is also available:
 
 - Codex: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-codex`
 - Claude Code: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-claude-code`
@@ -83,9 +83,13 @@ popup requests to its source tab. Persistent Browser additionally retains its
 trusted link preload, history and annotations. Guest requests cannot reach the
 application Host, including WebSocket and localhost aliases.
 
-Discovery uses the shared Persistent Browser guest, navigation and error recovery with a
-GitHub search preset. Existing discovery tabs keep their identity and restore
-their last URL; discovery guests continue to disallow popups.
+GitHub discovery is a preset of the shared Persistent Browser renderer, including
+its address bar, navigation and error recovery. The dedicated search toolbar,
+GitHub CSS injection and decoration lifecycle are retired. Existing discovery
+tabs keep their identity and restore their last URL; discovery guests continue
+to disallow popups and omit page annotations. Indexed discovery remains owned
+by DSH's optional Custom Plugin Market bundle; users enable it in Plugins and
+configure their index sources there.
 Desktop recovery exposes only settings and safe-mode changes; legacy Profile
 migrations remain separate from that interface.
 
@@ -120,7 +124,7 @@ The native add-tab button opens DSH's Start page in the clicked pane. Its public
 place, even when focus moves to another pane. The private add-menu slot, picker
 adapter and direct pane-creation override are retired. The bottom panel retains
 its own creation menu.
-The Start page follows `dsh-v0.2.1-rc.2`'s compass and descriptive native cards,
+The Start page follows `dsh-v0.2.1-rc.3`'s compass and descriptive native cards,
 with the Minke card list below them. Native descriptions appear for up to four
 entries and remain owned by the registering plugin's locale.
 Start fills at least the pane's available height and uses the native pane's

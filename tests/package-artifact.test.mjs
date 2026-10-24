@@ -21,7 +21,7 @@ const productPackageName = "@lencx/minke-harness-overlay";
 
 test("the packaged bootstrap resolves its logo beside the renderer document", async () => {
   const source = await readFile(
-    new URL("../desktop/renderer/App.tsx", import.meta.url),
+    new URL("../desktop/renderer/index.html", import.meta.url),
     "utf8",
   );
   const logoSource = source.match(

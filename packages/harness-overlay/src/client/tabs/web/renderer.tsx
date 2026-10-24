@@ -32,6 +32,7 @@ import {
 import { WebTabIcon } from "./WebTabIcon.tsx";
 import {
   renderWebTabView,
+  type WebTabViewOptions,
 } from "./WebTabView.tsx";
 import {
   WebAddressBar,
@@ -181,6 +182,7 @@ function WebAnnotationActions({
 export function createWebTabRenderer(
   controller: WebTabsController,
   t: WebTabsTranslate,
+  options: WebTabViewOptions = {},
 ): TabRenderer {
   const createBlank = (): void => {
     controller.createBlank(t("web.tab.new"));
@@ -210,11 +212,11 @@ export function createWebTabRenderer(
       renderWebNavigationActions(tab, t, controller),
     renderTrailingActions: (tab) => (
       <>
-        <WebAnnotationActions
+        {options.annotations !== false && <WebAnnotationActions
           tab={tab}
           controller={controller}
           t={t}
-        />
+        />}
         <ToolbarButton
           label={t("web.nav.external")}
           disabled={
@@ -243,6 +245,6 @@ export function createWebTabRenderer(
     loadingLabel: (tab) =>
       t("web.state.loading", { title: tab.title }),
     renderView: (tab, active) =>
-      renderWebTabView(tab, active, controller, t),
+      renderWebTabView(tab, active, controller, t, options),
   };
 }

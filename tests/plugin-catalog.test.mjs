@@ -5,7 +5,6 @@ import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { afterEach, test } from "node:test";
-import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   PLUGIN_SETTINGS_READ_CHANNEL, PLUGIN_SAFE_MODE_SET_CHANNEL,
@@ -18,10 +17,9 @@ import { PluginManagementRuntime } from "@minke/desktop/main/plugin-recovery/set
 import { migrateModelProfile } from "@minke/desktop/main/profile-migration.ts";
 import { desktopPluginRecoveryPort } from "@minke/harness-overlay/client/desktop/workspace.ts";
 import { PluginTabsController } from "@minke/harness-overlay/client/tabs/plugins/controller.ts";
-import { PluginsView } from "@minke/harness-overlay/client/tabs/plugins/PluginsView.tsx";
 import { createPluginTabRenderer } from "@minke/harness-overlay/client/tabs/plugins/renderer.tsx";
 import { pluginsEn, pluginsZh } from "@minke/harness-overlay/client/tabs/plugins/locales.ts";
-import { PLUGIN_DISCOVERY_TOPIC_URL, createPluginSearchUrl, readPluginSearchQuery, removeInsertedWebviewCssSafely } from "@minke/harness-overlay/client/tabs/plugins/resources.ts";
+import { PLUGIN_DISCOVERY_TOPIC_URL } from "@minke/harness-overlay/client/tabs/plugins/resources.ts";
 import { WebTabsController } from "@minke/harness-overlay/client/tabs/web/controller.ts";
 import { webTabsEn } from "@minke/harness-overlay/client/tabs/web/locales.ts";
 import { TabsRuntime } from "@minke/harness-overlay/client/tabs/runtime.ts";
@@ -60,72 +58,6 @@ test("model Profile migration preserves both user layers, comments and executabl
     assert.equal(await readFile(path, "utf8"), after);
     assert.equal(await readFile(path + ".before-minke-model-runtime", "utf8"), before);
   }
-});
-
-test("plugin discovery searches accept keywords and GitHub qualifiers", () => {
-  const keywordUrl = new URL(
-    createPluginSearchUrl("status rotator"),
-  );
-  assert.equal(
-    keywordUrl.searchParams.get("q"),
-    "topic:dsh-plugin status rotator",
-  );
-
-  const searchUrl = new URL(
-    createPluginSearchUrl(
-      '  language:typescript   stars:>50 "status line"  ',
-    ),
-  );
-  assert.equal(searchUrl.origin, "https://github.com");
-  assert.equal(searchUrl.pathname, "/search");
-  assert.equal(searchUrl.searchParams.get("type"), "repositories");
-  assert.equal(
-    searchUrl.searchParams.get("q"),
-    'topic:dsh-plugin language:typescript stars:>50 "status line"',
-  );
-  assert.equal(
-    readPluginSearchQuery(searchUrl.toString()),
-    'language:typescript stars:>50 "status line"',
-  );
-  assert.equal(
-    createPluginSearchUrl(" \n\t "),
-    PLUGIN_DISCOVERY_TOPIC_URL,
-  );
-  assert.equal(
-    readPluginSearchQuery(
-      "https://github.com/deepseek-ai/deepseek-harness",
-    ),
-    undefined,
-  );
-});
-
-test("detached plugin webviews skip native CSS cleanup", () => {
-  let removals = 0;
-  removeInsertedWebviewCssSafely(
-    {
-      isConnected: false,
-      removeInsertedCSS() {
-        removals += 1;
-        throw new Error("webview is detached");
-      },
-    },
-    ["compact", "topic"],
-  );
-  assert.equal(removals, 0);
-});
-
-test("plugin webview CSS cleanup contains synchronous Electron failures", () => {
-  assert.doesNotThrow(() => {
-    removeInsertedWebviewCssSafely(
-      {
-        isConnected: true,
-        removeInsertedCSS() {
-          throw new Error("dom-ready has not fired");
-        },
-      },
-      ["compact"],
-    );
-  });
 });
 
 test("legacy cleanup removes only the retired catalog cache", async () => {
@@ -225,18 +157,20 @@ test("plugin discovery remains browsing-only without a recovery or management br
   const tab = tabs.getSnapshot().tabs[0];
   assert.equal(tab.title, "Discover plugins");
   assert.equal(controller.create("Discover plugins"), tab.id);
-  controller.openExternal("https://github.com/topics/dsh-plugin");
-  controller.openExternal("javascript:alert(1)");
+  web.openExternal(tab.id);
   assert.deepEqual(external, [PLUGIN_DISCOVERY_TOPIC_URL]);
-  const markup = renderToStaticMarkup(createElement(PluginsView, { tab, active: true, controller, t: key => pluginsEn[key], webT: key => webTabsEn[key] }));
+  const markup = renderToStaticMarkup(renderer.renderToolbarCenter(tab))
+    + renderToStaticMarkup(renderer.renderTrailingActions(tab))
+    + renderToStaticMarkup(renderer.renderView(tab, true));
   assert.doesNotMatch(markup, /Manage plugins/);
-  assert.match(markup, /role="search"/);
+  assert.match(markup, /role="combobox"/);
+  assert.match(markup, /github.com\/topics\/dsh-plugin/);
+  assert.doesNotMatch(markup, /minke-plugins-browser|minke-agent-browser__annotation/);
   assert.doesNotMatch(markup, /Restart in safe mode/);
   assert.doesNotMatch(markup, /dsh plugin --profile|minke-plugins-installed/);
   assert.deepEqual(Object.keys(pluginsEn).sort(), Object.keys(pluginsZh).sort());
   controller.dispose();
   assert.equal(controller.create("Discover plugins"), undefined);
-  controller.openExternal("https://github.com/topics/dsh-plugin");
   assert.deepEqual(external, [PLUGIN_DISCOVERY_TOPIC_URL]);
   web.dispose();
   tabs.dispose();

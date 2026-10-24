@@ -52,15 +52,16 @@ function syncNavigation(
   controller.syncFromView(id, patch);
 }
 
-export interface WebTabViewProps {
+export interface WebTabViewOptions {
+  allowPopups?: boolean;
+  annotations?: boolean;
+}
+
+export interface WebTabViewProps extends WebTabViewOptions {
   tab: ManagedTab<WebTabPayload>;
   active: boolean;
   controller: WebTabsController;
   t: WebTabsTranslate;
-  /** Presets decorate the common guest without owning its lifetime. */
-  decorateGuest?: (view: WebviewTag) => () => void;
-  allowPopups?: boolean;
-  annotations?: boolean;
 }
 
 /** One persistent Electron guest and its local failure recovery surface. */
@@ -69,7 +70,6 @@ export function WebTabView({
   active,
   controller,
   t,
-  decorateGuest,
   allowPopups = true,
   annotations = true,
 }: WebTabViewProps): ReactNode {
@@ -103,7 +103,6 @@ export function WebTabView({
       "webview",
     ) as WebviewTag;
     let detach = (): void => {};
-    const releaseDecoration = decorateGuest?.(view);
     const disposeGuest = mountPersistentBrowser(host, view, {
       label: tab.title, allowPopups,
       ready() {
@@ -208,12 +207,11 @@ export function WebTabView({
       );
       view.removeEventListener("did-fail-load", handleFailure);
       view.removeEventListener("ipc-message", handleIpcMessage);
-      releaseDecoration?.();
       detach();
       disposeGuest();
       viewRef.current = null;
     };
-  }, [canCreateView, controller, tab.id, decorateGuest, allowPopups, attempt]);
+  }, [canCreateView, controller, tab.id, allowPopups, attempt]);
 
   useEffect(() => {
     viewRef.current?.setAttribute("aria-label", tab.title);
@@ -280,10 +278,12 @@ export function renderWebTabView(
   active: boolean,
   controller: WebTabsController,
   t: WebTabsTranslate,
+  options: WebTabViewOptions = {},
 ): ReactNode {
   if (!isWebTab(tab)) return null;
   return (
     <WebTabView
+      {...options}
       key={tab.id}
       tab={tab}
       active={active}

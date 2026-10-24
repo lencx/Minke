@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const appSource = readFileSync(
-  new URL("../desktop/renderer/App.tsx", import.meta.url),
+  new URL("../desktop/renderer/index.html", import.meta.url),
   "utf8",
 );
 const stylesSource = readFileSync(
@@ -54,7 +54,7 @@ function themeValues(name) {
 test("bootstrap loading text stays readable in light and dark appearances", () => {
   assert.match(
     appSource,
-    /className="[^"]*\bminke-bootstrap__status\b[^"]*"/u,
+    /class="[^"]*\bminke-bootstrap__status\b[^"]*"/u,
   );
   assert.doesNotMatch(
     appSource,

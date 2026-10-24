@@ -226,7 +226,7 @@ function hasNamedImport(ast, source, name) {
 }
 
 function catalogAppLaunch(ast, path) {
-  // Harness dsh-v0.2.1-rc.2 / 687f282e86, packages/host/open-in-app/src/resolver.ts:
+  // Harness dsh-v0.2.1-rc.3 / 1f81c047fc, packages/host/open-in-app/src/resolver.ts:
   // launchDetachedApp owns user-selected GUI launches and retains each catalog
   // adapter's visibility. Its pinned vendor source must remain pristine; forcing
   // windowsHide would change that behavior. Minke's staging policy owns this
@@ -319,7 +319,7 @@ function catalogAppLaunch(ast, path) {
 }
 
 function nativeCommandLaunch(ast, path) {
-  // Harness dsh-v0.2.1-rc.2 / 687f282e86, packages/util/native-command/src/runner.ts:
+  // Harness dsh-v0.2.1-rc.3 / 1f81c047fc, packages/util/native-command/src/runner.ts:
   // Explorer needs visible startup; background callers explicitly choose hidden.
   // Minke owns this exception for the pristine dependency. Re-evaluate it when
   // the upstream runner changes; other calls in these artifacts stay audited.
