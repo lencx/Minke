@@ -35,6 +35,7 @@ const taskFiles = Object.freeze({
     "github-release.test.mjs",
     "harness-session.test.mjs",
     "http-fixture-cleanup.test.mjs",
+    "linux-password-store.test.mjs",
     "login-shell-environment.test.mjs",
     "main-window-devtools.test.mjs",
     "macos-tray.test.mjs",
