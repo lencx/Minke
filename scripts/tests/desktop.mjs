@@ -59,6 +59,7 @@ const taskFiles = Object.freeze({
     "desktop-host-lifecycle.test.mjs",
     "harness-overlay.test.mjs",
     "harness-runtime-patches.test.mjs",
+    "large-session-performance.test.mjs",
     "harness-runtime-prune.test.mjs",
     "harness-runtime-state.test.mjs",
     "harness-source-boundary.test.mjs",

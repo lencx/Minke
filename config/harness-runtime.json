@@ -23,6 +23,7 @@
     "patches/deepseek-harness/sidebar-tab-lifecycle.patch",
     "patches/deepseek-harness/shared-terminal-view.patch",
     "patches/deepseek-harness/embedded-document-preview.patch",
+    "patches/deepseek-harness/large-session-performance.patch",
     "patches/deepseek-harness/session-export-feedback.patch"
   ],
   "productBundle": {

@@ -145,6 +145,13 @@ save flow without a preparing or download-started dialog. Download deduplication
 the menu's busy state, and dismissible failure details remain owned by Harness.
 Remove this patch when upstream offers equivalent quiet download feedback.
 
+`large-session-performance.patch` is pinned to the same Harness commit. It caps
+ordinary history requests at 100 messages while retaining the existing
+two-Turn window and explicit older-history loading. Collapsed process groups no
+longer mount their member rows until expanded, avoiding hidden Markdown and tool
+renderers for large Sessions. Remove this patch when upstream provides bounded
+initial history and deferred group-member rendering.
+
 `sidebar-add-menu.patch` is retired. The native add-tab intent opens the native
 Start page in the clicked pane; Minke contributes through the existing public
 `sidebar.right.tab.guide.entry` slot. Creation replaces that Start tab and
