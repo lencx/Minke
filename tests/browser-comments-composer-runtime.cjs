@@ -51,14 +51,15 @@ async function verifyBrowserCommentDraft({ window, guest, model, rendererValue, 
     document.querySelector('[data-composer-chip="browser-comments"]') !== null &&
     document.querySelector('[data-composer-card] img[alt="minke-browser-comments.png"]') !== null
   `), 'screenshot and reference staged in the real composer');
+  await waitFor(() => rendererValue(window, `() =>
+    document.querySelector('.minke-agent-browser__view[data-annotation-phase]') === null
+  `), 'annotation mode closes after staging the draft');
   const state = await rendererValue(window, `() => ({
     text: document.querySelector('[data-composer-input]').textContent,
     chips: document.querySelectorAll('[data-composer-chip="browser-comments"]').length,
-    annotating: !!document.querySelector('.minke-agent-browser__view[data-annotation-phase]'),
   })`);
   assert.equal(state.text.startsWith(draft), true);
   assert.equal(state.chips, 1);
-  assert.equal(state.annotating, false);
   assert.equal(model.requests.length, previousRequests, 'staging must not send a model request');
 
   // Leave the later browser-close turn image-free; this check covers draft
