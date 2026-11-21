@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -37,6 +37,14 @@ try {
     copyTarget(runtimeRoot, "api/session-controller/lib/client.js", sessionTarget),
     copyTarget(runtimeRoot, "client/ui-chat/lib/client.js", chatTarget),
   ]);
+  // DSH hashes CSS module names using the absolute stylesheet path.
+  const source = await readFile(chatPath, "utf8");
+  const relocated = source.replace(
+    /(MessageItem_module_css_default\s*=\s*\{\s*"attachmentRow":\s*`)[^`]+/u,
+    "$1relocated_attachmentRow",
+  );
+  assert.notEqual(relocated, source, "the fixture varies the checkout-dependent CSS name");
+  await writeFile(chatPath, relocated);
   const patches = await resolveHarnessRuntimePatches(projectRoot, [performancePatch]);
   await applyHarnessRuntimePatches(runtimeRoot, patches);
   await verifyHarnessRuntimePatchesApplied(runtimeRoot, patches);
