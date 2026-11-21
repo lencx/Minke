@@ -201,6 +201,7 @@ function CommentEditor({
         <button
           type="button"
           className="minke-agent-browser__annotation-delete"
+          data-minke-icon-button
           aria-label={labels.actionDelete}
           title={labels.actionDelete}
           onClick={() => {
@@ -216,6 +217,7 @@ function CommentEditor({
       <button
         type="button"
         className="minke-agent-browser__annotation-dismiss"
+        data-minke-icon-button
         aria-label={labels.actionDismiss}
         title={labels.actionDismiss}
         onClick={() => controller.dismissAnnotationDraft(tabId)}
@@ -225,6 +227,7 @@ function CommentEditor({
       <button
         type="button"
         className="minke-agent-browser__annotation-add"
+        data-minke-icon-button
         aria-label={
           snapshot.editingIndex === undefined
             ? labels.actionAdd

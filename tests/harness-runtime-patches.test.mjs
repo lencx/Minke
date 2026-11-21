@@ -265,7 +265,7 @@ test("the background-process patch leaves generated ACL bundles to the runtime t
     patch.targets.includes(
       "node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js",
     ),
-    true,
+    false,
   );
   assert.equal(
     patch.targets.some((target) =>
@@ -529,7 +529,7 @@ test("LibreOffice redistribution sources are excluded only for the pinned engine
       const visible = 'import { spawnSync } from "node:child_process"; spawnSync("compiler", []);';
       await mkdir(join(packageRoot, "sources", "scripts"), { recursive: true });
       await writeFile(join(packageRoot, declared), visible);
-      await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: packageName, version: "0.1.5" }));
+      await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: packageName, version: "0.2.3" }));
       await writeFile(join(packageRoot, "prebuilds.json"), JSON.stringify({ source: { files: [declared] } }));
       await verifyHarnessRuntimeProcessPolicy(runtimeRoot);
 
@@ -542,7 +542,7 @@ test("LibreOffice redistribution sources are excluded only for the pinned engine
         await assert.rejects(verifyHarnessRuntimeProcessPolicy(runtimeRoot), /spawnSync\(\) must set windowsHide: true/u);
         await rm(join(packageRoot, path));
       }
-      await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: packageName, version: "0.1.6" }));
+      await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: packageName, version: "0.2.4" }));
       await assert.rejects(verifyHarnessRuntimeProcessPolicy(runtimeRoot), /spawnSync\(\) must set windowsHide: true/u);
     },
   );
@@ -582,11 +582,13 @@ function launch(internals) {
 const catalogAppLaunchSource = `import { spawn } from "node:child_process";
 import { scrubbedParentEnv } from "@deepseek-ai/dsh-subprocess";
 export const launchDetachedApp = (command, args, options) => new Promise((resolve, reject) => {
+  const base = Object.fromEntries(Object.entries(scrubbedParentEnv())
+    .filter(([name]) => name.toUpperCase() !== "ELECTRON_RUN_AS_NODE"));
   const child = spawn(command, [...args], {
     detached: true,
     stdio: "ignore",
     windowsHide: options.windowsHide,
-    env: { ...scrubbedParentEnv(), ...options.env },
+    env: { ...base, ...options.env },
   });
   child.unref();
   resolve();
@@ -617,7 +619,7 @@ return launchDetachedApp;
             observed.push({ command, args, options });
             return { unref() {} };
           },
-          () => ({ PATH: "scrubbed-path", MODE: "parent" }),
+          () => ({ PATH: "scrubbed-path", MODE: "parent", Electron_Run_As_Node: "1" }),
         );
         for (const windowsHide of [undefined, false, true]) {
           await launch("editor.exe", ["workspace"], { windowsHide, env: { MODE: "adapter" } });
@@ -645,8 +647,8 @@ test("catalog GUI launch policy rejects other paths, owners, and changed process
     { source: catalogAppLaunchSource.replace("(command, args, options)", "(command, args, settings)") },
     { source: catalogAppLaunchSource.replace("(resolve, reject)", "(command, reject)") },
     { source: catalogAppLaunchSource.replace('stdio: "ignore",', 'stdio: "ignore", shell: false,') },
-    { source: catalogAppLaunchSource.replace("...scrubbedParentEnv()", "...process.env") },
-    { source: catalogAppLaunchSource.replace("...scrubbedParentEnv(), ...options.env", "...options.env, ...scrubbedParentEnv()") },
+    { source: catalogAppLaunchSource.replace("Object.entries(scrubbedParentEnv())", "Object.entries(process.env)") },
+    { source: catalogAppLaunchSource.replace("...base, ...options.env", "...options.env, ...base") },
     { source: catalogAppLaunchSource.replace("windowsHide: options.windowsHide", "windowsHide: false") },
     { source: catalogAppLaunchSource.replace("spawn(command, [...args]", "spawn(command, args") },
   ];

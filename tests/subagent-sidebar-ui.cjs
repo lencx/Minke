@@ -85,17 +85,19 @@ async function verifySubagentSidebarUI({
   };
   await assertParent();
 
+  const panelToggleId = `dsh-session-panel-toggle-${parentSessionId}`;
   const openAside = async () => {
     await waitFor(() => rendererValue(window, `() => {
-      const trigger = [...document.querySelectorAll('button[aria-haspopup="tree"]')]
-        .find(element => !element.closest('[data-sidebar-chat]') && /subagent|子代理/i.test(element.getAttribute('aria-label')));
-      if (!trigger) return false;
-      trigger.focus();
-      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      const trigger = document.getElementById(${JSON.stringify(panelToggleId)});
+      if (!trigger || trigger.getAttribute('aria-disabled') === 'true') return false;
+      if (trigger.getAttribute('aria-expanded') === 'false') trigger.click();
       return true;
-    }`), 'parent Subagent catalog');
+    }`), 'parent Session panel');
     await waitFor(() => rendererValue(window, `() => {
-      const button = [...document.querySelectorAll('[role="tree"] button')]
+      const trigger = document.getElementById(${JSON.stringify(panelToggleId)});
+      const panel = document.getElementById(trigger?.getAttribute('aria-controls'));
+      const buttons = panel?.querySelectorAll('[data-session-panel-section="subagents"] [role="tree"] button');
+      const button = [...(buttons ?? [])]
         .find(element => element.getAttribute('aria-label') === ${JSON.stringify(`Open ${scenario.childTitle} in sidebar`)}
           || element.getAttribute('aria-label') === ${JSON.stringify(`在侧边栏打开 ${scenario.childTitle}`)});
       if (!button) return false;

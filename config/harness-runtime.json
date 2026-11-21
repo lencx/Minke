@@ -1,9 +1,9 @@
 {
   "repository": "deepseek-ai/deepseek-harness",
   "submodulePath": "vendor/deepseek-harness",
-  "commit": "1f81c047fc48fa190a683e469daa699857e9afe8",
+  "commit": "2e39e70496aa02986ca6a820c5d497e816b69d7e",
   "packageName": "@deepseek-ai/dsh",
-  "packageVersion": "0.2.1-rc.3",
+  "packageVersion": "0.2.2-rc.5",
   "frontendPackageName": "@deepseek-ai/dsh-web-frontend",
   "pnpmVersion": "11.28.5",
   "runtimeSizeBudgetBytes": {
@@ -11,20 +11,20 @@
     "linux": 1073741824,
     "win32": 1073741824
   },
-  "runtimeFileBudget": 15000,
+  "runtimeFileBudget": 25000,
   "patches": [
     "patches/deepseek-harness/win32-directory-picker.patch",
     "patches/deepseek-harness/windows-background-processes.patch",
     "patches/deepseek-harness/optional-plugin-isolation.patch",
     "patches/deepseek-harness/embedded-profile-resolution.patch",
     "patches/deepseek-harness/model-runtime-composition.patch",
+    "patches/deepseek-harness/web-fetch-composition.patch",
     "patches/deepseek-harness/dynamic-trusted-hosts.patch",
     "patches/deepseek-harness/process-environment-boundaries.patch",
     "patches/deepseek-harness/sidebar-tab-lifecycle.patch",
     "patches/deepseek-harness/shared-terminal-view.patch",
     "patches/deepseek-harness/embedded-document-preview.patch",
-    "patches/deepseek-harness/large-session-performance.patch",
-    "patches/deepseek-harness/session-export-feedback.patch"
+    "patches/deepseek-harness/large-session-performance.patch"
   ],
   "productBundle": {
     "packageName": "@lencx/minke-harness-overlay",

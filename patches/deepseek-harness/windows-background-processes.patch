@@ -1,32 +1,19 @@
-diff --git a/node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js b/node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js
---- a/node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js
-+++ b/node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/lib/index.js
-@@ -808,3 +808,4 @@
- 			killSignal: "SIGKILL",
--			maxBuffer: 1024
-+			maxBuffer: 1024,
-+			windowsHide: true
- 		}).trim();
-@@ -1257,2 +1258,3 @@
- 				detached: true,
-+				windowsHide: true,
- 				stdio: [
 diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js
-@@ -110,3 +110,4 @@
+@@ -124,3 +124,4 @@ function defaultProbeBwrap(timeoutMs) {
  		timeout: timeoutMs,
 -		stdio: "ignore"
 +		stdio: "ignore",
 +		windowsHide: true
  	}).status === 0;
-@@ -132,3 +133,4 @@
+@@ -146,3 +147,4 @@ function defaultProbeSeatbelt(seatbeltExec, timeoutMs) {
  		timeout: timeoutMs,
 -		stdio: "ignore"
 +		stdio: "ignore",
 +		windowsHide: true
  	}).status === 0;
-@@ -145,3 +147,21 @@
+@@ -159,3 +161,21 @@ function defaultProbeWindowsAcl(runnerInvocation, timeoutMs) {
  	if (program === void 0) return false;
 +	const bootstrap = process.env.MINKE_NODE_BOOTSTRAP;
 +	const embeddedExecutable = process.env.MINKE_NODE_EXECUTABLE;
@@ -48,71 +35,78 @@ diff --git a/node_modules/@deepseek-ai/dsh-sandbox-local/lib/index.js b/node_mod
  	return spawnSync(program, [
 +		...bootstrapArgs,
  		...runnerInvocation.slice(1),
-@@ -160,3 +180,5 @@
+@@ -174,3 +194,5 @@ function defaultProbeWindowsAcl(runnerInvocation, timeoutMs) {
  		timeout: timeoutMs,
 -		stdio: "ignore"
 +		stdio: "ignore",
 +		env: environment,
 +		windowsHide: true
  	}).status === 0;
+diff --git a/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js b/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
+@@ -359,2 +359,3 @@ var HarnessClient = class {
+ 		const child = spawn(this.runtime.command, this.runtime.args, {
++			windowsHide: true,
+ 			cwd: this.runtime.cwd,
 diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
-@@ -40,3 +40,4 @@
+@@ -40,3 +40,4 @@ function querySystemctl(command, args) {
  			env: managerEnvironment(),
 -			timeout: SYSTEMCTL_TIMEOUT_MS
 +			timeout: SYSTEMCTL_TIMEOUT_MS,
 +			windowsHide: true
  		}, (error, stdout, stderr) => {
-@@ -102,3 +103,4 @@
+@@ -102,3 +103,4 @@ function probeLinuxScope(internals = {}) {
  			],
 -			timeout: SYSTEMCTL_TIMEOUT_MS
 +			timeout: SYSTEMCTL_TIMEOUT_MS,
 +			windowsHide: true
  		});
-@@ -136,3 +138,4 @@
+@@ -136,3 +138,4 @@ function probeLinuxManager(internals = {}) {
  		stdio: "ignore",
 -		timeout: SYSTEMCTL_TIMEOUT_MS
 +		timeout: SYSTEMCTL_TIMEOUT_MS,
 +		windowsHide: true
  	});
-@@ -255,3 +258,4 @@
+@@ -255,3 +258,4 @@ var SystemdScopeOwner = class {
  			env: managerEnvironment(),
 -			timeout: SYSTEMCTL_TIMEOUT_MS
 +			timeout: SYSTEMCTL_TIMEOUT_MS,
 +			windowsHide: true
  		});
-@@ -278,3 +282,4 @@
+@@ -278,3 +282,4 @@ var SystemdScopeOwner = class {
  			env: managerEnvironment(),
 -			timeout: SYSTEMCTL_TIMEOUT_MS
 +			timeout: SYSTEMCTL_TIMEOUT_MS,
 +			windowsHide: true
  		});
-@@ -312,3 +317,4 @@
+@@ -312,3 +317,4 @@ var SystemdScopeOwner = class {
  				stdio: "ignore",
 -				timeout: SYSTEMCTL_TIMEOUT_MS
 +				timeout: SYSTEMCTL_TIMEOUT_MS,
 +				windowsHide: true
  			});
-@@ -347,3 +353,4 @@
+@@ -347,3 +353,4 @@ var SystemdScopeOwner = class {
  				stdio: "ignore",
 -				timeout: SYSTEMCTL_TIMEOUT_MS
 +				timeout: SYSTEMCTL_TIMEOUT_MS,
 +				windowsHide: true
  			});
-@@ -577,2 +584,3 @@
- 			stdio: runnerStdio(spec, false),
+@@ -579,2 +586,3 @@ function launchLinuxScope(spec, targetEnv, literalArgv, internals = {}) {
+ 			stdio,
 +			windowsHide: true,
  			detached: true
-diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js
---- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js
-+++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js
-@@ -334,3 +334,3 @@
+diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-2f_K_dxk.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-2f_K_dxk.js
+--- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-2f_K_dxk.js
++++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-2f_K_dxk.js
+@@ -334,3 +334,3 @@ const DEFAULT_INTERNALS = {
  	close: closeSync,
 -	exec: (file, args) => execFileSync(file, args, { encoding: "utf8" }),
 +	exec: (file, args) => execFileSync(file, args, { encoding: "utf8", windowsHide: true }),
  	kill: (pid, signal) => process.kill(pid, signal)
-@@ -1037,3 +1037,3 @@
+@@ -1052,3 +1052,3 @@ function spawnSubprocess(spec, internals = {}) {
  		detached: platform !== "win32",
 -		windowsHide: platform === "win32"
 +		windowsHide: true
@@ -120,12 +114,12 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2
 diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
-@@ -91,3 +91,3 @@
+@@ -92,3 +92,3 @@ function spawnBrowserLauncher(url) {
  	], {
 -		env: scrubbedParentEnv(),
 +		env: browserWorkerEnvironment(),
  		stdio: [
-@@ -96,3 +96,4 @@
+@@ -97,3 +97,4 @@ function spawnBrowserLauncher(url) {
  			"pipe"
 -		]
 +		],
@@ -134,14 +128,14 @@ diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@
 diff --git a/node_modules/@deepseek-ai/node-addon-system/lib/index.js b/node_modules/@deepseek-ai/node-addon-system/lib/index.js
 --- a/node_modules/@deepseek-ai/node-addon-system/lib/index.js
 +++ b/node_modules/@deepseek-ai/node-addon-system/lib/index.js
-@@ -93,2 +93,3 @@
+@@ -93,2 +93,3 @@ export function probe(launcher = launcherPath(), options = {}) {
          stdio: ['ignore', 'pipe', 'ignore'],
 +        windowsHide: true,
      });
-diff --git a/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js b/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
---- a/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
-+++ b/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
-@@ -353,2 +353,3 @@
- 		const child = spawn(this.runtime.command, this.runtime.args, {
+diff --git a/node_modules/@deepseek-ai/dsh-experimental-liveshare/lib/index.js b/node_modules/@deepseek-ai/dsh-experimental-liveshare/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-experimental-liveshare/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-experimental-liveshare/lib/index.js
+@@ -2466,2 +2466,3 @@
+ 		const child = spawn(this.options.command.executable, [...this.options.command.args], {
 +			windowsHide: true,
- 			cwd: this.runtime.cwd,
+ 			env: {

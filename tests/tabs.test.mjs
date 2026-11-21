@@ -4153,10 +4153,6 @@ test("window layout actions follow DSH header geometry", () => {
   assert.equal(rightTabs.getSnapshot().visible, true);
   assert.deepEqual(Object.keys(tabsEn), Object.keys(tabsZh));
 
-  assert.match(
-    SESSION_HEADER_ACTION_STYLES,
-    /\[data-minke-tabs-header-action\] > svg/u,
-  );
   assert.doesNotMatch(
     SESSION_HEADER_ACTION_STYLES,
     /data:image|::before/u,
@@ -4229,7 +4225,7 @@ test("Tabs placement controls keep independent panels open", () => {
   );
   assert.match(
     panelSource,
-    /panelRendered\s*=\s*hasTabs\s*\|\|\s*snapshot\.visible/u,
+    /panelRendered\s*=\s*!usesNativeSidebar\s*&&\s*\(hasTabs\s*\|\|\s*snapshot\.visible\)/u,
   );
   assert.doesNotMatch(panelSource, /if\s*\(!hasTabs\)\s*return null/u);
 

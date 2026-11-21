@@ -1,7 +1,7 @@
 /**
  * Minke's process adapter for DSH's public runProfile interface.
- * Lifecycle messages and quit inspection follow DSH Desktop at the pinned
- * revision. Keep the existing web profile and product overlay as launch inputs.
+ * Quit inspection follows DSH Desktop. The Web profile supplies the browser
+ * entry for Minke's Electron window and Remote Access.
  */
 
 /** Count the same interruptible work as DSH Desktop's quit/update inspector. */
@@ -73,8 +73,12 @@ export async function runDesktopHost(boot, channel = process) {
     running = await application;
     if (stopping !== undefined || !channel.connected) { await stop(); return; }
     const { ctx } = running;
-    await send({ type: "ready",
-      url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${String(ctx.webServer.port)}`) });
+    const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`;
+    const entries = [];
+    ctx.emit(ctx.webServer, "webserver/entry-url", origin, entries);
+    const entry = entries.find(candidate => candidate.open && new URL(candidate.url).origin === origin);
+    if (entry === undefined) throw new Error("DSH Web did not publish a loopback browser entry");
+    await send({ type: "ready", url: entry.url });
   } catch (error) {
     channel.off("message", onMessage);
     channel.off("disconnect", onDisconnect);

@@ -1,3 +1,9 @@
+[data-shell-overlay] {
+  /* Sliding panels stay inside DSH's frame. Overflow from a hidden panel
+     can otherwise scroll the frame when Chromium reveals a focused control. */
+  overflow: clip;
+}
+
 .minke-tabs-panel {
   --minke-tabs-panel-width: 360px;
   --minke-tabs-panel-left: 0px;
@@ -600,7 +606,6 @@ body:has(
   width: 28px;
   flex: none;
   justify-content: center;
-  padding: 0;
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -887,17 +892,6 @@ body:has(
   color: var(--dsw-alias-label-primary);
 }
 
-/* DSH's tab body clips overflow for embedded views. Start needs native scrolling
-   when its cards exceed the space above a bottom panel or in a short window. */
-[data-sidebar-right-tab]:has([data-sidebar-right-guide]) {
-  overflow-y: auto;
-}
-
-[data-sidebar-right-guide] {
-  /* Shrinking the centered guide clips content above the scroll origin. */
-  flex-shrink: 0;
-}
-
 .minke-tabs-native-guide__section .minke-tabs-empty__options {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1050,6 +1044,7 @@ body:has(
 
 .minke-tabs-error__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 22px;
 }

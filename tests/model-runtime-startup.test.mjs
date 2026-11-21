@@ -33,13 +33,18 @@ function runNativeTest(pattern) {
 }
 
 async function productModelEntry() {
-  const { applyEntryPatches, entryListSchema } = await import("../runtime/host/node_modules/@deepseek-ai/cordis-plugin-include/lib/index.js");
-  const parse = async path => yaml.load(await readFile(new URL(path, import.meta.url), "utf8"), { schema: entryListSchema });
-  const base = await parse("../runtime/host/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml");
-  const product = await parse("../packages/harness-overlay/cordis.patch.yml");
+  const [{ applyEntryPatches }, { loadOverlayPatches }] = await Promise.all([
+    import("../runtime/host/node_modules/@deepseek-ai/cordis-plugin-include/lib/index.js"),
+    import("../runtime/host/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js"),
+  ]);
+  const parse = path => loadOverlayPatches("dsh", fileURLToPath(new URL(path, import.meta.url)));
+  const base = parse("../runtime/host/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml");
+  const product = parse("../packages/harness-overlay/cordis.patch.yml");
   const warnings = [];
   const saved = { providers: { "saved-provider": { api: "openai-completions", models: [{ id: "saved" }] } } };
-  const entries = applyEntryPatches([], [...base, { id: "llm-pi-ai", config: saved }, ...product], (...args) => warnings.push(args));
+  const { data: entries } = applyEntryPatches(
+    [], [...base, { id: "llm-pi-ai", config: saved }, ...product], (...args) => warnings.push(args),
+  );
   const entry = entries.find(row => row.id === "llm-pi-ai");
   assert.equal(entry?.name, "@lencx/minke-model-runtime/dsh", JSON.stringify(warnings));
   assert.deepEqual(entry.config, saved, "the command-line product overlay must preserve native model settings");
@@ -76,7 +81,7 @@ test("native Profile writes reject unserviceable model settings before persisten
     } },
   ] }]));
   await writeFile(join(dir, "cordis.yml"), "[]\n");
-  const profile = { name: "web", startedBundles: ["test-bundle"], dir, patchPath: join(dir, "cordis.patch.yml"), installAnchor: join(home, "package.json"), cwd: home, home, overlays: [] };
+  const profile = { name: "web", startedBundles: ["test-bundle"], dir, patchPath: join(dir, "cordis.patch.yml"), installAnchor: join(home, "package.json"), cwd: home, home, overlayPaths: [] };
   const ctx = await Boot.boot("dsh", join(dir, "cordis.yml"), Boot.readProfilePatches("dsh", profile), ctx => {
     ctx.provide("profileContext", profile);
     ctx.provide("appReady", { onReady: listener => { listener(); return () => {}; } });
@@ -191,8 +196,8 @@ for (const [label, provider, runtimeId, model] of [
       load("@deepseek-ai/dsh-session"), load("@deepseek-ai/dsh-session-projection"),
       load("@deepseek-ai/dsh-system-prompt"), load("@deepseek-ai/dsh-tools"), load("@deepseek-ai/dsh-agent"),
     ]);
-    const [Retry, { default: AgentLoop }] = await Promise.all([
-      load("@deepseek-ai/dsh-llm-retry"), load("@deepseek-ai/dsh-agent-loop"),
+    const [NativeToolExecutor, Retry, { default: AgentLoop }] = await Promise.all([
+      load("@deepseek-ai/dsh-tool-executor-native"), load("@deepseek-ai/dsh-llm-retry"), load("@deepseek-ai/dsh-agent-loop"),
     ]);
     let loaded = true;
     let loads = 0;
@@ -231,6 +236,7 @@ for (const [label, provider, runtimeId, model] of [
     ctx.provide("subprocess", { resolveExecutable: async () => { throw new Error("no CLI needed"); } });
     await ctx.plugin(Loader);
     for (const service of [Llm, Session, ...services]) await ctx.plugin(service.default);
+    await ctx.plugin(NativeToolExecutor);
     await ctx.plugin(Retry);
     await ctx.plugin(AgentLoop, { agents: [] });
     const config = {
@@ -248,7 +254,8 @@ for (const [label, provider, runtimeId, model] of [
       await idle;
     };
     await send();
-    assert.equal(requests, 1, "a terminated local backend must not receive an automatic completion retry");
+    assert.equal(requests, 1, "a terminated local backend must not receive an automatic completion retry: " +
+      JSON.stringify(agent.session.snapshotEvents().slice(-4)));
     assert.equal(loads, 0, "an engine failure must not automatically reload the local model");
     assert.equal(agent.session.snapshotEvents().some(event => event.type === "llm/retry"), false);
     assert.equal(agent.session.snapshotEvents().at(-1).data.reason.kind, "error");
@@ -458,6 +465,7 @@ function fixture(t, { fetch, refusePublication = false, env = {} } = {}) {
         case "@deepseek-ai/dsh-launch-environment": return { launchEnvironmentOf: () => ({ get: () => undefined }) };
         case "@deepseek-ai/dsh-llm": return { LlmAdapter: class {}, LlmError: class extends Error {
           constructor(message, code) { super(message); this.code = code; }
+          static fromFailure({ message, code }) { return new this(message, code); }
         } };
         case "@deepseek-ai/dsh-llm-pi-ai": return {
           Config: schema.object({ providers: schema.dict(schema.any()).default({}).volatile() }),

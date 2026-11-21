@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   aboutMetadata,
   aboutTagline,
@@ -19,6 +21,7 @@ import {
 import {
   createNewSessionShortcutAction,
 } from "@minke/harness-overlay/client/shortcuts/install.tsx";
+import { MinkeBrandMark, MinkeBrandName } from "@minke/harness-overlay/client/brand/MinkeBrand.tsx";
 
 const manifest = JSON.parse(
   readFileSync(
@@ -129,13 +132,6 @@ const brandInstallSource = readFileSync(
   ),
   "utf8",
 );
-const brandMarkSource = readFileSync(
-  new URL(
-    "../packages/harness-overlay/src/client/brand/MinkeBrand.tsx",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const shortcutInstallSource = readFileSync(
   new URL(
     "../packages/harness-overlay/src/client/shortcuts/install.tsx",
@@ -219,10 +215,11 @@ test("the Web projection shadows official DSH brand slots with Minke", () => {
     brandInstallSource,
     /MINKE_BRAND_PRIORITY\s*=\s*-100/u,
   );
-  assert.match(brandMarkSource, /viewBox="0 0 832 832"/u);
-  assert.match(brandMarkSource, /fill="#0e1324"/u);
-  assert.match(brandMarkSource, /fill="#fdfdfd"/u);
-  assert.match(brandMarkSource, />Minke<\/span>/u);
+  const brandMark = renderToStaticMarkup(createElement(MinkeBrandMark, { size: 24 }));
+  assert.match(brandMark, /viewBox="0 0 832 832"/u);
+  assert.match(brandMark, /fill="#0e1324"/u);
+  assert.match(brandMark, /fill="#fdfdfd"/u);
+  assert.equal(renderToStaticMarkup(createElement(MinkeBrandName)), "<span>Minke</span>");
 });
 
 test("product capability packages follow the shared naming convention", () => {

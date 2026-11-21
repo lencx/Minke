@@ -1616,10 +1616,17 @@ async function run() {
     await waitFor(() => rendererValue(window, `() => document.querySelectorAll('[data-dockkit-pane]').length === 2`), 'two native split panes');
     await assertRetainedBrowserPosition(window, 'split panes');
     if (process.platform === 'darwin') {
-      await waitFor(() => rendererValue(window, `() => {
-        const strips = [...document.querySelectorAll('[data-sidebar-right-panel] [data-dockkit-strip]')];
-        return strips.length === 2 && getComputedStyle(strips[0]).paddingLeft === '64px' && getComputedStyle(strips[1]).paddingLeft === '10px';
-      }`), 'only the first fullscreen pane reserves native window controls');
+      const insets = await rendererValue(window, `() =>
+        [...document.querySelectorAll('[data-sidebar-right-panel="fullscreen"] [data-dockkit-strip]')]
+          .map(strip => ({
+            column: strip.closest('[data-dockkit-pane]').dataset.dockkitColumn,
+            padding: getComputedStyle(strip).paddingLeft,
+          }))
+      `);
+      assert.deepEqual(insets, [
+        { column: '0', padding: '88px' },
+        { column: '1', padding: '10px' },
+      ], 'only the first fullscreen column reserves space for the macOS window controls');
     }
     await rendererValue(window, `() => { document.querySelector('[data-sidebar-right-mode="push"]').click(); return true; }`);
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="push"]') !== null`), 'native docked presentation');
@@ -1668,6 +1675,9 @@ async function run() {
 
     // DSH's native shortcut works with the left navigation collapsed after
     // fullscreen/docking, where its Settings button is not mounted.
+    if (process.platform === 'darwin') app.focus({ steal: true });
+    window.focus();
+    await waitFor(() => window.isFocused(), 'native Settings shortcut window focus');
     window.webContents.focus();
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: ',', modifiers: [process.platform === 'darwin' ? 'meta' : 'control'] });
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: ',', modifiers: [process.platform === 'darwin' ? 'meta' : 'control'] });

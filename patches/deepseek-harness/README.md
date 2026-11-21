@@ -18,7 +18,7 @@ native `data-ds-theme-source` attribute, and picked files use `__DSH_HOST_PATHS_
 The former product-only locale and theme bridges are removed; these integrations
 need no compiled-runtime patch.
 
-`win32-directory-picker.patch` is pinned to Harness `dsh-v0.2.1-rc.3` (`1f81c047fc48fa190a683e469daa699857e9afe8`). It:
+`win32-directory-picker.patch` targets DSH `0.2.2-rc.5` at `2e39e70496aa02986ca6a820c5d497e816b69d7e`.
 
 - routes the directory dialog worker and Windows ACL sandbox runner through `MINKE_NODE_EXECUTABLE`, with Electron Node mode explicitly restored for the dialog worker;
 - keeps the dialog worker's IPC channel open through non-terminal `showing` progress and disconnects only after a terminal result.
@@ -32,7 +32,7 @@ Harness now decodes selected UTF-16 paths through a pointer-sized buffer without
 
 `windows-background-processes.patch` is pinned to the same Harness commit. It:
 
-- fills the remaining console-window suppression gaps in Windows process inspection, sandbox probes, browser handoff, the SDK child runtime, and the experimental Python PTC runtime (`dsh-experimental-ptc-runtime-python`);
+- hides background processes for Windows process inspection, sandbox probes, browser handoff, the SDK child runtime, and the experimental LiveShare worker;
 - retains upstream's hidden `taskkill` helpers, hides the Windows Job runner, and makes the fallback subprocess spawner's `windowsHide` value explicitly `true` for the staged-artifact audit;
 - leaves PTY/ConPTY terminal sessions on their dedicated `spawnTerminal` lifecycle path.
 
@@ -53,12 +53,10 @@ argument so Explorer can show requested folders. Only that argv-only runner at
 its two pinned artifact paths is admitted; altered options and extra launches
 still fail the audit. The bundled runner keeps Minke's environment scrubbing.
 
-LibreOffice engine `0.1.5` packages redistribute their build sources with the
-native binaries. The audit excludes only `.mjs` rebuild inputs declared by
-`prebuilds.json` below `sources/engine` and `sources/scripts` in those pinned
-engine packages. It retains the sources and licenses in the shipped runtime.
-Actual converter workers, undeclared scripts, and future engine versions remain
-audited; re-evaluate this boundary on the next engine upgrade.
+LibreOffice Kit `0.2.3` redistributes engine and frame-forwarding build sources
+alongside its runtime. The process audit checks runtime launch sites and skips
+the declared engine rebuild scripts and the three pinned frame-forwarding
+build scripts. The shipped runtime retains the sources and licenses.
 
 `optional-plugin-isolation.patch` is pinned to the same Harness commit. It:
 
@@ -84,6 +82,11 @@ existing `llm-pi-ai` entry in the staged base bundle. Cordis treats a patch's
 The wrapper mounts the unchanged upstream pi-ai plugin, preserves the native
 settings namespace, and adds transient local discovery. Remove this packaging
 patch when upstream exposes a provider-contribution or module-replacement seam.
+
+`web-fetch-composition.patch` sets the staged base bundle's Fetch default to
+DeepSeek Fetch API. The product overlay disables DSH's local HTTP provider.
+The default belongs in the base bundle so a profile's saved Web provider
+settings retain precedence.
 
 The former local isolation/rollback implementation is removed. Upstream now owns
 startup recovery: optional failures do not stop unrelated plugins, required
@@ -135,22 +138,23 @@ Releasing a session pin ends its resource stream; an explicit close disposes the
 global content instance. Native file resources keep their existing ownership. Session
 mount changes now use DSH's public `sidebarRight.mounted` observable; the private
 binding-notification hunk has been retired. The store retains native layout
-persistence and new-pane placement. The patch is
-confined to the staged Sidebar client bundle and can be retired when upstream
-provides equivalent instance, observation, and close-admission contracts.
+persistence and new-pane placement. The patch places DSH's More tools card before
+the Minke group in Start's render order. The changes are confined to the staged
+Sidebar client bundle and can be retired when upstream provides equivalent
+instance, observation, close-admission and guide placement contracts.
 
-`session-export-feedback.patch` limits the shared Session-export modal to
-errors. Header-menu downloads and `/export` proceed to the browser or native
-save flow without a preparing or download-started dialog. Download deduplication,
-the menu's busy state, and dismissible failure details remain owned by Harness.
-Remove this patch when upstream offers equivalent quiet download feedback.
+Session export uses DSH's progress and failure dialogs, including its native
+Markdown copy action. Minke's Electron download handler opens the native save
+dialog for Session ZIP files.
 
-`large-session-performance.patch` is pinned to the same Harness commit. It caps
-ordinary history requests at 100 messages while retaining the existing
-two-Turn window and explicit older-history loading. Collapsed process groups no
-longer mount their member rows until expanded, avoiding hidden Markdown and tool
-renderers for large Sessions. Remove this patch when upstream provides bounded
-initial history and deferred group-member rendering.
+`large-session-performance.patch` applies to the staged Session controller and
+Chat client bundles. It caps ordinary history requests at 100 messages and
+retains the two-Turn paging rule.
+Turn jumps use their own 500-message cap, which accommodates their 200-message
+minimum. Process groups mount members when first shown and keep them mounted
+through later folds so renderer state survives. Browser find can reveal a group
+after its members have mounted. Remove this patch when upstream provides
+equivalent history limits and deferred group-member rendering.
 
 `sidebar-add-menu.patch` is retired. The native add-tab intent opens the native
 Start page in the clicked pane; Minke contributes through the existing public
@@ -186,13 +190,12 @@ The earlier 0.1.2-alpha.3 release removes only Harness's optional SQLite Session
 Minke's IM Gateway SQLite mailbox is a separate desktop transport store and is
 not part of that Session persistence contract.
 
-The 0.2.1-rc.3 runtime uses Session v4 and lifecycle-scoped SessionHandles.
+The runtime uses Session v4 and lifecycle-scoped SessionHandles.
 After loading its Node bootstrap, Minke's desktop entry invokes the public
 `runProfile()` interface with the existing `web` profile and product overlay.
-Its private IPC channel follows DSH Desktop's readiness, quit inspection and
-acknowledged shutdown semantics; task inspection is checked against the pinned
-upstream implementation. CLI and migration invocations still call `runCli()`;
-importing the upstream CLI does not dispatch a command.
+The native token plugin supplies the authenticated browser URL through
+`webserver/entry-url`. The desktop channel publishes readiness, reports quit
+inspection, and acknowledges shutdown. CLI and migration invocations call `runCli()`.
 Minke delegates Session creation, inspection, follow streams, and export to
 SessionController; Harness owns locking and adjacent format migrations, including
 v3 to v4, which write new logs and retain committed predecessors. Downgrade reads are not
@@ -210,13 +213,9 @@ The production deploy allows unused workspace patches because the upstream
 production dependency closure. The complete frozen workspace install still
 validates all declared patches.
 
-Alpha.2 adds LibreOffice for Office previews. Its platform packages add about
-255–264 MiB on macOS, 185 MiB on Linux (WASM), and 325–328 MiB on Windows before
-pruning. All platforms share a 1 GiB runtime budget to leave room for Office
-engines and platform-specific native dependencies; the 15,000-file limit
-remains active. The staged 0.2.1-rc.3 macOS ARM64 runtime measures about 379 MiB
-and contains 14,449 files.
-Every platform must still pass the size gate when staged.
+The macOS ARM64 `0.2.2-rc.5` runtime measures about 579 MiB across 20,400
+files, including the LibreOffice Kit platform packages. The staging gate
+enforces a 1 GiB and 25,000-file budget on every platform.
 
 The pinned source declares React 18 types at its workspace root. The manual
 React type symlink adapter is retired; the native frozen install and build own
@@ -251,8 +250,8 @@ pnpm harness:smoke
 pnpm test:desktop:sidebar
 ```
 
-The current composition declares 11 runtime patches, down from 13 before the
-Remote API and native Start migrations. The remaining sidebar close-admission,
-embedded document body and shared terminal view patches still cover contracts
-not supplied by the pinned public APIs: undo/replacement vetoes for drafts,
-rendering unsaved document text, and independent terminal retention owners.
+The current composition declares 10 runtime patches. Staging formats the
+compressed DSH Client files targeted by patches before applying them. The
+sidebar, document preview, and terminal patches cover draft vetoes during
+undo and replacement, unsaved document previews, and independent terminal
+retention owners.

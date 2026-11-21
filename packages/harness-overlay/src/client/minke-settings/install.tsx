@@ -1,6 +1,7 @@
 import type {
   ComponentType,
 } from "react";
+import { MinkeBrandMark } from "../brand/MinkeBrand.tsx";
 import type {
   HarnessClientContext,
 } from "../core/context.ts";
@@ -16,12 +17,10 @@ import {
 import type {
   MinkeSettingsRuntime,
 } from "./runtime.ts";
-import {
-  installMinkeSettingsNavigationLogo,
-  installMinkeSettingsStyles,
-} from "./styles.ts";
+import { installMinkeSettingsStyles } from "./styles.ts";
 
 const MINKE_SETTINGS_NAMESPACE = "minke.settings";
+const MINKE_SETTINGS_SECTION_ID = "minke-settings";
 
 /** Install one unified Minke section inside the existing DSH Settings shell. */
 export function installMinkeSettings(
@@ -44,10 +43,6 @@ export function installMinkeSettings(
     "minke-overlay: Minke Settings styles",
   );
   ctx.effect(
-    () => installMinkeSettingsNavigationLogo(() => t("nav")),
-    "minke-overlay: Minke Settings navigation logo",
-  );
-  ctx.effect(
     () => () => runtime.dispose(),
     "minke-overlay: Minke Settings runtime",
   );
@@ -56,13 +51,23 @@ export function installMinkeSettings(
     ctx.slots.register(
       {
         name: "settings.section",
-        id: "minke-settings",
+        id: MINKE_SETTINGS_SECTION_ID,
         order: 4,
         label: () => t("nav"),
         locale: MINKE_SETTINGS_NAMESPACE,
         inject: () => ({ runtime }),
       },
       MinkeSettingsSection as ComponentType<never>,
+    ),
+  );
+  ctx.slots.inject("settings.section.icon", () =>
+    ctx.slots.register(
+      {
+        name: "settings.section.icon",
+        id: MINKE_SETTINGS_SECTION_ID,
+        label: () => t("nav"),
+      },
+      ({ size }: { size: number }) => <MinkeBrandMark size={size} monochrome />,
     ),
   );
 }

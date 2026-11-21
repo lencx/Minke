@@ -156,6 +156,17 @@ export interface FileManagerListResult {
   readonly repository?: FileManagerRepository;
 }
 
+export interface FileManagerPermissionDenied {
+  readonly kind: "permission-denied";
+}
+
+export class FileManagerPermissionError extends Error {
+  constructor() {
+    super("The system denied access to this folder.");
+    this.name = "FileManagerPermissionError";
+  }
+}
+
 interface FileManagerPreviewBase {
   readonly path: string;
   readonly name: string;
@@ -783,6 +794,15 @@ export function parseFileManagerListResult(
       ? {}
       : { repository: parsedRepository }),
   };
+}
+
+export function parseDesktopFileManagerListResult(
+  value: unknown,
+): FileManagerListResult | FileManagerPermissionDenied {
+  if (record(value, "desktop file list result").kind === "permission-denied") {
+    return { kind: "permission-denied" };
+  }
+  return parseFileManagerListResult(value);
 }
 
 function previewSize(value: unknown): number {

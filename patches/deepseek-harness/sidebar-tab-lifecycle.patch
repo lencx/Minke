@@ -1,201 +1,221 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 --- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js
-@@ -973,3 +973,9 @@
- 		*/
--		function createSidebarRightStore(seed) {
-+		function createSidebarRightStore(seed, admit = () => true) {
-+            const guardedSeat = (state, sessionId, next, accepted) => seat(state, sessionId, before => {
-+                const after = next(before);
-+                if (!admit(sessionId, before.layout, after.layout)) return before;
-+                accepted?.();
-+                return after;
-+            });
- 			const handle = (0, _deepseek_ai_dsh_client_store.defineStore)({
-@@ -978,15 +984,15 @@
- 					open: (d, sessionId) => {
--						d.bySession = seat(d, sessionId, (surface) => surface);
-+						d.bySession = guardedSeat(d, sessionId, (surface) => surface);
- 					},
- 					setExpanded: (d, sessionId, expanded) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, expanded), seed));
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, expanded), seed));
- 					},
- 					toggleExpanded: (d, sessionId) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, !state.expanded), seed));
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, !state.expanded), seed));
- 					},
- 					setMode: (d, sessionId, mode) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetMode)(state, mode), seed));
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetMode)(state, mode), seed));
- 					},
- 					splitPane: (d, sessionId, paneId, settled) => {
--						d.bySession = seat(d, sessionId, (s) => {
-+						d.bySession = guardedSeat(d, sessionId, (s) => {
- 							const next = advance(s, (state, mint, makeTab) => (0, _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds)(state).length >= 2 || (0, _deepseek_ai_dsh_client_ui_dockkit.getPane)(state, paneId ?? (0, _deepseek_ai_dsh_client_ui_dockkit.activeDockPaneId)(state)).tabs.length === 0 ? [] : (0, _deepseek_ai_dsh_client_ui_dockkit.planSplitPane)(state, mint, paneId, makeTab), seed);
-@@ -1000,3 +1006,4 @@
- 					openContent: (d, sessionId, intent, settled) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint) => {
-+                        let acceptedId; let accepted = false;
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint) => {
- 							const { kind, contentId, title, replaceTab: replace } = intent;
-@@ -1042,11 +1049,12 @@
- 							});
--							settled(planned.tabId);
-+							acceptedId = planned.tabId;
- 							return ops;
--						}, seed));
-+						}, seed), () => { accepted = true; });
-+                        if (accepted && acceptedId !== undefined) settled(acceptedId);
- 					},
- 					duplicateTab: (d, sessionId, tabId) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint) => pageKind(state, tabId) !== void 0 ? [] : (0, _deepseek_ai_dsh_client_ui_dockkit.planDuplicateTab)(state, mint, tabId).ops, seed));
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint) => pageKind(state, tabId) !== void 0 ? [] : (0, _deepseek_ai_dsh_client_ui_dockkit.planDuplicateTab)(state, mint, tabId).ops, seed));
- 					},
- 					closeTab: (d, sessionId, tabId) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => {
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => {
- 							if (!canCloseTab(s, tabId)) return [];
-@@ -1067,12 +1075,12 @@
- 					focusTab: (d, sessionId, tabId) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => planFocusTab(state, tabId), seed));
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => planFocusTab(state, tabId), seed));
- 					},
- 					focusPane: (d, sessionId, paneId) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => planFocusPane(state, paneId), seed));
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => planFocusPane(state, paneId), seed));
- 					},
- 					placeTab: (d, sessionId, tabId, toPaneId, index) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => arriving(state, tabId, toPaneId, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planPlaceTab)(state, tabId, toPaneId, index)), seed));
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => arriving(state, tabId, toPaneId, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planPlaceTab)(state, tabId, toPaneId, index)), seed));
- 					},
- 					dropTab: (d, sessionId, tabId, paneId, zone) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint, makeTab) => {
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint, makeTab) => {
- 							if (zone === "top" || zone === "bottom") return [];
-@@ -1084,6 +1092,6 @@
- 					floatTab: (d, sessionId, tabId, rect) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint) => (0, _deepseek_ai_dsh_client_ui_dockkit.planFloatTab)(state, mint, tabId, rect).ops, seed));
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint) => (0, _deepseek_ai_dsh_client_ui_dockkit.planFloatTab)(state, mint, tabId, rect).ops, seed));
- 					},
- 					unfloatPane: (d, sessionId, paneId) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, (state) => {
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => {
- 							const floated = (0, _deepseek_ai_dsh_client_ui_dockkit.getPane)(state, paneId).tabs[0];
-@@ -1095,3 +1103,3 @@
- 					moveFloat: (d, sessionId, paneId, x, y) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, () => [{
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, () => [{
- 							type: "moveFloat",
-@@ -1103,3 +1111,3 @@
- 					resizeFloat: (d, sessionId, paneId, rect) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, () => [{
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, () => [{
- 							type: "resizeFloat",
-@@ -1110,9 +1118,9 @@
- 					resizeSplit: (d, sessionId, splitId, sizes) => {
--						d.bySession = seat(d, sessionId, (s) => advance(s, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planResizeSplit)(splitId, sizes, .2), seed));
-+						d.bySession = guardedSeat(d, sessionId, (s) => advance(s, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planResizeSplit)(splitId, sizes, .2), seed));
- 					},
- 					undo: (d, sessionId) => {
--						d.bySession = seat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepBack));
-+						d.bySession = guardedSeat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepBack));
- 					},
- 					redo: (d, sessionId) => {
--						d.bySession = seat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepForward));
-+						d.bySession = guardedSeat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepForward));
- 					}
-@@ -2045,2 +2053,3 @@
- 						if (surface !== void 0) controller.tabDomain.sync(sessionId, surface.layout);
-+                        controller.notifyMinkeTabs();
- 					};
-@@ -2071,2 +2080,84 @@
- 			rooms;
-+
-+            // Minke's pinned extension seam. DSH remains the only layout writer;
-+            // Minke owns content instances and approves their removal before commit.
-+            minkeTabsOwner;
-+            minkeTabsClosing = new Set();
-+            minkeTabsPending = false;
-+            notifyMinkeTabs() {
-+                if (this.minkeTabsPending) return;
-+                this.minkeTabsPending = true;
-+                queueMicrotask(() => {
-+                    this.minkeTabsPending = false;
-+                    this.minkeTabsOwner?.changed();
-+                });
-+            }
-+            admitMinkeTabs(sessionId, before, after) {
-+                for (const tab of Object.values(before.tabs)) {
-+                    if (after.tabs[tab.id] !== undefined || this.minkeTabsClosing.has(tab.contentId)) continue;
-+                    if (this.minkeTabsOwner?.beforeClose(tab) === false) return false;
+@@ -241,18 +241,23 @@
+       tab.actions.openTab(kind, { replaceTab: true });
+       tab.actions.close();
+     };
+     const visibleEntries = entries.filter((entry) => entry.kind === `files` || !unpinned.includes(guideEntryId(entry)));
+-    return renderSlotChain(`sidebar.right.tab.guide`, {}, { hookContext: useTabInfo, fallback: (0, react_jsx_runtime.jsxs)(ShippedGuide, { children: [visibleEntries.map((entry) => {
++    const cards = visibleEntries.map((entry) => {
+       const described = visibleEntries.length <= MAX_DESCRIBED_ENTRIES;
+       const description = described ? entry.description?.() : void 0;
+       return (0, react_jsx_runtime.jsx)(`div`, { className: GuideBody_module_css_default.entryCell, children: renderSlot(`sidebar.right.tab.guide.entry`, { entryId: entry.id, kind: entry.kind, title: entry.title(), ...description === void 0 ? {} : { description } }, { entryKey: entry.providerId, hookContext: useTabInfo, fallback: (0, react_jsx_runtime.jsx)(EntryBox, { entry, described, shortcut: shortcuts.find((shortcut) => shortcut.id === entry.commandId), onPick: (selected) => {
+         open(selected.kind);
+       } }) }) }, JSON.stringify([entry.providerId, entry.id]));
+-    }), hasEntryActions && (0, react_jsx_runtime.jsx)(GuideMoreMenu, { label: t(`tab.guide.more`), entries: entries.filter((entry) => entry.kind !== `files`).map((entry) => ({ id: guideEntryId(entry), label: entry.title(), pinned: !unpinned.includes(guideEntryId(entry)) })), onOpen: (id) => {
+-      const entry = entries.find((candidate) => guideEntryId(candidate) === id);
+-      if (entry !== void 0) open(entry.kind);
+-    }, onPinnedChange: setPinned, renderSlot })] }) });
++    });
++    if (hasEntryActions) {
++      const minkeIndex = visibleEntries.findIndex((entry) => entry.kind === `minke.launcher`);
++      cards.splice(minkeIndex === -1 ? cards.length : minkeIndex, 0, (0, react_jsx_runtime.jsx)(GuideMoreMenu, { label: t(`tab.guide.more`), entries: entries.filter((entry) => entry.kind !== `files`).map((entry) => ({ id: guideEntryId(entry), label: entry.title(), pinned: !unpinned.includes(guideEntryId(entry)) })), onOpen: (id) => {
++        const entry = entries.find((candidate) => guideEntryId(candidate) === id);
++        if (entry !== void 0) open(entry.kind);
++      }, onPinnedChange: setPinned, renderSlot }, `dsh-more-tools`));
++    }
++    return renderSlotChain(`sidebar.right.tab.guide`, {}, { hookContext: useTabInfo, fallback: (0, react_jsx_runtime.jsx)(ShippedGuide, { children: cards }) });
+   }
+   function r(e) {
+     var t, f, n = ``;
+     if (`string` == typeof e || `number` == typeof e) n += e;
+@@ -455,13 +460,19 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+   }
+-  function createSidebarRightStore(seed) {
++  function createSidebarRightStore(seed, admit) {
++    const guardedSeat = (state, sessionId, next, accepted) => seat(state, sessionId, before => {
++      const after = next(before);
++      if (!admit(sessionId, before.layout, after.layout)) return before;
++      accepted?.();
++      return after;
++    });
+     const handle = (0, _deepseek_ai_dsh_client_store.defineStore)({ init: () => ({ bySession: {} }), actions: { open: (d, sessionId) => {
+-      d.bySession = seat(d, sessionId, (surface2) => surface2);
++      d.bySession = guardedSeat(d, sessionId, (surface2) => surface2);
+     }, setExpanded: (d, sessionId, expanded) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, expanded), seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, expanded), seed));
+     }, toggleExpanded: (d, sessionId) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, !state.expanded), seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetExpanded)(state, !state.expanded), seed));
+     }, setMode: (d, sessionId, mode) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetMode)(state, mode), seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => (0, _deepseek_ai_dsh_client_ui_dockkit.planSetMode)(state, mode), seed));
+     }, splitPane: (d, sessionId, paneId2, settled) => {
+-      d.bySession = seat(d, sessionId, (s) => {
++      d.bySession = guardedSeat(d, sessionId, (s) => {
+         const next = advance(s, (state, mint, makeTab) => (0, _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds)(state).length >= 2 || (0, _deepseek_ai_dsh_client_ui_dockkit.getPane)(state, paneId2 ?? (0, _deepseek_ai_dsh_client_ui_dockkit.activeDockPaneId)(state)).tabs.length === 0 ? [] : (0, _deepseek_ai_dsh_client_ui_dockkit.planSplitPane)(state, mint, paneId2, makeTab), seed);
+@@ -474,6 +485,8 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+     }, openContent: (d, sessionId, intent, settled) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint) => {
++      let accepted = false;
++      let opened;
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint) => {
+         if (intent.destination !== void 0) {
+           const planned2 = planOpenIn(state, mint, intent, intent.destination);
+-          settled(planned2.tabId);
++          opened = planned2.tabId;
+           return planned2.ops;
+@@ -491,3 +504,3 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+           const tab = { id: mint(`tab`), kind, contentId, title };
+-          settled(tab.id);
++          opened = tab.id;
+           return [{ type: `closeTab`, tabId: replace }, { type: `insertPane`, pane: { ...replaced, tabs: [tab.id], activeTabId: tab.id }, tabs: [tab], attach: { mode: `float`, index: state.floats.indexOf(replaced.id) } }, { type: `focusTab`, tabId: tab.id }];
+@@ -503,9 +516,10 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+         if (replace !== void 0 && revealed === void 0) ops.push({ type: `closeTab`, tabId: replace });
+-        settled(planned.tabId);
++        opened = planned.tabId;
+         return ops;
+-      }, seed));
++      }, seed), () => { accepted = true; });
++      if (accepted && opened !== void 0) settled(opened);
+     }, duplicateTab: (d, sessionId, tabId2) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint) => pageKind(state, tabId2) !== void 0 ? [] : (0, _deepseek_ai_dsh_client_ui_dockkit.planDuplicateTab)(state, mint, tabId2).ops, seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint) => pageKind(state, tabId2) !== void 0 ? [] : (0, _deepseek_ai_dsh_client_ui_dockkit.planDuplicateTab)(state, mint, tabId2).ops, seed));
+     }, closeTab: (d, sessionId, tabId2) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state) => {
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => {
+         if (!canCloseTab(s, tabId2)) return [];
+@@ -515,9 +529,9 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+     }, focusTab: (d, sessionId, tabId2) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state) => planFocusTab(state, tabId2), seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => planFocusTab(state, tabId2), seed));
+     }, focusPane: (d, sessionId, paneId2) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state) => planFocusPane(state, paneId2), seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => planFocusPane(state, paneId2), seed));
+     }, placeTab: (d, sessionId, tabId2, toPaneId, index) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state) => arriving(state, tabId2, toPaneId, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planPlaceTab)(state, tabId2, toPaneId, index)), seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => arriving(state, tabId2, toPaneId, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planPlaceTab)(state, tabId2, toPaneId, index)), seed));
+     }, dropTab: (d, sessionId, tabId2, paneId2, zone) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint, makeTab) => {
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint, makeTab) => {
+         if (zone === `top` || zone === `bottom`) return [];
+@@ -528,5 +542,5 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+     }, floatTab: (d, sessionId, tabId2, rect) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state, mint) => (0, _deepseek_ai_dsh_client_ui_dockkit.planFloatTab)(state, mint, tabId2, rect).ops, seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state, mint) => (0, _deepseek_ai_dsh_client_ui_dockkit.planFloatTab)(state, mint, tabId2, rect).ops, seed));
+     }, unfloatPane: (d, sessionId, paneId2) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, (state) => {
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, (state) => {
+         const floated = (0, _deepseek_ai_dsh_client_ui_dockkit.getPane)(state, paneId2).tabs[0];
+@@ -537,11 +551,11 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+     }, moveFloat: (d, sessionId, paneId2, x, y) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, () => [{ type: `moveFloat`, paneId: paneId2, x, y }], seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, () => [{ type: `moveFloat`, paneId: paneId2, x, y }], seed));
+     }, resizeFloat: (d, sessionId, paneId2, rect) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, () => [{ type: `resizeFloat`, paneId: paneId2, rect }], seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, () => [{ type: `resizeFloat`, paneId: paneId2, rect }], seed));
+     }, resizeSplit: (d, sessionId, splitId2, sizes) => {
+-      d.bySession = seat(d, sessionId, (s) => advance(s, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planResizeSplit)(splitId2, sizes, 0.2), seed));
++      d.bySession = guardedSeat(d, sessionId, (s) => advance(s, () => (0, _deepseek_ai_dsh_client_ui_dockkit.planResizeSplit)(splitId2, sizes, 0.2), seed));
+     }, undo: (d, sessionId) => {
+-      d.bySession = seat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepBack));
++      d.bySession = guardedSeat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepBack));
+     }, redo: (d, sessionId) => {
+-      d.bySession = seat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepForward));
++      d.bySession = guardedSeat(d, sessionId, (s) => stepped(s, _deepseek_ai_dsh_client_ui_dockkit.stepForward));
+     } } });
+@@ -980,2 +994,3 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+         if (surface2 !== void 0) controller.tabDomain.sync(sessionId, surface2.layout);
++        controller.notifyMinkeTabs();
+       };
+@@ -998,2 +1013,83 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+     rooms;
++    // Minke's pinned extension seam. DSH remains the only layout writer;
++    // Minke owns content instances and approves their removal before commit.
++    minkeTabsOwner;
++    minkeTabsClosing = new Set();
++    minkeTabsPending = false;
++    notifyMinkeTabs() {
++        if (this.minkeTabsPending) return;
++        this.minkeTabsPending = true;
++        queueMicrotask(() => {
++            this.minkeTabsPending = false;
++            this.minkeTabsOwner?.changed();
++        });
++    }
++    admitMinkeTabs(sessionId, before, after) {
++        for (const tab of Object.values(before.tabs)) {
++            if (after.tabs[tab.id] !== undefined || this.minkeTabsClosing.has(tab.contentId)) continue;
++            if (this.minkeTabsOwner?.beforeClose(tab) === false) return false;
++        }
++        return true;
++    }
++    connectMinkeTabs(owner) {
++        if (this.minkeTabsOwner) throw new Error("sidebarRight: Minke tabs already connected");
++        this.minkeTabsOwner = owner;
++        const surface = sessionId => this.adopted.get(sessionId)?.store.getSnapshot().bySession[sessionId]?.layout;
++        const requireActions = sessionId => {
++            const actions = this.actionsFor(sessionId);
++            if (!actions) throw new Error("sidebarRight: session surface is unavailable");
++            return actions;
++        };
++        return {
++            read: () => ({
++                surfaces: [...this.adopted].flatMap(([sessionId]) => {
++                    const state = surface(sessionId);
++                    if (!state) return [];
++                    const pane = _deepseek_ai_dsh_client_ui_dockkit.getPane(state, state.activePaneId);
++                    const ids = Object.values(state.nodes).flatMap(node => node.kind === "pane" ? node.tabs : []);
++                    return [{ sessionId, expanded: state.expanded, activeId: pane.activeTabId, tabs: ids.map(id => state.tabs[id]) }];
++                })
++            }),
++            open: (sessionId, tab, activate) => {
++                if (!tab.contentId.startsWith("dsh-resource://minke-tab/") || !this.tabs.get(tab.kind)) {
++                    throw new Error("sidebarRight: unregistered Minke tab");
 +                }
-+                return true;
-+            }
-+            connectMinkeTabs(owner) {
-+                if (this.minkeTabsOwner) throw new Error("sidebarRight: Minke tabs already connected");
-+                this.minkeTabsOwner = owner;
-+                const surface = sessionId => this.adopted.get(sessionId)?.store.getSnapshot().bySession[sessionId]?.layout;
-+                const requireActions = sessionId => {
-+                    const actions = this.actionsFor(sessionId);
-+                    if (!actions) throw new Error("sidebarRight: session surface is unavailable");
-+                    return actions;
-+                };
-+                return {
-+                    read: () => ({
-+                        surfaces: [...this.adopted].flatMap(([sessionId]) => {
-+                            const state = surface(sessionId);
-+                            if (!state) return [];
-+                            const pane = _deepseek_ai_dsh_client_ui_dockkit.getPane(state, state.activePaneId);
-+                            const ids = Object.values(state.nodes).flatMap(node => node.kind === "pane" ? node.tabs : []);
-+                            return [{ sessionId, expanded: state.expanded, activeId: pane.activeTabId, tabs: ids.map(id => state.tabs[id]) }];
-+                        })
-+                    }),
-+                    open: (sessionId, tab, activate) => {
-+                        if (!tab.contentId.startsWith("dsh-resource://minke-tab/") || !this.tabs.get(tab.kind)) {
-+                            throw new Error("sidebarRight: unregistered Minke tab");
++                const actions = requireActions(sessionId);
++                const before = surface(sessionId);
++                const activeId = before && _deepseek_ai_dsh_client_ui_dockkit.getPane(before, before.activePaneId).activeTabId;
++                actions.openContent(sessionId, tab, id => this.tabDomain.navigate(sessionId, id, { address: tab.contentId, params: undefined }));
++                if (!activate) {
++                    if (activeId && surface(sessionId)?.tabs[activeId]) actions.focusTab(sessionId, activeId);
++                    actions.setExpanded(sessionId, before?.expanded ?? false);
++                }
++            },
++            focus: (sessionId, tabId) => {
++                const actions = requireActions(sessionId);
++                if (!surface(sessionId)?.tabs[tabId]) return;
++                actions.focusTab(sessionId, tabId);
++                if (_deepseek_ai_dsh_client_ui_dockkit.findTabPane(surface(sessionId), tabId).host === "dock") actions.setExpanded(sessionId, true);
++            },
++            place: (sessionId, tabId, targetId, edge) => {
++                const state = surface(sessionId);
++                if (!state?.tabs[tabId] || !state.tabs[targetId]) return;
++                const pane = _deepseek_ai_dsh_client_ui_dockkit.findTabPane(state, targetId);
++                if (pane.host !== "dock") return;
++                requireActions(sessionId).placeTab(sessionId, tabId, pane.id, pane.tabs.indexOf(targetId) + (edge === "after" ? 1 : 0));
++            },
++            close: contentId => {
++                if (!contentId.startsWith("dsh-resource://minke-tab/")) throw new Error("sidebarRight: invalid Minke tab identity");
++                this.minkeTabsClosing.add(contentId);
++                try {
++                    for (const [sessionId] of this.adopted) {
++                        for (const tab of Object.values(surface(sessionId)?.tabs ?? {})) {
++                            if (tab.contentId === contentId) requireActions(sessionId).closeTab(sessionId, tab.id);
 +                        }
-+                        const actions = requireActions(sessionId);
-+                        const before = surface(sessionId);
-+                        const activeId = before && _deepseek_ai_dsh_client_ui_dockkit.getPane(before, before.activePaneId).activeTabId;
-+                        actions.openContent(sessionId, tab, id => this.tabDomain.navigate(sessionId, id, { address: tab.contentId, params: undefined }));
-+                        if (!activate) {
-+                            if (activeId && surface(sessionId)?.tabs[activeId]) actions.focusTab(sessionId, activeId);
-+                            actions.setExpanded(sessionId, before?.expanded ?? false);
-+                        }
-+                    },
-+                    focus: (sessionId, tabId) => {
-+                        const actions = requireActions(sessionId);
-+                        if (!surface(sessionId)?.tabs[tabId]) return;
-+                        actions.focusTab(sessionId, tabId);
-+                        if (_deepseek_ai_dsh_client_ui_dockkit.findTabPane(surface(sessionId), tabId).host === "dock") actions.setExpanded(sessionId, true);
-+                    },
-+                    place: (sessionId, tabId, targetId, edge) => {
-+                        const state = surface(sessionId);
-+                        if (!state?.tabs[tabId] || !state.tabs[targetId]) return;
-+                        const pane = _deepseek_ai_dsh_client_ui_dockkit.findTabPane(state, targetId);
-+                        if (pane.host !== "dock") return;
-+                        requireActions(sessionId).placeTab(sessionId, tabId, pane.id, pane.tabs.indexOf(targetId) + (edge === "after" ? 1 : 0));
-+                    },
-+                    close: contentId => {
-+                        if (!contentId.startsWith("dsh-resource://minke-tab/")) throw new Error("sidebarRight: invalid Minke tab identity");
-+                        this.minkeTabsClosing.add(contentId);
-+                        try {
-+                            for (const [sessionId] of this.adopted) {
-+                                for (const tab of Object.values(surface(sessionId)?.tabs ?? {})) {
-+                                    if (tab.contentId === contentId) requireActions(sessionId).closeTab(sessionId, tab.id);
-+                                }
-+                            }
-+                        } finally { this.minkeTabsClosing.delete(contentId); }
-+                    },
-+                    setExpanded: (sessionId, expanded) => requireActions(sessionId).setExpanded(sessionId, expanded),
-+                    dispose: () => { if (this.minkeTabsOwner === owner) this.minkeTabsOwner = undefined; }
-+                };
-+            }
++                    }
++                } finally { this.minkeTabsClosing.delete(contentId); }
++            },
++            setExpanded: (sessionId, expanded) => requireActions(sessionId).setExpanded(sessionId, expanded),
++            dispose: () => { if (this.minkeTabsOwner === owner) this.minkeTabsOwner = undefined; }
++        };
++    }
 +
- 			closeHandlers = /* @__PURE__ */ new Map();
-@@ -4865,3 +4956,3 @@
- 			ctx.effect(() => {
--				const handle = createSidebarRightStore(() => defaultSeed(tabs));
-+				const handle = createSidebarRightStore(() => defaultSeed(tabs), (sessionId, before, after) => controller.admitMinkeTabs(sessionId, before, after));
- 				const adoptions = /* @__PURE__ */ new Map();
+     closeHandlers = /* @__PURE__ */ new Map();
+@@ -2755,3 +2851,3 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-right`, f
+     ctx.effect(() => {
+-      const handle = createSidebarRightStore(() => defaultSeed(tabs));
++      const handle = createSidebarRightStore(() => defaultSeed(tabs), (sessionId, before, after) => controller.admitMinkeTabs(sessionId, before, after));
+       const adoptions = /* @__PURE__ */ new Map();

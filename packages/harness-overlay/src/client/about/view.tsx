@@ -1,8 +1,8 @@
-import { Button } from "@deepseek-ai/dsh-client-ui-primitives";
 import {
-  Info,
-  X,
-} from "@lucide/icons";
+  Button,
+  IconInfoOutlineRegular,
+} from "@deepseek-ai/dsh-client-ui-primitives";
+import { X } from "@lucide/icons";
 import {
   useCallback,
   useEffect,
@@ -154,6 +154,7 @@ export function AboutPanel({
           ref={closeRef}
           type="button"
           className="minke-about__close"
+          data-minke-icon-button
           aria-label={t("close")}
           title={t("close")}
           onClick={onClose}
@@ -237,6 +238,7 @@ export function AboutDialog({
         ref={triggerRef}
         type="button"
         className="minke-about__trigger"
+        data-minke-icon-button
         data-minke-about-trigger
         aria-label={t("trigger")}
         aria-haspopup="dialog"
@@ -244,7 +246,7 @@ export function AboutDialog({
         title={t("trigger")}
         onClick={() => setOpen(true)}
       >
-        <LucideIcon icon={Info} size={wide ? 17 : 18} />
+        <IconInfoOutlineRegular size={18} />
       </Button>
       {open &&
         createPortal(

@@ -78,11 +78,11 @@ import {
   normalizeAbsoluteLocalPath,
 } from "@minke/harness-overlay/tabs/web-link-contract.ts";
 import {
+  parseDesktopFileManagerListResult,
   parseFileManagerChangeEvent,
   parseFileManagerDiffRequest,
   parseFileManagerDiffResult,
   parseFileManagerListRequest,
-  parseFileManagerListResult,
   parseFileManagerPreviewRequest,
   parseFileManagerPreviewResult,
   parseFileManagerUnwatchRequest,
@@ -487,7 +487,7 @@ const files = Object.freeze({
     );
   },
   async list(request: FileManagerListRequest): Promise<unknown> {
-    return parseFileManagerListResult(
+    return parseDesktopFileManagerListResult(
       await ipcRenderer.invoke(
         TABS_FILES_LIST_CHANNEL,
         parseFileManagerListRequest(request),

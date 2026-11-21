@@ -958,6 +958,7 @@ export function BrowserHistoryView({
               <button
                 type="button"
                 className="minke-browser-history__search-clear"
+                data-minke-icon-button
                 disabled={
                   clearing || deletingVisitId !== undefined
                 }
@@ -979,6 +980,7 @@ export function BrowserHistoryView({
             ref={clearButtonRef}
             type="button"
             className="minke-browser-history__clear"
+            data-minke-icon-button
             aria-label={t("browserHistory.clear.label")}
             title={t("browserHistory.clear.label")}
             disabled={
@@ -1391,6 +1393,7 @@ export function BrowserHistoryView({
                       </button>
                       <button
                         type="button"
+                        data-minke-icon-button
                         className={
                           "minke-browser-history__visit-delete"
                         }

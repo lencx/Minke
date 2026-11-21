@@ -11,7 +11,6 @@ const DESKTOP_MARKERS = [
   "data-dsh-desktop-composer-add",
   "data-dsh-desktop-composer-primary",
   "data-dsh-desktop-base-surface",
-  "data-dsh-desktop-window-controls-inset",
   "data-dsh-desktop-sidebar-fade",
   "data-dsh-desktop-resize-handle",
 ] as const;
@@ -61,11 +60,6 @@ function markShell(root: Document, view: DesktopSurfaceView): void {
   const rightbarSurface = rightbarSlot?.querySelector("[data-sidebar-right-panel]");
   if (rightbarSurface instanceof view.HTMLElement) {
     rightbarSurface.toggleAttribute("data-dsh-desktop-base-surface", true);
-    const firstStrip = rightbarSurface.querySelector("[data-dockkit-strip]");
-    for (const strip of rightbarSurface.querySelectorAll("[data-dsh-desktop-window-controls-inset]")) {
-      if (strip !== firstStrip) strip.removeAttribute("data-dsh-desktop-window-controls-inset");
-    }
-    firstStrip?.toggleAttribute("data-dsh-desktop-window-controls-inset", true);
   }
 
   for (const candidate of frame.children) {

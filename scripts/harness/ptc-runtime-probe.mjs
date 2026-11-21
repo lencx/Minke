@@ -41,7 +41,7 @@ try {
       program: `
         const value: number = await tools.double(21);
         await (await import("node:fs/promises")).writeFile("probe.txt", String(value));
-        console.log("ptc-control-ok");
+        inspect("ptc-control-ok");
         return { value, cwd: process.cwd(), env: Object.keys(process.env) };
       `,
       bindings: [{ global: "tools", functions: { double: async value => value * 2 } }],
@@ -53,7 +53,7 @@ try {
       { ...result.value, cwd: await realpath(result.value.cwd) },
       { value: 42, cwd: await realpath(cwd), env: [] },
     );
-    assert.deepEqual(result.logs, ["ptc-control-ok"]);
+    assert.deepEqual(result.output, [{ type: "text", text: "ptc-control-ok\n" }]);
     assert.equal(result.sandbox.mode, mode);
     assert.equal(await readFile(join(cwd, "probe.txt"), "utf8"), "42");
   }

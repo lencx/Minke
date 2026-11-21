@@ -103,8 +103,7 @@ async function verifyWebAccessContract(harnessRoot) {
     webRuntimeSource,
     toolWebPluginSource,
     webSearchToolSource,
-    webFetchNetworkSource,
-    webFetchProviderSource,
+    deepSeekWebApiSource,
     ...presetSources
   ] = await Promise.all([
     readFile(
@@ -130,14 +129,7 @@ async function verifyWebAccessContract(harnessRoot) {
     readFile(join(webRoot, "web", "src", "index.ts"), "utf8"),
     readFile(join(webRoot, "tool-web", "src", "index.ts"), "utf8"),
     readFile(join(webRoot, "tool-web", "src", "search.ts"), "utf8"),
-    readFile(
-      join(webRoot, "web-fetch-http", "src", "network.ts"),
-      "utf8",
-    ),
-    readFile(
-      join(webRoot, "web-fetch-http", "src", "provider.ts"),
-      "utf8",
-    ),
+    readFile(join(webRoot, "web-deepseek-api", "src", "index.ts"), "utf8"),
     ...["standard", "ptc", "cordis"].map((preset) =>
       readFile(join(presetRoot, `${preset}.patch.yml`), "utf8")
     ),
@@ -159,13 +151,13 @@ async function verifyWebAccessContract(harnessRoot) {
   }
   requireSourceSeam(
     baseBundlePatchSource,
-    "- id: web-fetch-http\n      name: '@deepseek-ai/dsh-web-fetch-http'",
-    "Harness base bundle no longer mounts the SSRF-safe provider required by Minke web_fetch.",
+    "- id: web-deepseek-api\n      name: '@deepseek-ai/dsh-web-deepseek-api'",
+    "Harness base bundle no longer mounts the DeepSeek Fetch API.",
   );
   requireSourceSeam(
-    baseBundlePatchSource,
-    "fetchProvider: http",
-    "Harness web_fetch provider selection changed; review Minke's SSRF boundary.",
+    deepSeekWebApiSource,
+    "ctx.web.registerFetchProvider({",
+    "Harness DeepSeek Fetch API registration changed.",
   );
   requireSourceSeam(
     baseBundlePatchSource,
@@ -197,7 +189,7 @@ async function verifyWebAccessContract(harnessRoot) {
   }
   requireSourceSeam(
     webRuntimeSource,
-    "const result = await provider.search(request, signal)",
+    "this.selectSearchProvider(request.llmProvider).search(request, signal)",
     "Harness web search execution seam changed.",
   );
   requireSourceSeam(
@@ -227,28 +219,8 @@ async function verifyWebAccessContract(harnessRoot) {
   );
   requireSourceSeam(
     webSearchToolSource,
-    "const result = await runSearchQueries(ctx, queries, maxResults, exec.signal)",
+    "const result = await runSearchQueries(ctx, queries, maxResults, llmProvider, exec.signal)",
     "Harness model-facing web_search execution or cancellation contract changed.",
-  );
-  requireSourceSeam(
-    webFetchNetworkSource,
-    "if (!isPublicIpAddress(entry.address)) {",
-    "Harness web_fetch public-address rejection seam changed; review Minke's SSRF boundary.",
-  );
-  requireSourceSeam(
-    webFetchNetworkSource,
-    "if (translatedIpv4 !== undefined && !isPublicIpAddress(translatedIpv4)) {",
-    "Harness web_fetch NAT64 rejection seam changed; review Minke's SSRF boundary.",
-  );
-  requireSourceSeam(
-    webFetchNetworkSource,
-    "connect: { lookup: createPinnedLookup(addresses) }",
-    "Harness web_fetch connection-pinning seam changed; review Minke's DNS-rebinding boundary.",
-  );
-  requireSourceSeam(
-    webFetchProviderSource,
-    "if (!isSameOrigin(validatedTarget, currentUrl)) {",
-    "Harness web_fetch same-origin redirect seam changed; review Minke's SSRF boundary.",
   );
   for (const [index, preset] of ["standard", "ptc", "cordis"].entries()) {
     requireSourceSeam(
@@ -260,7 +232,7 @@ async function verifyWebAccessContract(harnessRoot) {
         "              fetch: true",
         "              searchTimeoutMs: 60000",
       ].join("\n"),
-      `Harness ${preset} Agent Preset no longer exposes Minke's bounded web_search and SSRF-safe web_fetch tools.`,
+      `Harness ${preset} Agent Preset no longer exposes the bounded web_search and web_fetch tools.`,
     );
   }
 }
@@ -466,10 +438,15 @@ async function verifyProductBundle(projectRoot, harnessRoot, contract) {
     "web-search-deepseek",
     `${bundle.patch} must not disable or replace native web_search.`,
   );
+  requireSourceSeam(
+    patchSource,
+    "- id: web-fetch-http\n  disabled: true",
+    `${bundle.patch} must disable the local-network HTTP fetch provider.`,
+  );
   forbidPluginRow(
     patchSource,
     "web",
-    `${bundle.patch} must not override native web provider selection.`,
+    `${bundle.patch} must leave Web provider settings to the staged base bundle and user profile.`,
   );
   forbidPluginRow(
     patchSource,
@@ -938,7 +915,7 @@ export async function verifyHarnessContract(projectRoot) {
   );
   requireSourceSeam(
     profileBootSource,
-    "loadOverlayPatches(NAME, resolve(file))",
+    "overlayPaths: patchFiles.map(file => resolve(file))",
     "Harness overlay composition changed; review product bundle composition.",
   );
   requireSourceSeam(
@@ -958,12 +935,12 @@ export async function verifyHarnessContract(projectRoot) {
   );
   requireSourceSeam(
     webServerSource,
-    "return this.applyIndexTaps(renderIndexInjections(html, this.collectIndexInjections()))",
+    "return this.applyIndexTaps(renderIndexInjections(html, this.collectIndexInjections(peer)))",
     "Harness structured index pipeline changed; review Minke PWA injection ordering.",
   );
   requireSourceSeam(
     frontendStaticSource,
-    "ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))",
+    "ctx.webServer.renderIndex(html, pagePeer)",
     "Harness frontend index rendering changed; review boot and PWA injection delivery.",
   );
   requireSourceSeam(
@@ -1028,7 +1005,7 @@ export async function verifyHarnessContract(projectRoot) {
   );
   requireSourceSeam(
     localeRuntimeSource,
-    "register<N extends Extract<keyof LocaleNamespaceMap, string>>(ns: N, dicts: Record<BuiltInLocaleId, LocaleDictOf<N>>): () => void",
+    "dicts: Record<BuiltInLocaleId, LocaleDictOf<N>> & Record<LocaleId, LocaleDictOf<N>>",
     "Harness bilingual dictionary registration changed; review Minke i18n integration.",
   );
   requireSourceSeam(

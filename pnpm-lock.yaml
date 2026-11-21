@@ -7,6 +7,7 @@ settings:
 overrides:
   '@codemirror/view': 6.43.9
   yauzl: 3.4.0
+  '@deepseek-ai/cordis': link:vendor/deepseek-harness/vendor/cordis
   '@deepseek-ai/dsh-client-shortcuts': link:vendor/deepseek-harness/packages/client/shortcuts
   '@deepseek-ai/dsh-client-ui-primitives': link:vendor/deepseek-harness/packages/client/ui-primitives
   '@deepseek-ai/dsh-client-ui-sidebar-browser': link:vendor/deepseek-harness/packages/client/ui-sidebar-browser
@@ -59,6 +60,9 @@ importers:
         specifier: 8.21.3
         version: 8.21.3
     devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:vendor/deepseek-harness/vendor/cordis
+        version: link:vendor/deepseek-harness/vendor/cordis
       '@deepseek-ai/dsh-client-shortcuts':
         specifier: link:vendor/deepseek-harness/packages/client/shortcuts
         version: link:vendor/deepseek-harness/packages/client/shortcuts
@@ -172,8 +176,8 @@ importers:
         specifier: 6.43.9
         version: 6.43.9
       '@deepseek-ai/cordis':
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: link:../../vendor/deepseek-harness/vendor/cordis
+        version: link:../../vendor/deepseek-harness/vendor/cordis
       '@deepseek-ai/dsh-client-shortcuts':
         specifier: link:../../vendor/deepseek-harness/packages/client/shortcuts
         version: link:../../vendor/deepseek-harness/packages/client/shortcuts
@@ -260,21 +264,6 @@ packages:
 
   '@codemirror/view@6.43.9':
     resolution: {integrity: sha512-sTuUzTpPMFebRhg6dawChoKKgndIwfjmJgKVxBefPElcU2NwQ6AFroupk0SFqEerQyZOGRfDNnSN8Dw/lMAsXw==}
-
-  '@deepseek-ai/cordis@4.0.5':
-    resolution: {integrity: sha512-Sktq5axy0owk9PdnivBRNOJjHEVEibCt0+TDDZcv0+UH2KS1M910fX4kn5y45YFsrpZIi1mJf/1s5VzywMUnyg==}
-    hasBin: true
-    peerDependencies:
-      '@deepseek-ai/cordis-plugin-include': ~1.0.10
-      '@deepseek-ai/cordis-plugin-loader': ~1.0.6
-    peerDependenciesMeta:
-      '@deepseek-ai/cordis-plugin-include':
-        optional: true
-      '@deepseek-ai/cordis-plugin-loader':
-        optional: true
-
-  '@deepseek-ai/cosmokit@1.8.6':
-    resolution: {integrity: sha512-ZSD/fN52L498LBIOYwjIOlaLv5veY6ZEwI2yzvZUKQtctn0QAPqu8tKdJ+OF5+Tv6NBq1U+wJWH+QI6OGy5EvQ==}
 
   '@electron-forge/cli@7.11.2':
     resolution: {integrity: sha512-c+C4ndLfHbxwZuCn9G8iT9wD/woLdaVkoSVjAIbj+0nJhi8UmiVsz/+Gxlj4cvhMRTzBMBxudstLU7RocMikfg==}
@@ -845,9 +834,6 @@ packages:
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
     engines: {node: '>=10'}
-
-  '@standard-schema/spec@1.1.0':
-    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
   '@szmarczak/http-timer@4.0.6':
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
@@ -3223,13 +3209,6 @@ snapshots:
       style-mod: 4.1.3
       w3c-keyname: 2.2.8
 
-  '@deepseek-ai/cordis@4.0.5':
-    dependencies:
-      '@deepseek-ai/cosmokit': 1.8.6
-      '@standard-schema/spec': 1.1.0
-
-  '@deepseek-ai/cosmokit@1.8.6': {}
-
   '@electron-forge/cli@7.11.2(bluebird@3.7.2)(encoding@0.1.13)(esbuild@0.28.2)(lightningcss@1.33.0)(postcss@8.5.26)(supports-color@8.1.1)':
     dependencies:
       '@electron-forge/core': 7.11.2(patch_hash=cc2094bba1f9e778ba20f1d9016a61913ab385959e11f123a34c136c3a362fd5)(bluebird@3.7.2)(encoding@0.1.13)(esbuild@0.28.2)(lightningcss@1.33.0)(postcss@8.5.26)(supports-color@8.1.1)
@@ -4005,8 +3984,6 @@ snapshots:
   '@shikijs/vscode-textmate@10.0.2': {}
 
   '@sindresorhus/is@4.6.0': {}
-
-  '@standard-schema/spec@1.1.0': {}
 
   '@szmarczak/http-timer@4.0.6':
     dependencies:

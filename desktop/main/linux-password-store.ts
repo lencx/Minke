@@ -19,14 +19,18 @@ export const MINKE_PASSWORD_STORE_ENV = "MINKE_PASSWORD_STORE";
 export type LinuxPasswordStore =
   | "basic"
   | "gnome-libsecret"
+  | "kwallet"
   | "kwallet5"
   | "kwallet6";
 
 export interface LinuxPasswordStoreEnvironment {
   readonly platform: NodeJS.Platform;
   readonly desktopEnvironment?: string | undefined;
+  readonly desktopSession?: string | undefined;
+  readonly kdeFullSession?: string | undefined;
+  readonly kdeSessionVersion?: string | undefined;
   readonly explicitStore?: string | undefined;
-  readonly commandLine?: readonly string[] | undefined;
+  readonly hasPasswordStoreSwitch?: boolean | undefined;
 }
 
 export interface LinuxPasswordStoreDecision {
@@ -43,6 +47,7 @@ export interface LinuxPasswordStoreDecision {
 const SUPPORTED_STORES: ReadonlySet<string> = new Set([
   "basic",
   "gnome-libsecret",
+  "kwallet",
   "kwallet5",
   "kwallet6",
 ]);
@@ -63,26 +68,21 @@ export function desktopEnvironmentTokens(
     .filter((token) => token.length > 0);
 }
 
-function hasCommandLineOverride(
-  commandLine: readonly string[] | undefined,
-): boolean {
-  if (commandLine === undefined) return false;
-  return commandLine.some((argument) =>
-    argument === "--password-store" ||
-    argument.startsWith("--password-store="),
-  );
-}
-
 /**
  * Decides which `--password-store` backend Minke should request.
  *
- * An explicit environment override and a backend the user already passed on
- * the command line always win. KDE sessions keep Chromium's own KWallet
- * default; every other Linux session requests the Secret Service backend.
+ * Chromium's existing switch takes precedence over the environment override.
+ * KDE sessions use Chromium's KWallet default.
  */
 export function resolveLinuxPasswordStore(
   environment: LinuxPasswordStoreEnvironment,
 ): LinuxPasswordStoreDecision {
+  if (environment.platform !== "linux") {
+    return { store: undefined, reason: "not-linux" };
+  }
+  if (environment.hasPasswordStoreSwitch) {
+    return { store: undefined, reason: "command-line-override" };
+  }
   const explicit = (environment.explicitStore ?? "").trim().toLowerCase();
   if (explicit.length > 0) {
     if (!SUPPORTED_STORES.has(explicit)) {
@@ -93,14 +93,12 @@ export function resolveLinuxPasswordStore(
       reason: "explicit-override",
     };
   }
-  if (environment.platform !== "linux") {
-    return { store: undefined, reason: "not-linux" };
-  }
-  if (hasCommandLineOverride(environment.commandLine)) {
-    return { store: undefined, reason: "command-line-override" };
-  }
   const tokens = desktopEnvironmentTokens(environment.desktopEnvironment);
-  if (tokens.includes("KDE")) {
+  const desktopSession = environment.desktopSession;
+  const legacyKde = desktopSession === "kde4" || desktopSession === "kde-plasma"
+    || (environment.kdeSessionVersion !== undefined
+      && (desktopSession === "kde" || environment.kdeFullSession !== undefined));
+  if (tokens.includes("KDE") || legacyKde) {
     return { store: undefined, reason: "kde-default" };
   }
   return {
@@ -111,6 +109,7 @@ export function resolveLinuxPasswordStore(
 
 export interface PasswordStoreCommandLine {
   readonly commandLine: {
+    hasSwitch(name: string): boolean;
     appendSwitch(name: string, value: string): void;
   };
 }
@@ -126,11 +125,16 @@ export function applyLinuxPasswordStore(
   environment: LinuxPasswordStoreEnvironment = {
     platform: process.platform,
     desktopEnvironment: process.env.XDG_CURRENT_DESKTOP,
+    desktopSession: process.env.DESKTOP_SESSION,
+    kdeFullSession: process.env.KDE_FULL_SESSION,
+    kdeSessionVersion: process.env.KDE_SESSION_VERSION,
     explicitStore: process.env[MINKE_PASSWORD_STORE_ENV],
-    commandLine: process.argv,
   },
 ): LinuxPasswordStoreDecision {
-  const decision = resolveLinuxPasswordStore(environment);
+  const decision = resolveLinuxPasswordStore({
+    ...environment,
+    hasPasswordStoreSwitch: app.commandLine.hasSwitch("password-store"),
+  });
   if (decision.store !== undefined) {
     app.commandLine.appendSwitch("password-store", decision.store);
   }

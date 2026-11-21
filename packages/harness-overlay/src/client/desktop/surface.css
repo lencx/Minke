@@ -8,10 +8,6 @@
   display: none !important;
 }
 
-[data-sidebar-right-panel="fullscreen"] [data-dsh-desktop-window-controls-inset] {
-  padding-left: 64px;
-}
-
 [data-dsh-desktop-titlebar-anchor] {
   height: 32px !important;
   margin: -6px -12px 4px !important;

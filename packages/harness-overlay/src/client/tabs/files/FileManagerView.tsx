@@ -67,6 +67,13 @@ export function FileManagerView(props: {
 }): ReactNode {
   const { tab, active, controller, codeThemes, t } = props;
   const { entries, error, loading, truncated } = tab.payload;
+  const permissionDenied = typeof error === "object";
+  const errorDetail = permissionDenied ? t("files.error.permissionDenied") : error;
+  const chooseFolder = permissionDenied && controller.canChooseDirectory ? (
+    <button type="button" onClick={() => { void controller.chooseDirectory(tab.id); }}>
+      {t("files.error.chooseFolder")}
+    </button>
+  ) : null;
   const preview = tab.payload.preview;
   const hasPreview = preview !== undefined;
   const browserRef = useRef<HTMLDivElement | null>(null);
@@ -211,7 +218,7 @@ export function FileManagerView(props: {
           ) : error !== undefined && entries.length === 0 ? (
             <div className="minke-tabs-error" role="alert">
               <h2>{t("files.error.title")}</h2>
-              <p>{error}</p>
+              <p>{errorDetail}</p>
               <div className="minke-tabs-error__actions">
                 <button
                   type="button"
@@ -219,6 +226,7 @@ export function FileManagerView(props: {
                 >
                   {t("files.error.retry")}
                 </button>
+                {chooseFolder}
               </div>
             </div>
           ) : entries.length === 0 ? (
@@ -237,15 +245,17 @@ export function FileManagerView(props: {
               {error !== undefined && (
                 <div
                   className="minke-files-inline-error"
+                  data-permission-denied={permissionDenied || undefined}
                   role="alert"
                 >
-                  <span>{error}</span>
+                  <span>{errorDetail}</span>
                   <button
                     type="button"
                     onClick={() => controller.reload(tab.id)}
                   >
                     {t("files.error.retry")}
                   </button>
+                  {chooseFolder}
                 </div>
               )}
               {tab.payload.viewMode === "tree" ? (

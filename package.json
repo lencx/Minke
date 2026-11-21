@@ -14,7 +14,7 @@
     "url": "https://github.com/lencx/Minke/issues"
   },
   "private": true,
-  "version": "0.9.0",
+  "version": "0.10.0",
   "packageManager": "pnpm@11.28.5",
   "main": ".vite/build/main.js",
   "scripts": {
@@ -73,10 +73,11 @@
     "ws": "8.21.3"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-client-shortcuts": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-client-ui-settings-general": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-client-ui-sidebar-browser": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.3",
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-client-shortcuts": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-client-ui-settings-general": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-client-ui-sidebar-browser": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.5",
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/core": "7.11.2",
     "@electron-forge/maker-deb": "7.11.2",

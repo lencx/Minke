@@ -11,8 +11,12 @@ function context({ agents = [], jobs = [], schedule = false } = {}) {
     get: name => name === "agents" ? { list: () => agents } : { list: () => jobs },
     waterfall: async () => schedule ? [{ kind: "schedule" }] : [],
     effect() {},
-    connection: { authenticatedUrl: url => `${url}/?token=${"a".repeat(43)}` },
     webServer: { port: 31234 },
+    emit(target, event, origin, entries) {
+      assert.equal(target, this.webServer);
+      assert.equal(event, "webserver/entry-url");
+      entries.push({ url: `${origin}/?token=${"a".repeat(43)}`, open: true });
+    },
   };
 }
 function channel() {
@@ -65,7 +69,7 @@ test("Host reports ready after boot and acknowledges shutdown only after disposa
   assert.equal(pipe.sent.length, 0);
   boot.resolve({ ctx: context(), shutdown: { shutdown: () => { stops++; return teardown.promise; } } });
   await started;
-  assert.equal(pipe.sent[0].type, "ready");
+  assert.deepEqual(pipe.sent[0], { type: "ready", url: `http://127.0.0.1:31234/?token=${"a".repeat(43)}` });
   pipe.emit("message", { type: "quit-inspection", requestId: 7 });
   await flush();
   assert.deepEqual(pipe.sent[1], { type: "quit-inspection", requestId: 7, activeTasks: false, scheduledTasks: false });

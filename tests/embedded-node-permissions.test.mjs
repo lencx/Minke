@@ -54,7 +54,7 @@ const projectRoot = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
 );
 
-const subprocessRunnerChunk = "runner-launch-B2zsQ1Dz.js";
+const subprocessRunnerChunk = "runner-launch-2f_K_dxk.js";
 
 async function preparePatchedHarnessEnvironment(runtimeRoot) {
   await writeFile(
@@ -97,8 +97,8 @@ async function preparePatchedHarnessEnvironment(runtimeRoot) {
   ]);
   for (const [packageName, sourceRoot, files] of [
     ["dsh-sandbox-local", "packages/sandbox/sandbox-local", ["lib/index.js"]],
+    ["dsh-experimental-liveshare", "packages/experimental/liveshare", ["lib/index.js"]],
     ["dsh-ptc-runtime-node", "packages/ptc-runtime/ptc-runtime-node", ["lib/index.js"]],
-    ["dsh-experimental-ptc-runtime-python", "packages/experimental/ptc-runtime-python", ["lib/index.js"]],
     ["node-addon-system", "native/system/packages/entry", ["lib/index.js"]],
     ["dsh-sdk-client", "packages/sdk/client", ["lib/index.js", "lib/types/client.js"]],
   ]) {
@@ -144,6 +144,10 @@ async function loadPatchedHarnessScrubbedParentEnv(runtimeRoot) {
           projectRoot,
           "vendor/deepseek-harness/packages/util/http-proxy/lib/index.js",
         )).href, context);
+      }
+      if (specifier === "@deepseek-ai/dsh-error") {
+        return nextResolve(pathToFileURL(join(projectRoot,
+          "vendor/deepseek-harness/packages/util/error/lib/index.js")).href, context);
       }
       return nextResolve(specifier, context);
     },
@@ -382,6 +386,9 @@ async function withPatchedSubprocessLaunches(runtimeRoot, callback) {
       } else if (specifier === "@deepseek-ai/dsh-lazy-require") {
         url = pathToFileURL(join(projectRoot,
           "vendor/deepseek-harness/packages/util/lazy-require/lib/index.js")).href;
+      } else if (specifier === "@deepseek-ai/dsh-error") {
+        url = pathToFileURL(join(projectRoot,
+          "vendor/deepseek-harness/packages/util/error/lib/index.js")).href;
       } else if (specifier === "@deepseek-ai/dsh-subprocess") {
         url = subprocessUrl;
       } else if (specifier === "@deepseek-ai/dsh-subprocess/control") {
@@ -1099,7 +1106,7 @@ test("every process.execPath production seam remains classified", async () => {
       "vendor/deepseek-harness/apps/desktop/scripts/test-host-updates.ts",
     ],
     executableSidecarResolution: [
-      "vendor/deepseek-harness/packages/fs/tool-fs-search/src/search-core.ts",
+      "vendor/deepseek-harness/packages/util/ripgrep/src/index.ts",
     ],
     managedHarnessRuntime: [
       // The upstream desktop app is not part of Minke's runtime closure.
@@ -1112,6 +1119,8 @@ test("every process.execPath production seam remains classified", async () => {
       // Reports the remote helper's own Node path; does not launch local Electron.
       "vendor/deepseek-harness/packages/ssh/ssh/src/helper-entry.ts",
       "vendor/deepseek-harness/packages/ssh/ssh/src/helper.ts",
+      // Reports the current executable to shell callers under the DSH contract.
+      "vendor/deepseek-harness/packages/shell/shell-env/src/index.ts",
     ],
     standaloneSshSidecarResolution: [
       // Runs only inside the packaged SSH helper and resolves its native assets.
@@ -1127,6 +1136,9 @@ test("every process.execPath production seam remains classified", async () => {
       "vendor/deepseek-harness/packages/experimental/browser-use-playwright-mcp/src/index.ts",
       // Optional mod timer delegates to the same managed subprocess provider.
       "vendor/deepseek-harness/packages/experimental/claude-code-mods/examples/blast-radius/index.ts",
+      // The owner gateway worker explicitly propagates Electron Node mode.
+      "vendor/deepseek-harness/packages/experimental/liveshare/src/host/tunnel-supervision.ts",
+      "vendor/deepseek-harness/packages/experimental/liveshare/src/host/tunnel-worker.ts",
       // Speech uses the same subprocess provider and private Node bootstrap.
       "vendor/deepseek-harness/packages/experimental/speech-to-text-sensevoice/src/recognizer.ts",
       // PTC launches through the patched subprocess provider, including control FD 3.
@@ -1134,11 +1146,6 @@ test("every process.execPath production seam remains classified", async () => {
       "vendor/deepseek-harness/packages/sandbox/sandbox-local/src/index.ts",
       "vendor/deepseek-harness/packages/subagent/subagent-codex/src/run.ts",
       "vendor/deepseek-harness/packages/subprocess/subprocess-local/src/runner-launch.ts",
-    ],
-    standaloneNodeRequired: [
-      // Office skill scripts explicitly reject Electron without a configured
-      // standalone Node. This is distinct from the embedded Office preview.
-      "vendor/deepseek-harness/packages/skill/skill-office/src/index.ts",
     ],
   };
   assert.deepEqual(
@@ -1193,10 +1200,15 @@ test("every process.execPath production seam remains classified", async () => {
     }
   }
   assert.deepEqual(sharedScrubOwners.sort(), [
+    "vendor/deepseek-harness/packages/boot/plugin-manager/src/git-transport.ts",
     "vendor/deepseek-harness/packages/boot/plugin-manager/src/github-connection.ts",
     "vendor/deepseek-harness/packages/boot/plugin-manager/src/operations.ts",
+    "vendor/deepseek-harness/packages/boot/plugin-market/src/repository-cache.ts",
     "vendor/deepseek-harness/packages/bundle/web-app/src/index.ts",
     "vendor/deepseek-harness/packages/experimental/browser-use-stagehand-native/src/launch.ts",
+    "vendor/deepseek-harness/packages/experimental/forge-github/src/gh.ts",
+    "vendor/deepseek-harness/packages/experimental/forge-gitlab/src/glab.ts",
+    "vendor/deepseek-harness/packages/experimental/subagent-oar/src/environment.ts",
     "vendor/deepseek-harness/packages/host/open-in-app/src/resolver.ts",
     "vendor/deepseek-harness/packages/mcp/mcp-client/src/transport.ts",
     "vendor/deepseek-harness/packages/sdk/client/src/types.ts",
@@ -1221,7 +1233,7 @@ test("every process.execPath production seam remains classified", async () => {
   const searchSource = await readFile(
     resolve(
       projectRoot,
-      "vendor/deepseek-harness/packages/fs/tool-fs-search/src/search-core.ts",
+      "vendor/deepseek-harness/packages/util/ripgrep/src/index.ts",
     ),
     "utf8",
   );
@@ -1231,7 +1243,7 @@ test("every process.execPath production seam remains classified", async () => {
   );
   assert.match(
     searchSource,
-    /argv:\s*\[await resolveRgPath\(\), '--no-config'/u,
+    /const executable = await resolveRgPath\(\)\s+return subprocess\.spawn\(\{ \.\.\.spec, argv: \[executable, '--no-config', \.\.\.spec\.argv\]/u,
   );
 
   const codexSource = await readFile(

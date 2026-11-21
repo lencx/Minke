@@ -61,9 +61,9 @@ function uiFixture() {
     theme: { getTheme: () => ({ active: { colorScheme: 'dark' } }) },
     on: () => () => {},
     effect: callback => callback(),
-    provide(name, value) { this[name] = value; },
     slots: { inject: (_name, callback) => callback(), register: (options, component) => { slots.push({ ...options, component }); return () => {}; } },
   };
+  ctx.reflect = { provide(name, value) { ctx[name] = value; return () => {}; } };
   load('dsh-client-ui-sidebar-terminal', {
     react: { ...React, useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
     'react/jsx-runtime': jsx, '@deepseek-ai/dsh-client-ui-primitives': {},

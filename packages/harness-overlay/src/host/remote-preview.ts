@@ -63,6 +63,7 @@ const PREVIEW_CONTENT_SECURITY_POLICY = [
 interface RemotePreviewRoute {
   readonly kind: "prefix";
   readonly path: string;
+  readonly auth: "required";
   readonly handler: (
     request: IncomingMessage,
     response: ServerResponse,
@@ -254,6 +255,7 @@ export class RemotePreviewRuntime {
     this.#disposeRoute = options.webServer.register({
       kind: "prefix",
       path: MINKE_REMOTE_PREVIEW_ROUTE,
+      auth: "required",
       handler: this.#handleRequest,
     });
   }

@@ -915,6 +915,15 @@
   white-space: nowrap;
 }
 
+.minke-files-inline-error[data-permission-denied] {
+  flex-wrap: wrap;
+}
+
+.minke-files-inline-error[data-permission-denied] span {
+  flex-basis: 100%;
+  white-space: normal;
+}
+
 .minke-files-inline-error button {
   flex: none;
   padding: 2px 5px;

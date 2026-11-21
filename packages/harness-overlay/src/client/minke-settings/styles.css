@@ -1,22 +1,4 @@
 /* One Minke section inside the existing DSH Settings surface. */
-[data-minke-settings-navigation-logo] > svg:first-child {
-  display: none;
-}
-
-[data-minke-settings-navigation-logo]::before {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  background: currentColor;
-  content: "";
-  -webkit-mask:
-    var(--minke-settings-navigation-logo)
-    center / 16px 16px no-repeat;
-  mask:
-    var(--minke-settings-navigation-logo)
-    center / 16px 16px no-repeat;
-}
-
 .minke-settings {
   width: 100%;
   max-width: 680px;

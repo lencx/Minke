@@ -18,7 +18,8 @@ async function verifyWindowDrag({ window, rendererValue }, state) {
       }
       return drag;
     };
-    const rows = [...document.querySelectorAll('[data-window-drag]')].filter(row => {
+    const marked = [...document.querySelectorAll('[data-window-drag]')];
+    const rows = marked.filter(row => {
       const rect = row.getBoundingClientRect();
       const x = rect.left + rect.width / 2, y = rect.top + 2;
       const hit = document.elementFromPoint(x, y);
@@ -37,9 +38,21 @@ async function verifyWindowDrag({ window, rendererValue }, state) {
         }
       }
     }
-    return { rows: rows.length, dead, swallowed };
+    const chrome = rows.length ? undefined : marked.map(row => {
+      const rect = row.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + 2);
+      const scrollers = [];
+      for (let element = row; element; element = element.parentElement) {
+        if (element.scrollTop || element.scrollLeft) {
+          scrollers.push({ className: element.className, left: element.scrollLeft, top: element.scrollTop });
+        }
+      }
+      return { row: row.tagName, className: row.className, rect: rect.toJSON(),
+        hit: hit && { tag: hit.tagName, className: hit.className }, scrollers };
+    });
+    return { rows: rows.length, chrome, dead, swallowed };
   }`);
-  assert.ok(result.rows > 0, `${state}: visible top chrome is required`);
+  assert.ok(result.rows > 0, `${state}: visible top chrome is required: ${JSON.stringify(result.chrome)}`);
   assert.deepEqual(result.dead, [], `${state}: blank titlebar regions must drag`);
   assert.deepEqual(result.swallowed, [], `${state}: native controls must keep pointer events`);
 }

@@ -58,10 +58,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
       const candidate = await rendererValue(window, `() => {
       const button = document.querySelectorAll(${JSON.stringify(selector)})[${index}];
       if (!button || !button.checkVisibility({ checkVisibilityCSS: true })) return false;
-      // Edge alignment can leave a control behind a sticky settings header.
-      // Center an obscured target, then retain the real hit-test requirement.
-      for (const block of ['nearest', 'center']) {
-        button.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
+      const hitPoint = () => {
         const rect = button.getBoundingClientRect();
         // A compact tab's close control can cover its center once hovered.
         // Select from the leading area; explicit close-button clicks stay centered.
@@ -71,6 +68,16 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
         const hit = document.elementFromPoint(x, y);
         if (hit && (hit === button || button.contains(hit)) &&
             !(selectingTab && hit.closest('[data-dockkit-tab-close]'))) return { x: Math.round(x), y: Math.round(y) };
+        return false;
+      };
+      // Keep visible chrome in place. Center an obscured target if edge
+      // alignment leaves it behind a sticky header in a scrollable view.
+      const visible = hitPoint();
+      if (visible) return visible;
+      for (const block of ['nearest', 'center']) {
+        button.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
+        const point = hitPoint();
+        if (point) return point;
       }
       return false;
       }`);
@@ -97,6 +104,24 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     if (!window.isFocused()) await focusWindow();
     window.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 });
     window.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 });
+  };
+  const assertIconButtons = async (selector, size, minimum = 1) => {
+    const buttons = await rendererValue(window, `() =>
+      [...document.querySelectorAll(${JSON.stringify(selector)})]
+        .filter(button => button.checkVisibility({ checkVisibilityCSS: true }))
+        .map(button => {
+          const bounds = button.getBoundingClientRect();
+          const icon = button.querySelector('svg').getBoundingClientRect();
+          return { label: button.getAttribute('aria-label'), width: icon.width, height: icon.height,
+            x: icon.left + icon.width / 2 - bounds.left - bounds.width / 2,
+            y: icon.top + icon.height / 2 - bounds.top - bounds.height / 2 };
+        })
+    `);
+    assert.ok(buttons.length >= minimum, `missing icon buttons for ${selector}`);
+    for (const { label, width, height, x, y } of buttons) {
+      assert.deepEqual([width, height], [size, size], `${label}: SVG stays square at its intended size`);
+      assert.ok(Math.abs(x) < 0.5 && Math.abs(y) < 0.5, `${label}: SVG stays centered`);
+    }
   };
   const assertHeaderAlignment = async state => {
     await verifyWindowDrag({ window, rendererValue }, state);
@@ -140,10 +165,11 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
         `${state}: ${dimension} centers must align, including hovered Remote: ${JSON.stringify(centers)}`);
     }
     for (const group of ['conversation', 'sidebar']) {
+      const gap = group === 'sidebar' ? 4 : 8;
       const row = centers.filter(center => center.group === group).sort((left, right) => left.left - right.left);
       for (let index = 1; index < row.length; index++) {
-        assert.ok(Math.abs(row[index].left - row[index - 1].right - 8) < 0.1,
-          `${state}: ${group} controls must share DSH's 8px gap: ${JSON.stringify(row)}`);
+        assert.ok(Math.abs(row[index].left - row[index - 1].right - gap) < 0.1,
+          `${state}: ${group} controls must use the ${gap}px gap: ${JSON.stringify(row)}`);
       }
     }
     if (process.env.MINKE_SIDEBAR_SCREENSHOT && state === 'collapsed Sidebar') {
@@ -158,6 +184,43 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   };
   await window.loadURL(harnessUrl);
   await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel]') !== null`), 'selected blank Session');
+  await assertIconButtons('[data-minke-about-trigger]', 18);
+  await waitFor(() => rendererValue(window, `() => {
+    const artwork = document.querySelector('[data-minke-about-trigger] svg use');
+    const href = artwork?.getAttribute('href');
+    return href === '#dsw-icon-info-outline-regular' && document.getElementById(href.slice(1)) !== null;
+  }`), 'About renders the regular DSH Info outline');
+  await click('[data-minke-new-session-remote-hub-action] button');
+  await waitFor(() => rendererValue(window, `() =>
+    document.querySelector('[data-minke-remote-hub-dialog]')?.getAnimations()
+      .every(animation => animation.playState === 'finished')
+  `), 'Remote Hub dialog finishes opening');
+  await assertIconButtons('.minke-remote-hub__close', 18);
+  const connectionRows = await rendererValue(window, `() =>
+    [...document.querySelectorAll('.minke-remote-hub__navigation-item')].map(button => {
+      const left = button.getBoundingClientRect().left;
+      const icon = button.querySelector('.minke-remote-hub__navigation-icon');
+      const name = button.querySelector('strong');
+      const status = button.querySelector('small');
+      return {
+        label: name.textContent,
+        iconOffset: icon.getBoundingClientRect().left - left,
+        nameOffset: name.getBoundingClientRect().left - left,
+        statusOffset: status.getBoundingClientRect().left - left,
+        textAlign: getComputedStyle(name).textAlign,
+      };
+    })
+  `);
+  assert.equal(connectionRows.length, 4);
+  for (const { label, iconOffset, nameOffset, statusOffset, textAlign } of connectionRows) {
+    assert.ok(Math.abs(iconOffset - 9) <= 0.25, `${label}: icon starts at the left padding`);
+    assert.ok(Math.abs(nameOffset - 46) <= 0.25, `${label}: name aligns with other connection names`);
+    assert.ok(Math.abs(statusOffset - nameOffset) <= 0.25, `${label}: status aligns with the name`);
+    assert.equal(textAlign, 'left', `${label}: labels start on the left`);
+  }
+  if (process.env.MINKE_SIDEBAR_SCREENSHOT) await writeFile(`${process.env.MINKE_SIDEBAR_SCREENSHOT}.connections.png`, (await window.webContents.capturePage()).toPNG());
+  await click('.minke-remote-hub__close');
+  await waitFor(() => rendererValue(window, `() => document.querySelector('[data-minke-remote-hub-dialog]') === null`), 'closed Remote Hub dialog');
   {
     await pressShortcut(',');
     await waitFor(() => rendererValue(window, `() => document.querySelector('[data-shortcut-modal="settings"]') !== null`), 'native Settings for shared controls');
@@ -323,20 +386,32 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   assert.deepEqual({ overlaps, creators }, {
     overlaps: [], creators: ['files', 'browser', 'browser-history', 'plugins'],
   }, 'blank Session controls must be separate and the native Start tab must directly offer Minke creation actions');
+  const moreTools = '[data-sidebar-right-guide] button[aria-label="More tools"]';
   const guide = await rendererValue(window, `() => {
     const entry = document.querySelector('[data-sidebar-right-guide-entry="files"]');
+    const terminal = document.querySelector('[data-sidebar-right-guide-entry="terminal"]');
+    const more = document.querySelector('${moreTools}');
     const section = document.querySelector('.minke-tabs-native-guide__section');
     return {
       description: entry.textContent,
       heading: section.querySelector('h2').textContent,
-      nativeBottom: entry.getBoundingClientRect().bottom,
+      terminalBottom: terminal.getBoundingClientRect().bottom,
+      moreTop: more.getBoundingClientRect().top,
+      moreBottom: more.getBoundingClientRect().bottom,
       minkeTop: section.getBoundingClientRect().top,
     };
   }`);
   assert.ok(guide.description.includes("Browse files in this session's workspace"));
   assert.equal(guide.heading, 'Minke');
   assert.equal(await rendererValue(window, `() => document.querySelector('[data-sidebar-right-guide-entry="terminal"] button[aria-label="Choose shell"]') !== null`), true, 'the native terminal guide retains its shell picker above Minke cards');
-  assert.ok(guide.nativeBottom < guide.minkeTop, 'Minke cards follow the native guide entries');
+  assert.ok(guide.terminalBottom <= guide.moreTop, 'More tools follows the native terminal card');
+  assert.ok(guide.moreBottom <= guide.minkeTop, 'More tools appears above the Minke cards');
+  await focusWindow();
+  await rendererValue(window, `() => document.querySelector('${moreTools}').focus({ preventScroll: true })`);
+  pressKey('Tab');
+  await waitFor(() => rendererValue(window, `() =>
+    document.activeElement.matches('.minke-tabs-native-guide__section [data-option="files"]')
+  `), 'Tab from More tools enters the Minke group');
   const assertGuideLayout = async state => {
     const bounds = await rendererValue(window, `() => {
       const guide = document.querySelector('[data-sidebar-right-guide]');
@@ -366,30 +441,26 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   const scrollGuideWithWheel = async state => {
     await focusWindow();
     const input = await rendererValue(window, `() => {
-      const guide = document.querySelector('[data-sidebar-right-guide]');
-      let viewport = guide.parentElement;
-      while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
+      const viewport = document.querySelector('[data-sidebar-right-guide]');
       viewport.scrollTop = 0;
       const rect = viewport.getBoundingClientRect();
+      if (viewport.scrollHeight <= viewport.clientHeight) return null;
       return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2), deltaY: -viewport.scrollHeight };
     }`);
+    if (input === null) return;
     // Let Chromium commit the reset before the compositor handles native input.
     await rendererValue(window, '() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
     const start = await rendererValue(window, `() => {
-      const guide = document.querySelector('[data-sidebar-right-guide]');
-      let viewport = guide.parentElement;
-      while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
-      return { firstTop: guide.firstElementChild.getBoundingClientRect().top, viewportTop: viewport.getBoundingClientRect().top };
+      const viewport = document.querySelector('[data-sidebar-right-guide]');
+      return { firstTop: viewport.firstElementChild.getBoundingClientRect().top, viewportTop: viewport.getBoundingClientRect().top };
     }`);
     assert.ok(start.firstTop >= start.viewportTop,
       state + ': the beginning of Start must remain reachable: ' + JSON.stringify(start));
     window.webContents.sendInputEvent({ type: 'mouseMove', x: input.x, y: input.y });
     await waitFor(async () => {
       const atEnd = await rendererValue(window, `() => {
-        const guide = document.querySelector('[data-sidebar-right-guide]');
-        let viewport = guide.parentElement;
-        while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
-        const last = [...guide.querySelectorAll('[data-option]')].at(-1);
+        const viewport = document.querySelector('[data-sidebar-right-guide]');
+        const last = [...viewport.querySelectorAll('[data-option]')].at(-1);
         return viewport.scrollTop > 0 && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 1 &&
           last.getBoundingClientRect().bottom <= viewport.getBoundingClientRect().bottom + 1;
       }`);
@@ -398,13 +469,11 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
       return atEnd;
     }, state + ': wheel scroll reaches the final Start card', 3_000).catch(async error => {
       const geometry = await rendererValue(window, `() => {
-        const guide = document.querySelector('[data-sidebar-right-guide]');
-        let viewport = guide.parentElement;
-        while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
-        const last = [...guide.querySelectorAll('[data-option]')].at(-1);
+        const viewport = document.querySelector('[data-sidebar-right-guide]');
+        const last = [...viewport.querySelectorAll('[data-option]')].at(-1);
         const bottom = document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]');
         const hit = document.elementFromPoint(${input.x}, ${input.y});
-        return { viewport: viewport.getBoundingClientRect().toJSON(), guide: guide.getBoundingClientRect().toJSON(),
+        return { viewport: viewport.getBoundingClientRect().toJSON(),
           last: last.getBoundingClientRect().toJSON(), bottom: bottom?.getBoundingClientRect().toJSON(),
           scrollTop: viewport.scrollTop, scrollHeight: viewport.scrollHeight, input: ${JSON.stringify(input)},
           hit: hit?.outerHTML.slice(0, 400), height: innerHeight };
@@ -422,29 +491,29 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   };
   await click('[data-minke-new-session-tabs-action] [data-minke-tabs-placement="bottom"]');
   await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]') !== null`), 'bottom panel beside Start');
-  const assertBottomLayout = async state => {
+  const assertBottomLayout = async (state, requireOverflow = false) => {
     await rendererValue(window, '() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
     await scrollGuideWithWheel(state);
     await rendererValue(window, '() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
     const bounds = await rendererValue(window, `() => {
       const guide = document.querySelector('[data-sidebar-right-guide]');
-      let viewport = guide.parentElement;
-      while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
       const panel = guide.closest('[data-sidebar-right-panel]');
       const bottom = document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]');
       const last = [...guide.querySelectorAll('[data-option]')].at(-1);
       return {
         rightBottom: panel.getBoundingClientRect().bottom,
         bottomTop: bottom.getBoundingClientRect().top,
-        scrollTop: viewport.scrollTop,
+        scrollTop: guide.scrollTop,
+        overflow: guide.scrollHeight > guide.clientHeight,
         lastBottom: last.getBoundingClientRect().bottom,
       };
     }`);
     assert.ok(bounds.rightBottom <= bounds.bottomTop + 1,
       state + ': the native Sidebar must end above the bottom panel: ' + JSON.stringify(bounds));
+    if (requireOverflow) assert.equal(bounds.overflow, true, 'the short layout must exercise scrolling');
     // scrollHeight is integer CSS pixels; rect edges can retain fractions.
-    assert.ok(bounds.scrollTop > 0 && bounds.lastBottom <= bounds.bottomTop + 1,
-      state + ': Start must scroll its final card above the bottom panel: ' + JSON.stringify(bounds));
+    assert.ok((!bounds.overflow || bounds.scrollTop > 0) && bounds.lastBottom <= bounds.bottomTop + 1,
+      state + ': the final Start card must be reachable above the bottom panel: ' + JSON.stringify(bounds));
   };
   await assertBottomLayout('bottom open');
   await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"] [data-terminal-renderer="dsh"] .xterm-helper-textarea') !== null && document.querySelector('.minke-tabs-panel[data-placement="bottom"] [role="status"]') === null`), 'bottom terminal ready before resizing');
@@ -469,9 +538,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]') === null`), 'bottom panel closed after Start scroll');
   await waitFor(() => rendererValue(window, `() => document.querySelector('[data-sidebar-right-panel="push"]').getBoundingClientRect().bottom === innerHeight`), 'Sidebar regains its full height');
   await rendererValue(window, `() => {
-    let viewport = document.querySelector('[data-sidebar-right-guide]').parentElement;
-    while (getComputedStyle(viewport).display === 'contents') viewport = viewport.parentElement;
-    viewport.scrollTop = 0;
+    document.querySelector('[data-sidebar-right-guide]').scrollTop = 0;
     return true;
   }`);
   // macOS can clamp the initial window to the display's work area. Restore
@@ -492,7 +559,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     await scrollGuideWithWheel('short Sidebar');
     await click('[data-minke-new-session-tabs-action] [data-minke-tabs-placement="bottom"]');
     await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]') !== null`), 'bottom panel in short window');
-    await assertBottomLayout('short Sidebar with bottom open');
+    await assertBottomLayout('short Sidebar with bottom open', true);
     await click('[data-minke-new-session-tabs-action] [data-minke-tabs-placement="bottom"]');
     await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]') === null`), 'bottom panel closed in short window');
   } finally {
@@ -517,6 +584,10 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     await verifyWindowDrag({ window, rendererValue }, `fullscreen at width ${width}`);
     await verifyWindowDragRecall({ window, rendererValue });
     if (process.platform === 'darwin') {
+      await waitFor(() => rendererValue(window, `() => {
+        const panel = document.querySelector('[data-sidebar-right-panel="fullscreen"]');
+        return !panel.getAnimations({ subtree: true }).some(animation => animation.playState === 'running' && animation.effect.getTiming().iterations !== Infinity);
+      }`), 'fullscreen Sidebar transition');
       const chrome = await rendererValue(window, `() => {
         const panel = document.querySelector('[data-sidebar-right-panel="fullscreen"]');
         const strip = panel.querySelector('[data-dockkit-strip]');
@@ -532,6 +603,10 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
         });
         return {
           firstTabLeft: firstTab.getBoundingClientRect().left,
+          startPadding: getComputedStyle(strip).paddingLeft,
+          stripLeft: strip.getBoundingClientRect().left,
+          stripScroll: firstTab.closest('[data-dockkit-strip-scroll]')?.scrollLeft,
+          fullscreenWindow: document.documentElement.hasAttribute('data-fullscreen'),
           backgroundAlpha: backgroundAlpha.length ? Math.min(...backgroundAlpha) : 0,
           stripAppRegion: getComputedStyle(strip).getPropertyValue('-webkit-app-region').trim(),
           interactiveRegions: [...strip.querySelectorAll('[data-dockkit-tab], button')].map(element =>
@@ -568,7 +643,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
       const host = [...document.querySelectorAll('.minke-tabs-native-host[data-kind="${kind}"]')].find(host => !host.inert);
       return host?.checkVisibility({ checkVisibilityCSS: true }) === true;
     }`), `visible ${kind} content`);
-    assert.equal(await rendererValue(window, `() => document.querySelectorAll('[data-sidebar-right-panel] [data-dockkit-tab]').length`), count, 'creation replaces Start with the requested tab');
+    assert.equal(await rendererValue(window, `() => document.querySelectorAll('[data-sidebar-right-panel] [data-dockkit-tab]').length`), count, `native tab count after opening ${kind} from Start`);
   };
   const add = async (selector = '[data-dockkit-add-tab]', keyboard = false) => {
     const before = await rendererValue(window, `() => [...document.querySelectorAll('[data-sidebar-right-panel] [data-dockkit-tab]')].map(tab => tab.dataset.dockkitTab)`);
@@ -577,7 +652,13 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
       await rendererValue(window, `() => { document.querySelector(${JSON.stringify(selector)}).focus(); return true; }`);
       pressEnter();
     } else await click(selector);
-    await waitFor(() => rendererValue(window, `() => document.querySelector('[data-dockkit-pane="${paneId}"] [data-sidebar-right-guide] [data-option="files"]') !== null`), 'native add action opens Start in its pane');
+    const startId = await waitFor(() => rendererValue(window, `() => {
+      const guide = document.querySelector('[data-dockkit-pane="${paneId}"] [data-sidebar-right-guide]');
+      if (!guide?.querySelector('[data-option="files"]')) return false;
+      const { left, top, width, height } = guide.getBoundingClientRect();
+      if (!guide.contains(document.elementFromPoint(left + width / 2, top + height / 2))) return false;
+      return guide.closest('[data-dockkit-content]')?.dataset.dockkitContent;
+    }`), 'native add action opens a reachable Start in its pane');
     const after = await rendererValue(window, `() => [...document.querySelectorAll('[data-sidebar-right-panel] [data-dockkit-tab]')].map(tab => tab.dataset.dockkitTab)`);
     assert.equal(after.length, before.length + 1, 'native add opens exactly one Start tab');
     assert.ok(before.every(id => after.includes(id)), 'opening Start preserves existing tabs');
@@ -594,6 +675,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     assert.deepEqual(guide, { nativeFiles: true, terminals: 1,
       minkeOptions: ['files', 'browser', 'browser-history', 'plugins'], canAddAgain: false, privateMenu: false });
     await verifyWindowDrag({ window, rendererValue }, 'native Start open');
+    return startId;
   };
 
   // Exercise the provider-owned guide, two independent native shells, and cleanup
@@ -720,6 +802,8 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   await waitFor(() => guest.executeJavaScript('document.querySelector("#human-note") !== null'), 'Web fixture input');
   await guest.executeJavaScript('document.querySelector("#human-note").focus()');
   await guest.insertText('Preserved Web state');
+  assert.equal(await rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="right"]') === null`), true,
+    'Minke must retire the fallback tab strip while DSH owns the Sidebar');
   process.stdout.write('[sidebar-ui] Web creation, focus and navigation passed\n');
   await add();
   await click('[data-sidebar-right-panel] [data-dockkit-tab][aria-selected="true"] [data-dockkit-tab-close]');
@@ -759,6 +843,7 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   await writeFile(join(workspace, 'sidebar-draft.txt'), 'Original draft\n');
   await add();
   await create('files', 'files', 3);
+  await assertIconButtons('.minke-tabs-native-host[data-kind="files"] .minke-tabs-native-toolbar .minke-tabs-toolbar__button', 18, 3);
   const file = await waitFor(() => rendererValue(window, `() => {
     const row = [...document.querySelectorAll('.minke-tabs-native-host[data-kind="files"] [data-kind="file"]')].find(row => row.textContent.includes('sidebar-draft.txt'));
     if (!row) return false;
@@ -801,12 +886,12 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
 
   await add();
   await create('browser-history', 'browser-history', 5);
-  await add();
-  await create('browser-history', 'browser-history', 5);
-  assert.equal(await rendererValue(window, `() => document.querySelectorAll('.minke-tabs-native-host[data-kind="browser-history"]').length`), 1, 'a singleton creator reuses its content and still removes Start');
+  const retainedStart = await add();
+  await create('browser-history', 'browser-history', 6);
+  assert.equal(await rendererValue(window, `() => document.querySelectorAll('.minke-tabs-native-host[data-kind="browser-history"]').length`), 1, 'native reveal focuses the existing Browser History instance');
 
-  // Other plugins still use their native guide entries and document viewers.
-  await add();
+  // Revealing existing content leaves the original Start tab available.
+  await click(`[data-dockkit-tab="${retainedStart}"]`);
   await click('button[data-sidebar-right-guide-entry="files"]');
   await waitFor(() => rendererValue(window, `() => document.querySelector('[data-files-state="tree"] [data-files-path$="/sidebar-draft.txt"]') !== null`), 'native Workspace files tree');
   const nativeFilesTabId = await rendererValue(window, `() => document.querySelector('[data-files-state="tree"]').closest('[data-dockkit-pane]').querySelector('[data-dockkit-tab][aria-selected="true"]').dataset.dockkitTab`);
@@ -844,7 +929,9 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
   process.stdout.write('[sidebar-ui] native code banner, scrollport and saved position passed\n');
 
   await checkShellState();
-  const checkBottomAfterReload = await require('./shared-terminal-ui.cjs').verifySharedTerminalUI({ window, rendererValue, waitFor, workspace, click, pressKey, pressShortcut, pressEnter, typeKeys });
+  const checkBottomAfterReload = await require('./shared-terminal-ui.cjs').verifySharedTerminalUI({
+    window, rendererValue, waitFor, workspace, click, pressKey, pressShortcut, pressEnter, typeKeys, assertIconButtons,
+  });
   assert.deepEqual(await layout(), [], 'global actions remain separate with both panels open');
   await click('[data-minke-new-session-tabs-action] [data-minke-tabs-placement="bottom"]');
   await waitFor(() => rendererValue(window, `() => document.querySelector('.minke-tabs-panel[data-placement="bottom"][data-open]') === null`), 'bottom panel collapse');

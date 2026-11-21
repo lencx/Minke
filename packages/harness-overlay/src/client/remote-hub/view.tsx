@@ -312,6 +312,7 @@ export function RemoteHubAction({
       ref={triggerRef}
       size="sm"
       type="button"
+      data-minke-icon-button
       data-minke-remote-hub-action
       data-location={location}
       data-state={state}
@@ -1904,6 +1905,7 @@ function RemoteHubDialog({
             ref={closeRef}
             type="button"
             className="minke-remote-hub__close"
+            data-minke-icon-button
             aria-label={t("close")}
             title={t("close")}
             onClick={() => runtime.close()}

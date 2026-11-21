@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { lstat, readFile } from "node:fs/promises";
+import { lstat, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
+import { transform } from "esbuild";
 
 const patchDirectory = "patches/deepseek-harness/";
 const runtimePackagePrefix = "node_modules/@deepseek-ai/";
@@ -170,6 +171,16 @@ function runGitApply(runtimeRoot, patches, { check = false, reverse = false } = 
 export async function applyHarnessRuntimePatches(runtimeRoot, patches) {
   if (!Array.isArray(patches) || patches.length === 0) {
     throw new Error("no resolved Harness runtime patches were provided");
+  }
+  // DSH compresses client factories to one line. Format only the disposable
+  // bundles we patch so the diffs can keep narrow, readable context.
+  const targets = new Set(patches.flatMap(patch => patch.targets));
+  for (const target of targets) {
+    if (!/\/lib\/client(?:\.[\w-]+)?\.js$/u.test(target)) continue;
+    const path = resolveInside(runtimeRoot, target, "runtime patch target");
+    const source = await readFile(path, "utf8");
+    const { code } = await transform(source, { target: "esnext", legalComments: "inline" });
+    await writeFile(path, code);
   }
   runGitApply(runtimeRoot, patches, { check: true });
   runGitApply(runtimeRoot, patches);

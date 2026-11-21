@@ -128,9 +128,16 @@ export function bindTabs(
     if (!authorize(event)) {
       throw new Error("unauthorized Files request");
     }
-    return await files.list(
-      parseFileManagerListRequest(request),
-    );
+    const parsed = parseFileManagerListRequest(request);
+    try {
+      return await files.list(parsed);
+    } catch (error) {
+      if (error instanceof Error && "code" in error &&
+        (error.code === "EPERM" || error.code === "EACCES")) {
+        return { kind: "permission-denied" };
+      }
+      throw error;
+    }
   };
   const handleFilesDiff = async (
     event: IpcMainInvokeEvent,

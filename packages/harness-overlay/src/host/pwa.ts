@@ -381,6 +381,7 @@ export function injectMinkePwaHead(html: string): string {
 interface PwaWebRoute {
   readonly kind: "exact";
   readonly path: string;
+  readonly auth: "anonymous";
   readonly handler: (
     request: IncomingMessage,
     response: ServerResponse,
@@ -459,6 +460,7 @@ export function installMinkePwaHost(
     webServer.register({
       kind: "exact",
       path,
+      auth: "anonymous",
       handler(request, response) {
         sendPwaResponse(request, response, {
           body,
@@ -476,6 +478,7 @@ export function installMinkePwaHost(
     webServer.register({
       kind: "exact",
       path,
+      auth: "anonymous",
       async handler(request, response) {
         sendPwaResponse(request, response, {
           body: await readPwaAsset(name),

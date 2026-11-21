@@ -16,6 +16,7 @@ import { installOnboarding } from "./onboarding/install.tsx";
 import { installPwa } from "./pwa/install.tsx";
 import { installRemote } from "./remote/install.tsx";
 import { installRemoteHub } from "./remote-hub/install.tsx";
+import { installIconButtonStyles } from "./shared/icon-button.ts";
 import { installShortcuts } from "./shortcuts/install.tsx";
 import { installTabs } from "./tabs/install.tsx";
 
@@ -35,6 +36,7 @@ export const inject = [
 /** Compose Minke features through Harness's public services and slots. */
 export function apply(ctx: HarnessClientContext): void {
   const minkeSettings = new MinkeSettingsRuntime();
+  ctx.effect(() => installIconButtonStyles(), "minke-overlay: icon button styles");
   installDesktopClient(ctx);
   installFeedback(ctx);
   installAbout(ctx);

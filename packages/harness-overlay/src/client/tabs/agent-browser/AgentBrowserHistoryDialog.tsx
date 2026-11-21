@@ -240,6 +240,7 @@ export function AgentBrowserHistoryDialog({
                 ref={closeRef}
                 type="button"
                 className="minke-agent-browser-history__icon-button"
+                data-minke-icon-button
                 aria-label={t("agentBrowser.history.action.close")}
                 title={t("agentBrowser.history.action.close")}
                 onClick={close}

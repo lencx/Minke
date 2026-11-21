@@ -5,7 +5,7 @@ const { readFile, writeFile } = require('node:fs/promises');
 const { join } = require('node:path');
 
 /** Real input, preference updates and renderer reload against the production PTY. */
-exports.verifySharedTerminalUI = async ({ window, rendererValue, waitFor, workspace, click, pressKey, pressShortcut, pressEnter, typeKeys }) => {
+exports.verifySharedTerminalUI = async ({ window, rendererValue, waitFor, workspace, click, pressKey, pressShortcut, pressEnter, typeKeys, assertIconButtons }) => {
   const toggle = '[data-minke-new-session-tabs-action] [data-minke-tabs-placement="bottom"]';
   const bottom = '.minke-tabs-panel[data-placement="bottom"]';
   const screen = bottom + ' [data-terminal-placement="bottom"]:not([hidden]) [data-terminal-renderer="dsh"]';
@@ -52,7 +52,14 @@ exports.verifySharedTerminalUI = async ({ window, rendererValue, waitFor, worksp
     await click('button[aria-label="Increase terminal font size"]');
     await waitFor(() => rendererValue(window, `() => getComputedStyle(document.body).getPropertyValue('--dsh-terminal-font-size').trim() === '${size}px'`), 'General terminal size ' + size);
   }
-  await click('[data-minke-settings-navigation-logo]');
+  const settingsNav = '[data-shortcut-modal="settings"] nav button';
+  const minkeSettingsIndex = await rendererValue(window, `() =>
+    [...document.querySelectorAll(${JSON.stringify(settingsNav)})]
+      .findIndex(button => button.textContent.trim() === 'Minke' &&
+        button.querySelector('[data-slot="settings.section.icon"] svg[viewBox="0 0 832 832"]'))
+  `);
+  assert.ok(minkeSettingsIndex >= 0, 'native Settings navigation renders the Minke mark');
+  await click(settingsNav, minkeSettingsIndex);
   assert.equal(await rendererValue(window, `() => document.querySelector('[data-minke-terminal-settings] input[aria-describedby~="minke-terminal-settings-font-size-help"]') === null`), true, 'no duplicate terminal font editor');
   const lineHeight = '[data-minke-terminal-settings] input[aria-describedby~="minke-terminal-settings-line-height-help"]';
   await click(lineHeight);
@@ -73,6 +80,7 @@ exports.verifySharedTerminalUI = async ({ window, rendererValue, waitFor, worksp
     ? 'echo %minke_bottom_state% > shared-bottom-terminal.txt'
     : 'printf "%s" "$minke_bottom_state" > shared-bottom-terminal.txt', 'retained');
   await checkState();
+  await assertIconButtons(bottom + ' button[aria-haspopup="menu"]', 18);
   await click(bottom + ' button[aria-haspopup="menu"]');
   await click('[data-minke-tabs-create-menu] [data-option="terminal"]');
   await run(process.platform === 'win32'

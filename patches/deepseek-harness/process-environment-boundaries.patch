@@ -1,7 +1,7 @@
 diff --git a/node_modules/@deepseek-ai/dsh-native-command/lib/index.js b/node_modules/@deepseek-ai/dsh-native-command/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-native-command/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-native-command/lib/index.js
-@@ -6,2 +6,16 @@
+@@ -6,2 +6,16 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promise
  //#region lib/types/runner.js
 +function externalCommandEnvironment() {
 +	const environment = {
@@ -18,14 +18,34 @@ diff --git a/node_modules/@deepseek-ai/dsh-native-command/lib/index.js b/node_mo
 +	return environment;
 +}
  /**
-@@ -22,2 +36,3 @@
+@@ -22,2 +36,3 @@ const runNativeCommand = (command, args, signal, window) => new Promise((resolve
  		encoding: "utf8",
 +		env: externalCommandEnvironment(),
  		signal,
+diff --git a/node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/index.js b/node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/index.js
+--- a/node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/index.js
+@@ -1361,4 +1361,9 @@ var ProgramWorker = class {
+ 		const heapFlag = `--max-old-space-size=${this.config.maxOldGenerationSizeMb}`;
++		const nodeBootstrap = process.env.MINKE_NODE_BOOTSTRAP;
++		const embeddedExecutable = process.env.MINKE_NODE_EXECUTABLE;
++		const embeddedNode = typeof nodeBootstrap === "string" && nodeBootstrap !== "" && (executable === process.execPath || typeof embeddedExecutable === "string" && (process.platform === "win32" ? executable.toUpperCase() === embeddedExecutable.toUpperCase() : executable === embeddedExecutable));
+ 		const argv = [
++			...embeddedNode && process.platform !== "win32" ? ["/usr/bin/env", "ELECTRON_RUN_AS_NODE=1", `MINKE_NODE_BOOTSTRAP=${nodeBootstrap}`] : [],
+ 			executable,
++			...embeddedNode ? ["--require", nodeBootstrap] : [],
+ 			...packaged ? [] : [heapFlag],
+@@ -1373,2 +1378,6 @@ var ProgramWorker = class {
+ 		const env = Object.fromEntries(Object.keys(process.env).filter((key) => !STARTUP_ENVIRONMENT_NAMES.has(key.toUpperCase()) && key.toUpperCase() !== "ELECTRON_RUN_AS_NODE").map((key) => [key, void 0]));
++		if (embeddedNode) {
++			env.ELECTRON_RUN_AS_NODE = "1";
++			env.MINKE_NODE_BOOTSTRAP = nodeBootstrap;
++		}
+ 		if (packaged) {
 diff --git a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js
 --- a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js
 +++ b/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js
-@@ -156,5 +156,27 @@
+@@ -156,5 +156,27 @@ async function main() {
  		}
 +		const bootstrap = process.env.MINKE_NODE_BOOTSTRAP;
 +		const embeddedExecutable = process.env.MINKE_NODE_EXECUTABLE;
@@ -57,7 +77,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/lib/runner.js b/n
 diff --git a/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js b/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-subprocess/lib/index.js
-@@ -50,4 +50,15 @@
+@@ -120,4 +120,15 @@ const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i;
  function scrubbedParentEnv() {
 +	const ambientRuntimeControls = new Set([
 +		"ELECTRON_RUN_AS_NODE",
@@ -78,10 +98,10 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
 --- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js
 @@ -1,2 +1,2 @@
--import { C as bindManagedProcess, D as createProcessInspector, E as validateSubprocessSpec, O as controlPipe, S as loadLinuxExecve, T as spawnSubprocess, _ as parseWindowsRunnerResult, c as runnerStdio, d as cleanupLinuxLaunchFiles, l as spawnRunnerInvocation, m as deserializeRunnerError, n as WINDOWS_RUNNER_SELECTION, o as runnerEnvironment, p as createLinuxLaunchFiles, s as runnerInvocationAvailable, u as targetEnvironment, w as childEnv, y as readLinuxStartupError } from "./runner-launch-B2zsQ1Dz.js";
-+import { embeddedNodeArguments, C as bindManagedProcess, D as createProcessInspector, E as validateSubprocessSpec, O as controlPipe, S as loadLinuxExecve, T as spawnSubprocess, _ as parseWindowsRunnerResult, c as runnerStdio, d as cleanupLinuxLaunchFiles, l as spawnRunnerInvocation, m as deserializeRunnerError, n as WINDOWS_RUNNER_SELECTION, o as runnerEnvironment, p as createLinuxLaunchFiles, s as runnerInvocationAvailable, u as targetEnvironment, w as childEnv, y as readLinuxStartupError } from "./runner-launch-B2zsQ1Dz.js";
+-import { C as bindManagedProcess, D as createProcessInspector, E as validateSubprocessSpec, O as controlPipe, S as loadLinuxExecve, T as spawnSubprocess, _ as parseWindowsRunnerResult, c as runnerStdio, d as cleanupLinuxLaunchFiles, l as spawnRunnerInvocation, m as deserializeRunnerError, n as WINDOWS_RUNNER_SELECTION, o as runnerEnvironment, p as createLinuxLaunchFiles, s as runnerInvocationAvailable, u as targetEnvironment, w as childEnv, y as readLinuxStartupError } from "./runner-launch-2f_K_dxk.js";
++import { embeddedNodeArguments, C as bindManagedProcess, D as createProcessInspector, E as validateSubprocessSpec, O as controlPipe, S as loadLinuxExecve, T as spawnSubprocess, _ as parseWindowsRunnerResult, c as runnerStdio, d as cleanupLinuxLaunchFiles, l as spawnRunnerInvocation, m as deserializeRunnerError, n as WINDOWS_RUNNER_SELECTION, o as runnerEnvironment, p as createLinuxLaunchFiles, s as runnerInvocationAvailable, u as targetEnvironment, w as childEnv, y as readLinuxStartupError } from "./runner-launch-2f_K_dxk.js";
  import { logSpillFailure, prepareManagedProcessBinding } from "./output.js";
-@@ -472,3 +472,12 @@
+@@ -465,3 +465,12 @@ var SystemdScopeOwner = class {
  };
 +function scopeEnvironment(selection, invocation) {
 +	const env = runnerEnvironment(selection, invocation);
@@ -94,21 +114,21 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
 +	embeddedNodeArguments(invocation[0], [], env);
 +	const bootstrapEnv = Object.entries(env).map(([key, value]) => `${key}=${value}`);
  	return [
-@@ -481,2 +490,3 @@
+@@ -474,2 +483,3 @@ function scopeArgs(unitBase, literalArgv, invocation, argv) {
  		"--",
 +		...bootstrapEnv.length === 0 ? [] : ["/usr/bin/env", ...bootstrapEnv],
  		...invocation,
-@@ -553,3 +563,3 @@
+@@ -546,3 +556,3 @@ function prepareLinuxTerminalScope(spec, targetEnv, literalArgv, internals = {})
  		cwd: process.cwd(),
 -		env: runnerEnvironment(files.requestPath, invocation),
 +		env: scopeEnvironment(files.requestPath, invocation),
  		bindOwner: (direct) => new SystemdScopeOwner(`${unitBase}.scope`, startup, direct, internals.systemctl ?? "systemctl", internals.spawnSync ?? spawnSync, internals.systemctlQuery ?? querySystemctl, internals.sleep ?? sleepWithAbort),
-@@ -582,3 +592,3 @@
+@@ -577,3 +587,3 @@ function launchLinuxScope(spec, targetEnv, literalArgv, internals = {}) {
  			cwd: process.cwd(),
 -			env: runnerEnvironment(files.requestPath, invocation),
 +			env: scopeEnvironment(files.requestPath, invocation),
- 			stdio: runnerStdio(spec, false),
-@@ -1565,5 +1575,7 @@
+ 			stdio,
+@@ -1571,5 +1581,7 @@ var LocalSubprocessRuntime = class extends SubprocessRuntime {
  		else {
 +			const [program, ...args] = spec.argv;
 +			const targetSpec = { ...spec, argv: [program, ...embeddedNodeArguments(program, args, env)] };
@@ -117,7 +137,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
 -			handle = bindManagedProcess(spec, linuxScope === void 0 ? launchWindowsJob(spec, env) : launchLinuxScope(spec, env, linuxScope.literalArgv), binding);
 +			handle = bindManagedProcess(spec, linuxScope === void 0 ? launchWindowsJob(targetSpec, env) : launchLinuxScope(targetSpec, env, linuxScope.literalArgv), binding);
  			if (linuxScope !== void 0) this.watchLinuxScopeStart(handle.done, linuxScope.generation);
-@@ -1633,5 +1645,6 @@
+@@ -1639,5 +1651,6 @@ var LocalSubprocessRuntime = class extends SubprocessRuntime {
  		const platform = this.internals.platform ?? process.platform;
 -		const activity = prepareShellActivity(spec, env, platform);
 -		const launch = activity === void 0 ? spec : {
@@ -127,10 +147,10 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js b/node_
 +		const launch = activity === void 0 ? targetSpec : {
 +			...targetSpec,
  			argv: activity.argv,
-diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js
---- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js
-+++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js
-@@ -695,2 +695,10 @@
+diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-2f_K_dxk.js b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-2f_K_dxk.js
+--- a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-2f_K_dxk.js
++++ b/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-2f_K_dxk.js
+@@ -703,2 +703,10 @@ function childEnv(extra) {
  	const env = scrubbedParentEnv();
 +	for (const name of [
 +		"ELECTRON_RUN_AS_NODE",
@@ -141,9 +161,8 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2
 +		"NODE_PATH"
 +	]) for (const key of Object.keys(env)) if (key.toUpperCase() === name) delete env[key];
  	if (process.platform !== "win32") return {
-@@ -706,2 +714,30 @@
- 	return Object.fromEntries(entries);
-+}
+@@ -715,2 +723,30 @@ function childEnv(extra) {
+ }
 +function sameExecutable(left, right) {
 +	if (typeof left !== "string" || typeof right !== "string") return false;
 +	return process.platform === "win32" ? left.toUpperCase() === right.toUpperCase() : left === right;
@@ -171,8 +190,9 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2
 +		bootstrap,
 +		...args
 +	];
- }
-@@ -1032,5 +1068,6 @@
++}
+ /**
+@@ -1047,5 +1083,6 @@ function spawnSubprocess(spec, internals = {}) {
  	}
 -	const child = (internals.spawn ?? spawn)(program, args, {
 +	const env = controlEnvironment(childEnv(spec.env), spec.stdio.control);
@@ -181,7 +201,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2
 -		env: controlEnvironment(childEnv(spec.env), spec.stdio.control),
 +		env,
  		stdio,
-@@ -1310,8 +1347,11 @@
+@@ -1341,8 +1378,11 @@ const RUNNER_CONTROL_ENV_PREFIXES = ["NODE_", "TSX_"];
  function spawnRunnerInvocation() {
 -	if ("pkg" in process) return [process.execPath];
 +	const executable = process.env.MINKE_NODE_EXECUTABLE || process.execPath;
@@ -196,18 +216,18 @@ diff --git a/node_modules/@deepseek-ai/dsh-subprocess-local/lib/runner-launch-B2
 +		executable,
 +		...bootstrapArgs,
  		"--import",
-@@ -1349,2 +1389,3 @@
+@@ -1380,2 +1420,3 @@ function runnerEnvironment(selection, invocation) {
  	}
 +	embeddedNodeArguments(invocation?.[0] ?? process.execPath, [], env);
  	return {
-@@ -1528,2 +1569,2 @@
+@@ -1559,2 +1600,2 @@ function targetEnvironment(spec) {
  //#endregion
 -export { bindManagedProcess as C, createProcessInspector as D, validateSubprocessSpec as E, controlPipe as O, loadLinuxExecve as S, spawnSubprocess as T, parseWindowsRunnerResult as _, resolveWindowsExecutable as a, serializeRunnerError as b, runnerStdio as c, cleanupLinuxLaunchFiles as d, consumeLinuxLaunchRequest as f, linuxLaunchFilesFromLocator as g, isWindowsTerminateRequest as h, parseRunnerTargetArgv as i, spawnRunnerInvocation as l, deserializeRunnerError as m, WINDOWS_RUNNER_SELECTION as n, runnerEnvironment as o, createLinuxLaunchFiles as p, consumeRunnerSelection as r, runnerInvocationAvailable as s, SUBPROCESS_RUNNER_ENV as t, targetEnvironment as u, parseWindowsStartRequest as v, childEnv as w, writeLinuxStartupError as x, readLinuxStartupError as y };
 +export { embeddedNodeArguments, bindManagedProcess as C, createProcessInspector as D, validateSubprocessSpec as E, controlPipe as O, loadLinuxExecve as S, spawnSubprocess as T, parseWindowsRunnerResult as _, resolveWindowsExecutable as a, serializeRunnerError as b, runnerStdio as c, cleanupLinuxLaunchFiles as d, consumeLinuxLaunchRequest as f, linuxLaunchFilesFromLocator as g, isWindowsTerminateRequest as h, parseRunnerTargetArgv as i, spawnRunnerInvocation as l, deserializeRunnerError as m, WINDOWS_RUNNER_SELECTION as n, runnerEnvironment as o, createLinuxLaunchFiles as p, consumeRunnerSelection as r, runnerInvocationAvailable as s, SUBPROCESS_RUNNER_ENV as t, targetEnvironment as u, parseWindowsStartRequest as v, childEnv as w, writeLinuxStartupError as x, readLinuxStartupError as y };
 diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
-@@ -37,2 +37,15 @@
+@@ -38,2 +38,15 @@ const Config = z.object({
  const DSH_WEB_URL = "DSH_WEB_URL";
 +function browserWorkerEnvironment() {
 +	const environment = scrubbedParentEnv();
@@ -223,29 +243,9 @@ diff --git a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js b/node_modules/@
 +	return environment;
 +}
  const BROWSER_OPENER_MODULE = import.meta.resolve("open");
-@@ -40,2 +53,5 @@
+@@ -41,2 +54,5 @@ const BROWSER_OPENER_PROGRAM = `
  try {
 +  delete process.env.ELECTRON_RUN_AS_NODE
 +  delete process.env.NODE_OPTIONS
 +  delete process.env.NODE_PATH
    const { default: open } = await import(${JSON.stringify(BROWSER_OPENER_MODULE)})
-diff --git a/node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/index.js b/node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/index.js
---- a/node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/index.js
-+++ b/node_modules/@deepseek-ai/dsh-ptc-runtime-node/lib/index.js
-@@ -1604,4 +1604,9 @@
- 			const heapFlag = `--max-old-space-size=${this.config.maxOldGenerationSizeMb}`;
-+			const nodeBootstrap = process.env.MINKE_NODE_BOOTSTRAP;
-+			const embeddedExecutable = process.env.MINKE_NODE_EXECUTABLE;
-+			const embeddedNode = typeof nodeBootstrap === "string" && nodeBootstrap !== "" && (executable === process.execPath || typeof embeddedExecutable === "string" && (process.platform === "win32" ? executable.toUpperCase() === embeddedExecutable.toUpperCase() : executable === embeddedExecutable));
- 			const argv = [
-+				...embeddedNode && process.platform !== "win32" ? ["/usr/bin/env", "ELECTRON_RUN_AS_NODE=1", `MINKE_NODE_BOOTSTRAP=${nodeBootstrap}`] : [],
- 				executable,
-+				...embeddedNode ? ["--require", nodeBootstrap] : [],
- 				...packaged ? [] : [heapFlag],
-@@ -1616,2 +1621,6 @@
- 			const env = Object.fromEntries(Object.keys(process.env).filter((key) => !STARTUP_ENVIRONMENT_NAMES.has(key.toUpperCase()) && key.toUpperCase() !== "ELECTRON_RUN_AS_NODE").map((key) => [key, void 0]));
-+			if (embeddedNode) {
-+				env.ELECTRON_RUN_AS_NODE = "1";
-+				env.MINKE_NODE_BOOTSTRAP = nodeBootstrap;
-+			}
- 			if (packaged) {

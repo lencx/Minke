@@ -111,6 +111,7 @@ export function TabsHeaderAction({
           size: "sm",
           type: "button",
           ...{
+            "data-minke-icon-button": "",
             "data-minke-tabs-header-action": "",
             "data-minke-tabs-placement": placement,
           },

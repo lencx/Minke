@@ -1,163 +1,147 @@
 diff --git a/node_modules/@deepseek-ai/dsh-api-terminal-controller/lib/client.js b/node_modules/@deepseek-ai/dsh-api-terminal-controller/lib/client.js
 --- a/node_modules/@deepseek-ai/dsh-api-terminal-controller/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-api-terminal-controller/lib/client.js
-@@ -950,2 +950,3 @@
- 			openTabs = [];
-+			tabOwners = new Map();
- 			/**
-@@ -1075,4 +1076,6 @@
- 			*/
--			retainTabs(tabs) {
--				this.openTabs = tabs;
-+			retainTabs(tabs, owner = "sidebar") {
-+                if (tabs.length) this.tabOwners.set(owner, tabs);
-+                else this.tabOwners.delete(owner);
-+                this.openTabs = [...this.tabOwners.values()].flat();
- 				this.reconcileHolds();
+@@ -740,2 +740,3 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-api-terminal-controller`, f
+     openTabs = [];
++    tabOwners = new Map();
+     constructor(ctx, remote) {
+@@ -837,4 +838,6 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-api-terminal-controller`, f
+     }
+-    retainTabs(tabs) {
+-      this.openTabs = tabs;
++    retainTabs(tabs, owner = "sidebar") {
++      if (tabs.length > 0) this.tabOwners.set(owner, tabs);
++      else this.tabOwners.delete(owner);
++      this.openTabs = [...this.tabOwners.values()].flat();
+       this.reconcileHolds();
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.js
 --- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.js
-@@ -166,3 +166,3 @@
- 		/** Load xterm only after a terminal body is mounted. */
--		const LoadedTerminalBody = (0, react.lazy)(async () => ({ default: (await require.async("./client.terminal.js")).TerminalBody }));
-+		const LoadedTerminalBody = (0, react.lazy)(async () => ({ default: (await require.async("./client.terminal.js")).TerminalView }));
- 		/**
-@@ -462,2 +462,29 @@
- 			};
-+            // Shared native screen for Sidebar and embedded bottom tabs. The
-+            // provider owns its DOM, xterm, model and application color resets.
-+            let appearance = Object.freeze({});
-+            const appearanceListeners = new Set();
-+            const appearanceStore = {
-+                getSnapshot: () => appearance,
-+                subscribe: listener => { appearanceListeners.add(listener); return () => appearanceListeners.delete(listener); }
-+            };
-+            function TerminalView(props) {
-+                const currentTheme = react.useSyncExternalStore(theme.subscribe, theme.getSnapshot);
-+                const currentAppearance = react.useSyncExternalStore(appearanceStore.subscribe, appearanceStore.getSnapshot);
-+                return react_jsx_runtime.jsx(LazyTerminalBody, { ...props, t, theme: currentTheme, appearance: currentAppearance });
-+            }
-+            function SidebarTerminalBody({ useTabInfo, view }) {
-+                const { tab } = useTabInfo();
-+                return react_jsx_runtime.jsx(TerminalView, {
-+                    model: view(tab.id), visible: tab.visible,
-+                    onNewTerminal: () => tab.actions.openTab("terminal", { replaceTab: true })
-+                });
-+            }
-+            ctx.provide("terminalUI", {
-+                View: TerminalView,
-+                setAppearance: value => {
-+                    appearance = Object.freeze({ ...value });
-+                    for (const listener of appearanceListeners) listener();
-+                }
-+            });
- 			ctx.effect(() => ctx.slots.inject("sidebar.right.tab.guide.entry", () => ctx.slots.register({
-@@ -482,3 +509,3 @@
- 				})
--			}, LazyTerminalBody)), "ui-sidebar-terminal.body");
-+			}, SidebarTerminalBody)), "ui-sidebar-terminal.body");
- 			ctx.effect(() => ctx.slots.inject("sidebar.right.pane.tab.title", () => ctx.slots.register({
+@@ -45,3 +45,3 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-terminal`
+   }
+-  const LoadedTerminalBody = (0, react.lazy)(async () => ({ default: (await require.async(`./client.terminal.js`)).TerminalBody }));
++  const LoadedTerminalBody = (0, react.lazy)(async () => ({ default: (await require.async(`./client.terminal.js`)).TerminalView }));
+   function LazyTerminalBody(props) {
+@@ -149,2 +149,30 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-terminal`
+     const theme = { getSnapshot: () => ctx.theme.getTheme(), subscribe: (listener) => ctx.on(`theme/change`, listener) };
++    // Shared native screen for Sidebar and embedded bottom tabs. The
++    // provider owns its DOM, xterm, model and application color resets.
++    let appearance = Object.freeze({});
++    const appearanceListeners = new Set();
++    const appearanceStore = {
++        getSnapshot: () => appearance,
++        subscribe: listener => { appearanceListeners.add(listener); return () => appearanceListeners.delete(listener); }
++    };
++    function TerminalView(props) {
++        const currentTheme = react.useSyncExternalStore(theme.subscribe, theme.getSnapshot);
++        const currentAppearance = react.useSyncExternalStore(appearanceStore.subscribe, appearanceStore.getSnapshot);
++        return react_jsx_runtime.jsx(LazyTerminalBody, { ...props, t, theme: currentTheme, appearance: currentAppearance });
++    }
++    function SidebarTerminalBody({ useTabInfo, view }) {
++        const { tab } = useTabInfo();
++        return react_jsx_runtime.jsx(TerminalView, {
++            model: view(tab.id), visible: tab.visible,
++            onNewTerminal: () => tab.actions.openTab("terminal", { replaceTab: true })
++        });
++    }
++    const disposeTerminalUI = ctx.reflect.provide("terminalUI", {
++        View: TerminalView,
++        setAppearance: value => {
++            appearance = Object.freeze({ ...value });
++            for (const listener of appearanceListeners) listener();
++        }
++    });
++    ctx.effect(() => disposeTerminalUI, "minke: shared terminal view");
+     ctx.effect(() => ctx.slots.inject(`sidebar.right.tab.guide.entry`, () => ctx.slots.register({ name: `sidebar.right.tab.guide.entry`, key: id, locale: namespace, inject: (sessionId) => ({ hooks: { shortcuts: ctx.shortcuts.catalog }, loadShells: (signal) => ctx.webTerminals.launchShells(sessionId, signal), selectShell: (path) => {
+@@ -152,3 +180,3 @@ window.__ModuleLoader__.load({ id: `@deepseek-ai/dsh-client-ui-sidebar-terminal`
+     } }) }, TerminalGuide)), `ui-sidebar-terminal.guide`);
+-    ctx.effect(() => ctx.slots.inject(`sidebar.right.pane.tab`, () => ctx.slots.register({ name: `sidebar.right.pane.tab`, key: id, locale: namespace, inject: (sessionId) => ({ ...inject2(sessionId), hooks: { theme } }) }, LazyTerminalBody)), `ui-sidebar-terminal.body`);
++    ctx.effect(() => ctx.slots.inject(`sidebar.right.pane.tab`, () => ctx.slots.register({ name: `sidebar.right.pane.tab`, key: id, locale: namespace, inject: (sessionId) => ({ ...inject2(sessionId), hooks: { theme } }) }, SidebarTerminalBody)), `ui-sidebar-terminal.body`);
+     ctx.effect(() => ctx.slots.inject(`sidebar.right.pane.tab.title`, () => ctx.slots.register({ name: `sidebar.right.pane.tab.title`, key: id, locale: namespace, inject: inject2 }, TerminalTitle)), `ui-sidebar-terminal.title`);
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.terminal.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.terminal.js
 --- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.terminal.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-terminal/lib/client.terminal.js
-@@ -13154,5 +13154,4 @@
- 			*/
--			update(background, foreground) {
--				if (this.defaults.background === background && this.defaults.foreground === foreground) return;
--				this.defaults = {
-+			update(background, foreground, overrides = {}) {
-+                const next = {
- 					background,
-@@ -13163,5 +13162,8 @@
- 					selectionForeground: background,
--					selectionInactiveBackground: foreground
--				};
--				this.apply();
-+					selectionInactiveBackground: foreground,
-+                    ...overrides
-+                };
-+                if (JSON.stringify(this.defaults) === JSON.stringify(next)) return;
-+                this.defaults = next;
-+                this.apply();
- 			}
-@@ -13269,7 +13271,4 @@
- 		*/
--		function TerminalBody({ useTabInfo, useTerminal, useTheme, view, t }) {
--			const { tab } = useTabInfo();
--			const theme = useTheme((value) => value);
--			const model = view(tab.id);
--			const state = useTerminal(tab.id);
-+		function TerminalView({ model, visible, onNewTerminal, theme, appearance, t }) {
-+            const state = react.useSyncExternalStore(model.state.subscribe, model.state.getSnapshot);
- 			(0, react.useEffect)(() => model.mount(), [model]);
-@@ -13285,3 +13284,3 @@
- 				onClick: () => {
--					tab.actions.openTab("terminal", { replaceTab: true });
-+					onNewTerminal();
- 				},
-@@ -13292,2 +13291,7 @@
- 				"data-sidebar-terminal": true,
-+                "data-terminal-renderer": "dsh",
-+                style: {
-+                    "--dsw-alias-bg-base": appearance.theme?.background,
-+                    "--dsw-alias-label-primary": appearance.theme?.foreground
-+                },
- 				children: (0, react_jsx_runtime.jsxs)("div", {
-@@ -13338,2 +13342,7 @@
- 				"data-sidebar-terminal": true,
-+                "data-terminal-renderer": "dsh",
-+                style: {
-+                    "--dsw-alias-bg-base": appearance.theme?.background,
-+                    "--dsw-alias-label-primary": appearance.theme?.foreground
-+                },
- 				children: [
-@@ -13377,3 +13386,4 @@
- 						model,
--						visible: tab.visible,
-+						visible,
-+                        appearance,
- 						label: t("title"),
-@@ -13389,3 +13399,3 @@
- 		}
--		function TerminalScreen({ state, model, visible, label, theme }) {
-+		function TerminalScreen({ state, model, visible, label, theme, appearance }) {
- 			const element = (0, react.useRef)(null);
-@@ -13448,17 +13458,18 @@
- 			(0, react.useLayoutEffect)(() => {
--				const style = getComputedStyle(element.current);
--				colors.current.update(style.backgroundColor, style.color);
--			}, [theme, model]);
--			(0, react.useLayoutEffect)(() => {
--				const xterm = terminal.current;
--				if (xterm.options.fontFamily === fontFamily && xterm.options.fontSize === fontSize) return;
--				xterm.options.fontFamily = fontFamily;
--				xterm.options.fontSize = fontSize;
--				const { state: live, visible: shown } = current.current;
--				if (shown && live.writable && element.current.clientWidth && element.current.clientHeight) fitScreen(xterm, fit.current, live, model);
--			}, [
--				fontFamily,
--				fontSize,
--				model
--			]);
-+                const style = getComputedStyle(element.current);
-+                const xterm = terminal.current;
-+                xterm.options.fontFamily = fontFamily;
-+                xterm.options.fontSize = fontSize;
-+                xterm.options.lineHeight = appearance.lineHeight ?? 1;
-+                colors.current.update(style.backgroundColor, style.color, appearance.theme);
-+                let disposed = false;
-+                const measure = () => {
-+                    if (!disposed && current.current.visible && current.current.state.writable && element.current?.clientWidth && element.current.clientHeight) {
-+                        fitScreen(xterm, fit.current, current.current.state, model);
-+                    }
-+                };
-+                measure();
-+                void document.fonts?.ready.then(measure);
-+                return () => { disposed = true; };
-+            }, [theme, model, appearance, fontFamily, fontSize]);
- 			(0, react.useLayoutEffect)(() => {
-@@ -13515,3 +13526,3 @@
- 		//#endregion
--		exports.TerminalBody = TerminalBody;
-+		exports.TerminalView = TerminalView;
- 		return module.exports;
+@@ -11440,5 +11440,7 @@ ${s3.join(`
+     }
+-    update(background, foreground) {
+-      if (this.defaults.background === background && this.defaults.foreground === foreground) return;
+-      this.defaults = { background, foreground, cursor: foreground, cursorAccent: background, selectionBackground: foreground, selectionForeground: background, selectionInactiveBackground: foreground };
++    update(background, foreground, overrides = {}) {
++      const next = { background, foreground, cursor: foreground, cursorAccent: background,
++        selectionBackground: foreground, selectionForeground: background, selectionInactiveBackground: foreground, ...overrides };
++      if (JSON.stringify(this.defaults) === JSON.stringify(next)) return;
++      this.defaults = next;
+       this.apply();
+@@ -11517,7 +11519,8 @@ ${s3.join(`
+   }
+-  function TerminalBody({ useTabInfo, useTerminal, useTheme, view, t }) {
+-    const { tab } = useTabInfo();
+-    const theme = useTheme((value) => value);
+-    const model = view(tab.id);
+-    const state = useTerminal(tab.id);
++  function TerminalView({ model, visible, onNewTerminal, theme, appearance, t }) {
++    const state = react.useSyncExternalStore(model.state.subscribe, model.state.getSnapshot);
++    const style = {
++      "--dsw-alias-bg-base": appearance.theme?.background,
++      "--dsw-alias-label-primary": appearance.theme?.foreground
++    };
+     (0, react.useEffect)(() => model.mount(), [model]);
+@@ -11525,5 +11528,5 @@ ${s3.join(`
+     const newTerminal = (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, { variant: `primary`, size: state.issue === `missingTerminal` ? `md` : `sm`, icon: (0, react_jsx_runtime.jsx)(`span`, { className: terminal_module_css_default.actionIcon, "aria-hidden": `true`, children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutlineRegular, {}) }), onClick: () => {
+-      tab.actions.openTab(`terminal`, { replaceTab: true });
++      onNewTerminal();
+     }, children: t(`new`) });
+-    if (state.issue === `missingTerminal`) return (0, react_jsx_runtime.jsx)(`section`, { className: terminal_module_css_default.root, "data-sidebar-terminal": true, children: (0, react_jsx_runtime.jsxs)(`div`, { className: terminal_module_css_default.empty, children: [(0, react_jsx_runtime.jsxs)(`svg`, { width: `36`, height: `36`, viewBox: `0 0 28 28`, fill: `none`, "aria-hidden": `true`, children: [(0, react_jsx_runtime.jsx)(`rect`, { x: `3`, y: `5`, width: `22`, height: `19`, rx: `3`, fill: `#17191d` }), (0, react_jsx_runtime.jsx)(`path`, { d: `m8 10 4 4-4 4M15 18h5`, stroke: `#fff`, strokeWidth: `1.7`, strokeLinecap: `round`, strokeLinejoin: `round` })] }), (0, react_jsx_runtime.jsx)(`p`, { className: terminal_module_css_default.emptyMessage, role: `alert`, children: t(`missingTerminal`) }), newTerminal] }) });
++    if (state.issue === `missingTerminal`) return (0, react_jsx_runtime.jsx)(`section`, { className: terminal_module_css_default.root, "data-sidebar-terminal": true, "data-terminal-renderer": "dsh", style, children: (0, react_jsx_runtime.jsxs)(`div`, { className: terminal_module_css_default.empty, children: [(0, react_jsx_runtime.jsxs)(`svg`, { width: `36`, height: `36`, viewBox: `0 0 28 28`, fill: `none`, "aria-hidden": `true`, children: [(0, react_jsx_runtime.jsx)(`rect`, { x: `3`, y: `5`, width: `22`, height: `19`, rx: `3`, fill: `#17191d` }), (0, react_jsx_runtime.jsx)(`path`, { d: `m8 10 4 4-4 4M15 18h5`, stroke: `#fff`, strokeWidth: `1.7`, strokeLinecap: `round`, strokeLinejoin: `round` })] }), (0, react_jsx_runtime.jsx)(`p`, { className: terminal_module_css_default.emptyMessage, role: `alert`, children: t(`missingTerminal`) }), newTerminal] }) });
+     const error = state.phase === `disconnected` ? void 0 : state.issue === void 0 ? state.error ?? state.info?.error : t(state.issue);
+@@ -11538,3 +11541,3 @@ ${s3.join(`
+     const readOnly = state.phase === `connected` && state.info?.state === `running` && !state.writable;
+-    return (0, react_jsx_runtime.jsxs)(`section`, { className: terminal_module_css_default.root, "data-sidebar-terminal": true, children: [(status !== void 0 || retry || readOnly) && (0, react_jsx_runtime.jsxs)(`div`, { className: terminal_module_css_default.status, role: `status`, children: [status, readOnly && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [t(`readonly`), ` `, (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, { variant: `outline`, size: `sm`, onClick: () => {
++    return (0, react_jsx_runtime.jsxs)(`section`, { className: terminal_module_css_default.root, "data-sidebar-terminal": true, "data-terminal-renderer": "dsh", style, children: [(status !== void 0 || retry || readOnly) && (0, react_jsx_runtime.jsxs)(`div`, { className: terminal_module_css_default.status, role: `status`, children: [status, readOnly && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [t(`readonly`), ` `, (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, { variant: `outline`, size: `sm`, onClick: () => {
+       model.connect();
+@@ -11544,3 +11547,3 @@ ${s3.join(`
+       model.connect();
+-    }, children: t(`reconnect`) })), ended && newTerminal] }), state.info !== void 0 && (0, react_jsx_runtime.jsx)(TerminalScreen, { state, model, visible: tab.visible, label: t(`title`), theme }), error !== void 0 && (0, react_jsx_runtime.jsx)(`p`, { className: terminal_module_css_default.error, role: `alert`, children: t(`failed`, { message: error }) })] });
++    }, children: t(`reconnect`) })), ended && newTerminal] }), state.info !== void 0 && (0, react_jsx_runtime.jsx)(TerminalScreen, { state, model, visible, label: t(`title`), theme, appearance }), error !== void 0 && (0, react_jsx_runtime.jsx)(`p`, { className: terminal_module_css_default.error, role: `alert`, children: t(`failed`, { message: error }) })] });
+   }
+@@ -11549,3 +11552,3 @@ ${s3.join(`
+   const FOCUS_REPORTS = /* @__PURE__ */ new Set([`\x1B[I`, `\x1B[O`]);
+-  function TerminalScreen({ state, model, visible, label, theme }) {
++  function TerminalScreen({ state, model, visible, label, theme, appearance }) {
+     const element = (0, react.useRef)(null);
+@@ -11557,2 +11560,3 @@ ${s3.join(`
+     const fontSize = theme.fontSizes.terminal;
++    const lineHeight = appearance.lineHeight ?? 1;
+     const current = (0, react.useRef)({ state, visible, fontFamily, fontSize });
+@@ -11599,12 +11603,20 @@ ${s3.join(`
+       const style = getComputedStyle(element.current);
+-      colors.current.update(style.backgroundColor, style.color);
+-    }, [theme, model]);
++      colors.current.update(style.backgroundColor, style.color, appearance.theme);
++    }, [theme, model, appearance]);
+     (0, react.useLayoutEffect)(() => {
+       const xterm = terminal.current;
+-      if (xterm.options.fontFamily === fontFamily && xterm.options.fontSize === fontSize) return;
+       xterm.options.fontFamily = fontFamily;
+       xterm.options.fontSize = fontSize;
+-      const { state: live, visible: shown } = current.current;
+-      if (shown && live.writable && element.current.clientWidth && element.current.clientHeight) fitScreen(xterm, fit.current, live, model);
+-    }, [fontFamily, fontSize, model]);
++      xterm.options.lineHeight = lineHeight;
++      let disposed = false;
++      const measure = () => {
++        const { state: live, visible: shown } = current.current;
++        if (!disposed && shown && live.writable && element.current?.clientWidth && element.current.clientHeight) {
++          fitScreen(xterm, fit.current, live, model);
++        }
++      };
++      measure();
++      void document.fonts?.ready.then(measure);
++      return () => { disposed = true; };
++    }, [fontFamily, fontSize, lineHeight, model]);
+     (0, react.useLayoutEffect)(() => {
+@@ -11650,3 +11662,3 @@ ${s3.join(`
+   }
+-  exports.TerminalBody = TerminalBody;
++  exports.TerminalView = TerminalView;
+   return module.exports;

@@ -297,10 +297,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     initializationFailed = reject;
   });
   const ownedProviders = new Set(modelRuntimeProviderIds(config));
-  const configurationChanged = () => new LlmError(
-    "Model settings changed while resolving local capacity. Retry with the current settings.",
-    "LOCAL_MODEL_CONFIGURATION_CHANGED",
-  );
+  const configurationChanged = () => LlmError.fromFailure({
+    message: "Model settings changed while resolving local capacity. Retry with the current settings.",
+    code: "LOCAL_MODEL_CONFIGURATION_CHANGED",
+  });
   const capture: CaptureModelContext = async (request, captureNative) => {
     request.signal?.throwIfAborted();
     if (!ownedProviders.has(request.provider)) {
@@ -358,12 +358,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // ConfigEditor validates the owning entry before writing its Profile. Run
   // that candidate through the native adapter's serviceability checks too;
   // validation on the child alone would happen after persistence.
-  ctx.on("internal/config", function (this: Fiber, _raw, next) {
+  ctx.on("internal/config", (fiber, next) => {
     const raw = next();
-    if (this !== ctx.fiber) return raw;
+    if (fiber !== ctx.fiber) return raw;
     const candidate = Config(raw as Config);
-    const native = { providers: composeProviders(committedProviders, candidate) };
-    adapterFiber.ctx.waterfall(adapterFiber.ctx.fiber, "internal/config", native, () => native);
+    adapterFiber.resolveConfig({ providers: composeProviders(committedProviders, candidate) });
     return raw;
   });
   let disposed = false;

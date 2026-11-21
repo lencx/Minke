@@ -334,12 +334,12 @@ await Promise.all([
     platform: "browser",
     target: "chrome120",
     tsconfig: tsconfigPath,
-    // The browser needs only the official RemoteError value. Bundle its
-    // source leaf before Harness builds, without protocol's Host-only Cordis
-    // classes. Type imports and augmentations retain the public package face.
+    // Bundle RemoteError and its base directly from source. The protocol's
+    // full Host entry needs Cordis and generated output.
     alias: {
       "@deepseek-ai/dsh-typert-protocol":
         "@deepseek-ai/dsh-typert-protocol/src/remote-error.ts",
+      "@deepseek-ai/dsh-error": join(projectRoot, "vendor/deepseek-harness/packages/util/error/src/index.ts"),
     },
     // Consume the shell's existing components and CSS instead of bundling a
     // second copy of the native controls into the overlay.

@@ -61,6 +61,8 @@ function writeContract(projectRoot, commit, additions = {}) {
 
 function productPatch(additionalRows = []) {
   return [
+    "- id: web-fetch-http",
+    "  disabled: true",
     "- insert:",
     "    - id: minke-web-search",
     "      name: '@lencx/minke-harness-overlay/web-search'",
@@ -108,7 +110,7 @@ function fixture(options = {}) {
   write(
     harnessRoot,
     "apps/cli/src/profile-boot.ts",
-    "loadOverlayPatches(NAME, resolve(file))\n",
+    "overlayPaths: patchFiles.map(file => resolve(file))\n",
   );
   write(
     harnessRoot,
@@ -164,15 +166,15 @@ function fixture(options = {}) {
     harnessRoot,
     "packages/host/webserver/src/index.ts",
     options.structuredIndexPipeline === false
-      ? "return renderIndexInjections(this.applyIndexTaps(html), this.collectIndexInjections())\n"
-      : "return this.applyIndexTaps(renderIndexInjections(html, this.collectIndexInjections()))\n",
+      ? "return renderIndexInjections(this.applyIndexTaps(html), this.collectIndexInjections(peer))\n"
+      : "return this.applyIndexTaps(renderIndexInjections(html, this.collectIndexInjections(peer)))\n",
   );
   write(
     harnessRoot,
     "packages/host/frontend-static/src/index.ts",
     options.frontendRenderIndex === false
       ? "await readFile(distIndex, 'utf8')\n"
-      : "ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))\n",
+      : "ctx.webServer.renderIndex(html, pagePeer)\n",
   );
   write(
     harnessRoot,
@@ -218,7 +220,7 @@ function fixture(options = {}) {
       ...(options.bilingualDictionaryRegistration === false
         ? ["register<N extends keyof LocaleNamespaceMap"]
         : [
-            "register<N extends Extract<keyof LocaleNamespaceMap, string>>(ns: N, dicts: Record<BuiltInLocaleId, LocaleDictOf<N>>): () => void",
+            "dicts: Record<BuiltInLocaleId, LocaleDictOf<N>> & Record<LocaleId, LocaleDictOf<N>>",
           ]),
       "ctx.slots.installLocale(locale)",
       "getSnapshot(): LocaleSnapshot",
@@ -361,17 +363,13 @@ function fixture(options = {}) {
       "- insert:",
       "    - id: web",
       "      name: '@deepseek-ai/dsh-web'",
-      "      config:",
-      `        fetchProvider: ${
-        options.webFetchProviderSelection === false ? "other" : "http"
-      }`,
       "    - id: web-search-deepseek",
       "      name: '@deepseek-ai/dsh-web-search-deepseek'",
       ...(options.webFetchTopology === false
         ? []
         : [
-            "    - id: web-fetch-http",
-            "      name: '@deepseek-ai/dsh-web-fetch-http'",
+            "    - id: web-deepseek-api",
+            "      name: '@deepseek-ai/dsh-web-deepseek-api'",
           ]),
       ...(options.webSearchTopology === false
         ? []
@@ -389,31 +387,8 @@ function fixture(options = {}) {
   );
   write(
     harnessRoot,
-    "packages/web/web-fetch-http/src/network.ts",
-    [
-      ...(options.webFetchPublicAddress === false
-        ? []
-        : ["if (!isPublicIpAddress(entry.address)) {"]),
-      ...(options.webFetchNat64Address === false
-        ? []
-        : [
-            "if (translatedIpv4 !== undefined && !isPublicIpAddress(translatedIpv4)) {",
-          ]),
-      ...(options.webFetchConnectionPinning === false
-        ? []
-        : ["connect: { lookup: createPinnedLookup(addresses) }"]),
-      "",
-    ].join("\n"),
-  );
-  write(
-    harnessRoot,
-    "packages/web/web-fetch-http/src/provider.ts",
-    [
-      ...(options.webFetchSameOriginRedirect === false
-        ? []
-        : ["if (!isSameOrigin(validatedTarget, currentUrl)) {"]),
-      "",
-    ].join("\n"),
+    "packages/web/web-deepseek-api/src/index.ts",
+    options.webFetchRegistration === false ? "" : "ctx.web.registerFetchProvider({\n",
   );
   write(
     harnessRoot,
@@ -425,7 +400,7 @@ function fixture(options = {}) {
           `const configuredId = this.config.${capability}Provider.get() ?? this.${capability}ProviderEnv`,
         ]),
       ]),
-      "const result = await provider.search(request, signal)",
+      "const result = await this.selectSearchProvider(request.llmProvider).search(request, signal)",
       ...(options.webSearchRegistration === false
         ? []
         : ["registerSearchProvider(provider: WebSearchProvider)"]),
@@ -459,7 +434,7 @@ function fixture(options = {}) {
           ? "browser_search"
           : "web_search"
       }'`,
-      "const result = await runSearchQueries(ctx, queries, maxResults, exec.signal)",
+      "const result = await runSearchQueries(ctx, queries, maxResults, llmProvider, exec.signal)",
       "",
     ].join("\n"),
   );
@@ -839,15 +814,15 @@ test("the Harness contract requires the web_search plugin topology", async () =>
   );
 });
 
-test("the Harness contract requires the SSRF-safe web_fetch topology", async () => {
+test("the Harness contract requires the native DeepSeek Fetch API", async () => {
   for (const [options, expected] of [
     [
       { webFetchTopology: false },
-      /SSRF-safe provider required by Minke web_fetch/u,
+      /base bundle no longer mounts the DeepSeek Fetch API/u,
     ],
     [
-      { webFetchProviderSelection: false },
-      /web_fetch provider selection changed/u,
+      { webFetchRegistration: false },
+      /DeepSeek Fetch API registration changed/u,
     ],
     [
       { webFetchBaseEnabled: false },
@@ -898,26 +873,19 @@ test("the product bundle leaves Schedule rows to the native Web composition and 
   }
 });
 
-test("the Harness contract requires the SSRF-safe web_fetch transport", async () => {
-  for (const [options, expected] of [
+test("the product disables private-network fetch and preserves profile Web settings", async () => {
+  for (const [patch, expected] of [
     [
-      { webFetchPublicAddress: false },
-      /web_fetch public-address rejection seam changed/u,
+      productPatch().replace("- id: web-fetch-http\n  disabled: true", "- id: web-fetch-http\n  disabled: false"),
+      /must disable the local-network HTTP fetch provider/u,
     ],
     [
-      { webFetchConnectionPinning: false },
-      /web_fetch connection-pinning seam changed/u,
-    ],
-    [
-      { webFetchNat64Address: false },
-      /web_fetch NAT64 rejection seam changed/u,
-    ],
-    [
-      { webFetchSameOriginRedirect: false },
-      /web_fetch same-origin redirect seam changed/u,
+      `${productPatch()}- id: web\n  config:\n    fetchProvider: deepseek-fetch-api\n`,
+      /must leave Web provider settings to the staged base bundle and user profile/u,
     ],
   ]) {
-    const { projectRoot } = fixture(options);
+    const { projectRoot } = fixture();
+    write(projectRoot, "packages/harness-overlay/cordis.patch.yml", patch);
     await assert.rejects(
       verifyHarnessContract(projectRoot),
       expected,
@@ -948,7 +916,7 @@ test("the Harness contract requires bounded web tools in shipped Agent Presets",
 
   await assert.rejects(
     verifyHarnessContract(projectRoot),
-    /standard Agent Preset no longer exposes Minke's bounded web_search and SSRF-safe web_fetch tools/u,
+    /standard Agent Preset no longer exposes the bounded web_search and web_fetch tools/u,
   );
 
   const { projectRoot: disabledFetchRoot } = fixture({
@@ -956,7 +924,7 @@ test("the Harness contract requires bounded web tools in shipped Agent Presets",
   });
   await assert.rejects(
     verifyHarnessContract(disabledFetchRoot),
-    /standard Agent Preset no longer exposes Minke's bounded web_search and SSRF-safe web_fetch tools/u,
+    /standard Agent Preset no longer exposes the bounded web_search and web_fetch tools/u,
   );
 });
 

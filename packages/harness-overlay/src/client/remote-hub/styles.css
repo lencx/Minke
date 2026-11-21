@@ -1,22 +1,16 @@
 /* Root-scoped Remote Capability Hub, aligned with the incumbent Minke surface. */
 
 [data-minke-remote-hub-action] {
+  --minke-icon-button-size: 15px;
   position: relative;
   width: 28px;
   min-width: 28px !important;
   flex: none;
   justify-content: center;
-  padding: 0 !important;
   color: var(--dsw-alias-label-secondary);
   pointer-events: auto;
   -webkit-app-region: no-drag;
   app-region: no-drag;
-}
-
-[data-minke-remote-hub-action] > svg {
-  width: 15px;
-  height: 15px;
-  pointer-events: none;
 }
 
 [data-minke-remote-hub-indicator] {
@@ -142,7 +136,6 @@
   width: 28px;
   flex: none;
   justify-content: center;
-  padding: 0;
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -226,13 +219,14 @@
   line-height: 16px;
 }
 
-.minke-remote-hub__navigation-item {
+button.minke-remote-hub__navigation-item {
   display: grid;
   width: 100%;
   min-width: 0;
   min-height: 48px;
   grid-template-columns: 28px minmax(0, 1fr) 8px;
   align-items: center;
+  justify-content: start;
   gap: 9px;
   padding: 7px 9px;
   color: var(--dsw-alias-label-secondary);
@@ -921,7 +915,7 @@
     border-left: 1px solid var(--dsw-alias-border-l2);
   }
 
-  .minke-remote-hub__navigation-item {
+  button.minke-remote-hub__navigation-item {
     grid-template-columns: 24px minmax(0, 1fr) 7px;
     gap: 7px;
     min-height: 42px;

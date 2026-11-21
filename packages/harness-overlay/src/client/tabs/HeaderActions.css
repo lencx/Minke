@@ -99,19 +99,13 @@ header:has([data-minke-tabs-layout-actions])
 }
 
 [data-minke-tabs-header-action] {
+  --minke-icon-button-size: 15px;
   width: 28px;
   min-width: 28px !important;
   flex: none;
   justify-content: center;
   gap: 0 !important;
-  padding: 0 !important;
   color: var(--dsw-alias-label-secondary);
   -webkit-app-region: no-drag;
   app-region: no-drag;
-}
-
-[data-minke-tabs-header-action] > svg {
-  width: 15px;
-  height: 15px;
-  pointer-events: none;
 }

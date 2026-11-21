@@ -225,8 +225,8 @@ function hasNamedImport(ast, source, name) {
   );
 }
 
-function catalogAppLaunch(ast, path) {
-  // Harness dsh-v0.2.1-rc.3 / 1f81c047fc, packages/host/open-in-app/src/resolver.ts:
+function catalogAppLaunch(ast, path, source) {
+  // Pinned DSH Desktop packages/host/open-in-app/src/resolver.ts.
   // launchDetachedApp owns user-selected GUI launches and retains each catalog
   // adapter's visibility. Its pinned vendor source must remain pristine; forcing
   // windowsHide would change that behavior. Minke's staging policy owns this
@@ -269,7 +269,11 @@ function catalogAppLaunch(ast, path) {
     !["resolve", "reject"].every((name, index) => isIdentifier(executor.params[index], name)) ||
     executor.body.type !== "BlockStatement"
   ) return undefined;
-  const declaration = executor.body.body[0];
+  const [base, declaration] = executor.body.body;
+  const environment = source.slice(base?.start, base?.end).replace(/\s/gu, "").replaceAll("'", '"');
+  if (environment !== 'constbase=Object.fromEntries(Object.entries(scrubbedParentEnv()).filter(([name])=>name.toUpperCase()!=="ELECTRON_RUN_AS_NODE"));') {
+    return undefined;
+  }
   if (
     declaration?.type !== "VariableDeclaration" ||
     declaration.kind !== "const" ||
@@ -308,10 +312,7 @@ function catalogAppLaunch(ast, path) {
     env.type !== "ObjectExpression" ||
     env.properties.length !== 2 ||
     parentEnv.type !== "SpreadElement" ||
-    parentEnv.argument.type !== "CallExpression" ||
-    parentEnv.argument.optional ||
-    !isIdentifier(parentEnv.argument.callee, "scrubbedParentEnv") ||
-    parentEnv.argument.arguments.length !== 0 ||
+    !isIdentifier(parentEnv.argument, "base") ||
     explicitEnv.type !== "SpreadElement" ||
     !isOptionsMember(explicitEnv.argument, "env")
   ) return undefined;
@@ -319,7 +320,7 @@ function catalogAppLaunch(ast, path) {
 }
 
 function nativeCommandLaunch(ast, path) {
-  // Harness dsh-v0.2.1-rc.3 / 1f81c047fc, packages/util/native-command/src/runner.ts:
+  // Pinned DSH Desktop packages/util/native-command/src/runner.ts.
   // Explorer needs visible startup; background callers explicitly choose hidden.
   // Minke owns this exception for the pristine dependency. Re-evaluate it when
   // the upstream runner changes; other calls in these artifacts stay audited.
@@ -394,24 +395,27 @@ function runtimePath(runtimeRoot, path) {
 }
 
 async function libreOfficeBuildSources(firstPartyRoot) {
-  // libreoffice-kit 0.1.5 ships its engine rebuild sources alongside binaries
-  // for source redistribution. prebuilds.json identifies those build inputs;
-  // the converter executes lib/worker.js and bin/, not these source scripts.
-  // Keep the pinned dependency pristine. Minke's staging policy owns this
-  // exception and must re-evaluate it when the engine version changes.
-  // Only declared scripts below sources/engine and sources/scripts are omitted;
-  // runtime JS, undeclared sources, and all other versions remain audited.
+  // LibreOffice Kit ships build inputs alongside its runtime. Limit the
+  // exception to the pinned packages and their declared rebuild scripts.
   const sources = new Set();
   for (const entry of await readdir(firstPartyRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory() ||
-      !/^libreoffice-kit-(?:(?:darwin|win32)-(?:arm64|x64)|wasm)$/u.test(entry.name)) continue;
+    const engine = /^libreoffice-kit-(?:(?:darwin|win32)-(?:arm64|x64)|wasm)$/u.test(entry.name);
+    if (!entry.isDirectory() || (!engine && entry.name !== "libreoffice-kit")) continue;
     const packageRoot = join(firstPartyRoot, entry.name);
     const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
-    if (manifest.name !== `@deepseek-ai/${entry.name}` || manifest.version !== "0.1.5") continue;
+    if (manifest.name !== `@deepseek-ai/${entry.name}` || manifest.version !== "0.2.3") continue;
+    if (!engine) {
+      for (const file of ["build.mjs", "build-webgpu.mjs", "source-identity.mjs"]) {
+        const path = `frame-forwarding/scripts/${file}`;
+        if (manifest.files?.includes(path)) sources.add(join(packageRoot, path));
+      }
+      continue;
+    }
     const prebuilds = JSON.parse(await readFile(join(packageRoot, "prebuilds.json"), "utf8"));
     for (const path of prebuilds.source?.files ?? []) {
       if (typeof path === "string" &&
-        /^sources\/(?:engine|scripts)\/(?:[\w-]+\/)*[\w-]+\.mjs$/u.test(path)) {
+        (/^sources\/(?:engine|scripts)\/(?:[\w-]+\/)*[\w-]+\.mjs$/u.test(path) ||
+          path === "sources/packages/frame-forwarding/scripts/build-webgpu.mjs")) {
         sources.add(join(packageRoot, path));
       }
     }
@@ -860,7 +864,7 @@ export async function inspectHarnessRuntimeProcessPolicy(runtimeRoot) {
     const source = await readFile(path, "utf8");
     const ast = parseRuntimeJavaScript(source, runtimePath(runtimeRoot, path));
     const bindings = collectChildProcessBindings(ast);
-    const catalogLaunch = catalogAppLaunch(ast, runtimePath(runtimeRoot, path));
+    const catalogLaunch = catalogAppLaunch(ast, runtimePath(runtimeRoot, path), source);
     const nativeLaunch = nativeCommandLaunch(ast, runtimePath(runtimeRoot, path));
     const restricted = isRestrictedWindowsProcessPath(path)
       ? collectRestrictedLaunches(ast)

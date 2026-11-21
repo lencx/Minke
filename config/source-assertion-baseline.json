@@ -6,7 +6,7 @@
   "tests/embedded-node-permissions.test.mjs": 10,
   "tests/agent-browser-tabs.test.mjs": 17,
   "tests/github-actions-package.test.mjs": 48,
-  "tests/harness-overlay.test.mjs": 136,
+  "tests/harness-overlay.test.mjs": 132,
   "tests/harness-runtime-prune.test.mjs": 1,
   "tests/macos-tray.test.mjs": 6,
   "tests/macos-window-css.test.mjs": 85,

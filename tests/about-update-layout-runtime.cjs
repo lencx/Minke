@@ -35,14 +35,22 @@ function aboutBundle() {
   const source = `
     import React from "react";
     import { createRoot } from "react-dom/client";
+    import { __$dsh_client_module_manifest as primitives } from "@deepseek-ai/dsh-client-ui-primitives";
     import { AboutDialog } from "./packages/harness-overlay/src/client/about/view.tsx";
     import { en } from "./packages/harness-overlay/src/client/about/locales.ts";
+    import { installIconButtonStyles } from "./packages/harness-overlay/src/client/shared/icon-button.ts";
     import aboutStyles from "./packages/harness-overlay/src/client/about/styles.css";
     import sidebarStyles from "./vendor/deepseek-harness/packages/client/ui-sidebar/src/client/SidebarRoot.module.css";
 
     const style = document.createElement("style");
     style.textContent = aboutStyles;
     document.head.append(style);
+    installIconButtonStyles();
+
+    // Exercise the shipped Button styles arriving after Minke's overlay.
+    const nativeButtonStyle = document.createElement("style");
+    nativeButtonStyle.textContent = primitives.meta().stylesheets["src/Button.module.css"].text();
+    document.head.append(nativeButtonStyle);
 
     const t = (key, params) =>
       en[key].replace(/\\{(\\w+)\\}/gu, (match, name) =>
@@ -188,6 +196,9 @@ async function run() {
         <style>
           :root {
             --ds-font-family-code: ui-monospace;
+            --dsw-alias-label-primary: rgb(249, 250, 251);
+            --dsw-alias-label-secondary: rgb(207, 211, 214);
+            --dsw-alias-label-tertiary: rgb(173, 178, 184);
           }
           html, body, #fixture-layer, #root {
             width: 100%;
@@ -242,13 +253,18 @@ async function run() {
       const footer = await window.webContents.executeJavaScript(`
         (() => {
           document.documentElement.style.setProperty('--fixture-settings-height', '${height}px');
-          const about = document.querySelector('[data-minke-about-trigger]').getBoundingClientRect();
+          const trigger = document.querySelector('[data-minke-about-trigger]');
+          const about = trigger.getBoundingClientRect();
+          const icon = trigger.querySelector('svg').getBoundingClientRect();
           const settings = document.querySelector('#settings-button').getBoundingClientRect();
           const foot = document.querySelector('#sidebar-footer').getBoundingClientRect();
-          return { offset: about.y + about.height / 2 - settings.y - settings.height / 2,
+          return { icon: [icon.width, icon.height], color: getComputedStyle(trigger.querySelector('svg')).color,
+            offset: about.y + about.height / 2 - settings.y - settings.height / 2,
             separated: settings.right <= about.left, contained: about.right <= foot.right };
         })()
       `);
+      assert.deepEqual(footer.icon, [18, 18], 'native Button padding must leave room for the About icon');
+      assert.equal(footer.color, 'rgb(173, 178, 184)', 'About uses the tertiary label color at rest');
       assert.ok(Math.abs(footer.offset) <= 0.25, `About must stay centered beside a ${height}px Settings row`);
       assert.equal(footer.separated, true, 'About and Settings hit targets must not overlap');
       assert.equal(footer.contained, true, 'About stays inside the sidebar footer');

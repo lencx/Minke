@@ -8,10 +8,12 @@
   config:
     mode: DISABLED
 
+# The upstream HTTP provider now reaches the desktop's private network.
+- id: web-fetch-http
+  disabled: true
+
 - insert:
-    # This is an additional credential-free tool, not a provider override.
-    # Keep DSH's native web_search/web_fetch composition and provider selection
-    # intact, including its credentials, retry UI, and structured failures.
+    # The credential-free tool supplements DSH's native search and fetch.
     - id: minke-web-search
       name: '@lencx/minke-harness-overlay/web-search'
       disabled: !!js process.env.MINKE_WEB_SEARCH_FALLBACK_ENABLED === '0'

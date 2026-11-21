@@ -1,0 +1,12 @@
+/* DSH Button's inline padding reserves room for a text label. */
+button[data-minke-icon-button] {
+  padding-inline: 0;
+}
+
+button[data-minke-icon-button] > svg {
+  display: block;
+  flex: none;
+  width: var(--minke-icon-button-size, 18px);
+  height: var(--minke-icon-button-size, 18px);
+  pointer-events: none;
+}

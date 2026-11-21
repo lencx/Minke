@@ -50,6 +50,9 @@ test("product packages build before Harness has generated any protocol output", 
   for (const path of ["package.json", "src"]) {
     await cp(join(protocolSource, path), join(protocol, path), { recursive: true });
   }
+  const errorSource = "vendor/deepseek-harness/packages/util/error/src";
+  await mkdir(dirname(join(root, errorSource)), { recursive: true });
+  await cp(join(projectRoot, errorSource), join(root, errorSource), { recursive: true });
   await assert.rejects(access(join(protocol, "lib")), { code: "ENOENT" });
 
   const result = spawnSync(process.execPath, [buildScript], {

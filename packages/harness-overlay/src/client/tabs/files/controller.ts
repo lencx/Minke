@@ -16,6 +16,7 @@ import type {
   FileManagerPreviewResult,
   FileManagerViewStateUpdate,
 } from "@minke/harness-overlay/tabs/files-contract.ts";
+import { FileManagerPermissionError } from "@minke/harness-overlay/tabs/files-contract.ts";
 import {
   isAbsoluteLocalPath,
 } from "@minke/harness-overlay/tabs/web-link-contract.ts";
@@ -290,6 +291,30 @@ export class FilesTabsController {
     void this.#load(tabId, tab.payload.path, {
       type: "reload",
     });
+  }
+
+  get canChooseDirectory(): boolean {
+    return this.#desktop.chooseDirectory !== undefined;
+  }
+
+  async chooseDirectory(tabId: string): Promise<void> {
+    const initial = this.#tabs.tab(tabId);
+    if (this.#disposed || initial === undefined || !isFilesTab(initial)) return;
+    const revision = this.#revision.get(tabId);
+    try {
+      const path = await this.#desktop.chooseDirectory?.();
+      if (path !== undefined && !this.#disposed && this.#revision.get(tabId) === revision) {
+        this.navigate(tabId, path);
+      }
+    } catch (error) {
+      if (this.#disposed || this.#revision.get(tabId) !== revision) return;
+      const tab = this.#tabs.tab(tabId);
+      if (tab && isFilesTab(tab)) {
+        this.#tabs.update<FilesTabPayload>(tabId, {
+          payload: { ...tab.payload, error: errorMessage(error) },
+        });
+      }
+    }
   }
 
   setViewMode(tabId: string, viewMode: FilesViewMode): void {
@@ -1188,7 +1213,9 @@ export class FilesTabsController {
         payload: {
           ...current.payload,
           loading: false,
-          error: errorMessage(error),
+          error: error instanceof FileManagerPermissionError
+            ? { kind: "permission-denied" }
+            : errorMessage(error),
         },
       });
     }

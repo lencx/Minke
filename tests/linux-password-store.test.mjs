@@ -24,13 +24,17 @@ test("unknown desktops request the Secret Service backend", () => {
 });
 
 test("KDE sessions keep the Chromium KWallet default", () => {
-  assert.deepEqual(
-    resolveLinuxPasswordStore({
-      platform: "linux",
-      desktopEnvironment: "KDE",
-    }),
-    { store: undefined, reason: "kde-default" },
-  );
+  for (const desktop of [
+    { desktopEnvironment: "KDE" },
+    { desktopSession: "kde-plasma" },
+    { desktopSession: "kde", kdeSessionVersion: "6" },
+    { kdeFullSession: "true", kdeSessionVersion: "5" },
+  ]) {
+    assert.deepEqual(
+      resolveLinuxPasswordStore({ platform: "linux", ...desktop }),
+      { store: undefined, reason: "kde-default" },
+    );
+  }
 });
 
 test("non-Linux platforms never request a Linux backend", () => {
@@ -38,6 +42,7 @@ test("non-Linux platforms never request a Linux backend", () => {
     resolveLinuxPasswordStore({
       platform: "darwin",
       desktopEnvironment: "Hyprland",
+      explicitStore: "gnome-libsecret",
     }),
     { store: undefined, reason: "not-linux" },
   );
@@ -55,6 +60,13 @@ test("an explicit override wins over the detected desktop", () => {
   assert.deepEqual(
     resolveLinuxPasswordStore({
       platform: "linux",
+      explicitStore: "kwallet",
+    }),
+    { store: "kwallet", reason: "explicit-override" },
+  );
+  assert.deepEqual(
+    resolveLinuxPasswordStore({
+      platform: "linux",
       explicitStore: "not-a-store",
     }),
     { store: undefined, reason: "invalid-override" },
@@ -66,7 +78,8 @@ test("a backend already passed on the command line is preserved", () => {
     resolveLinuxPasswordStore({
       platform: "linux",
       desktopEnvironment: "Hyprland",
-      commandLine: ["Minke", "--password-store=kwallet5"],
+      explicitStore: "gnome-libsecret",
+      hasPasswordStoreSwitch: true,
     }),
     { store: undefined, reason: "command-line-override" },
   );
@@ -85,6 +98,9 @@ test("the resolved backend is applied as a Chromium command line switch", () => 
   const decision = applyLinuxPasswordStore(
     {
       commandLine: {
+        hasSwitch() {
+          return false;
+        },
         appendSwitch(name, value) {
           switches.push([name, value]);
         },
@@ -104,6 +120,9 @@ test("no switch is applied when Chromium already picks a backend", () => {
   applyLinuxPasswordStore(
     {
       commandLine: {
+        hasSwitch() {
+          return false;
+        },
         appendSwitch(name, value) {
           switches.push([name, value]);
         },
@@ -115,6 +134,23 @@ test("no switch is applied when Chromium already picks a backend", () => {
     },
   );
   assert.deepEqual(switches, []);
+});
+
+test("the application honors Electron's existing password-store switch", () => {
+  const decision = applyLinuxPasswordStore(
+    {
+      commandLine: {
+        hasSwitch(name) {
+          return name === "password-store";
+        },
+        appendSwitch() {
+          assert.fail("the existing switch must be preserved");
+        },
+      },
+    },
+    { platform: "linux", explicitStore: "gnome-libsecret" },
+  );
+  assert.equal(decision.reason, "command-line-override");
 });
 
 test("the override environment variable is named for the override", () => {

@@ -64,6 +64,7 @@ async function boot(source = patched, savedStates = new Map()) {
     },
   });
   ctx.provide("locale", { bind: () => key => key, register: () => () => {} });
+  ctx.provide("contextMenus", { register: () => () => {} });
   const panelInfo = store.createSnapshotStore({ activePanelId: null });
   const current = store.createSnapshotStore({ key: undefined });
   ctx.provide("layout", { openRightbar() {}, closeRightbar() {}, panelInfo });

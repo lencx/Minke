@@ -10,14 +10,10 @@ import {
 } from "react-dom/server";
 import {
   installMinkeSettings,
-  installMinkeSettingsNavigationLogo,
-  MINKE_SETTINGS_LOGO_DATA_URL,
-  MINKE_SETTINGS_STYLES,
   MinkeSettingsSection,
   MinkeSettingsRuntime,
   minkeSettingsEn,
   minkeSettingsZh,
-  reconcileMinkeSettingsNavigationLogo,
 } from "@minke/harness-overlay/client/minke-settings/index.ts";
 import {
   installRemote,
@@ -70,7 +66,7 @@ test("Minke Settings owns a sorted directory and one secondary tab", () => {
   runtime.dispose();
 });
 
-test("the installer exposes only one Minke section in DSH Settings", () => {
+test("the installer exposes one Minke Settings section and its native navigation icon", () => {
   const runtime = new MinkeSettingsRuntime();
   const registrations = [];
   const cleanups = [];
@@ -112,12 +108,20 @@ test("the installer exposes only one Minke section in DSH Settings", () => {
         name: "settings.section",
         id: "minke-settings",
       },
+      {
+        name: "settings.section.icon",
+        id: "minke-settings",
+      },
     ],
   );
   assert.equal(
     registrations[0].options.inject().runtime,
     runtime,
   );
+  const icon = renderToStaticMarkup(createElement(registrations[1].component, { size: 16 }));
+  assert.match(icon, /<svg[^>]*width="16"[^>]*height="16"[^>]*viewBox="0 0 832 832"[^>]*aria-hidden="true"/u);
+  assert.match(icon, /<mask id="[^"]+">/u);
+  assert.match(icon, /<rect[^>]*rx="182\.8125"[^>]*fill="currentColor"[^>]*mask="url\(#[^"]+\)"/u);
 
   for (const cleanup of cleanups.reverse()) cleanup();
 });
@@ -164,96 +168,6 @@ test("remote access is configured only through Connections", () => {
     effectLabels.join("\n"),
     /Minke Settings/u,
   );
-});
-
-test("the Minke Settings row uses an adaptive SVG logo", () => {
-  const marker = "data-minke-settings-navigation-logo";
-  const variable = "--minke-settings-navigation-logo";
-  const createButton = (label) => {
-    const attributes = new Set();
-    const declarations = new Map();
-    return {
-      attributes,
-      style: {
-        getPropertyPriority: () => "",
-        getPropertyValue: (name) => declarations.get(name) ?? "",
-        removeProperty: (name) => declarations.delete(name),
-        setProperty: (name, value) => declarations.set(name, value),
-      },
-      querySelector: () => ({ textContent: label }),
-      toggleAttribute(name, enabled) {
-        if (enabled) attributes.add(name);
-        else attributes.delete(name);
-      },
-    };
-  };
-  const general = createButton("General");
-  const minke = createButton("Minke");
-  let reconcile;
-  const root = {
-    defaultView: {
-      MutationObserver: class {
-        disconnect() {}
-        observe() {}
-      },
-      requestAnimationFrame(callback) {
-        reconcile = callback;
-        return 1;
-      },
-      cancelAnimationFrame() {},
-    },
-    documentElement: {},
-    querySelectorAll: () => [general, minke],
-  };
-
-  reconcileMinkeSettingsNavigationLogo(root, "Minke");
-  assert.equal(general.attributes.has(marker), false);
-  assert.equal(minke.attributes.has(marker), true);
-
-  const dispose = installMinkeSettingsNavigationLogo(
-    () => "Minke",
-    root,
-  );
-  assert.equal(typeof reconcile, "function");
-  reconcile();
-  assert.equal(general.style.getPropertyValue(variable), "");
-  assert.equal(
-    minke.style.getPropertyValue(variable),
-    `url("${MINKE_SETTINGS_LOGO_DATA_URL}")`,
-  );
-
-  const svg = decodeURIComponent(
-    MINKE_SETTINGS_LOGO_DATA_URL.slice(
-      MINKE_SETTINGS_LOGO_DATA_URL.indexOf(",") + 1,
-    ),
-  );
-  assert.match(
-    svg,
-    /<svg[^>]*viewBox="0 0 832 832"/u,
-  );
-  assert.match(
-    svg,
-    /<rect width="832" height="832" rx="182\.8125"/u,
-  );
-  assert.match(svg, /<mask id="minke-logo-cutout">/u);
-  assert.match(svg, /<path fill="black"/u);
-  assert.doesNotMatch(svg, /#0e1324|#fdfdfd/u);
-  assert.match(
-    MINKE_SETTINGS_STYLES,
-    /\[data-minke-settings-navigation-logo\]::before/u,
-  );
-  assert.match(
-    MINKE_SETTINGS_STYLES,
-    /background:\s*currentColor/u,
-  );
-  assert.match(
-    MINKE_SETTINGS_STYLES,
-    /mask:[\s\S]*var\(--minke-settings-navigation-logo\)/u,
-  );
-
-  dispose();
-  assert.equal(minke.style.getPropertyValue(variable), "");
-  assert.equal(minke.attributes.has(marker), false);
 });
 
 test("the unified DSH section renders accessible labeled tabs", () => {

@@ -207,6 +207,7 @@ export interface DesktopFilesPort {
   list(
     request: FileManagerListRequest,
   ): Promise<FileManagerListResult>;
+  chooseDirectory?(): Promise<string | undefined>;
   preview(
     request: FileManagerPreviewRequest,
   ): Promise<FileManagerPreviewResult>;

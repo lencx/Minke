@@ -27,6 +27,8 @@ export const filesTabsZh = {
   "files.empty.body": "这里暂时没有文件或文件夹。",
   "files.error.title": "无法打开此位置",
   "files.error.retry": "重试",
+  "files.error.permissionDenied": "系统拒绝读取此文件夹。获得访问权限后可以重试。",
+  "files.error.chooseFolder": "选择其他文件夹",
   "files.limit":
     "此文件夹项目过多，仅显示前 2,000 项。",
   "files.preview.label": "文件预览",
@@ -103,6 +105,8 @@ export const filesTabsEn: Record<
   "files.empty.body": "There are no files or folders here yet.",
   "files.error.title": "This location could not be opened",
   "files.error.retry": "Try again",
+  "files.error.permissionDenied": "The system denied access to this folder. Try again after granting access.",
+  "files.error.chooseFolder": "Choose another folder",
   "files.limit":
     "This folder has many items. Only the first 2,000 are shown.",
   "files.preview.label": "File preview",

@@ -8,7 +8,7 @@ The host composition mounts the separate `@lencx/minke-model-runtime/dsh` adapte
 
 - `model-runtime` is a DSH plugin that owns local model discovery and optional service lifecycle for exactly two product runtimes: LM Studio and Ollama. LM Studio uses `lms server status --json` / `lms server start` and enriches its OpenAI-compatible catalog with LM Studio's v1 loaded-instance metadata. Before dispatch, it verifies that the selected instance has the configured context window. Selecting an unloaded model explicitly authorizes Minke to load that model with the configured context, even when LM Studio was started externally; Minke still never unloads or reconfigures an existing external instance. If Minke started the service itself, it may also reload an undersized default model instance while preserving its supported load parameters. Ollama uses its OpenAI-compatible `/v1/models` endpoint and starts through `ollama serve`. A generic `openAICompatible` adapter remains available for manually configured loopback servers; it does not gain command discovery or process management.
 
-Product subagents follow the Profile Bundle contract in the pinned `dsh-v0.2.1-rc.3` runtime and are not embedded in Minke's base runtime. Install and enable Codex or Claude Code in **Plugins → Official**, using the version offered by the running DSH release. CLI installation into the `web` Profile is also available:
+Product subagents follow the pinned DSH Profile Bundle contract. Install and enable Codex or Claude Code in **Plugins → Official**, using the version offered by the running DSH release. The `web` Profile also supports CLI installation.
 
 - Codex: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-codex`
 - Claude Code: `dsh plugin --profile web add @deepseek-ai/dsh-subagent-claude-code`
@@ -18,9 +18,9 @@ Follow any restart prompt after installation or update. Enabled bundles contribu
 The model runtime executes CLIs through `ctx.subprocess`, resolves credential references through `ctx.credentials`, and mounts the upstream `@deepseek-ai/dsh-llm-pi-ai` plugin before discovering local services in parallel. Cloud routes remain available during local startup and auto-start updates. Discovered provider metadata is only the composition base layer; it is never serialized to `settings.yaml`, and user model settings continue to override it. Secrets are resolved for discovery but never copied into provider profiles.
 
 The independent `@lencx/minke-harness-overlay/web-search` Host entry registers
-the credential-free `minke_web_search` model tool. It does not register a
-`ctx.web` provider or replace DSH's native `web_search` and `web_fetch`; upstream
-provider selection, credentials, retries, and error reporting remain intact.
+the credential-free `minke_web_search` model tool. DSH selects the native
+`web_search` provider by model route. Minke configures `web_fetch` to use the
+DeepSeek Fetch API and disables the local HTTP provider.
 The persisted `webSearch.fallbackEnabled` compatibility setting defaults to
 `true`; Harness startup maps it to the product-owned
 `MINKE_WEB_SEARCH_FALLBACK_ENABLED` launch flag and uses it only to enable or
@@ -116,19 +116,20 @@ Both placements use DSH General font preferences and share Minke's line spacing 
 DSH owns PTYs, input/output, reconnects and explicit close. Minke retains only
 the bottom layout and its Session-bound tab identities, with independent window
 holds so one placement cannot release the other's shells.
-Creating a Minke tab replaces Start in the same pane and strip slot; keyboard
-creation shortcuts continue to use the same controllers. The earlier
+Creating a Minke tab replaces Start in the same pane and strip slot. Reopening
+an existing tab focuses it and leaves Start available, following DSH. Keyboard
+creation shortcuts use the same controllers. The earlier
 `minke.launcher` address redirects to the native Start page.
 The native add-tab button opens DSH's Start page in the clicked pane. Its public
 `sidebar.right.tab.guide.entry` cards create Minke content in that Start tab's
 place, even when focus moves to another pane. The private add-menu slot, picker
 adapter and direct pane-creation override are retired. The bottom panel retains
 its own creation menu.
-The Start page follows `dsh-v0.2.1-rc.3`'s compass and descriptive native cards,
-with the Minke card list below them. Native descriptions appear for up to four
-entries and remain owned by the registering plugin's locale.
-Start fills at least the pane's available height and uses the native pane's
-scroller. Cards shrink within narrow panes so their text cannot widen the page.
+The Start page shows DSH's compass, native cards and More tools above Minke's
+creation cards. Native descriptions appear for up to four entries and remain
+owned by the registering plugin's locale.
+Start fills the pane's available height and uses its own DSH scroller. Cards
+shrink within narrow panes so their text cannot widen the page.
 The docked native Sidebar reserves the bottom panel's current height, including
 while resizing it, so its content scrolls above that panel. Fullscreen retains
 the entire window, and closing the bottom panel restores the docked Sidebar's height.
@@ -161,11 +162,10 @@ The palette action follows the service's lifetime and also works in the Web clie
 DSH owns preflight, concurrent request deduplication and error state; the former
 Minke export IPC and token protocol are retired. Electron only customizes the
 native save dialog, reports download failures and reveals the completed ZIP.
-The staged
-`session-export-feedback.patch` keeps the shared Header and `/export` modal
-closed during preparation and successful handoff, while preserving failure
-details and dismissal. Minke's Remote
-and panel controls follow DSH's 28px circular buttons and 15px icons. Their icons
+The DSH export modal reports preparation, handoff, and failures. The header
+menu also offers the native Copy session as Markdown action.
+
+Minke's Remote and panel controls follow DSH's 28px circular buttons and 15px icons. Their icons
 share DSH's unrotated outer contour and border weight; Remote status colors its
 wireless symbol inside the frame. On macOS,
 the native Sidebar's empty tab-strip area also supports window dragging while

@@ -1,18 +1,18 @@
 diff --git a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
 --- a/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
 +++ b/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js
-@@ -450,2 +450,3 @@
+@@ -853,2 +853,3 @@ var Entry = class Entry {
  	async _init() {
 +		this.failure = void 0;
  		let moduleNamespace;
-@@ -454,2 +455,3 @@
+@@ -857,2 +858,3 @@ var Entry = class Entry {
  		} catch (error) {
 +			this.failure = error;
- 			this.ctx.logger.error(error);
+ 			this._reportImport(error);
 diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js
-@@ -1014,4 +1014,12 @@
+@@ -8685,4 +8685,12 @@ function resolveBundleDir(binName, packageName, installAnchor, profileDir) {
  */
 +function readMinkePluginPolicy(environment = process.env) {
 +	const safeMode = environment.MINKE_PLUGIN_SAFE_MODE;
@@ -26,7 +26,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/
 +	const pluginPolicy = readMinkePluginPolicy();
 +	const bundles = (manifest.dsh?.profile?.bundles ?? []).filter(packageName => !externalBundles.has(packageName) || !pluginPolicy.safeMode);
  	const layers = [];
-@@ -4270,2 +4278,4 @@
+@@ -11966,2 +11974,4 @@ const FIBER_DISPOSED = 4;
  const requiredStartupEntryIds = new Set([
 +	"minke-overlay",
 +	"llm-pi-ai",
@@ -34,8 +34,10 @@ diff --git a/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js b/node_modules/
 diff --git a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-host-plugin-inventory/lib/index.js
-@@ -131,3 +131,3 @@
- 			enabled: !entry.disabled,
--			fiberPhase: entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state],
-+			fiberPhase: entry.failure === void 0 ? entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state] : "failed",
- 			...meta === void 0 ? {} : { meta }
+@@ -128,4 +128,4 @@ async function readPluginInventory(ctx) {
+ 		const fiber = entry.fiber;
+-		const fiberPhase = fiber === void 0 ? null : FIBER_PHASE[fiber.state];
+-		let diagnostic;
++		const fiberPhase = entry.failure !== void 0 ? "failed" : fiber === void 0 ? null : FIBER_PHASE[fiber.state];
++		let diagnostic = entry.failure instanceof Error ? entry.failure.message : entry.failure === void 0 ? void 0 : String(entry.failure);
+ 		if (fiber !== void 0 && fiberPhase === "failed") try {

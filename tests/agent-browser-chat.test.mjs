@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Context } from "@vendor/deepseek-harness/vendor/cordis/src/index.ts";
+import { createSnapshotStore } from "@vendor/deepseek-harness/packages/client/store/src/index.ts";
 import { ConversationController } from "@vendor/deepseek-harness/packages/client/ui-conversation/src/client/service.ts";
 import { SessionInputShell } from "@vendor/deepseek-harness/packages/client/ui-conversation/src/client/input/facade.ts";
 import { InputTriggerService } from "@vendor/deepseek-harness/packages/client/ui-input-trigger/src/client/service.ts";
@@ -33,7 +34,7 @@ function fixture(t, { draft = "Keep my question" } = {}) {
   const service = new ConversationController(scope, {
     input: { for: () => input },
     blocks: {},
-    maxConcurrentFileUploads: 2,
+    maxConcurrentFileUploads: createSnapshotStore(2),
   });
   const triggers = new InputTriggerService(scope);
   const register = triggers.registerSource.bind(triggers);

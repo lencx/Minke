@@ -230,7 +230,7 @@ test("legacy disabled bundles migrate into DSH and stay installed through native
   assert.deepEqual(migrated.dependencies, { extra: "1.0.0" });
   assert.equal(migrated.description, manifest.description);
   const profile = { name: "web", dir, patchPath: join(dir, "cordis.patch.yml"), installAnchor: anchor, cwd: home, home,
-    startedBundles: ["core"], overlays: [], telemetryDisabledEnv: undefined };
+    startedBundles: ["core"], overlayPaths: [], telemetryDisabledEnv: undefined };
   const ctx = await boot("dsh", join(dir, "cordis.yml"), readProfilePatches("dsh", profile), ctx => {
     ctx.provide("appReady", { onReady: listener => { listener(); return () => {}; } });
     ctx.provide("profileContext", profile);

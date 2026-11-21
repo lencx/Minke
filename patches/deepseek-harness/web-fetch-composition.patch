@@ -1,0 +1,12 @@
+diff --git a/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml b/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml
+--- a/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml
++++ b/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml
+@@ -499,7 +499,7 @@
+     - id: web
+       name: '@deepseek-ai/dsh-web'
+       config:
+-        fetchProvider: http
++        fetchProvider: deepseek-fetch-api
+
+     - id: web-search-deepseek
+       name: '@deepseek-ai/dsh-web-search-deepseek'

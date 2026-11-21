@@ -1,8 +1,20 @@
 # DSH 升级说明
 
-当前源码使用 [`dsh-v0.2.1-rc.3`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-rc.3)。已安装应用的内置版本以该应用的发布说明为准。
+当前源码使用 DSH `0.2.2-rc.5`，固定在[官方主分支同步提交 `2e39e70`](https://github.com/deepseek-ai/deepseek-harness/commit/2e39e70496aa02986ca6a820c5d497e816b69d7e)。已安装应用的内置版本以该应用的发布说明为准。
 
-## 本次同步
+## 升级至 0.2.2-rc.5
+
+- **会话导出**使用 DSH 原生进度与失败提示。会话菜单可复制 Markdown 或下载 ZIP，桌面应用为 ZIP 提供原生保存对话框。
+- **桌面侧栏**使用 DSH 原生 Start 页滚动和 macOS 全屏标签栏留白，避开系统窗口按钮。
+- **网页搜索与获取**使用 DSH 的按模型搜索路由。Minke 的独立免密钥搜索继续可用。`web_fetch` 默认使用 DeepSeek Fetch API，需要 DeepSeek 账号或 API Key。新版 DSH 的本地 HTTP 提供方支持访问内网，Minke 已停用该提供方。曾手动选择 HTTP 提供方的用户可在“网页搜索与获取”中切换到 DeepSeek Fetch API。
+- **远程预览**沿用 DSH Web 登录。请在打开 IM 中的 HTML 预览链接前，先在同一浏览器和地址登录 Minke。
+- **插件设置**从插件页面进入。依赖旧 `settings.plugins.tab` 的自定义插件需迁移到 `settings.section` 或插件配置插槽。
+- **Minke 设置**通过 DSH 的 `settings.section.icon` 插槽显示导航图标。
+- **PTC**使用上游 Node 运行时。自定义 Profile 如仍配置 `@deepseek-ai/dsh-experimental-ptc-runtime-python`，请迁移到 `@deepseek-ai/dsh-ptc-runtime-node`。
+
+[上游升级指南](https://github.com/deepseek-ai/deepseek-harness/tree/2e39e70496aa02986ca6a820c5d497e816b69d7e/docs/upgrade-guide)
+
+## 0.2.1-rc.3 已同步功能
 
 - 左侧导航、会话视图和右侧栏 Start 页增加“更多”菜单，可浏览插件或用 Creator 准备插件创建草稿；已有文字、引用和附件会保留，草稿由用户审阅后发送。
 - 新会话恢复复用工作区中的空白会话，保留未发送草稿；指定预设时只复用兼容的空白会话。
@@ -34,7 +46,7 @@
 
 ## 侧栏与远程文件
 
-右侧标签栏的“＋”使用 DSH 原生 Start 页。工作区文件、终端和 Minke 卡片集中在该页，选择卡片后在当前分栏创建标签并替换 Start。分栏中的其他标签、浏览器状态和文件草稿继续保留；底栏仍使用原有的新建菜单。
+右侧标签栏的“＋”使用 DSH 原生 Start 页。工作区文件、终端和 Minke 卡片集中在该页。新建标签会在当前分栏替换 Start。选择已打开的内容时，DSH 聚焦现有标签，Start 仍可继续使用。分栏中的其他标签、浏览器状态和文件草稿继续保留；底栏仍使用原有的新建菜单。
 
 远程 Files 已接入 DSH 标准 API，共享现有登录、请求校验和取消流程。升级后若远程页面仍在运行旧版，请刷新页面再使用文件功能。
 
@@ -154,4 +166,4 @@ Data Home 的实际位置可在 Settings → Minke → Storage 中查看。保�
 
 **插件启动与恢复**：`agent/session-start` 被串行、异步的 `agent/created` 替代。可选插件启动失败不会阻止其他插件工作，必要插件失败仍会停止启动；热更新激活失败不再自动回滚全部修改。安全模式和 DSH 原生禁用操作均保留安装，修正配置后可以恢复启用。
 
-[本次上游变更](https://github.com/deepseek-ai/deepseek-harness/compare/dsh-v0.2.1-rc.2...dsh-v0.2.1-rc.3)
+[0.2.1-rc.3 上游变更](https://github.com/deepseek-ai/deepseek-harness/compare/dsh-v0.2.1-rc.2...dsh-v0.2.1-rc.3)

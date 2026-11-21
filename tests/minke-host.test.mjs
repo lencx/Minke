@@ -54,7 +54,7 @@ import { Context } from "../vendor/deepseek-harness/vendor/cordis/lib/index.js";
 import { TypertRegistry } from "../vendor/deepseek-harness/packages/typert/registry/lib/index.js";
 import { TypertGatewayService } from "../vendor/deepseek-harness/packages/api/gateway/lib/index.js";
 import { RemoteAccessService } from "../vendor/deepseek-harness/packages/api/remote-access/lib/index.js";
-import { HostConnectionService } from "../vendor/deepseek-harness/packages/client/connection/lib/index.js";
+import * as Connection from "../vendor/deepseek-harness/packages/client/connection/lib/index.js";
 
 async function workspaceApi(t) {
   const root = new Context();
@@ -66,9 +66,7 @@ async function workspaceApi(t) {
     return fiber;
   };
   await mount(TypertRegistry);
-  await mount({ apply(ctx) {
-    new HostConnectionService(ctx, [], { isAuthenticated: () => true });
-  } });
+  await mount(Connection);
   await mount(RemoteAccessService);
   await mount(TypertGatewayService, {});
   const transport = root.connection.createSharedFetchHandler("/api");
@@ -1629,6 +1627,7 @@ test("Remote preview snapshots HTML behind a durable capability route", async (t
       },
     });
   const firstRuntime = createRuntime();
+  assert.equal(routes[0].auth, "required");
   const first = await firstRuntime.publish({
     operationId: "minke-im-agent-reply:operation-1",
     paths: [join(root, "demo.html")],

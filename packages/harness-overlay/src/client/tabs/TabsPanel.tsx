@@ -131,9 +131,10 @@ export function TabsPanel({
     runtime.getSnapshot,
   );
   useSyncExternalStore(native?.subscribe ?? ignorePresentationChanges, native?.getSnapshot ?? (() => 0), () => 0);
-  // A hidden Session seat (for example on Plugins) does not relinquish DSH's
-  // Sidebar ownership. Keep content alive without reviving the legacy shell.
-  const snapshot = native?.connected ? { ...contentSnapshot, visible: false } : contentSnapshot;
+  // DSH keeps Sidebar ownership even on pages without a visible Session seat.
+  // The content portal survives while the legacy shell is out of the tree.
+  const usesNativeSidebar = native?.connected === true;
+  const snapshot = usesNativeSidebar ? { ...contentSnapshot, visible: false } : contentSnapshot;
   useSyncExternalStore(
     renderers.subscribe,
     renderers.getSnapshot,
@@ -201,7 +202,7 @@ export function TabsPanel({
     if (snapshot.visible) runtime.syncPanel();
   }, [runtime, sessionId, snapshot.visible]);
 
-  const panelRendered = hasTabs || snapshot.visible;
+  const panelRendered = !usesNativeSidebar && (hasTabs || snapshot.visible);
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -393,7 +394,7 @@ export function TabsPanel({
     }
   };
 
-  if (!panelRendered) return null;
+  if (!panelRendered && !native) return null;
 
   const releaseResize = (
     event: ReactPointerEvent<HTMLDivElement>,
@@ -406,6 +407,7 @@ export function TabsPanel({
 
   return (
     <FilesDocumentContext.Provider value={{ documents, sessionId }}>
+    {panelRendered && <>
     {drawer && (
       <button
         type="button"
@@ -507,6 +509,7 @@ export function TabsPanel({
         <button
           type="button"
           className="minke-tabs-panel__close"
+          data-minke-icon-button
           aria-label={hidePanelLabel}
           title={hidePanelLabel}
           onClick={() => {
@@ -681,6 +684,7 @@ export function TabsPanel({
                   <button
                     type="button"
                     className="minke-tab__close"
+                    data-minke-icon-button
                     aria-label={t("tab.close", {
                       title: tab.title,
                     })}
@@ -710,6 +714,7 @@ export function TabsPanel({
               size="sm"
               type="button"
               className="minke-tabs-toolbar__button"
+              data-minke-icon-button
               aria-label={t("tab.new")}
               aria-haspopup="menu"
               aria-expanded={choosingType}
@@ -807,8 +812,9 @@ export function TabsPanel({
         })}
       </div>
     </aside>
+    </>}
     {native && <NativeTabsContent runtime={runtime} native={native} renderers={renderers} t={t} />}
-    <TabsCreateMenu
+    {panelRendered && <TabsCreateMenu
       anchor={newTabButton}
       context={{ cwd }}
       focusBoundary={drawer ? panelRef.current : undefined}
@@ -826,7 +832,7 @@ export function TabsPanel({
       shortcutBinding={(optionId) =>
         createShortcuts.binding(placement, optionId)}
       shortcutPlatform={createShortcuts.platform}
-    />
+    />}
     </FilesDocumentContext.Provider>
   );
 }

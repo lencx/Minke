@@ -5,6 +5,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { HarnessError, ToolCallId } from "@deepseek-ai/dsh-llm";
 import SystemPrompt from "@vendor/deepseek-harness/packages/core/system-prompt/lib/index.js";
 import ToolRuntime from "@vendor/deepseek-harness/packages/core/tools/lib/index.js";
+import { executeToolFixture } from "@vendor/deepseek-harness/packages/test-support/tool-testkit/lib/index.js";
 import {
   AGENT_BROWSER_PROCESS_CHANNEL,
   AGENT_BROWSER_PROTOCOL_VERSION,
@@ -1218,7 +1219,7 @@ test("invalidated evidence does not deduplicate a query against the prior page",
   }
 });
 
-test("browser no-progress guards conclude through the real ToolRuntime", async () => {
+test("browser no-progress guards conclude through the native tool pipeline", async () => {
   const ctx = new Context();
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
@@ -1235,7 +1236,7 @@ test("browser no-progress guards conclude through the real ToolRuntime", async (
   const rootCallId = ToolCallId("browser-root-call");
 
   try {
-    const first = ctx.tools.execute({
+    const first = executeToolFixture(ctx, {
       callId: ToolCallId("browser-find-1"),
       rootCallId,
       name: "browser_find",
@@ -1243,7 +1244,7 @@ test("browser no-progress guards conclude through the real ToolRuntime", async (
       signal,
       agent,
     });
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
     const request = port.sent.at(-1);
     port.emit(
       "message",
@@ -1274,7 +1275,7 @@ test("browser no-progress guards conclude through the real ToolRuntime", async (
     assert.equal(firstResult.isError, false);
 
     const sentBeforeRepeat = port.sent.length;
-    const repeated = await ctx.tools.execute({
+    const repeated = await executeToolFixture(ctx, {
       callId: ToolCallId("browser-find-2"),
       rootCallId,
       name: "browser_find",
@@ -1296,7 +1297,7 @@ test("browser no-progress guards conclude through the real ToolRuntime", async (
   }
 });
 
-test("real ToolRuntime terminates cross-operation browser ping-pong", async () => {
+test("the native tool pipeline terminates cross-operation browser ping-pong", async () => {
   const ctx = new Context();
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
@@ -1310,7 +1311,7 @@ test("real ToolRuntime terminates cross-operation browser ping-pong", async () =
   let callIndex = 0;
   const runFailure = async (url) => {
     callIndex += 1;
-    const pending = ctx.tools.execute({
+    const pending = executeToolFixture(ctx, {
       callId: ToolCallId(
         `browser-navigate-${String(callIndex)}`,
       ),
@@ -1323,7 +1324,7 @@ test("real ToolRuntime terminates cross-operation browser ping-pong", async () =
       signal,
       agent,
     });
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
     const request = port.sent.at(-1);
     port.emit(
       "message",
@@ -1355,7 +1356,7 @@ test("real ToolRuntime terminates cross-operation browser ping-pong", async () =
     );
 
     const sentBeforeHaltedCall = port.sent.length;
-    const halted = await ctx.tools.execute({
+    const halted = await executeToolFixture(ctx, {
       callId: ToolCallId("browser-navigate-after-stop"),
       rootCallId,
       name: "browser_navigate",
@@ -1523,7 +1524,7 @@ test("an unchanged redundant snapshot concludes without replaying page content",
     indexTruncated: false,
   };
   const executeSnapshot = async (callId) => {
-    const pending = ctx.tools.execute({
+    const pending = executeToolFixture(ctx, {
       callId: ToolCallId(callId),
       rootCallId,
       name: "browser_snapshot",
@@ -1531,7 +1532,7 @@ test("an unchanged redundant snapshot concludes without replaying page content",
       signal,
       agent,
     });
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
     const request = port.sent.at(-1);
     port.emit(
       "message",

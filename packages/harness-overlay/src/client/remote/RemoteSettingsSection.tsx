@@ -687,6 +687,7 @@ function LoadedRemoteSettings({
                   <Button size="sm"
                     type="button"
                     className="minke-remote__help-trigger"
+                    data-minke-icon-button
                     aria-label={t("baseDomainHelpLabel")}
                     aria-describedby={baseDomainHintId}
                     onFocus={() => {

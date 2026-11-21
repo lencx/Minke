@@ -47,7 +47,7 @@ async function fixture(t, options = {}) {
     shell: { openPath: async path => { calls.opened.push(path); return options.openError ?? ""; }, openExternal: async path => calls.opened.push(path) },
   });
   const makeRuntime = () => new AppUpdateRuntime({ target, autoDownload: options.autoDownload ?? true, currentVersion: "0.8.0", userDataPath: root,
-    window: () => undefined, text: key => key, changed: state => calls.states.push(state) });
+    window: () => undefined, text: key => key, changed: state => { calls.states.push(state); options.changed?.(state); } });
   const runtimes = [];
   const create = () => { const runtime = makeRuntime(); runtimes.push(runtime); return runtime; };
   t.after(async () => { for (const runtime of runtimes) runtime.dispose(); await rm(root, { recursive: true, force: true }); });
@@ -147,11 +147,18 @@ test("automatic failure backs off, resume shares the deadline, disposal removes 
 
 
 test("standard presentation reports checking, progress and verification while an OS installer remains an available update", async t => {
-  const f = await fixture(t);
+  let progressAction;
+  const f = await fixture(t, { changed(state) {
+    if (state.phase === "downloading" && state.percent > 0) progressAction = runtime.open();
+  } });
   const runtime = f.create();
   assert.deepEqual(runtime.status(), { phase: "idle" });
   await runtime.open();
   await ready(f, 1);
+  assert.ok(progressAction);
+  await progressAction;
+  assert.equal(f.calls.fetches, 1);
+  assert.equal(f.calls.downloads, 1);
   assert.deepEqual(f.calls.states, [
     { phase: "checking" },
     { phase: "available", version: "9.0.0" },

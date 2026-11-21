@@ -1,7 +1,23 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js b/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
 --- a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js
-@@ -722,2 +722,9 @@
+@@ -360,3 +360,5 @@ var HostConnectionService = class extends Service {
+ 	fetchRoutes = /* @__PURE__ */ new Map();
+-	allowsRemoteAuthorities;
++	get allowsRemoteAuthorities() {
++		return this.trustedHosts.some(isRemoteAuthority);
++	}
+ 	/**
+@@ -368,3 +370,3 @@ var HostConnectionService = class extends Service {
+ 		super(ctx, "connection");
+-		this.trustedHosts = trustedHosts;
++		this.trustedHosts = [...trustedHosts];
+ 		this.owner = ctx;
+@@ -376,3 +378,2 @@ var HostConnectionService = class extends Service {
+ 		}, "client-connection: Peer scopes");
+-		this.allowsRemoteAuthorities = trustedHosts.some(isRemoteAuthority);
+ 		ctx.on("webserver/authorize", (request, policy) => {
+@@ -397,2 +398,9 @@ var HostConnectionService = class extends Service {
  	}
 +	/** Atomically replace the deployment authorities used by live routes. */
 +	replaceTrustedHosts(trustedHosts) {
@@ -11,8 +27,3 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js b/node
 +		);
 +	}
  	/** Generic channel registry scoped to the Context reading this service. */
-@@ -1028,3 +1035,3 @@
- 	const recovery = resolveConnectionConfig(config?.recovery);
--	const trustedHosts = config?.trustedHosts ?? [];
-+	const trustedHosts = [...(config?.trustedHosts ?? [])];
- 	const cookieMaxAgeDays = config?.cookieMaxAgeDays ?? 30;

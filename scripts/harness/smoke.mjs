@@ -910,6 +910,13 @@ async function main() {
       entry.moduleName === "@lencx/minke-model-runtime/dsh" && entry.fiberPhase === "active")) {
       throw new Error("the product composition did not activate Minke's local model runtime");
     }
+    const fetchProviders = inventory.webProviders?.fetch?.map(provider => provider.id);
+    if (fetchProviders?.length !== 1 || fetchProviders[0] !== "deepseek-fetch-api") {
+      throw new Error(`unexpected web fetch providers: ${JSON.stringify(fetchProviders)}`);
+    }
+    if (inventory.webSettings?.fetchProvider !== "deepseek-fetch-api") {
+      throw new Error("the staged web settings did not select DeepSeek Fetch API by default");
+    }
     const manifest = await fetchManifest(server);
     await waitForModelProvider(server, "minke-smoke-imported");
     if (await readFile(join(harnessHome, "settings.yaml.imported"), "utf8") !== legacyModelSettings) {

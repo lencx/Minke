@@ -29,11 +29,12 @@ import {
   parseTabsLayoutStateUpdate,
 } from "@minke/harness-overlay/tabs/contract.ts";
 import {
+  FileManagerPermissionError,
+  parseDesktopFileManagerListResult,
   parseFileManagerChangeEvent,
   parseFileManagerDiffRequest,
   parseFileManagerDiffResult,
   parseFileManagerListRequest,
-  parseFileManagerListResult,
   parseFileManagerPreviewRequest,
   parseFileManagerPreviewResult,
   parseFileManagerViewState,
@@ -266,6 +267,7 @@ export function desktopFilesPort(
     window as unknown as DesktopBridgeWindow,
 ): DesktopFilesPort {
   const bridge = source.minkeDesktop?.files;
+  const directoryPicker = source.__DSH_DIRECTORY_PICKER__;
   if (bridge === undefined) {
     return {
       available: false,
@@ -306,12 +308,19 @@ export function desktopFilesPort(
       );
     },
     async list(request) {
-      return parseFileManagerListResult(
+      const result = parseDesktopFileManagerListResult(
         await bridge.list(
           parseFileManagerListRequest(request),
         ),
       );
+      if ("kind" in result) throw new FileManagerPermissionError();
+      return result;
     },
+    ...(directoryPicker === undefined ? {} : {
+      async chooseDirectory() {
+        return (await directoryPicker.pick()) ?? undefined;
+      },
+    }),
     async preview(request) {
       return parseFileManagerPreviewResult(
         await bridge.preview(

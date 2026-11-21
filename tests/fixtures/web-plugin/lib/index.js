@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export const inject = ["agents", "connection", "typertGateway", "sessionTelemetry", "terminalController", "officeToPdf", "pluginInventory", "pluginManager", "webServer", "settings", "llm"];
+export const inject = ["agents", "connection", "typertGateway", "sessionTelemetry", "terminalController", "officeKit", "pluginInventory", "pluginManager", "webServer", "settings", "llm", "web"];
 
 async function probeTerminal(ctx) {
   const cwd = await mkdtemp(join(tmpdir(), "minke-terminal-smoke-"));
@@ -158,7 +158,7 @@ export function apply(ctx) {
       }
       const fixture = new URL("../document-conversion.docx", import.meta.url);
       const info = await stat(fixture);
-      const result = await ctx.officeToPdf.convert({
+      const result = await ctx.officeKit.convert({
         extension: "docx",
         priority: "foreground",
         source: {
@@ -194,7 +194,8 @@ export function apply(ctx) {
         "cache-control": "no-store",
       });
       const inventory = await ctx.pluginInventory.list();
-      response.end(JSON.stringify(inventory));
+      const webSettings = ctx.settings.describe({ redactSecrets: true }).find(row => row.ns === "web")?.value;
+      response.end(JSON.stringify({ ...inventory, webProviders: ctx.web.listProviders(), webSettings }));
     },
   });
 }

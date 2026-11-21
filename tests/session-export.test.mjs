@@ -165,7 +165,7 @@ test("failed native preflight exposes shared error state without a desktop downl
   palette.runtime.invoke("session.export");
   await waitFor(() => controller.store.getSnapshot().bySession.unavailable?.status === "error");
   assert.deepEqual(controller.store.getSnapshot().bySession.unavailable, {
-    open: true, status: "error", error: "Export failed: HTTP 503 backend unavailable",
+    order: 0, open: true, status: "error", error: "Export failed: HTTP 503 backend unavailable",
   });
   assert.deepEqual(desktop.downloads, []);
   assert.deepEqual(desktop.reported, [], "the native client owns preflight error UI");

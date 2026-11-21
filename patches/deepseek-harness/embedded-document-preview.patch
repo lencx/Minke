@@ -1,62 +1,62 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
 --- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js
-@@ -7203,2 +7203,54 @@
- 		*/
-+        // Minke owns drafts; DSH owns rendering, resource reads and HTML isolation.
-+        function registerMinkeDocumentPreview(ctx) {
-+            const markdownT = ctx.locale.bind("documentMarkdown");
-+            const htmlT = ctx.locale.bind("documentHtml");
-+            const subscribe = listener => ctx.locale.subscribe(listener);
-+            const getSnapshot = () => ctx.locale.getSnapshot();
-+            const preview = ctx.configForms.developerTools.enabled;
-+            const readRelated = (address, relativePath, signal) => {
-+                const file = hostFileOf(address);
-+                return ctx.remote.workspaceFiles.readBytes(file.sessionId, relativePath, { baseFile: file.path }, signal);
-+            };
-+            function useResource(address) {
-+                const source = react.useMemo(() => ctx.resources.source(address), [address]);
-+                return react.useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
-+            }
-+            function useInteractivePreview(selector) {
-+                return selector(react.useSyncExternalStore(preview.subscribe, preview.getSnapshot, preview.getSnapshot));
-+            }
-+            function Body({ kind, text, resourceAddress }) {
-+                react.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-+                const [signal, setSignal] = react.useState();
-+                const [dependencies, updateDependencies] = react.useState([]);
-+                const [revision, setRevision] = react.useState(0);
-+                const addResource = react.useCallback(address => updateDependencies(current => current.includes(address) ? current : [...current, address]), []);
-+                const setResources = react.useCallback(addresses => updateDependencies(current => current.length === addresses.length && current.every((value, index) => value === addresses[index]) ? current : addresses), []);
-+                react.useEffect(() => {
-+                    const lifetime = new AbortController();
-+                    setSignal(lifetime.signal);
-+                    return () => lifetime.abort();
-+                }, [resourceAddress]);
-+                react.useEffect(() => {
-+                    const disposers = dependencies.map(address => {
-+                        const source = ctx.resources.source(address);
-+                        let previous = source.getSnapshot();
-+                        return source.subscribe(() => {
-+                            const next = source.getSnapshot();
-+                            if (previous.status === "live" && next.value?.version !== previous.value?.version) setRevision(value => value + 1);
-+                            previous = next;
-+                        });
-+                    });
-+                    return () => disposers.forEach(dispose => dispose());
-+                }, [dependencies]);
-+                const content = react.useMemo(() => kind === "markdown"
-+                    ? { kind: "text", text, eof: true, pages: [{ offset: 1, text, lines: text.split("\n").length }] }
-+                    : { kind: "bytes", data: new TextEncoder().encode(text) }, [kind, text, revision]);
-+                const useTabInfo = react.useMemo(() => () => ({ tab: { id: resourceAddress, signal } }), [resourceAddress, signal]);
-+                if (kind === "markdown") return react_jsx_runtime.jsx(MarkdownBody, { content, resourceAddress, useResource, t: markdownT });
-+                if (!signal) return null;
-+                return react_jsx_runtime.jsx(HtmlBody, { content, resourceAddress, readRelated, useTabInfo, useInteractivePreview, addResource, setResources, t: htmlT });
-+            }
-+            ctx.effect(() => ctx.reflect.provide("minkeDocumentPreview", { Body }));
-+        }
- 		function apply(ctx) {
-@@ -7261,2 +7313,3 @@
- 			apply$3(ctx);
-+			registerMinkeDocumentPreview(ctx);
- 		}
+@@ -2812,2 +2812,54 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
+   const inject = [`slots`, `locale`, `sidebarRightTabs`, `remote`, `remote.workspaceFiles`, `configForms`, `resources`, `fileDrag`];
++  // Minke owns drafts; DSH owns rendering, resource reads and HTML isolation.
++  function registerMinkeDocumentPreview(ctx) {
++      const markdownT = ctx.locale.bind("documentMarkdown");
++      const htmlT = ctx.locale.bind("documentHtml");
++      const subscribe = listener => ctx.locale.subscribe(listener);
++      const getSnapshot = () => ctx.locale.getSnapshot();
++      const preview = ctx.configForms.developerTools.enabled;
++      const readRelated = (address, relativePath, signal) => {
++          const file = hostFileOf(address);
++          return ctx.remote.workspaceFiles.readBytes(file.sessionId, relativePath, { baseFile: file.path }, signal);
++      };
++      function useResource(address) {
++          const source = react.useMemo(() => ctx.resources.source(address), [address]);
++          return react.useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
++      }
++      function useInteractivePreview(selector) {
++          return selector(react.useSyncExternalStore(preview.subscribe, preview.getSnapshot, preview.getSnapshot));
++      }
++      function Body({ kind, text, resourceAddress }) {
++          react.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
++          const [signal, setSignal] = react.useState();
++          const [dependencies, updateDependencies] = react.useState([]);
++          const [revision, setRevision] = react.useState(0);
++          const addResource = react.useCallback(address => updateDependencies(current => current.includes(address) ? current : [...current, address]), []);
++          const setResources = react.useCallback(addresses => updateDependencies(current => current.length === addresses.length && current.every((value, index) => value === addresses[index]) ? current : addresses), []);
++          react.useEffect(() => {
++              const lifetime = new AbortController();
++              setSignal(lifetime.signal);
++              return () => lifetime.abort();
++          }, [resourceAddress]);
++          react.useEffect(() => {
++              const disposers = dependencies.map(address => {
++                  const source = ctx.resources.source(address);
++                  let previous = source.getSnapshot();
++                  return source.subscribe(() => {
++                      const next = source.getSnapshot();
++                      if (previous.status === "live" && next.value?.version !== previous.value?.version) setRevision(value => value + 1);
++                      previous = next;
++                  });
++              });
++              return () => disposers.forEach(dispose => dispose());
++          }, [dependencies]);
++          const content = react.useMemo(() => kind === "markdown"
++              ? { kind: "text", text, eof: true, pages: [{ offset: 1, text, lines: text.split("\n").length }] }
++              : { kind: "bytes", data: new TextEncoder().encode(text) }, [kind, text, revision]);
++          const useTabInfo = react.useMemo(() => () => ({ tab: { id: resourceAddress, signal } }), [resourceAddress, signal]);
++          if (kind === "markdown") return react_jsx_runtime.jsx(MarkdownBody, { content, resourceAddress, useResource, t: markdownT });
++          if (!signal) return null;
++          return react_jsx_runtime.jsx(HtmlBody, { content, resourceAddress, readRelated, useTabInfo, useInteractivePreview, addResource, setResources, t: htmlT });
++      }
++      ctx.effect(() => ctx.reflect.provide("minkeDocumentPreview", { Body }));
++  }
+   function apply(ctx, config) {
+@@ -2831,2 +2883,3 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
+     apply$3(ctx);
++    registerMinkeDocumentPreview(ctx);
+   }

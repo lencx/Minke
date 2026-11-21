@@ -20,10 +20,3 @@ export type {
   MinkeSettingsPageIcon,
   MinkeSettingsSnapshot,
 } from "./runtime.ts";
-export {
-  installMinkeSettingsNavigationLogo,
-  installMinkeSettingsStyles,
-  MINKE_SETTINGS_LOGO_DATA_URL,
-  MINKE_SETTINGS_STYLES,
-  reconcileMinkeSettingsNavigationLogo,
-} from "./styles.ts";

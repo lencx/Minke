@@ -5,6 +5,7 @@ import type {
   FileManagerDiffResult,
   FileManagerEntry,
   FileManagerExplorerPosition,
+  FileManagerPermissionDenied,
   FileManagerPreviewResult,
   FileManagerRepository,
   FileManagerViewMode,
@@ -56,7 +57,7 @@ export interface FilesTabPayload {
   readonly repository?: FileManagerRepository;
   readonly preview?: FilesPreviewState;
   readonly previewWidth?: number;
-  readonly error?: string;
+  readonly error?: string | FileManagerPermissionDenied;
 }
 
 export type FilesTab = ManagedTab<FilesTabPayload>;

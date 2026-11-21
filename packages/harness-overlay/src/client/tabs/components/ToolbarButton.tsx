@@ -16,6 +16,7 @@ export function ToolbarButton(props: ToolbarButtonProps): ReactNode {
       size="sm"
       type="button"
       className="minke-tabs-toolbar__button"
+      data-minke-icon-button
       aria-label={props.label}
       aria-pressed={props.pressed}
       data-active-tone={props.activeTone}

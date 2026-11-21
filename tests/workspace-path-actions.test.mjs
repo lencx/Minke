@@ -16,6 +16,39 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; return { promise: new Promise(r => { resolve = r; }), resolve }; };
 const t = key => filesTabsEn[key];
 
+test("a desktop directory permission denial offers a native folder picker and recovers in the same Files tab", async t => {
+  const tabs = new TabsRuntime({ showPanel() {}, hidePanel() {} });
+  const requested = [];
+  let selected = null;
+  const desktop = desktopFilesPort({
+    __DSH_DIRECTORY_PICKER__: { async pick() { return selected; } },
+    minkeDesktop: { files: {
+      async list({ path }) {
+        requested.push(path);
+        if (path === "/workspace/protected") return { kind: "permission-denied" };
+        return { path, entries: [], truncated: false };
+      },
+    } },
+  });
+  const files = new FilesTabsController(tabs, desktop);
+  t.after(() => { files.dispose(); tabs.dispose(); });
+  const renderer = createFilesTabRenderer(files, {}, key => filesTabsEn[key]);
+  const id = files.create("/workspace/protected", "Files");
+  await settle();
+  const markup = () => renderToStaticMarkup(renderer.renderView(tabs.tab(id), true));
+  assert.match(markup(), /The system denied access to this folder/);
+  assert.match(markup(), /Choose another folder/);
+  await files.chooseDirectory(id);
+  assert.deepEqual(requested, ["/workspace/protected"]);
+  assert.match(markup(), /Choose another folder/);
+  selected = "/workspace/readable";
+  await files.chooseDirectory(id);
+  await settle();
+  assert.deepEqual(requested, ["/workspace/protected", "/workspace/readable"]);
+  assert.equal(tabs.tab(id).payload.path, "/workspace/readable");
+  assert.equal(tabs.tab(id).payload.error, undefined);
+});
+
 test("Files uses remote.session in either data transport and follows Host capability", async () => {
   const paths = new HostWorkspacePaths();
   const permission = deferred();

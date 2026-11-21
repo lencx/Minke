@@ -14,7 +14,6 @@
 
 <p align="center">
   <a href="https://github.com/lencx/Minke/releases"><img src="https://img.shields.io/github/downloads/lencx/Minke/total.svg?style=flat" alt="Minke downloads"></a>
-  <a href="https://discord.gg/XMX5BEX8K"><img src="https://img.shields.io/badge/Minke-discord-blue?style=flat&logo=discord&logoColor=f2f0ea" alt="Minke Discord"></a>
   <a href="https://x.com/lencx_"><img src="https://img.shields.io/twitter/url?url=https%3A%2F%2Fx.com%2Flencx_" alt="Follow @lencx_ on X"></a>
   <a href="https://www.buymeacoffee.com/lencx"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" height="20"></a>
 </p>
@@ -190,7 +189,7 @@ Replace the example path with the downloaded package path.
 
 Build Minke on the same operating system and CPU architecture as the package you need. The build produces distributables for the current host under `out/make`; this project does not support cross-platform packaging from a single host.
 
-The current source uses **DSH v0.2.1-rc.3**. The source commit and applied patches are recorded in the [runtime configuration](./config/harness-runtime.json); see the [DSH upgrade notes (Chinese)](./docs/dsh-upgrade.md) for changes and migration details.
+The current source uses **DSH v0.2.2-rc.5**. The source commit and applied patches are recorded in the [runtime configuration](./config/harness-runtime.json). See the [DSH upgrade notes (Chinese)](./docs/dsh-upgrade.md) for changes and migration details.
 
 On macOS and Linux, Minke reads the login shell's environment once at startup so tools, model services, and plugin commands can use its PATH and proxy settings. Each shell attempt has a 10-second deadline; failures fall back to another system shell, then to the inherited environment. `MINKE_LOGIN_SHELL_TIMEOUT_MS` sets this deadline in milliseconds. Minke keeps the selected Data Home and its own runtime settings.
 

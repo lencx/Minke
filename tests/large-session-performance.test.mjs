@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
-import {
-  mkdir,
-  mkdtemp,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
-import { pathToFileURL } from "node:url";
+import * as React from "react";
+import * as jsx from "react/jsx-runtime";
+import { JSDOM } from "../vendor/deepseek-harness/node_modules/jsdom/lib/api.js";
+import { paginate, validateHistoryWindow } from "../vendor/deepseek-harness/packages/api/session-controller/lib/types/history.js";
 import {
   applyHarnessRuntimePatches,
   resolveHarnessRuntimePatches,
@@ -16,85 +14,142 @@ import {
 } from "../scripts/harness/runtime-patches.mjs";
 
 const projectRoot = resolve(import.meta.dirname, "..");
+const upstream = join(projectRoot, "vendor/deepseek-harness/packages");
 const performancePatch =
   "patches/deepseek-harness/large-session-performance.patch";
-// Keep the generated-bundle line anchor exercised by the runtime patch.
-const chatFixturePrefixLines = 4226;
+const sessionTarget =
+  "node_modules/@deepseek-ai/dsh-api-session-controller/lib/client.js";
+const chatTarget =
+  "node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js";
 
-const sessionFixture = `/** Minimum message count for ordinary history windows. */
-export const PAGE_MESSAGES = 50;
-const HISTORY_PAGE_OPTIONS = { maxMessages: 500, turnWindow: { minMessages: PAGE_MESSAGES, minTurns: 2 } };
-/** Minimum messages per page while a turn jump loops backwards. */
-export const JUMP_PAGE_MESSAGES = 200;
-export function initialHistoryOptions() { return HISTORY_PAGE_OPTIONS; }
-`;
-
-const chatFixture = `const react_jsx_runtime = {
-  jsx(type, props) { return { type, props }; },
-};
-const GroupMembers = Symbol("GroupMembers");
-const ChatGroupSeat_module_css_default = { content: "content" };
-export function renderGroupBody(grouped, open, props = {}, members = []) {
-			return (0, react_jsx_runtime.jsx)("div", {
-				children: [(0, react_jsx_runtime.jsx)("div", {
-					children: (0, react_jsx_runtime.jsx)("div", {
-						ref: null,
-						className: ChatGroupSeat_module_css_default.content,
-						"data-step-process-content": true,
-						"data-chat-flow": "",
-						children: (0, react_jsx_runtime.jsx)(GroupMembers, {
-							...props,
-							members
-						})
-					})
-				})]
-			});
-}
-`;
-
-async function withPatchedRuntime(callback) {
-  const runtimeRoot = await mkdtemp(join(tmpdir(), "minke-large-session-"));
-  const sessionPath = join(
-    runtimeRoot,
-    "node_modules/@deepseek-ai/dsh-api-session-controller/lib/types/client/sessions/session.js",
-  );
-  const chatPath = join(
-    runtimeRoot,
-    "node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js",
-  );
-  try {
-    await mkdir(dirname(sessionPath), { recursive: true });
-    await mkdir(dirname(chatPath), { recursive: true });
-    await writeFile(join(runtimeRoot, "package.json"), '{"type":"module"}\n');
-    await writeFile(sessionPath, sessionFixture);
-    await writeFile(chatPath, `${"\n".repeat(chatFixturePrefixLines)}${chatFixture}`);
-    const patches = await resolveHarnessRuntimePatches(
-      projectRoot,
-      [performancePatch],
-    );
-    await applyHarnessRuntimePatches(runtimeRoot, patches);
-    await verifyHarnessRuntimePatchesApplied(runtimeRoot, patches);
-    await callback({ chatPath, sessionPath });
-  } finally {
-    await rm(runtimeRoot, { recursive: true, force: true });
-  }
+async function copyTarget(runtimeRoot, source, target) {
+  const path = join(runtimeRoot, target);
+  await mkdir(dirname(path), { recursive: true });
+  await copyFile(join(upstream, source), path);
+  return path;
 }
 
-test("large sessions open with a bounded history window", async () => {
-  await withPatchedRuntime(async ({ sessionPath }) => {
-    const session = await import(pathToFileURL(sessionPath));
-    assert.equal(session.initialHistoryOptions().maxMessages, 100);
-  });
+const runtimeRoot = await mkdtemp(join(tmpdir(), "minke-large-session-"));
+let sessionBundle;
+let chatBundle;
+try {
+  const [sessionPath, chatPath] = await Promise.all([
+    copyTarget(runtimeRoot, "api/session-controller/lib/client.js", sessionTarget),
+    copyTarget(runtimeRoot, "client/ui-chat/lib/client.js", chatTarget),
+  ]);
+  const patches = await resolveHarnessRuntimePatches(projectRoot, [performancePatch]);
+  await applyHarnessRuntimePatches(runtimeRoot, patches);
+  await verifyHarnessRuntimePatchesApplied(runtimeRoot, patches);
+  [sessionBundle, chatBundle] = await Promise.all([
+    readFile(sessionPath, "utf8"),
+    readFile(chatPath, "utf8"),
+  ]);
+} finally {
+  await rm(runtimeRoot, { recursive: true, force: true });
+}
+
+test("ordinary history stays bounded while turn jumps retain a valid request", () => {
+  const declaration = sessionBundle.match(
+    /^  const HISTORY_PAGE_OPTIONS = .+\n  const JUMP_PAGE_MESSAGES = .+\n  const JUMP_PAGE_OPTIONS = .+/mu,
+  )?.[0];
+  assert.ok(declaration, "the session bundle declares both history windows");
+  const { history, jump } = new Function(`
+    ${declaration}
+    return { history: HISTORY_PAGE_OPTIONS, jump: JUMP_PAGE_OPTIONS };
+  `)();
+
+  assert.deepEqual(history, { maxMessages: 100, turnWindow: { minMessages: 50, minTurns: 2 } });
+  assert.deepEqual(jump, { maxMessages: 500, turnWindow: { minMessages: 200, minTurns: 2 } });
+  assert.doesNotThrow(() => validateHistoryWindow(history));
+  assert.doesNotThrow(() => validateHistoryWindow(jump));
+  const journal = [
+    { type: "turn/start", seq: 0 },
+    ...Array.from({ length: 600 }, (_, index) => ({
+      type: "assistant/message",
+      seq: index + 1,
+      surfaceOp: "append",
+    })),
+    { type: "turn/end", seq: 601 },
+  ];
+  const initial = paginate(journal, undefined, history.maxMessages, 601, history.turnWindow);
+  assert.equal(initial.events[0].seq, 501);
+  assert.equal(initial.hasMore, true);
+  const older = paginate(journal, initial.events[0].seq, history.maxMessages, 601, history.turnWindow);
+  assert.equal(older.events.length, 100);
+  assert.equal(older.events.at(-1).seq, 500);
 });
 
-test("collapsed process groups defer their member rows", async () => {
-  await withPatchedRuntime(async ({ chatPath }) => {
-    const chat = await import(pathToFileURL(chatPath));
-    const members = (grouped, open) =>
-      chat.renderGroupBody(grouped, open)
-        .props.children[0].props.children.props.children;
-    assert.equal(members(true, false), null);
-    assert.notEqual(members(true, true), null);
-    assert.notEqual(members(false, false), null);
-  });
+test("collapsed process groups defer members until first expansion and retain them afterward", async () => {
+  const declaration = chatBundle.match(/^  const ChatGroupSeat = [\s\S]+?^  \}\);/mu)?.[0];
+  assert.ok(declaration, "the chat bundle contains the process group component");
+  const bindings = {
+    react: React,
+    react_jsx_runtime: jsx,
+    ChatGroupSeat_module_css_default: { content: "content" },
+    useDisclosure() {
+      const [expanded, setExpanded] = React.useState(false);
+      return { expanded, setExpanded };
+    },
+    useProcessScroll: () => ({ edges: {}, events: {}, initialize() {} }),
+    ProcessGroupHeader: ({ open, toggle }) => jsx.jsx("button", {
+      "aria-expanded": open,
+      onClick: toggle,
+    }),
+    GroupMembers: () => jsx.jsx("input", { defaultValue: "original" }),
+  };
+  const ChatGroupSeat = new Function(
+    ...Object.keys(bindings),
+    `${declaration}\nreturn ChatGroupSeat;`,
+  )(...Object.values(bindings));
+  const group = { members: [{ key: "node-1" }], data: { turn: 1, closed: true } };
+  const props = {
+    groupKey: "group-1",
+    useChatGroup: (_key, select) => select(group),
+    usePresentation: select => select({ stepGrouping: "collapsed", foldCompletedTurns: false }),
+    useChatNodeBottom: () => false,
+    useChatNodeProcess: () => undefined,
+    useChatNode: () => undefined,
+    useStore: () => false,
+    useGroupAction: () => React.useRef(null),
+    useGroupHeaderAction() {},
+  };
+
+  const dom = new JSDOM('<div id="root"></div>');
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = Object.fromEntries(
+    Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals);
+  let root;
+  try {
+    const { createRoot } = await import("react-dom/client");
+    const container = document.getElementById("root");
+    root = createRoot(container);
+    await React.act(async () => { root.render(jsx.jsx(ChatGroupSeat, props)); });
+    const button = container.querySelector("button");
+    const member = () => container.querySelector("[data-step-process-content] input");
+
+    assert.equal(button.getAttribute("aria-expanded"), "false");
+    assert.equal(member(), null);
+    await React.act(async () => { button.click(); });
+    const input = member();
+    assert.ok(input);
+    input.value = "retained draft";
+    await React.act(async () => { button.click(); });
+    assert.equal(button.getAttribute("aria-expanded"), "false");
+    assert.equal(member(), input);
+    await React.act(async () => { button.click(); });
+    assert.equal(member()?.value, "retained draft");
+  } finally {
+    if (root) await React.act(async () => { root.unmount(); });
+    for (const [key, descriptor] of Object.entries(previous)) {
+      if (descriptor === undefined) delete globalThis[key];
+      else Object.defineProperty(globalThis, key, descriptor);
+    }
+    dom.window.close();
+  }
 });

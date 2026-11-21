@@ -176,6 +176,12 @@ test("pinned DSH uses the desktop bridge locally and keeps the Host fallback wit
       else delete globalThis.__DSH_DIRECTORY_PICKER__;
       applyNativeDirectoryPicker({
         uiWorkspace: { pickDirectory: async () => { hostPicks++; return "/host"; } },
+        remoteAccess: {
+          whenAccess(capability, activate) {
+            assert.equal(capability, "directoryPicker/pick");
+            activate();
+          },
+        },
         slots: {
           inject(_name, callback) {
             const effect = callback();
@@ -184,10 +190,12 @@ test("pinned DSH uses the desktop bridge locally and keeps the Host fallback wit
           register(entry) { entries.push(entry); },
         },
       });
-      assert.deepEqual(entries.map(entry => entry.name), ["conversation.hero.workspace.directoryFlow", "sidebar.workspaces.directoryFlow"]);
+      assert.deepEqual(entries.map(entry => entry.name), [
+        "conversation.hero.workspace.directoryFlow", "sidebar.workspaces.directoryFlow", "workspace.picker.directoryFlow",
+      ]);
       for (const entry of entries) assert.equal(await entry.inject().pick(), desktop ? "/local" : "/host");
-      assert.equal(localPicks, desktop ? 2 : 0);
-      assert.equal(hostPicks, desktop ? 0 : 2);
+      assert.equal(localPicks, desktop ? 3 : 0);
+      assert.equal(hostPicks, desktop ? 0 : 3);
     }
   } finally {
     if (previous === undefined) delete globalThis.__DSH_DIRECTORY_PICKER__;
