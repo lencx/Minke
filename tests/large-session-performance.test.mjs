@@ -57,8 +57,10 @@ try {
 }
 
 test("ordinary history stays bounded while turn jumps retain a valid request", () => {
-  const declaration = sessionBundle.match(
-    /^  const HISTORY_PAGE_OPTIONS = .+\n  const JUMP_PAGE_MESSAGES = .+\n  const JUMP_PAGE_OPTIONS = .+/mu,
+  // Git can write patched files with Windows line endings.
+  const windowsBundle = sessionBundle.replace(/\r?\n/gu, "\r\n");
+  const declaration = windowsBundle.match(
+    /^  const HISTORY_PAGE_OPTIONS = .+\r?\n  const JUMP_PAGE_MESSAGES = .+\r?\n  const JUMP_PAGE_OPTIONS = .+/mu,
   )?.[0];
   assert.ok(declaration, "the session bundle declares both history windows");
   const { history, jump } = new Function(`

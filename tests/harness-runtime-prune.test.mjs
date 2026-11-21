@@ -254,6 +254,10 @@ test("runtime pruning removes assets that cannot run on the target platform", as
   await withTemporaryRuntime(async (root) => {
     const nodePtyRoot = join(root, "node_modules", "node-pty");
     const pnpmRoot = join(root, "node_modules", "pnpm", "dist");
+    const frameForwarding = join(
+      root, "node_modules", "@deepseek-ai", "libreoffice-kit",
+      "frame-forwarding", "prebuilds",
+    );
     const incompatibleFiles = [
       join(nodePtyRoot, "deps", "winpty", "LICENSE"),
       join(nodePtyRoot, "third_party", "conpty", "OpenConsole.exe"),
@@ -280,6 +284,9 @@ test("runtime pruning removes assets that cannot run on the target platform", as
       ),
       join(pnpmRoot, "vendor", "fastlist-0.3.0-x64.exe"),
       join(pnpmRoot, "vendor", "fastlist-0.3.0-x86.exe"),
+      join(frameForwarding, "darwin-x64", "libdsh_frame_forwarding_sdk.a"),
+      join(frameForwarding, "win32-x64", "dsh_frame_forwarding_sdk.lib"),
+      join(frameForwarding, "win32-x64", "frame-forwarding.node"),
     ];
     for (const path of incompatibleFiles) {
       await mkdir(dirname(path), { recursive: true });
@@ -288,6 +295,8 @@ test("runtime pruning removes assets that cannot run on the target platform", as
 
     const runtimeFiles = [
       [join(nodePtyRoot, "lib", "index.js"), "module.exports = {};\n"],
+      [join(frameForwarding, "darwin-arm64", "libdsh_frame_forwarding_sdk.a"), "native sdk"],
+      [join(frameForwarding, "darwin-arm64", "frame-forwarding.node"), "native frame forwarding"],
       [
         join(nodePtyRoot, "prebuilds", "darwin-arm64", "pty.node"),
         "native pty",
@@ -338,6 +347,20 @@ test("runtime pruning removes assets that cannot run on the target platform", as
     assert.equal(
       runtimeArtifactCategory(
         "node_modules/pnpm/dist/vendor/fastlist-0.3.0-x64.exe",
+        { arch: "x64", platform: "win32" },
+      ),
+      undefined,
+    );
+    assert.equal(
+      runtimeArtifactCategory(
+        "node_modules/@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-arm64/libdsh_frame_forwarding_sdk.a",
+        { arch: "x64", platform: "linux" },
+      ),
+      "incompatiblePlatformAssets",
+    );
+    assert.equal(
+      runtimeArtifactCategory(
+        "node_modules/@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/win32-x64/frame-forwarding.node",
         { arch: "x64", platform: "win32" },
       ),
       undefined,

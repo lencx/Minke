@@ -10,7 +10,7 @@ import {
 import { basename, join, relative, resolve } from "node:path";
 import { writeFileAtomic } from "./runtime-state.mjs";
 
-export const RUNTIME_PRUNE_POLICY_VERSION = 8;
+export const RUNTIME_PRUNE_POLICY_VERSION = 9;
 
 const DOCUMENTATION_FILE =
   /^(?:readme|changelog|changes|history)(?:\.(?:md|markdown|txt))?$/iu;
@@ -30,6 +30,8 @@ const NODE_PTY_WINDOWS_ONLY_DIRECTORIES = Object.freeze([
   "node_modules/node-pty/deps/winpty",
   "node_modules/node-pty/third_party/conpty",
 ]);
+const LIBREOFFICE_FRAME_FORWARDING_PREBUILD =
+  /^(node_modules\/@deepseek-ai\/libreoffice-kit\/frame-forwarding\/prebuilds\/((?:darwin|linux|win32)-[a-z0-9]+))(?:\/|$)/u;
 const PNPM_FASTLIST_WINDOWS_EXECUTABLE =
   /^node_modules\/pnpm\/dist\/vendor\/fastlist-[^/]+\.exe$/u;
 const PNPM_REFLINK_PLATFORM_PACKAGE =
@@ -81,6 +83,16 @@ function prunableRuntimeDirectory(path, target = {}) {
   }
 
   const resolvedTarget = runtimeTarget(target);
+  const frameForwardingMatch = LIBREOFFICE_FRAME_FORWARDING_PREBUILD.exec(normalizedPath);
+  if (
+    frameForwardingMatch !== null &&
+    frameForwardingMatch[2] !== `${resolvedTarget.platform}-${resolvedTarget.arch}`
+  ) {
+    return {
+      category: "incompatiblePlatformAssets",
+      path: frameForwardingMatch[1],
+    };
+  }
   if (resolvedTarget.platform !== "win32") {
     for (const directory of NODE_PTY_WINDOWS_ONLY_DIRECTORIES) {
       if (pathInDirectory(normalizedPath, directory)) {
