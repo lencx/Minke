@@ -35,11 +35,11 @@ function readManifest(relativePath) {
   );
 }
 
-test("all product manifests declare the 0.10.2 release", () => {
+test("all product manifests declare the 0.10.0 release", () => {
   for (const relativePath of productManifests) {
     assert.equal(
       readManifest(relativePath).version,
-      "0.10.2",
+      "0.10.0",
       `${relativePath} must match the product release`,
     );
   }
