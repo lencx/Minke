@@ -35,7 +35,7 @@ function aboutBundle() {
   const source = `
     import React from "react";
     import { createRoot } from "react-dom/client";
-    import { __$dsh_client_module_manifest as primitives } from "@deepseek-ai/dsh-client-ui-primitives";
+    import { __$dsh_client_module_manifest as primitives } from "./vendor/deepseek-harness/packages/client/ui-primitives/lib/index.js";
     import { AboutDialog } from "./packages/harness-overlay/src/client/about/view.tsx";
     import { en } from "./packages/harness-overlay/src/client/about/locales.ts";
     import { installIconButtonStyles } from "./packages/harness-overlay/src/client/shared/icon-button.ts";
