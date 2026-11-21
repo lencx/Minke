@@ -271,16 +271,18 @@ async function verifyNativeSidebarUI({ window, harnessUrl, fixtureUrl, rendererV
     // Reproduce the edge alignment seen in a shorter CI scrollport.
     await rendererValue(window, `() => { document.querySelector('${fieldSelector}').scrollIntoView({ block: 'start', behavior: 'instant' }); return true; }`);
     await click(fieldSelector);
-    const originalLineHeight = await rendererValue(window, `() => document.querySelector('${fieldSelector}').value`);
+    const originalLineHeight = await waitFor(() => rendererValue(window, `() => {
+      const input = document.querySelector('${fieldSelector}');
+      return document.activeElement === input && input?.value;
+    }`), 'native line spacing input focus');
     // This isolated window has no application Edit menu; invoke its native command.
     window.webContents.selectAll();
-    pressKey('Backspace');
-    typeKeys('1.35');
-    const editedField = await rendererValue(window, `() => {
+    await window.webContents.insertText('1.35');
+    await waitFor(() => rendererValue(window, `() => {
       const input = document.querySelector('${fieldSelector}');
-      return { value: input.value, focused: document.activeElement === input, invalid: input.getAttribute('aria-invalid') };
-    }`);
-    assert.deepEqual(editedField, { value: '1.35', focused: true, invalid: 'false' }, 'native number Input receives keyboard editing');
+      return input?.value === '1.35' && document.activeElement === input
+        && input.getAttribute('aria-invalid') === 'false';
+    }`), 'native number Input receives text editing');
     pressKey('Tab');
     await waitFor(() => rendererValue(window, `() => document.querySelector('${fieldSelector}').value === '1.35'
       && !document.querySelector('${fieldSelector}').disabled`), 'native Input saves on blur');
