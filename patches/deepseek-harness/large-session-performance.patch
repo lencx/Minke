@@ -1,0 +1,26 @@
+diff --git a/node_modules/@deepseek-ai/dsh-api-session-controller/lib/types/client/sessions/session.js b/node_modules/@deepseek-ai/dsh-api-session-controller/lib/types/client/sessions/session.js
+--- a/node_modules/@deepseek-ai/dsh-api-session-controller/lib/types/client/sessions/session.js
++++ b/node_modules/@deepseek-ai/dsh-api-session-controller/lib/types/client/sessions/session.js
+@@ -18,5 +18,5 @@
+ /** Minimum message count for ordinary history windows. */
+ export const PAGE_MESSAGES = 50;
+-const HISTORY_PAGE_OPTIONS = { maxMessages: 500, turnWindow: { minMessages: PAGE_MESSAGES, minTurns: 2 } };
++const HISTORY_PAGE_OPTIONS = { maxMessages: 100, turnWindow: { minMessages: PAGE_MESSAGES, minTurns: 2 } };
+ /** Minimum messages per page while a turn jump loops backwards. */
+ export const JUMP_PAGE_MESSAGES = 200;
+diff --git a/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
+--- a/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
++++ b/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
+@@ -4237,10 +4237,10 @@ window.__ModuleLoader__.load({
+ 						className: ChatGroupSeat_module_css_default.content,
+ 						"data-step-process-content": true,
+ 						"data-chat-flow": "",
+-						children: (0, react_jsx_runtime.jsx)(GroupMembers, {
++						children: !grouped || open ? (0, react_jsx_runtime.jsx)(GroupMembers, {
+ 							...props,
+ 							members
+-						})
++						}) : null
+ 					})
+ 				})]
+ 			});
